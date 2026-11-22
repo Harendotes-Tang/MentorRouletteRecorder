@@ -463,7 +463,9 @@ def _read(root: Mapping) -> tuple[dict | None, Rejection | None]:
     pop, rejection = _read_pop(root["pop"], source)
     if rejection is not None:
         return None, rejection
-    if source == "QUEUE_REQUEST" and territory is None:
+    # ShareCode.Check: on GLOBAL the zone-change marker carries the territory itself, so a queue-inferred code has no
+    # territory message to name; rebuild.py still refuses one against a template whose marker does not.
+    if source == "QUEUE_REQUEST" and territory is None and region != "GLOBAL":
         return None, Rejection(E_TERRITORY_REQUIRED, "territory_opcode")
 
     payload = {

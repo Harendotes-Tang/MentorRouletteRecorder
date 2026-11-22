@@ -206,6 +206,7 @@ public static class CalibrationWire
         ["timed_candidates"] = Texts(evidence.TimedCandidates ?? Array.Empty<string>()),
         ["timing_overflow"] = evidence.TimingOverflow,
         ["diagnostics_overflow"] = evidence.DiagnosticsOverflow,
+        ["pop_tallies"] = Texts(evidence.PopTallies),
     };
 
     private static JsonArray Texts(IReadOnlyList<string> values) =>

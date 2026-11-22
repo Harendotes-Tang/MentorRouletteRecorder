@@ -310,7 +310,8 @@ submissions.json                             提交台账：账号数字编号 �
 cn/<客户端版本>/<编号前12位>.mrc              校准码文本（客户端按提交 sha 下载）
 global/<客户端版本>/<编号前12位>.mrc
 tc/<客户端版本>/<编号前12位>.mrc
-templates/cn.2026.08.05.json                 随包模板的逐字节副本
+templates/cn.2026.08.05.json                 随包模板的逐字节副本（国服）
+templates/global.2026.11.03.json             随包模板的逐字节副本（国际服，回执与弹窗是两条报文）
 tools/                                       本目录的运行文件
 .github/ISSUE_TEMPLATE/share-calibration.yml  提交表单（字段 id: code）
 .github/ISSUE_TEMPLATE/report-calibration.yml 报告校准有误的表单（区服、游戏版本、现象、说明）
@@ -389,6 +390,15 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > `publish.py restore` 与 `REVOKED` 回复的新措辞随 `publish.py` 生效；`index.py` 带有恢复后再次提交时按台账计数的修正，
 > 只同步 `publish.py` 而不同步它，恢复一份被替换撤回的码后，下一位提交者会使工作流出错）。
 > 不需要新标签、secret，也不改写既有的索引与台账。
+>
+> **国际服本机校准需要补做的同步**，同样须先向用户确认：把 `sync_public_repo.py` 生成的
+> `templates/global.2026.11.03.json`、`tools/rebuild.py` 与 `tools/sharecode.py` 同步到公开仓库并推送（三者须一起推送：
+> 没有模板时国际服校准码一律因模板不匹配被拒；只推模板而不推 `rebuild.py`，Action 会接受客户端拒绝的国际服 `REPLY_STATE` 码；
+> 不推 `sharecode.py`，按排本推断、不带 `territory_opcode` 的国际服码会被拒）。2026-11-22 与公开仓库 `main` 只读核对：
+> 公开仓库的 `tools/rebuild.py` 与 `tools/sharecode.py` 和本轮生成的版本只差本轮的改动，三者可以单独推送。
+> 同一次核对还发现公开仓库缺少或落后于更早几轮的文件（副本社区内容的表单、工作流、`community/` 与 `tools/community*`，
+> 以及 `tools/index.py`、`tools/publish.py`、`tools/evidence_workflow.py`、若干工作流与 README），它们属于上面各轮，另行确认。
+> 本轮不需要新标签、secret，也不改写既有的索引与台账。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 

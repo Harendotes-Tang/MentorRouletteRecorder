@@ -663,4 +663,39 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             payload with { Pop = payload.Pop with { SelectorValues = new long[] { 3, 4 } } }, Template));
         Assert.Equal(ShareCode.Sha256(payload), Candidate(payload).CandidateId);
     }
+
+    /// <summary>
+    /// A GLOBAL code names no territory message - its zone marker carries the territory - so the duty-naming criterion
+    /// is asked of the zone marker, with the same gates as a territory message (docs/protocol-profile-format.md §11.3.1).
+    /// </summary>
+    [Fact]
+    public void AGlobalCodesZoneMarkerMustNameTheDuty()
+    {
+        var template = CalibrationSeparateReplyTests.GlobalTemplate();
+        var evening = CalibrationSeparateReplyTests.Evening().ToArray();
+        var sharer = new CalibrationObserver(template, Region.Global, "calibration-session");
+        foreach (var message in evening.OrderBy(message => message.Mono))
+        {
+            sharer.Accept(message);
+        }
+
+        sharer.Flush();
+        var written = LocalProfileWriter.Write(CalibrationDraft.Derive(sharer.Snapshot(), template), template,
+            "2026.12.01.0000.0000", Confirmed, Path.Combine(_root, "global"));
+        var payload = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), template).Payload!;
+        var candidate = SharedCandidateVerifier.Candidate(payload, template)!;
+        Assert.Null(candidate.Territory);
+        var observer = new CalibrationObserver(template, Region.Global, "evening-b1");
+        Assert.True(observer.RegisterCandidate(candidate));
+
+        Play(observer, "evening-b1", 24, evening);
+
+        var imported = SharedCandidateVerifier.Verify(observer.Snapshot(), template, candidate, SharedCandidateProvenance.Imported);
+        var published = SharedCandidateVerifier.Verify(observer.Snapshot(), template, candidate, SharedCandidateProvenance.Published);
+        var named = Assert.Single(imported.Criteria, criterion => criterion.Message == CalibratedShape.TerritoryName);
+        Assert.Equal(SharedVerdict.Pass, named.Verdict);
+        Assert.Equal(SharedGate.Required, named.Gate);
+        Assert.Equal(SharedGate.Audit, GateOf(published, CalibratedShape.TerritoryName));
+        Assert.Equal(SharedVerdict.Pass, imported.Verdict);
+    }
 }

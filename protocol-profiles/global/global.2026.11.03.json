@@ -74,7 +74,7 @@
   ],
   "fixtures": [],
   "provenance": {
-    "summary": "国际服 2026.11.03 的正式档案，与国服档案同样按服务器的匹配通知判定导随：匹配通知 S2C 0x03bf（40 字节）在偏移 2 的小端 u16 带所排随机任务的编号，只在匹配成功时出现一次；进出副本由 S2C 0x00ab（136 字节，每次换区恰好一次）判定，它在偏移 2 的小端 u16 同时带区域编号，用来确定副本名。职业取自排本时服务器回送的状态更新 S2C 0x016f（40 字节，第 0 字节为 1，第 1 字节为职业编号），排队期间换职业会退出排队，因此它就是这一场所用的职业。全部常量来自一位国际服测试者的四份文件（均由维护者保存，不在仓库中）：2026-11-20 的元数据 trace（SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad，一场指导者随机）、2026-11-21 的第二轮导出（SHA-256 38cf88bb7279bdf30434aaea6cd98e4559203261b4a31eea7dd62fb7ebcdfe6a，上级迷宫排队后撤回、换职业、指导者随机进入博物战舰无限回廊）、2026-11-22 的第二轮导出（SHA-256 8b59bf509a1864314d95e659697fba1361afab5297b63a61b4cf993a4f11ec06，高难度随机以骑士进入军工要地克吕提俄斯魔导工厂）与同日的角色识别 trace（SHA-256 7cfb30277ed55c540df6bdd8333ebd945c49e5b396fc1498a16602f91adcbb18，元数据，含一场大型任务随机）。没有 DUTY_RESULT：通关由按内容识别的结算信号给出（docs/protocol-profile-format.md §12），该信号已在国际服的四人迷宫与大型任务上观察到。不带 calibration：国际服没有本机校准模板，每个游戏版本都需要随软件发布的档案。",
+    "summary": "国际服 2026.11.03 的正式档案，与国服档案同样按服务器的匹配通知判定导随：匹配通知 S2C 0x03bf（40 字节）在偏移 2 的小端 u16 带所排随机任务的编号，只在匹配成功时出现一次；进出副本由 S2C 0x00ab（136 字节，每次换区恰好一次）判定，它在偏移 2 的小端 u16 同时带区域编号，用来确定副本名。职业取自排本时服务器回送的状态更新 S2C 0x016f（40 字节，第 0 字节为 1，第 1 字节为职业编号），排队期间换职业会退出排队，因此它就是这一场所用的职业。全部常量来自一位国际服测试者的四份文件（均由维护者保存，不在仓库中）：2026-11-20 的元数据 trace（SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad，一场指导者随机）、2026-11-21 的第二轮导出（SHA-256 38cf88bb7279bdf30434aaea6cd98e4559203261b4a31eea7dd62fb7ebcdfe6a，上级迷宫排队后撤回、换职业、指导者随机进入博物战舰无限回廊）、2026-11-22 的第二轮导出（SHA-256 8b59bf509a1864314d95e659697fba1361afab5297b63a61b4cf993a4f11ec06，高难度随机以骑士进入军工要地克吕提俄斯魔导工厂）与同日的角色识别 trace（SHA-256 7cfb30277ed55c540df6bdd8333ebd945c49e5b396fc1498a16602f91adcbb18，元数据，含一场大型任务随机）。没有 DUTY_RESULT：通关由按内容识别的结算信号给出（docs/protocol-profile-format.md §12），该信号已在国际服的四人迷宫与大型任务上观察到。带 calibration 模板（docs/protocol-profile-format.md §11）：国际服的排本回执 0x016f 与匹配通知 0x03bf 是两条报文，模板因此用 finder_reply 单独声明回执的形状（40 字节，第 16 字节回带编号，回执同时就是 PLAYER_JOB），游戏更新后本机校准按回执确认排本、按 CONTENT_FINDER_POP 的形状另行认出匹配通知，重新推定 opcode。",
     "capture_fixture": null,
     "capture_fixture_sha256": null,
     "evidence": [
@@ -141,8 +141,62 @@
         "sample_count": 4,
         "url": null,
         "note": "匹配通知到进本依次约 18、26、7.3、16.9 秒。窗口与国服档案相同取 120 秒，留出队员迟迟不确认、重新匹配的余地。"
+      },
+      {
+        "field": "calibration.finder_request.roulette_field",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T15:00:00.000Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "排本申请 C2S 0x0215（24 字节）第 0 字节为所排随机任务的编号：11-21 第二轮导出先后读出 2 与 9，11-22 第二轮导出读出 5，每次申请之后都收到回执 0x016f。11-20 与 11-22 角色识别的两份 trace 只有元数据，其中的申请按 opcode 与长度同样出现。同为 24 字节的 C2S 0x022b 是移动报文（三个浮点数），发送频繁，由校准对单次抓包会话内超过 2000 次的客户端 opcode 一律不作申请的规则排除。模板只记录形状（方向、长度、编号偏移）与回执时限，不记录 opcode。"
+      },
+      {
+        "field": "calibration.finder_request.roulette_field",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-11-22T15:00:00.000Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "测试者在 11-21 第二轮卡片上填写先排「隨機任務：上級迷宮」、后排指导者任务，11-22 确认所排为高难度，与第 0 字节读出的 2、9、5 一一对应，取值与国服 ContentRoulette 编号相同。"
+      },
+      {
+        "field": "calibration.finder_reply.roulette_field",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T15:00:00.000Z",
+        "sample_count": 6,
+        "url": null,
+        "note": "回执 S2C 0x016f（40 字节）在每次排本申请之后到两条，约晚 63 ms 与 190–250 ms，第 16 字节回带所申请的编号（11-21 两次申请、11-22 一次申请，共六条）；第 0 字节为 1、第 1 字节为职业编号，即本档案的 PLAYER_JOB，因此 player_job 为真。11-22 的第二条回执在偏移 2 读出 15，与匹配通知 0x03bf 的编号偏移重合，而 0x03bf 第 16 字节为 0：回执与匹配通知是两种结构，模板据此把回执单独声明为 finder_reply，校准只用回执确认排本、从不把它当作匹配通知。高难度随机的坦克即时匹配中，0x03bf 在申请后 0.37 秒到达，落在回执时限之内，所以匹配通知不按回执时限排除。时限取 1000 ms，覆盖已见的最晚回执（250 ms）。"
       }
     ]
   },
-  "profile_sha256": "48731dc956b533347d09d1ed93635f7a2e32a377c75036fd2c21a8d3bbeee787"
+  "profile_sha256": "836ceba4b63a6371f126106cec322da08e2f553235dfe87edb1ecb194ca82468",
+  "calibration": {
+    "finder_request": {
+      "direction": "CLIENT_TO_SERVER",
+      "expected_length": 24,
+      "roulette_field": {
+        "name": "roulette_id",
+        "offset": 0,
+        "type": "u8",
+        "constraints": {
+          "min": 1,
+          "max": 255
+        }
+      }
+    },
+    "finder_reply": {
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 40,
+      "roulette_field": {
+        "name": "roulette_id",
+        "offset": 16,
+        "type": "u8",
+        "constraints": {
+          "min": 1,
+          "max": 255
+        }
+      },
+      "player_job": true
+    },
+    "finder_reply_max_ms": 1000
+  }
 }

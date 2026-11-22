@@ -37,7 +37,30 @@ public sealed record FinderPairHit(
     long RouletteId,
     long RequestTMs,
     long ReplyTMs,
-    DateTimeOffset ReplyAtUtc);
+    DateTimeOffset ReplyAtUtc)
+{
+    /// <summary>
+    /// The job the reply carried, read with the template's <c>PLAYER_JOB</c> fields, on a template whose
+    /// reply is also the job message (<see cref="CalibrationTemplate.ReplyCarriesJob"/>); null otherwise,
+    /// and for a reply in a state that carries no job. An id-type value, like the roulette.
+    /// </summary>
+    public long? JobId { get; init; }
+
+    /// <summary>True when the reply was in the job-carrying state and its job broke the constraints.</summary>
+    public bool JobViolation { get; init; }
+}
+
+/// <summary>
+/// Pop-shaped sightings of one opcode while a confirmed queue stood, on a template whose pop is a message
+/// of its own: how many there were and how many carried the queued roulette.
+/// </summary>
+/// <param name="Total">Sightings while a queue stood.</param>
+/// <param name="Agreed">Those that carried the queued roulette and satisfied every value field.</param>
+public sealed record PopTally(int Total, int Agreed)
+{
+    /// <summary>Sightings that carried something else.</summary>
+    public int Disagreed => Total - Agreed;
+}
 
 /// <summary>
 /// A server message shaped like the pop: the template's direction and length, carrying a
@@ -336,6 +359,14 @@ public sealed record CalibrationSnapshot(
     /// timed candidate is named at all.
     /// </summary>
     public int TimingOverflow { get; init; }
+
+    /// <summary>
+    /// Pop-shaped sightings per opcode while a confirmed queue stood, on a template whose reply and pop are
+    /// two messages (<see cref="CalibrationTemplate.SeparateReply"/>); empty on any other template. A shape
+    /// that carried something other than the queued roulette is not the pop, whatever its other sightings
+    /// did. Absent from a file written by an older version, which reads back as "nothing tallied yet".
+    /// </summary>
+    public IReadOnlyDictionary<ushort, PopTally> PopTallies { get; init; } = new Dictionary<ushort, PopTally>();
 
     /// <summary>First message the observer accepted, or null when it has accepted none.</summary>
     public DateTimeOffset? FirstMessageAtUtc { get; init; }
@@ -667,7 +698,7 @@ public sealed record CalibrationEvidenceSummary(
         // Without these two a report cannot separate "the player has not been in a duty yet"
         // from "this build moved the duty messages and no amount of playing will help": both
         // arrive as duty_entry_seen = false.
-        var territoryLength = template.ZoneTerritory?.ExpectedLength ?? -1;
+        var territoryLength = template.TerritoryShape?.ExpectedLength ?? -1;
         var territoryCandidates = territoryLength < 0
             ? 0
             : CalibrationDraft.ZoneShapes(snapshot, territoryLength).Count(key => CalibrationDraft.Behaves(snapshot, key));
@@ -675,7 +706,19 @@ public sealed record CalibrationEvidenceSummary(
         // Every opcode a burst read at the job message's shape. The values are ClassJob ids, the
         // same number every record already stores; up to four are shown because the row exists to
         // tell the true job message (the player's job) from a neighbour that carries a small constant.
-        var jobShapes = template.PlayerJob is { ExpectedLength: { } jobLength } jobTemplate
+        // A template whose reply is the job message learns the job from the replies, so that is what the row shows:
+        // per reply opcode, "0xop=reply read/pairs!violations v values" (review 2026-11-22, L7).
+        var jobShapes = template.ReplyCarriesJob
+            ? snapshot.Pairs
+                .GroupBy(pair => pair.ReplyOpcode)
+                .OrderByDescending(group => group.Count())
+                .Take(8)
+                .Select(group => $"0x{group.Key:x4}=reply {group.Count(pair => pair.JobId is not null)}/{group.Count()}" +
+                    $"!{group.Count(pair => pair.JobViolation)} v" +
+                    string.Join(";", group.Where(pair => pair.JobId is not null).Select(pair => pair.JobId!.Value)
+                        .Distinct().OrderBy(value => value).Take(4)))
+                .ToArray()
+            : template.PlayerJob is { ExpectedLength: { } jobLength } jobTemplate
             ? snapshot.Clusters
                 .SelectMany(cluster => cluster.JobValues.Keys.Concat(cluster.JobViolations.Keys))
                 .Distinct()
@@ -723,6 +766,23 @@ public sealed record CalibrationEvidenceSummary(
             pairsAt,
             jobShapes,
             TimedShape.Report(snapshot, template.MatchWindow),
-            snapshot.TimingOverflow);
+            snapshot.TimingOverflow)
+        {
+            // Most agreeing first: the pop of a two-message template agrees every time it is sent while a
+            // queue stands, and a shape with many sightings and few agreements is ordinary traffic.
+            PopTallies = snapshot.PopTallies
+                .OrderByDescending(entry => entry.Value.Agreed)
+                .ThenBy(entry => entry.Value.Disagreed)
+                .Take(8)
+                .Select(entry => $"0x{entry.Key:x4}={entry.Value.Agreed}/{entry.Value.Total}")
+                .ToArray(),
+        };
     }
+
+    /// <summary>
+    /// Pop-shaped sightings while a queue stood, per opcode, as "0xop=agreed/total", on a template whose reply
+    /// and pop are two messages; empty on any other. The pop agrees on every sighting; a shape that also
+    /// carried other values two or more times is refused (docs/protocol-profile-format.md section 11.3).
+    /// </summary>
+    public IReadOnlyList<string> PopTallies { get; init; } = Array.Empty<string>();
 }

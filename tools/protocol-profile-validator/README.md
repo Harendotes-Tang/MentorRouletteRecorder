@@ -122,6 +122,10 @@ Collector 侧只校验，不写入。
   其 `finder_request.roulette_field` 按普通字段读取，因此同样执行上面的字段检查
   （非 `bytes` 不得带 `length`、不得越过 `expected_length`、`constraints.max` 不得小于 `min`），
   且类型只能是 `u8` / `u16` / `u32`（`E_PROFILE_CALIBRATION_FIELD`）。
+  可选的 `finder_reply`（回执与匹配通知是两条报文的模板，格式文档 §11.1）的 `roulette_field` 执行同样的检查；
+  另外它不得描述 `CONTENT_FINDER_POP` 本身、此时 `CONTENT_FINDER_POP` 不得声明选择器、`player_job` 为真时必须有方向与精确长度
+  都与回执相同的 `PLAYER_JOB`（`E_PROFILE_CALIBRATION_REPLY`）；`VERIFIED` 模板还须有
+  `calibration.finder_reply.roulette_field` 的证据条目（`E_PROFILE_NO_EVIDENCE`）。
 
 ### 6. 状态规则
 

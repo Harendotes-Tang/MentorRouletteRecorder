@@ -295,4 +295,46 @@ public sealed class SharedProfileBuilderTests : IDisposable
         Assert.Equal(8, pop.Field("roulette_id")!.Offset);
         Assert.Equal(TimeSpan.FromSeconds(120), built.Profile.MatchWindow);
     }
+
+    /// <summary>
+    /// A GLOBAL calibration shares like a CN one: the popup found as a message of its own, and - with the popup marked
+    /// wrong and a second roulette queued - the queue standing in for it. Neither names a territory message, because
+    /// the zone marker carries the territory; the receiver rebuilds exactly the sharer's messages.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GlobalCalibrationsShareAndRebuildWithoutATerritoryMessage(bool queueInferred)
+    {
+        var template = CalibrationSeparateReplyTests.GlobalTemplate();
+        var observer = new CalibrationObserver(template, Region.Global, "calibration-session");
+        foreach (var message in CalibrationSeparateReplyTests.Evening()
+                     .Where(message => message.Opcode != CalibrationSeparateReplyTests.Confirm)
+                     .Concat(CalibrationSeparateReplyTests.Queue(30_000, 2, 25))
+                     .OrderBy(message => message.Mono))
+        {
+            observer.Accept(message);
+        }
+
+        observer.Flush();
+        var rejections = queueInferred
+            ? CalibrationRejections.None with { PopOpcodes = new HashSet<ushort> { CalibrationSeparateReplyTests.Pop } }
+            : null;
+        var draft = CalibrationDraft.Derive(observer.Snapshot(), template, rejections);
+        Assert.Equal(queueInferred ? CalibrationMatchSource.QueueRequest : CalibrationMatchSource.Announcement, draft.MatchSource);
+        var written = LocalProfileWriter.Write(
+            draft, template, "2026.12.01.0000.0000", Confirmed, Path.Combine(_root, "protocol-profiles"));
+        var local = ProfileLoader.Load(written.Path);
+
+        var export = SharedProfileBuilder.ToShareCode(local, template);
+
+        Assert.Null(export.Reason);
+        Assert.Null(export.Payload!.TerritoryOpcode);
+        Assert.Equal(draft.MatchSource, export.Payload.MatchSource);
+        var built = SharedProfileBuilder.Build(export.Code, template, Verified, Counts, queueInferred ? Verified : null);
+        Assert.Equal(SharedProfileBuildStatus.Built, built.Status);
+        Assert.Equal(local.Messages.Select(message => CalibratedProfileDocument.Message(message).ToJsonString()),
+            built.Profile!.Messages.Select(message => CalibratedProfileDocument.Message(message).ToJsonString()));
+        Assert.True(built.Profile.ToBinding().IsUsable);
+    }
 }

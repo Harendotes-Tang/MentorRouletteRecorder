@@ -273,10 +273,14 @@ def semantic_errors(document: dict, path: str) -> list:
         if "calibration" in document and "calibration.finder_request.roulette_field" not in covered:
             errors.append(
                 "VERIFIED profile lacks evidence for calibration.finder_request.roulette_field")
+        if ("finder_reply" in document.get("calibration", {})
+                and "calibration.finder_reply.roulette_field" not in covered):
+            errors.append(
+                "VERIFIED profile lacks evidence for calibration.finder_reply.roulette_field")
     if "calibration" in document and status != "VERIFIED":
         errors.append("only a VERIFIED profile may carry a calibration template")
     if "calibration" in document:
-        errors += calibration_errors(document["calibration"])
+        errors += calibration_errors(document["calibration"], messages)
 
     errors += announcement_errors(messages)
 
@@ -363,33 +367,79 @@ def message_errors(message: dict) -> list:
     return errors
 
 
-def calibration_errors(calibration: dict) -> list:
+def calibration_errors(calibration: dict, messages: list) -> list:
     """Mirrors ProfileLoader.ReadCalibration: the roulette field must be a fixed-width
     integer (a bytes run has no numeric value to compare against an echoed roulette id) and
     must not read past the declared request length. ReadCalibration reads the field through
     ReadFields, so it also gets every other ordinary field check: no length on a fixed-width
     type, and no constraint max below its min.
+
+    The optional finder_reply (ProfileLoader.ReadFinderReply) gets the same field checks plus
+    three of its own: it must not describe CONTENT_FINDER_POP itself, the pop then declares no
+    selector, and player_job needs a PLAYER_JOB of the reply's direction and exact length.
     """
-    errors = []
     request = calibration.get("finder_request", {})
-    field = request.get("roulette_field", {})
-    expected_length = request.get("expected_length")
+    errors = roulette_field_errors("calibration.finder_request", request, "request")
+    if "finder_reply" in calibration:
+        errors += finder_reply_errors(calibration["finder_reply"], messages)
+    return errors
+
+
+def roulette_field_errors(prefix: str, shape: dict, noun: str) -> list:
+    errors = []
+    field = shape.get("roulette_field", {})
+    expected_length = shape.get("expected_length")
     field_type = field.get("type")
     if field_type != "bytes" and "length" in field:
-        errors.append(
-            "calibration.finder_request.roulette_field: length applies to bytes fields only")
+        errors.append("%s.roulette_field: length applies to bytes fields only" % prefix)
     constraints = field.get("constraints", {})
     if "min" in constraints and "max" in constraints and constraints["max"] < constraints["min"]:
-        errors.append("calibration.finder_request.roulette_field: constraint max is below min")
+        errors.append("%s.roulette_field: constraint max is below min" % prefix)
     if field_type not in ("u8", "u16", "u32"):
-        errors.append(
-            "calibration.finder_request.roulette_field: must be u8, u16 or u32")
+        errors.append("%s.roulette_field: must be u8, u16 or u32" % prefix)
         return errors
     size = FIELD_SIZES[field_type]
     if expected_length is not None and field.get("offset", 0) + size > expected_length:
-        errors.append(
-            "calibration.finder_request.roulette_field: reads past the declared request length")
+        errors.append("%s.roulette_field: reads past the declared %s length" % (prefix, noun))
     return errors
+
+
+def finder_reply_errors(reply: dict, messages: list) -> list:
+    errors = roulette_field_errors("calibration.finder_reply", reply, "reply")
+    if errors:
+        return errors
+    by_name = {str(message.get("name")): message for message in messages}
+    pop = by_name.get("CONTENT_FINDER_POP")
+    field = reply.get("roulette_field", {})
+    if pop is not None:
+        pop_roulette = next((f for f in pop.get("fields", []) if f.get("name") == "roulette_id"), None)
+        if (pop_roulette is not None and pop.get("direction") == reply.get("direction")
+                and accepts_length(pop, reply.get("expected_length"))
+                and pop_roulette.get("offset") == field.get("offset")
+                and pop_roulette.get("type") == field.get("type")):
+            errors.append("calibration.finder_reply: describes CONTENT_FINDER_POP itself; "
+                          "omit it when the pop answers the request")
+        if any(f.get("role") == "selector" for f in pop.get("fields", [])):
+            errors.append("calibration.finder_reply: with a finder_reply, CONTENT_FINDER_POP is a "
+                          "message of its own and must declare no selector")
+    if reply.get("player_job") is True:
+        job = by_name.get("PLAYER_JOB")
+        if (job is None or job.get("direction") != reply.get("direction")
+                or job.get("expected_length") != reply.get("expected_length")):
+            errors.append("calibration.finder_reply.player_job: needs a PLAYER_JOB message of the "
+                          "reply's direction and exact length")
+    return errors
+
+
+def accepts_length(message: dict, length) -> bool:
+    """ProfileMessage.AcceptsLength: the exact length when declared, else the min/max range."""
+    if length is None:
+        return False
+    if "expected_length" in message and message["expected_length"] is not None:
+        return message["expected_length"] == length
+    low = message.get("min_length")
+    high = message.get("max_length")
+    return (low is None or length >= low) and (high is None or length <= high)
 
 
 def fixture_errors(document: dict, path: str) -> list:

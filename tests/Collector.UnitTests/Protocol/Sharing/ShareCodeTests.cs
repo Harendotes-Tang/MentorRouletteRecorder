@@ -295,6 +295,19 @@ public sealed class ShareCodeTests
     }
 
     [Fact]
+    public void AGlobalQueueRequestNamesNoTerritoryMessage()
+    {
+        // On GLOBAL the zone marker carries the territory, so there is no territory message to name; the template-level
+        // check still refuses such a code against a template whose marker does not (CalibratedShape.Messages).
+        var global = Payload(CalibrationMatchSource.QueueRequest, new ShareCodePop(0xC001)) with { Region = Region.Global };
+        var cn = Payload(CalibrationMatchSource.QueueRequest, new ShareCodePop(0xC001));
+
+        Assert.Null(ShareCode.Check(global));
+        Assert.Null(ShareCode.Decode(ShareCode.Encode(global)).Rejection);
+        Assert.Equal(ShareCodeRejection.TerritoryRequired, ShareCode.Check(cn)?.Code);
+    }
+
+    [Fact]
     public void TwoEncodingsOfOnePayloadShareOneIdentity()
     {
         var payload = Payload(CalibrationMatchSource.MarkerOffset, new ShareCodePop(0xF00D, Length: 24, RouletteOffset: 8));

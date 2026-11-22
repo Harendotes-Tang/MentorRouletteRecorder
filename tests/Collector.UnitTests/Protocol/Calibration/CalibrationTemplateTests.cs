@@ -210,6 +210,153 @@ public sealed class CalibrationTemplateTests : IDisposable
         Assert.NotEqual(ProfileLoader.ComputeProfileHash(bare), stamped.GetProperty("profile_sha256").GetString());
     }
 
+    /// <summary>The fixture's pop is 24 bytes with the roulette as a u16 at 0; this reply is 40 bytes with it at byte 16.</summary>
+    private static Dictionary<string, object> ReplySection(bool playerJob = false)
+    {
+        var reply = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["direction"] = "SERVER_TO_CLIENT",
+            ["expected_length"] = 40,
+            ["roulette_field"] = ProfileTestFiles.Field("roulette_id", 16, "u8", min: 1, max: 255),
+        };
+        if (playerJob)
+        {
+            reply["player_job"] = true;
+        }
+
+        return reply;
+    }
+
+    private static Dictionary<string, object> WithReply(Dictionary<string, object> reply, bool withReplyEvidence = true)
+    {
+        var document = VerifiedDocument();
+        var section = CalibrationSection();
+        section["finder_reply"] = reply;
+        document["calibration"] = section;
+        if (withReplyEvidence)
+        {
+            ((List<object>)((Dictionary<string, object>)document["provenance"])["evidence"])
+                .Add(Evidence(ProfileLoader.CalibrationReplyEvidenceKey));
+        }
+
+        return document;
+    }
+
+    [Fact]
+    public void FinderReplyLoadsAsTheReplysOwnShape()
+    {
+        var path = ProfileTestFiles.Write(_directory, "with-reply", WithReply(ReplySection()));
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.Empty(report.Errors);
+        var reply = Assert.IsType<CalibrationFinderReply>(report.Profile!.Calibration!.FinderReply);
+        Assert.Equal((PacketDirection.ServerToClient, 40, 16, ProfileFieldType.U8, false),
+            (reply.Direction, reply.ExpectedLength, reply.RouletteField.Offset, reply.RouletteField.Type, reply.CarriesPlayerJob));
+        var template = MentorRecorder.Collector.Protocol.Calibration.CalibrationTemplate.From(report.Profile)!;
+        Assert.True(template.SeparateReply);
+        Assert.False(template.ReplyCarriesJob);
+    }
+
+    [Fact]
+    public void FinderReplyNeedsEvidenceOfItsOwn()
+    {
+        var path = ProfileTestFiles.Write(_directory, "reply-no-evidence", WithReply(ReplySection(), withReplyEvidence: false));
+
+        Assert.Contains(ProfileLoader.Validate(path).Errors, issue =>
+            issue.Code == "E_PROFILE_NO_EVIDENCE" && issue.Message.Contains(ProfileLoader.CalibrationReplyEvidenceKey));
+    }
+
+    [Fact]
+    public void FinderReplyThatIsThePopItselfIsRefused()
+    {
+        var reply = ReplySection();
+        reply["expected_length"] = 24;
+        reply["roulette_field"] = ProfileTestFiles.Field("roulette_id", 0, "u16", endian: "little", min: 1);
+        var path = ProfileTestFiles.Write(_directory, "reply-is-pop", WithReply(reply));
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.Contains(report.Errors, issue => issue.Code == "E_PROFILE_CALIBRATION_REPLY");
+        Assert.Null(report.Profile);
+    }
+
+    [Fact]
+    public void FinderReplyRequiresAPopWithoutSelectors()
+    {
+        var document = WithReply(ReplySection());
+        var pop = (Dictionary<string, object>)((List<object>)document["messages"])[0];
+        ((List<object>)pop["fields"]).Add(ProfileTestFiles.Field("finder_state", 12, "u8", allowed: new[] { 3 }, role: "selector"));
+        var path = ProfileTestFiles.Write(_directory, "reply-pop-selector", document);
+
+        Assert.Contains(ProfileLoader.Validate(path).Errors, issue =>
+            issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Message.Contains("selector"));
+    }
+
+    [Fact]
+    public void FinderReplyCarryingTheJobNeedsAJobMessageOfItsShape()
+    {
+        var withoutJob = ProfileTestFiles.Write(_directory, "reply-job-missing", WithReply(ReplySection(playerJob: true)));
+        Assert.Contains(ProfileLoader.Validate(withoutJob).Errors, issue =>
+            issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Path.EndsWith("player_job", StringComparison.Ordinal));
+
+        var document = WithReply(ReplySection(playerJob: true));
+        ((List<object>)document["messages"]).Add(new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["name"] = "PLAYER_JOB",
+            ["opcode"] = 103,
+            ["direction"] = "SERVER_TO_CLIENT",
+            ["expected_length"] = 40,
+            ["fields"] = new List<object>
+            {
+                ProfileTestFiles.Field("finder_state", 0, "u8", allowed: new[] { 1 }, role: "selector"),
+                ProfileTestFiles.Field("job_id", 1, "u8", min: 1, max: 43),
+            },
+        });
+        ((List<object>)((Dictionary<string, object>)document["provenance"])["evidence"])
+            .Add(Evidence("messages.PLAYER_JOB.opcode"));
+        var withJob = ProfileTestFiles.Write(_directory, "reply-job", document);
+
+        var report = ProfileLoader.Validate(withJob);
+        Assert.Empty(report.Errors);
+        Assert.True(report.Profile!.Calibration!.FinderReply!.CarriesPlayerJob);
+
+        // A job message of another length is not the reply.
+        var job = (Dictionary<string, object>)((List<object>)document["messages"])[^1];
+        job["expected_length"] = 16;
+        job["fields"] = new List<object> { ProfileTestFiles.Field("job_id", 0, "u8", min: 1, max: 43) };
+        var mismatch = ProfileTestFiles.Write(_directory, "reply-job-length", document);
+        Assert.Contains(ProfileLoader.Validate(mismatch).Errors, issue =>
+            issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Path.EndsWith("player_job", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FinderReplyRouletteFieldGetsTheRequestsChecks()
+    {
+        var bytes = ReplySection();
+        bytes["roulette_field"] = ProfileTestFiles.Field("roulette_id", 16, "bytes", length: 1);
+        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory, "reply-bytes", WithReply(bytes))).Errors,
+            issue => issue.Code == "E_PROFILE_CALIBRATION_FIELD");
+
+        var outside = ReplySection();
+        outside["roulette_field"] = ProfileTestFiles.Field("roulette_id", 40, "u8");
+        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory, "reply-oob", WithReply(outside))).Errors,
+            issue => issue.Code == "E_PROFILE_FIELD_OOB");
+    }
+
+    [Fact]
+    public void CnTemplateReadsTheReplyAsThePop()
+    {
+        var template = CalibrationObserverTests.Template();
+
+        Assert.False(template.SeparateReply);
+        Assert.False(template.ReplyCarriesJob);
+        Assert.False(template.TerritoryInZone);
+        Assert.Same(template.Pop, template.Reply);
+        Assert.Same(template.Pop.Field("roulette_id"), template.ReplyRoulette);
+        Assert.Same(template.ZoneTerritory, template.TerritoryShape);
+    }
+
     [Fact]
     public void ShippedCnProfileCarriesACalibrationTemplate()
     {

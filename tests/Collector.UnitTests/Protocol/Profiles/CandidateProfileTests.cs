@@ -38,7 +38,8 @@ public sealed class CandidateProfileTests : IDisposable
     /// The shipped GLOBAL candidate (2026-11-21) exists for the player-facing 国际服候选验证 round only:
     /// it loads and validates, every hypothesis cites the round-1 trace, its payload whitelist fits the
     /// research limit, and formal selection never takes it - the same build's VERIFIED profile
-    /// (2026-11-22) is what records, and GLOBAL still has no calibration template.
+    /// (2026-11-22) is what records. The candidate lends no calibration template either: only a VERIFIED
+    /// profile may carry one, and GLOBAL's is the formal profile's.
     /// </summary>
     [Fact]
     public void ShippedGlobalCandidateIsObservableOnlyAndNeverTheFormalProfile()
@@ -88,8 +89,9 @@ public sealed class CandidateProfileTests : IDisposable
         var withBoth = selector.Select(Region.Global, globalBuild);
         Assert.True(withBoth.IsUsable);
         Assert.Equal("global.2026.11.03", withBoth.Profile!.ProfileId);
-        // No calibration template for GLOBAL, so nothing arms for it.
-        Assert.Null(Protocol.Calibration.CalibrationTemplate.Select(withCandidates, Region.Global));
+        // The calibration template is the VERIFIED profile's, never the candidate's, with candidates loaded or not.
+        Assert.Equal("global.2026.11.03",
+            Protocol.Calibration.CalibrationTemplate.Select(withCandidates, Region.Global)?.Source.ProfileId);
     }
 
     [Fact]

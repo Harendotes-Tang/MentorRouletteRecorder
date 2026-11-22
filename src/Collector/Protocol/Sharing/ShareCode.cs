@@ -378,7 +378,11 @@ public static class ShareCode
             return popRejection;
         }
 
-        if (CalibratedShape.RequiresTerritory(source) && territory is null)
+        // A code inferring the match from the queue must say which message names the duty. On GLOBAL the zone-change
+        // marker carries the territory itself and there is no territory message to name (docs/protocol-profile-format.md
+        // section 11.3.1); the template-level check (CalibratedShape.Messages) still refuses such a code against a template
+        // whose marker does not.
+        if (CalibratedShape.RequiresTerritory(source) && territory is null && region != Region.Global)
         {
             return ShareCodeRejection.For(ShareCodeRejection.TerritoryRequired, "territory_opcode");
         }

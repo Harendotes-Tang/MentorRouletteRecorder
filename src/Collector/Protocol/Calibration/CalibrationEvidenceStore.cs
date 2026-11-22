@@ -188,6 +188,11 @@ public static class CalibrationEvidenceStore
         {
             Directory.CreateDirectory(root);
             var document = Write(snapshot, region, gameBuild, templateSha256);
+            if (PopTallies(snapshot) is { } tallies)
+            {
+                document["pop_tally"] = tallies;
+            }
+
             if (Rejections(snapshot.Rejections) is { } rejected)
             {
                 document["rejections"] = rejected;
@@ -259,16 +264,7 @@ public static class CalibrationEvidenceStore
         ["diagnostics_overflow"] = snapshot.DiagnosticsOverflow,
         ["first_at"] = Stamp(snapshot.FirstMessageAtUtc),
         ["last_at"] = Stamp(snapshot.LastMessageAtUtc),
-        ["pairs"] = Array(snapshot.Pairs, pair => new JsonObject
-        {
-            ["tag"] = pair.ConnectionTag,
-            ["request"] = pair.RequestOpcode,
-            ["reply"] = pair.ReplyOpcode,
-            ["roulette"] = pair.RouletteId,
-            ["request_t"] = pair.RequestTMs,
-            ["reply_t"] = pair.ReplyTMs,
-            ["at"] = Stamp(pair.ReplyAtUtc),
-        }),
+        ["pairs"] = Array(snapshot.Pairs, Pair),
         ["pops"] = Array(snapshot.Pops, pop => new JsonObject
         {
             ["tag"] = pop.ConnectionTag,
@@ -430,6 +426,52 @@ public static class CalibrationEvidenceStore
     };
 
     /// <summary>
+    /// The pop tally of a two-message template (GLOBAL), or null when there is none - every other file reads
+    /// exactly as before. Added without changing the layout version: an earlier file reads back as "nothing
+    /// tallied yet", which is all an earlier observer could have known.
+    /// </summary>
+    /// <param name="snapshot">Evidence being written.</param>
+    private static JsonArray? PopTallies(CalibrationSnapshot snapshot) =>
+        snapshot.PopTallies.Count == 0
+            ? null
+            : Array(snapshot.PopTallies.OrderBy(entry => entry.Key), entry => new JsonObject
+            {
+                ["opcode"] = entry.Key,
+                ["total"] = entry.Value.Total,
+                ["agreed"] = entry.Value.Agreed,
+            });
+
+    /// <summary>
+    /// One request/echo pair. The job reading exists only on a template whose reply is also the job
+    /// message, and is written only when there is one, so every other pair reads exactly as before.
+    /// </summary>
+    /// <param name="pair">Pair to write.</param>
+    private static JsonObject Pair(FinderPairHit pair)
+    {
+        var written = new JsonObject
+        {
+            ["tag"] = pair.ConnectionTag,
+            ["request"] = pair.RequestOpcode,
+            ["reply"] = pair.ReplyOpcode,
+            ["roulette"] = pair.RouletteId,
+            ["request_t"] = pair.RequestTMs,
+            ["reply_t"] = pair.ReplyTMs,
+            ["at"] = Stamp(pair.ReplyAtUtc),
+        };
+        if (pair.JobId is { } job)
+        {
+            written["job"] = job;
+        }
+
+        if (pair.JobViolation)
+        {
+            written["job_violation"] = true;
+        }
+
+        return written;
+    }
+
+    /// <summary>
     /// What was rejected about the evidence, or null when nothing was (audit 2026-10-20, C-6). Written
     /// only when there is something, so a file without rejections reads exactly as it did before, and
     /// a file written by an older version reads back as "nothing rejected".
@@ -545,7 +587,11 @@ public static class CalibrationEvidenceStore
             Text(node, "capture_session_id") ?? string.Empty,
             Items(node, "pairs").Select(item => new FinderPairHit(
                 Text(item, "tag") ?? string.Empty, (ushort)Int32(item, "request"), (ushort)Int32(item, "reply"),
-                Int64(item, "roulette"), Int64(item, "request_t"), Int64(item, "reply_t"), At(item, "at"))).ToArray(),
+                Int64(item, "roulette"), Int64(item, "request_t"), Int64(item, "reply_t"), At(item, "at"))
+            {
+                JobId = Int64OrNull(item, "job"),
+                JobViolation = Bool(item, "job_violation"),
+            }).ToArray(),
             Items(node, "pops").Select(item => new PopHit(
                 Text(item, "tag") ?? string.Empty, (ushort)Int32(item, "opcode"), Int64(item, "roulette"),
                 Int64(item, "t"), At(item, "at"), Bool(item, "echo"),
@@ -600,6 +646,8 @@ public static class CalibrationEvidenceStore
             TimedDead = Items(node, "timed_dead")
                 .Select(item => ((ushort)Int32(item, "opcode"), Int32(item, "length"))).ToArray(),
             TimingOverflow = Int32(node, "timing_overflow"),
+            PopTallies = Items(node, "pop_tally").ToDictionary(
+                item => (ushort)Int32(item, "opcode"), item => new PopTally(Int32(item, "total"), Int32(item, "agreed"))),
             MarkerOverflow = Int32(node, "marker_overflow"),
             DiagnosticsOverflow = Int32(node, "diagnostics_overflow"),
             FirstMessageAtUtc = AtOrNull(node, "first_at"),
@@ -628,6 +676,7 @@ public static class CalibrationEvidenceStore
         TimedShapes = System.Array.Empty<TimedShape>(),
         TimedDead = System.Array.Empty<(ushort, int)>(),
         TimingOverflow = 0,
+        PopTallies = new Dictionary<ushort, PopTally>(),
     };
 
     /// <summary>What was rejected about the evidence; nothing for a file written before it was kept.</summary>
@@ -700,6 +749,11 @@ public static class CalibrationEvidenceStore
         node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
             ? value.GetInt64()
             : 0;
+
+    private static long? Int64OrNull(JsonElement node, string name) =>
+        node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetInt64()
+            : null;
 
     private static bool Bool(JsonElement node, string name) =>
         node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;

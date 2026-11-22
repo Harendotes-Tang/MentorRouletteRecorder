@@ -36,7 +36,6 @@ public sealed class GlobalProfileTests
         Assert.Equal(Build, profile.GameBuild);
         Assert.Equal(9, profile.MentorRouletteId);
         Assert.Equal(TimeSpan.FromSeconds(120), profile.MatchWindow);
-        Assert.Null(profile.Calibration);
         Assert.False(profile.MatchFromQueue);
         Assert.Equal(
             new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "PLAYER_JOB" },
@@ -88,6 +87,7 @@ public sealed class GlobalProfileTests
             "messages.ZONE_INITIALIZATION.opcode", "messages.ZONE_INITIALIZATION.fields.territory_id",
             "messages.PLAYER_JOB.opcode", "messages.PLAYER_JOB.fields.job_id",
             "mentor_roulette_id", "match_window_seconds",
+            ProfileLoader.CalibrationEvidenceKey, ProfileLoader.CalibrationReplyEvidenceKey,
         })
         {
             Assert.Contains(evidence, item => item.Field == field);
@@ -95,9 +95,38 @@ public sealed class GlobalProfileTests
     }
 
     /// <summary>
+    /// The calibration template a later GLOBAL build re-learns its opcodes from (2026-11-22): the request
+    /// is 24 bytes with the roulette at byte 0, and the reply is a 40-byte message of its own with the
+    /// roulette at byte 16 that is also the job message - the popup is the other 40-byte message, found
+    /// by the pop's shape (docs/protocol-profile-format.md section 11.1).
+    /// </summary>
+    [Fact]
+    public void ShippedGlobalProfile_CarriesATwoMessageCalibrationTemplate()
+    {
+        var calibration = Assert.IsType<ProfileCalibration>(Shipped().Calibration);
+
+        Assert.Equal((PacketDirection.ClientToServer, 24, 0, ProfileFieldType.U8),
+            (calibration.FinderRequest.Direction, calibration.FinderRequest.ExpectedLength,
+                calibration.FinderRequest.RouletteField.Offset, calibration.FinderRequest.RouletteField.Type));
+        Assert.Equal(new ProfileFieldConstraints(1, 255, null), calibration.FinderRequest.RouletteField.Constraints);
+        Assert.Equal(TimeSpan.FromSeconds(1), calibration.FinderReplyMax);
+        var reply = Assert.IsType<CalibrationFinderReply>(calibration.FinderReply);
+        Assert.Equal((PacketDirection.ServerToClient, 40, 16, ProfileFieldType.U8, true),
+            (reply.Direction, reply.ExpectedLength, reply.RouletteField.Offset, reply.RouletteField.Type, reply.CarriesPlayerJob));
+        Assert.Equal(new ProfileFieldConstraints(1, 255, null), reply.RouletteField.Constraints);
+
+        var template = Assert.IsType<CalibrationTemplate>(CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), Region.Global));
+        Assert.Equal(ProfileId, template.Source.ProfileId);
+        Assert.True(template.SeparateReply);
+        Assert.True(template.ReplyCarriesJob);
+        Assert.True(template.TerritoryInZone);
+        Assert.Equal(0x03bf, template.Pop.Opcode);
+    }
+
+    /// <summary>
     /// The profile records its own build and nothing else: another GLOBAL build is told that no
-    /// profile matches it (a region that does record), and since GLOBAL has no calibration
-    /// template, nothing arms to learn one.
+    /// profile matches it (a region that does record), which is what arms the calibration the
+    /// template above makes possible.
     /// </summary>
     [Fact]
     public void TheGlobalProfileIsChosenForItsOwnBuildOnly()
@@ -113,7 +142,8 @@ public sealed class GlobalProfileTests
         Assert.Equal(ProfileSelectionReason.NoMatch, selector.Select(Region.Global, "2026.12.01.0000.0000").ReasonCode);
         Assert.False(selector.Select(Region.Cn, Build).IsUsable);
         Assert.False(selector.Select(Region.Tc, Build).IsUsable);
-        Assert.Null(CalibrationTemplate.Select(catalog, Region.Global));
+        Assert.Equal(ProfileId, CalibrationTemplate.Select(catalog, Region.Global)?.Source.ProfileId);
+        Assert.Equal(ProfileSelector.NoProfileMatchesReason, selector.Select(Region.Global, "2026.12.01.0000.0000").Reason);
     }
 
     /// <summary>

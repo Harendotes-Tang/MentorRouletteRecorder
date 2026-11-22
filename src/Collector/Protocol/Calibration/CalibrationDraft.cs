@@ -171,6 +171,14 @@ public sealed partial record CalibrationDraft(
         Array.Empty<CalibrationSelectorReading>();
 
     /// <summary>
+    /// True when the pop was found by the template's own pop shape on a template whose reply and pop are two
+    /// messages (<see cref="CalibrationTemplate.SeparateReply"/>): <see cref="MatchSource"/> is then
+    /// <see cref="CalibrationMatchSource.Announcement"/>, decided by the rule of section 11.3 rather than by the
+    /// announcement search that stands behind a one-message template.
+    /// </summary>
+    public bool DeclaredPop { get; init; }
+
+    /// <summary>
     /// How close two queue requests are shown as one 排本 line, and so how far around a rejected
     /// line its request/echo pairs are left out.
     /// </summary>
@@ -295,11 +303,28 @@ public sealed partial record CalibrationDraft(
         var pairs = snapshot.Pairs.Where(pair => !rejections.PopOpcodes.Contains(pair.ReplyOpcode))
             .Where(pair => !rejections.Requests.Any(line => (RequestAt(pair) - line).Duration() < RequestLineSpan))
             .ToArray();
-        var matches = pairs.GroupBy(pair => pair.ReplyOpcode).ToDictionary(group => group.Key,
-            group => MatchedState.From(
-                snapshot.Pops.Where(pop => pop.Opcode == group.Key && !RejectedState(pop, rejections)).ToArray(),
-                snapshot.Clusters, group.ToArray(), template.MatchWindow, rejections.Entries));
-        var lockedReply = LockPop(snapshot, pairs, matches, out var lockReason, out var ambiguous);
+        // On a template whose reply and pop are two messages (GLOBAL) the reply only confirms the request;
+        // the pop is a message of its own and is read off the samples of other opcodes. A pop corroborates
+        // only the reply opcode that answered its request most often.
+        Dictionary<ushort, MatchedState> matches;
+        Dictionary<ushort, MatchedState> corroborating;
+        if (template.SeparateReply)
+        {
+            var declaredMatches = DeclaredMatches(snapshot, pairs, template.MatchWindow, rejections);
+            matches = declaredMatches.ToDictionary(entry => entry.Key, entry => entry.Value.State);
+            corroborating = declaredMatches.ToDictionary(entry => entry.Key,
+                entry => entry.Value.Corroborates ? entry.Value.State : MatchedState.None);
+        }
+        else
+        {
+            matches = pairs.GroupBy(pair => pair.ReplyOpcode).ToDictionary(group => group.Key,
+                group => MatchedState.From(
+                    snapshot.Pops.Where(pop => pop.Opcode == group.Key && !RejectedState(pop, rejections)).ToArray(),
+                    snapshot.Clusters, group.ToArray(), template.MatchWindow, rejections.Entries));
+            corroborating = matches;
+        }
+
+        var lockedReply = LockPop(snapshot, pairs, corroborating, out var lockReason, out var ambiguous);
         var matched = lockedReply is { } reply ? matches[reply] : MatchedState.None;
         // Contradictory positive duty evidence must remain visible even when it cannot
         // corroborate an opcode or grant a frequency exemption.
@@ -336,7 +361,10 @@ public sealed partial record CalibrationDraft(
             ? null
             : LockTimedAnnouncement(snapshot, template, queued.Chains, new HashSet<ushort>(matches.Keys), rejections);
         var genuinePops = announcement?.Pops ?? marker?.Pops ?? queued?.Pops ?? matched.Pops;
-        var source = announcement is not null
+        // The pop of a two-message template, found by the template's own pop shape: a message of its own
+        // at the template's offset, which is what an announcement is.
+        var declared = template.SeparateReply && matched.Pops.Length > 0;
+        var source = announcement is not null || declared
             ? CalibrationMatchSource.Announcement
             : marker is not null
                 ? CalibrationMatchSource.MarkerOffset
@@ -390,8 +418,11 @@ public sealed partial record CalibrationDraft(
                         Length: located.Shape.Length, RouletteOffset: located.Offset)
                     : queued is not null
                         ? new CalibratedPop(CalibrationMatchSource.QueueRequest, request)
-                        : new CalibratedPop(CalibrationMatchSource.ReplyState, lockedReply.Value,
-                            Selectors: matched.Selectors)));
+                        : declared
+                            ? new CalibratedPop(CalibrationMatchSource.Announcement, matched.Pops[0].Opcode,
+                                Length: template.Pop.ExpectedLength)
+                            : new CalibratedPop(CalibrationMatchSource.ReplyState, lockedReply.Value,
+                                Selectors: matched.Selectors)));
             samples["messages.CONTENT_FINDER_POP.opcode"] = lockedPairs.Length + genuinePops.Length;
             samples[ProfileLoader.CalibrationEvidenceKey] = lockedPairs.Length;
             if (timed is { } announced)
@@ -442,6 +473,10 @@ public sealed partial record CalibrationDraft(
                 .Where(key => !rejections.ZoneKeys.Contains(key))
                 .Where(key => MarksEnough(snapshot, key))
                 .Where(key => OnceIn(entry, key) && OnceIn(exit, key))
+                // A marker that carries the territory (GLOBAL) is the message that named the duty: another
+                // shape of its length in the same bursts names nothing, and written as the marker it would
+                // leave every record without a duty.
+                .Where(key => !template.TerritoryInZone || NamesDuty(entry, key))
                 .ToArray();
             if (zoneCandidates.Length == 1)
             {
@@ -491,7 +526,18 @@ public sealed partial record CalibrationDraft(
                 }
             }
 
-            if (template.PlayerJob is { ExpectedLength: { } jobLength } jobTemplate &&
+            if (template.ReplyCarriesJob)
+            {
+                // The reply is the job message (GLOBAL): it is sent once per queue and never inside a load, so
+                // the bursts cannot vouch for it. The replies of the locked pairing do.
+                if (lockedReply is { } replyOpcode && requestOpcode is { } jobRequest &&
+                    ReplyJobSamples(pairs, replyOpcode, jobRequest) is { } jobSamples)
+                {
+                    messages.Add(CalibratedShape.Job(template, replyOpcode));
+                    samples["messages.PLAYER_JOB.opcode"] = jobSamples;
+                }
+            }
+            else if (template.PlayerJob is { ExpectedLength: { } jobLength } jobTemplate &&
                 entry is not null && exit is not null)
             {
                 // A record only ever needs the job that was current on entry and on exit, so
@@ -591,6 +637,7 @@ public sealed partial record CalibrationDraft(
             MatchSelectors = source == CalibrationMatchSource.ReplyState
                 ? matched.Selectors
                 : Array.Empty<CalibrationSelectorReading>(),
+            DeclaredPop = declared,
         };
     }
 
@@ -1358,7 +1405,10 @@ public sealed partial record CalibrationDraft(
     {
         var events = new List<CalibrationEvent>();
         events.AddRange(TimedEvents(timed, roulettes, region));
-        var territoryOpcode = messages.FirstOrDefault(message => message.Name == "ZONE_TERRITORY")?.Opcode;
+        var territoryOpcode = messages.FirstOrDefault(message => message.Name == "ZONE_TERRITORY")?.Opcode ??
+            (template.TerritoryInZone
+                ? messages.FirstOrDefault(message => message.Name == "ZONE_INITIALIZATION")?.Opcode
+                : null);
         var requests = new List<CalibrationEvent>();
         DateTimeOffset? lastRequest = null;
         foreach (var pair in pairs.Where(pair => pair.ReplyOpcode == lockedReply).OrderBy(pair => pair.ReplyAtUtc))

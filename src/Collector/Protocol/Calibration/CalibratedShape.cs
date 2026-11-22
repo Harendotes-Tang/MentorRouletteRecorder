@@ -237,9 +237,13 @@ public static class CalibratedShape
     public static bool IsComplete(CalibrationMatchSource source, IEnumerable<ProfileMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        var names = messages.Select(message => message.Name).ToHashSet(StringComparer.Ordinal);
+        var declared = messages.ToArray();
+        var names = declared.Select(message => message.Name).ToHashSet(StringComparer.Ordinal);
+        // The territory may also ride on the zone-change marker itself (GLOBAL), which is exactly what
+        // ProtocolProfile.KnowsDutyTerritory accepts when the profile is bound.
         return names.Contains(PopName) && names.Contains(ZoneName) &&
-            (!RequiresTerritory(source) || names.Contains(TerritoryName));
+            (!RequiresTerritory(source) || names.Contains(TerritoryName) ||
+             declared.Any(message => message.Name == ZoneName && message.Field("territory_id") is not null));
     }
 
     /// <summary>
@@ -261,7 +265,7 @@ public static class CalibratedShape
             return CalibratedShapeResult.Refused(refused);
         }
 
-        if (RequiresTerritory(pop.Source) && values.TerritoryOpcode is null)
+        if (RequiresTerritory(pop.Source) && values.TerritoryOpcode is null && !template.TerritoryInZone)
         {
             return CalibratedShapeResult.Refused(source + " needs the territory message");
         }
@@ -358,6 +362,13 @@ public static class CalibratedShape
 
     private static string? Refusal(CalibratedPop pop, CalibratedPopInputs inputs, string source, CalibrationTemplate template)
     {
+        // On a two-message template the reply is never the pop, so there is no "matched" state of the reply
+        // to learn; the same pop written as a state would be a second identity for one profile.
+        if (template.SeparateReply && pop.Source == CalibrationMatchSource.ReplyState)
+        {
+            return source + " does not apply to a template whose reply and pop are two messages";
+        }
+
         if ((pop.Length is not null) != inputs.HasFlag(CalibratedPopInputs.Length))
         {
             return pop.Length is null ? source + " needs the pop length" : source + " does not use a pop length";
@@ -416,7 +427,7 @@ public static class CalibratedShape
             }
         }
 
-        if (readings.Count == learnable.Count)
+        if (readings.Count == learnable.Count && !template.SeparateReply)
         {
             yield return new CalibratedPop(CalibrationMatchSource.ReplyState, pop.Opcode, Selectors: readings);
         }

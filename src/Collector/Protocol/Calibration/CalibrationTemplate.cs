@@ -19,7 +19,25 @@ public sealed class CalibrationTemplate
         ZoneInitialization = source.Message("ZONE_INITIALIZATION")!;
         ZoneTerritory = source.Message("ZONE_TERRITORY");
         PlayerJob = source.Message("PLAYER_JOB");
+        if (calibration.FinderReply is { } reply)
+        {
+            Reply = new ProfileMessage(
+                ReplyName, 0, reply.Direction, null, reply.ExpectedLength, null, null,
+                Array.Empty<long>(), new[] { reply.RouletteField });
+            ReplyRoulette = reply.RouletteField;
+        }
+        else
+        {
+            Reply = Pop;
+            ReplyRoulette = Pop.Field("roulette_id");
+        }
+
+        TerritoryShape = ZoneTerritory ??
+            (ZoneInitialization.Field("territory_id") is not null ? ZoneInitialization : null);
     }
+
+    /// <summary>Name the reply shape carries when the template declares one of its own; it is never written to a profile.</summary>
+    public const string ReplyName = "FINDER_REPLY";
 
     /// <summary>The profile the template was taken from.</summary>
     public ProtocolProfile Source { get; }
@@ -38,6 +56,34 @@ public sealed class CalibrationTemplate
 
     /// <summary>Job structure, when the template declares one.</summary>
     public ProfileMessage? PlayerJob { get; }
+
+    /// <summary>
+    /// The shape of the server's answer to the roulette request: <see cref="Pop"/> itself on a template
+    /// whose pop answers the request in another state (CN), or the template's <c>finder_reply</c>.
+    /// </summary>
+    public ProfileMessage Reply { get; }
+
+    /// <summary>Where the reply carries the echoed roulette id.</summary>
+    public ProfileField? ReplyRoulette { get; }
+
+    /// <summary>
+    /// True when the reply and the pop are two messages (GLOBAL 2026.11.03): the reply only confirms the
+    /// request and echoes its roulette, and the pop is found as a message of its own, by the template's
+    /// pop shape, after a paired request (docs/protocol-profile-format.md section 11.3).
+    /// </summary>
+    public bool SeparateReply => Calibration.FinderReply is not null;
+
+    /// <summary>True when the reply is also <see cref="PlayerJob"/>, so the job's opcode is the reply's.</summary>
+    public bool ReplyCarriesJob => Calibration.FinderReply is { CarriesPlayerJob: true } && PlayerJob is not null;
+
+    /// <summary>
+    /// The message whose <c>territory_id</c> names the duty: <see cref="ZoneTerritory"/>, or - on a template
+    /// whose zone-change marker carries the territory itself (GLOBAL) - <see cref="ZoneInitialization"/>.
+    /// </summary>
+    public ProfileMessage? TerritoryShape { get; }
+
+    /// <summary>True when the zone-change marker carries the territory and there is no separate territory message.</summary>
+    public bool TerritoryInZone => ZoneTerritory is null && TerritoryShape is not null;
 
     /// <summary>Mentor roulette id inherited by every calibrated profile.</summary>
     public int MentorRouletteId => Source.MentorRouletteId!.Value;

@@ -25,6 +25,10 @@ left is to see it work in normal play. No evidence round, capture or payload con
 The last evidence round (one completed non-Mentor roulette, 2026-11-22) and the character
 identification round of the same day are on file.
 
+When the Global client updates to a new version, see [section 8](#self-calibration): test builds that
+include Global self-calibration can re-learn the new version on your PC instead of waiting for a new
+release.
+
 ## Earlier rounds (completed)
 
 This guide asks you to help confirm three things on the Global (international) version of
@@ -317,3 +321,41 @@ whether to send it. See [privacy-boundary.md §5.1.1](privacy-boundary.md).
    the file, so you do not need to repeat them in the email. You can delete the two files after
    sending; the app's own copy of the recorded content is removed automatically after at most
    30 days.
+
+<a id="self-calibration"></a>
+## 8. After the next game update: self-calibration
+
+Each game update renumbers the messages the app reads, so a profile only fits the client version it
+was written for. On the Chinese server the app re-learns a new version on the player's own PC
+("self-calibration"); test builds newer than 1.10.0-beta.1 that mention Global self-calibration in
+their release notes do the same for the Global client, using the 2026.11.03 profile as the template.
+Nothing has to be sent for this to work. This section is for the first Global update after such a
+build is installed, so that we learn whether it works on a real update.
+
+On the Global client the queue reply and the match popup are two different messages (on the Chinese
+client they are one), so the Global template describes them separately. What the app looks for is only
+the *shape* the 2026.11.03 version had: the queue reply is a 40-byte message carrying the roulette at
+byte 16, the popup a 40-byte message carrying it at offset 2, and the zone change a 136-byte message
+carrying the territory. If the update changes one of these shapes, self-calibration may fall back to
+weaker methods or not finish at all, in which case a new release is needed; that is also worth knowing.
+
+1. After the game update, start the app before the game, then start the game and log in. The capture
+   page shows the **本机校准** card with "游戏更新了，正在重新校准". Nothing is recorded yet.
+2. Queue for any roulette (the Mentor Roulette is fine), accept the popup, play the duty to the end and
+   leave it. A queue that matches at once, as a tank often does, is fine, and so is teleporting or
+   entering a house while you wait. Please queue yourself (not as a party member); the app learns from
+   your own queue.
+3. When the card says **校准待核对**, open **核对并启用**. Check each line of the short timeline (queue,
+   popup, entering the duty, leaving it) against what you did and answer **对** or **错**. If every line is
+   right, the app writes a profile for the new version on your PC and records from then on, in the same
+   session.
+4. Send a short note privately: whether the card reached **校准待核对**, whether the timeline matched
+   what you did, and whether the next Mentor run appeared in **History** with the duty, your job and the
+   result. If the card stays on "正在重新校准" after a whole duty, or shows a problem, attach the
+   diagnostics report (**捕获诊断 → 工具 → 导出诊断报告**); it contains no packet content, only message
+   numbers, lengths and counts.
+
+If you mark a popup line **错**, the app stops trusting that message. To go on, it then needs you to
+queue a different roulette once (you can withdraw right after the queue starts); it can then record
+from your own queue requests instead of the popup, and keeps looking for the popup in the background.
+Refusing a duty-finder popup in the game is never needed for any of this.

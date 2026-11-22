@@ -135,6 +135,12 @@ public sealed partial class CalibrationObserver
     /// <summary>Capture sessions whose health is remembered.</summary>
     public const int MaxSessionHealth = 64;
 
+    /// <summary>Opcodes whose pop-shaped sightings are tallied while a queue stands (two-message templates only).</summary>
+    public const int MaxPopTallies = 256;
+
+    /// <summary>Disagreeing pop sightings held per connection for one match window (two-message templates only).</summary>
+    public const int MaxPendingDisagreements = 64;
+
     /// <summary>Window in which the opening condition of a burst must be met.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(3);
 
@@ -202,6 +208,7 @@ public sealed partial class CalibrationObserver
     private readonly Dictionary<(ushort Opcode, int Length, int Offset), MarkerStat> _markers = new();
     private readonly Dictionary<(ushort Opcode, int Length), int> _markerShapes = new();
     private readonly Dictionary<string, CaptureSessionHealth> _health = new(StringComparer.Ordinal);
+    private readonly Dictionary<ushort, PopTally> _popTallies = new();
     private readonly CandidateTallies _candidates = new();
     private int _markerOverflow;
     private int _adoptedSessions;
@@ -350,6 +357,7 @@ public sealed partial class CalibrationObserver
         TimedShapes = TimedShapes(),
         TimedDead = _timingDead.ToArray(),
         TimingOverflow = _timingOverflow,
+        PopTallies = new Dictionary<ushort, PopTally>(_popTallies),
     };
 
     private static string Tag(string sessionId, string connectionKey) =>
@@ -518,6 +526,11 @@ public sealed partial class CalibrationObserver
         Merge(_finderSelectors, carried.FinderSelectors);
         Merge(_markerShapes, carried.MarkerShapeTotals);
         _echoHits.AddRange(carried.RouletteEchoHits);
+        foreach (var (opcode, tally) in carried.PopTallies.Take(MaxPopTallies))
+        {
+            _popTallies[opcode] = tally;
+        }
+
         AdoptTiming(carried);
         foreach (var marker in carried.Markers)
         {
@@ -643,7 +656,7 @@ public sealed partial class CalibrationObserver
 
     private TerritoryHit? Territory(PacketDirection direction, ReadOnlySpan<byte> payload, ushort opcode)
     {
-        if (_template.ZoneTerritory is not { } territory || direction != territory.Direction ||
+        if (_template.TerritoryShape is not { } territory || direction != territory.Direction ||
             !territory.AcceptsLength(payload.Length) || territory.Field("territory_id") is not { } field ||
             !FieldReader.TryReadSatisfied(payload, field, out var value) || value > int.MaxValue ||
             _duties.FindByTerritory((int)value, _region) is not { } duty)
@@ -663,7 +676,7 @@ public sealed partial class CalibrationObserver
     /// <param name="payload">Decoded payload; read now, never kept.</param>
     private TerritoryFlags? TerritoryReadingOf(PacketDirection direction, ReadOnlySpan<byte> payload)
     {
-        if (_template.ZoneTerritory is not { } territory || direction != territory.Direction ||
+        if (_template.TerritoryShape is not { } territory || direction != territory.Direction ||
             !territory.AcceptsLength(payload.Length) || territory.Field("territory_id") is not { } field ||
             !FieldReader.TryRead(payload, field, out var value))
         {
@@ -679,7 +692,8 @@ public sealed partial class CalibrationObserver
     {
         violation = false;
         if (_template.PlayerJob is not { } job || direction != job.Direction || !job.AcceptsLength(payload.Length) ||
-            job.Field("job_id") is not { } field || !FieldReader.TryRead(payload, field, out var value))
+            job.Field("job_id") is not { } field || !FieldReader.TryRead(payload, field, out var value) ||
+            !SelectorsHold(payload, job))
         {
             return null;
         }
@@ -692,6 +706,27 @@ public sealed partial class CalibrationObserver
         violation = true;
         Count(_jobViolations, opcode, MaxOpcodeCounts);
         return null;
+    }
+
+    /// <summary>
+    /// True when every selector the message declares holds. A job message with a selector (GLOBAL: the queue
+    /// reply, whose first byte is 1 when it carries the job) says nothing about the job in another state, so
+    /// such a payload is not read at all - neither a value nor a violation. A message without selectors (the
+    /// CN job message) always holds.
+    /// </summary>
+    /// <param name="payload">Decoded payload; read now, never kept.</param>
+    /// <param name="message">Template structure.</param>
+    private static bool SelectorsHold(ReadOnlySpan<byte> payload, ProfileMessage message)
+    {
+        foreach (var field in message.Fields)
+        {
+            if (field.Role == ProfileFieldRole.Selector && !FieldReader.TryReadSatisfied(payload, field, out _))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // ------------------------------------------------------------------ zone-load bursts
@@ -825,11 +860,16 @@ public sealed partial class CalibrationObserver
 
     private bool HasRepeatedZoneSignature(Connection connection, long windowStart)
     {
-        if (_overflow != 0 || _template.ZoneTerritory is not { ExpectedLength: { } territoryLength } ||
+        if (_overflow != 0 || _template.TerritoryShape is not { ExpectedLength: { } territoryLength } ||
             _template.ZoneInitialization.ExpectedLength is not { } markerLength)
         {
             return false;
         }
+
+        // On a template whose zone marker carries the territory (GLOBAL) the signature is that one shape
+        // naming a duty; pairing it with some other shape of the same length would let an unrelated
+        // message stand in for the territory.
+        var territoryInMarker = _template.TerritoryInZone;
 
         var current = connection.Ring.Where(entry => entry.TMs >= windowStart).ToArray();
         if (!current.Any(entry => entry.Key.Direction == PacketDirection.ServerToClient &&
@@ -864,6 +904,7 @@ public sealed partial class CalibrationObserver
             .Distinct().Where(Confined).ToArray();
         var signatures = (from marker in markers
                           from territory in territories
+                          where !territoryInMarker || marker == territory
                           where prior.Count(cluster => Once(cluster, marker) && Once(cluster, territory)) >= 2
                           where prior.Any(cluster => Once(cluster, marker) && Once(cluster, territory) &&
                               cluster.TerritoryHits.Any(hit => hit.Opcode == territory.Opcode && hit.Length == territory.Length))
@@ -932,6 +973,14 @@ public sealed partial class CalibrationObserver
             }
         }
 
+        // A template whose reply is the job message learns the job from the reply, never from the loads, so readings
+        // inside a load are not kept there: kept, a chatty message of the job's shape could fill the per-load table
+        // and block the draft over evidence it never uses (review 2026-11-22, L6).
+        if (_template.ReplyCarriesJob)
+        {
+            return;
+        }
+
         if (entry.JobValue is { } job)
         {
             if (!open.JobValues.TryGetValue(entry.Key.Opcode, out var values))
@@ -963,6 +1012,14 @@ public sealed partial class CalibrationObserver
         connection.Open = null;
         connection.AnchorTimes.Clear();
         connection.Clusters++;
+        // The queue a two-message template's pop answers survives a teleport, as the game's does; a load into a
+        // duty the table knows is where it ends, whether that duty came from the queue or not.
+        if (open.TerritoryHits.Count > 0)
+        {
+            connection.DeclaredQueue = null;
+            ExcuseLonePopups(connection, open.LoadStartTMs);
+        }
+
         // The lobby opens one burst at login and never queues or enters a duty; the game
         // connection does all three. Only positive evidence moves a connection out of "lobby".
         if (connection.Clusters >= 2 || open.TerritoryHits.Count > 0)
@@ -1121,6 +1178,12 @@ public sealed partial class CalibrationObserver
         TrackRouletteEcho(connection, direction, payload, opcode, t, at, echoMax);
         TrackMarkers(connection, direction, payload, opcode, t, at, echoMax);
 
+        if (_template.SeparateReply)
+        {
+            TrackSeparateReply(connection, direction, payload, opcode, t, at, echo, echoMax);
+            return;
+        }
+
         var pop = _template.Pop;
         if (direction != pop.Direction || !pop.AcceptsLength(payload.Length))
         {
@@ -1156,22 +1219,7 @@ public sealed partial class CalibrationObserver
         var match = echo;
         if (match is not null)
         {
-            if (_pairs.Count >= MaxPairs)
-            {
-                // The oldest pair goes, as the oldest burst does (MaxClusters).
-                _pairs.RemoveAt(0);
-            }
-
-            _pairs.Add(new FinderPairHit(connection.Tag, match.Opcode, opcode, echoed, match.TMs, t, at));
-            if (_replyOpcodes.Count < MaxReplyOpcodes)
-            {
-                _replyOpcodes.Add(opcode);
-            }
-
-            if (_pairedOpcodes.Count < MaxReplyOpcodes * 2)
-            {
-                _pairedOpcodes.Add((opcode, match.Opcode));
-            }
+            RecordPair(new FinderPairHit(connection.Tag, match.Opcode, opcode, echoed, match.TMs, t, at));
         }
 
         // The template's selector fields are read, not required. Their values mean what they mean
@@ -1222,6 +1270,28 @@ public sealed partial class CalibrationObserver
         RememberPop(new PopHit(connection.Tag, opcode, echoed, t, at, withinEcho, selectors));
     }
 
+    /// <summary>Keeps one request/echo pair and remembers its reply opcode for the diagnostic tables.</summary>
+    /// <param name="pair">The pair to keep.</param>
+    private void RecordPair(FinderPairHit pair)
+    {
+        if (_pairs.Count >= MaxPairs)
+        {
+            // The oldest pair goes, as the oldest burst does (MaxClusters).
+            _pairs.RemoveAt(0);
+        }
+
+        _pairs.Add(pair);
+        if (_replyOpcodes.Count < MaxReplyOpcodes)
+        {
+            _replyOpcodes.Add(pair.ReplyOpcode);
+        }
+
+        if (_pairedOpcodes.Count < MaxReplyOpcodes * 2)
+        {
+            _pairedOpcodes.Add((pair.ReplyOpcode, pair.RequestOpcode));
+        }
+    }
+
     /// <summary>
     /// The pending request a pop-shaped server message echoes, or null.
     ///
@@ -1247,9 +1317,10 @@ public sealed partial class CalibrationObserver
     private PendingRequest? FindEcho(
         Connection connection, PacketDirection direction, ReadOnlySpan<byte> payload, ushort opcode, long t, long echoMax)
     {
-        var pop = _template.Pop;
-        if (direction != pop.Direction || !pop.AcceptsLength(payload.Length) ||
-            pop.Field("roulette_id") is not { } rouletteField ||
+        // The template's pop on a template whose pop answers the request (CN); its finder_reply otherwise.
+        var reply = _template.Reply;
+        if (direction != reply.Direction || !reply.AcceptsLength(payload.Length) ||
+            _template.ReplyRoulette is not { } rouletteField ||
             !FieldReader.TryRead(payload, rouletteField, out var echoed))
         {
             return null;
@@ -1295,6 +1366,11 @@ public sealed partial class CalibrationObserver
         if (connection.Outstanding is not { } standing || standing.TMs <= request.TMs)
         {
             connection.Outstanding = request;
+        }
+
+        if (connection.DeclaredQueue is not { } declared || declared.TMs <= request.TMs)
+        {
+            connection.DeclaredQueue = request;
         }
 
         ProveGameConnection(connection);
@@ -1669,6 +1745,16 @@ public sealed partial class CalibrationObserver
 
         /// <summary>The queue the player is waiting on, or null between a load and the next request.</summary>
         public PendingRequest? Outstanding { get; set; }
+
+        /// <summary>
+        /// The queue the pop of a two-message template is looked for against (<see cref="CalibrationTemplate.SeparateReply"/>).
+        /// Unlike <see cref="Outstanding"/> it outlives a teleport, as the game's queue does, and ends only at a load into a
+        /// known duty, at a newer confirmed request, or after <see cref="CalibrationDraft.QueueWindow"/>.
+        /// </summary>
+        public PendingRequest? DeclaredQueue { get; set; }
+
+        /// <summary>Disagreeing pop sightings of the last match window, until a known-duty load decides them (<c>ExcuseLonePopups</c>).</summary>
+        public List<(ushort Opcode, long TMs)> PendingDisagreements { get; } = new();
 
         public OpenCluster? Open { get; set; }
     }

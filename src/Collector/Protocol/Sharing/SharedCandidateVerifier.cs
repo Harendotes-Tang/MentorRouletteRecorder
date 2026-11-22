@@ -80,7 +80,8 @@ public sealed record SharedVerification(string CandidateId, SharedVerdict Verdic
 /// holds the marker exactly once (or it breaks the tolerance).</item>
 /// <item><c>ZONE_TERRITORY</c>: pass when the first burst that named a known duty has a known-duty reading
 /// on the declared opcode; a session contradicts when a known-duty burst lacks one (an absent message
-/// only counts when the session never saw it outside a burst).</item>
+/// only counts when the session never saw it outside a burst). On a template whose zone marker carries the
+/// territory (GLOBAL) the same criterion is asked of the zone marker, under this name.</item>
 /// <item><c>PLAYER_JOB</c>, optional - waiting on it never holds back a pass: pass when some burst vouches for it
 /// (present at the template's length, every reading within the template's constraints and all agreeing) and at
 /// least half of the complete bursts the healthy sessions observed since registration do; a session contradicts
@@ -154,9 +155,15 @@ public static class SharedCandidateVerifier
             (candidate.Pop.Direction == PacketDirection.ClientToServer ? QueuePop(evidence) : ServerPop(evidence)) with { Gate = afterBinding },
             candidate.Territory is null ? ZoneAlone(evidence) : ZoneWithTerritory(evidence),
         };
-        if (candidate.Territory is not null)
+        if (candidate.TerritoryKey is { } territory)
         {
-            criteria.Add(TerritoryEntry(evidence) with { Gate = afterBinding });
+            criteria.Add(TerritoryEntry(evidence, territory, inZone: false) with { Gate = afterBinding });
+        }
+        else if (template.TerritoryInZone)
+        {
+            // GLOBAL: the zone marker carries the territory, so it is the message that has to name the duty
+            // (docs/protocol-profile-format.md section 11.3.1).
+            criteria.Add(TerritoryEntry(evidence, candidate.ZoneKey, inZone: true) with { Gate = afterBinding });
         }
 
         if (candidate.Job is not null)
@@ -227,9 +234,12 @@ public static class SharedCandidateVerifier
 
     // ------------------------------------------------------------------ territory and job
 
-    private static SharedCriterion TerritoryEntry(Evidence evidence)
+    /// <summary>The message that carries the territory names the first known duty, and never misses one.</summary>
+    /// <param name="evidence">Snapshot read per session.</param>
+    /// <param name="territory">The territory message, or the zone marker on a template whose marker carries it.</param>
+    /// <param name="inZone">True when <paramref name="territory"/> is the zone marker, whose outside count applies.</param>
+    private static SharedCriterion TerritoryEntry(Evidence evidence, MessageKey territory, bool inZone)
     {
-        var territory = evidence.Candidate.TerritoryKey!.Value;
         var first = evidence.Snapshot.Clusters
             .Where(cluster => cluster.TerritoryHits.Count > 0)
             .OrderBy(cluster => cluster.LoadStartedAtUtc)
@@ -239,7 +249,8 @@ public static class SharedCandidateVerifier
             evidence.ClustersIn(session.Id, session.Counts.ObservedFromUtc)
                 .Any(cluster => cluster.TerritoryHits.Count > 0 && !NamesDuty(cluster, territory) &&
                     // Absent from the burst proves nothing if the session saw it just outside one.
-                    (Count(cluster, territory) > 0 || session.Counts.TerritoryOutside == 0)));
+                    (Count(cluster, territory) > 0 ||
+                     (inZone ? session.Counts.ZoneOutside : session.Counts.TerritoryOutside) == 0)));
         return Judge(CalibratedShape.TerritoryName, pass, contradicting,
             "第一次进入已知副本时，这条区域报文读出的编号在副本表里。",
             first is null

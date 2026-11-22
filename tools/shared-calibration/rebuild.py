@@ -17,7 +17,9 @@ Ported - the Action refuses a code for any of these, exactly as the client would
 4. ``CalibratedShape.Refusal``: length / roulette offset / selector values present exactly when the
    match source learns them; length 1..65535; the roulette offset inside the pop; each selector
    value fits its field type.
-5. ``CalibratedShape.Messages``: QUEUE_REQUEST needs the territory message; territory and job opcodes
+5. ``CalibratedShape.Messages``: on a template whose reply and pop are two messages (``calibration.finder_reply``,
+   GLOBAL) REPLY_STATE is refused; QUEUE_REQUEST needs the territory message unless the template's zone marker
+   carries the territory itself; territory and job opcodes
    only when the template declares that message with an ``expected_length``; no two rebuilt messages
    share a direction and opcode; every pop field fits the rebuilt pop's ``expected_length``.
 6. ``CalibrationTemplate.From``: a template is VERIFIED, has a ``calibration`` section and a
@@ -228,6 +230,8 @@ def rebuild(payload: Any, template: Template) -> RebuildResult:
     learnable = learnable_selectors(template)
     pop_values = payload["pop"]
     source = payload["match_source"]
+    if source == "REPLY_STATE" and _separate_reply(template):
+        return RebuildResult(INVALID, source + " does not apply to a template whose reply and pop are two messages")
     selectors = pop_values.get("selector_values")
     if selectors is not None and len(selectors) != len(learnable):
         return RebuildResult(INVALID, "the selector values do not match the template's selectors")
@@ -237,7 +241,7 @@ def rebuild(payload: Any, template: Template) -> RebuildResult:
         return RebuildResult(INVALID, refusal)
     territory = payload.get("territory_opcode")
     job = payload.get("job_opcode")
-    if source == "QUEUE_REQUEST" and territory is None:
+    if source == "QUEUE_REQUEST" and territory is None and not _territory_in_zone(template):
         return RebuildResult(INVALID, source + " needs the territory message")
     if territory is not None and _declared_length(template.message(TERRITORY)) is None:
         return RebuildResult(INVALID, "the template declares no territory message")
@@ -263,6 +267,19 @@ def rebuild(payload: Any, template: Template) -> RebuildResult:
 def field_size(item: Mapping) -> int:
     """ProfileField.Size: the width of a numeric type, or the declared length of a bytes field."""
     return FIELD_SIZES.get(item.get("type"), item.get("length", 0))
+
+
+def _separate_reply(template: Template) -> bool:
+    """CalibrationTemplate.SeparateReply: the template declares the reply's own shape."""
+    calibration = template.document.get("calibration")
+    return isinstance(calibration, dict) and "finder_reply" in calibration
+
+
+def _territory_in_zone(template: Template) -> bool:
+    """CalibrationTemplate.TerritoryInZone: no territory message, and the zone marker declares territory_id."""
+    zone = template.message(ZONE) or {}
+    return template.message(TERRITORY) is None and any(
+        item.get("name") == "territory_id" for item in zone.get("fields", []))
 
 
 def _declared_length(message: Mapping | None) -> int | None:

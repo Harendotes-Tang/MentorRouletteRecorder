@@ -152,6 +152,39 @@ class RebuildTests(unittest.TestCase):
                 self.assertEqual(rebuild.INVALID, result.status)
                 self.assertTrue(result.reason.startswith("E_SHARE_CODE_"))
 
+    def test_the_global_two_message_template_refuses_a_reply_state_and_builds_its_pop(self):
+        # CalibratedShape.Refusal: on a template whose reply and pop are two messages (calibration.finder_reply)
+        # the reply is never the pop, so a REPLY_STATE code is refused exactly as the client refuses it.
+        path = testsupport.REPO / "protocol-profiles" / "global" / "global.2026.11.03.json"
+        template = rebuild.load_template(path.read_bytes(), path.name)
+
+        def on(source, **changes):
+            return testsupport.payload(source, 1, region="GLOBAL", template=template, territory_opcode=None, **changes)
+
+        refused = self.build(on("REPLY_STATE", pop={"opcode": 2001, "selector_values": []}), template)
+        self.assertEqual(rebuild.INVALID, refused.status)
+        self.assertIn("two messages", refused.reason)
+        built = self.build(on("ANNOUNCEMENT"), template)
+        self.assertTrue(built.built, built.reason)
+        pop, zone, job = built.messages
+        self.assertEqual((2001, 40, ["roulette_id"]), (pop["opcode"], pop["expected_length"], [f["name"] for f in pop["fields"]]))
+        self.assertEqual((1001, "territory_id"), (zone["opcode"], zone["fields"][0]["name"]))
+        self.assertEqual((4001, "PLAYER_JOB"), (job["opcode"], job["name"]))
+        # The queue standing in for the popup needs no territory message on GLOBAL: the zone marker carries it.
+        queued = self.build(on("QUEUE_REQUEST"), template)
+        self.assertTrue(queued.built, queued.reason)
+        self.assertTrue(queued.needs_consent)
+        self.assertEqual("CLIENT_TO_SERVER", queued.messages[0]["direction"])
+        # Against a GLOBAL template whose zone marker carried no territory the same code would name no duty: refused.
+        document = json.loads(path.read_text(encoding="utf-8"))
+        for message in document["messages"]:
+            if message["name"] == "ZONE_INITIALIZATION":
+                message["fields"] = []
+        bare = testsupport.template_from(document)
+        refused_queue = self.build(on("QUEUE_REQUEST", template_sha256=bare.sha256), bare)
+        self.assertEqual((rebuild.INVALID, "QUEUE_REQUEST needs the territory message"),
+                         (refused_queue.status, refused_queue.reason))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-22 · 国际服本机校准
+
+- 契约形状不变，只有取值变化。国际服档案 `global.2026.11.03` 带本机校准模板后，国际服客户端出现没有档案的新版本时与国服相同：
+  `CaptureStatus.calibration` 依次报告 `WAITING` / `OBSERVING` / `READY` 等状态，`template_profile_id` 为 `global.2026.11.03`；
+  `StartCapture` 不再因 `ERR_PROFILE_UNSUPPORTED` 拒绝这样的版本，校准期间只观察、不记录；`ConfirmCalibration` 写出
+  `global.<版本>.local` 并在同一会话内启用，`profile_origin` 为 `LOCAL_CALIBRATION`。读不到客户端版本时仍为拒绝。
+- 脱敏诊断报告（不属于 IPC 契约，同步记在这里）：`calibration.evidence` 新增 `pop_tallies[]`（`0x报文=带所排编号的次数/出现次数`，
+  只在回执与匹配通知是两条报文的模板下非空），只含 opcode 与计数。报告版本不变（只增不删）。
+
 ## 2026-11-22 · 国际服 2026.11.03 自动记录与角色识别
 
 - 契约形状不变，只有取值变化。`RegionalAchievement.identification` 对 `GLOBAL` 由 `MANUAL_REGION` 改为 `AUTOMATIC`（设置关闭时仍为 `MANUAL_OFF`），`TC` 不变；待说明的角色（`DashboardStats.identities`、`ResolveCharacterIdentity`）因此也可能属于国际服。

@@ -148,7 +148,11 @@ public static class LocalProfileWriter
             var key = "messages." + message.Name + ".opcode";
             var samples = draft.SampleCounts.GetValueOrDefault(key);
             evidence.Add(CalibratedProfileDocument.Evidence(key, "OBSERVED_LOCAL_TRAFFIC", recorded, samples,
-                Observed(message, draft, gameBuild, samples) + Learned(message) + Rationale(message)));
+                Observed(message, draft, gameBuild, samples) +
+                // Only the pop's "matched" state is ever learned; any other selector - the GLOBAL job message's
+                // finder_state - is the template's (review 2026-11-22, L1).
+                (message.Name == CalibratedShape.PopName ? Learned(message) : string.Empty) +
+                Rationale(message, draft, template)));
         }
 
         if (draft.TimedAnnouncement is { } announced)
@@ -234,6 +238,9 @@ public static class LocalProfileWriter
     /// <param name="draft">Draft being written.</param>
     private static string MatchNote(CalibrationDraft draft) => draft.MatchSource switch
     {
+        CalibrationMatchSource.Announcement when draft.DeclaredPop =>
+            "「匹配成功」与排本回执是两条报文，模板即如此声明：匹配通知的 opcode 来自本机观察，长度与轮盘编号偏移继承自模板，" +
+            "回执只用来确认排本",
         CalibrationMatchSource.Announcement =>
             "「匹配成功」在这一版是与排本回执不同的一条报文，其 opcode 与长度均来自本机观察",
         CalibrationMatchSource.MarkerOffset =>
@@ -269,6 +276,29 @@ public static class LocalProfileWriter
     /// the wire: a build may send the match as another state of the queue reply, or as a message
     /// of its own. Which one this profile records is visible in whether it kept a selector.
     /// </summary>
+    /// <param name="message">Message as the draft resolved it.</param>
+    /// <param name="draft">Draft being written; says whether the pop came from a two-message template.</param>
+    /// <param name="template">Template the draft was derived from.</param>
+    private static string Rationale(ProfileMessage message, CalibrationDraft draft, CalibrationTemplate template) =>
+        message.Name switch
+        {
+            "CONTENT_FINDER_POP" when draft.DeclaredPop =>
+                "判据：模板声明这一版本的排本回执与匹配通知是两条报文（calibration.finder_reply）。回执按其自身结构" +
+                "（长度与轮盘编号偏移来自模板）与排本请求配对，只用来确认排本，从不作为匹配通知；匹配通知按模板 CONTENT_FINDER_POP " +
+                "的结构（长度与轮盘编号偏移继承自模板）识别：须在同一连接上晚于同轮盘的已配对排本请求、在任何加载之外到达，" +
+                "所带编号等于排队中的轮盘，并在模板匹配窗口内由唯一已知副本进本佐证；排队期间这种报文携带其他取值达到 2 次即不予采信。" +
+                "回执窗口不适用于它：坦克即时匹配时通知可能在回执窗口内到达。若仍有多个候选，先排除出现在换区簇里的，再取佐证次数最多的；" +
+                "仍然并列则不启用。",
+            "PLAYER_JOB" when template.ReplyCarriesJob =>
+                "判据：模板声明排本回执同时就是职业报文（calibration.finder_reply.player_job），因此其 opcode 即已配对的回执 opcode，" +
+                "筛选器与职业字段继承自模板。采信条件：满足筛选器的回执全部读出符合约束的职业编号，同一次排本的各条回执读数一致，" +
+                "且至少一条读出职业。",
+            "ZONE_INITIALIZATION" when template.TerritoryInZone =>
+                Rationale(message) + "该报文同时带区域编号（字段继承自模板），所选进本簇中正是它读出了副本表能认出的区域。",
+            _ => Rationale(message),
+        };
+
+    /// <summary>Why this message was accepted, on a template whose pop also answers the request.</summary>
     /// <param name="message">Message as the draft resolved it.</param>
     private static string Rationale(ProfileMessage message) => message.Name switch
     {

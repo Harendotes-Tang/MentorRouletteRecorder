@@ -61,6 +61,9 @@ public static class ProfileLoader
     /// <summary>Evidence field a VERIFIED profile must cite when it carries a calibration template.</summary>
     public const string CalibrationEvidenceKey = "calibration.finder_request.roulette_field";
 
+    /// <summary>Evidence field a VERIFIED template must also cite when it declares <c>calibration.finder_reply</c>.</summary>
+    public const string CalibrationReplyEvidenceKey = "calibration.finder_reply.roulette_field";
+
     private static readonly Lazy<JsonDocument> Schema = new(LoadSchema, isThreadSafe: true);
 
     /// <summary>The profile schema this build validates against.</summary>
@@ -181,7 +184,7 @@ public static class ProfileLoader
         CheckIdentity(fullPath, profileId, regionText, statusText, errors);
         var messages = ReadMessages(root, statusText, errors);
         var hypotheses = ReadHypotheses(root, statusText, errors);
-        var calibration = ReadCalibration(root, statusText, errors);
+        var calibration = ReadCalibration(root, statusText, messages, errors);
         var obfuscated = ReadObfuscatedOpcodes(root, messages, errors);
         CheckStatusRules(root, statusText, messages, hypotheses, errors);
         var fixtures = ReadFixtures(root);
@@ -393,6 +396,14 @@ public static class ProfileLoader
                 "E_PROFILE_NO_EVIDENCE", "$.provenance.evidence",
                 "a VERIFIED template needs an evidence entry for " + CalibrationEvidenceKey));
         }
+
+        if (root.TryGetProperty("calibration", out var calibration) && calibration.ValueKind == JsonValueKind.Object &&
+            calibration.TryGetProperty("finder_reply", out _) && !covered.Contains(CalibrationReplyEvidenceKey))
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_NO_EVIDENCE", "$.provenance.evidence",
+                "a VERIFIED template needs an evidence entry for " + CalibrationReplyEvidenceKey));
+        }
     }
 
     /// <summary>
@@ -440,7 +451,7 @@ public static class ProfileLoader
     /// verified to lend.
     /// </summary>
     private static ProfileCalibration? ReadCalibration(
-        JsonElement root, string statusText, List<ProfileIssue> errors)
+        JsonElement root, string statusText, IReadOnlyList<ProfileMessage> messages, List<ProfileIssue> errors)
     {
         if (!root.TryGetProperty("calibration", out var section))
         {
@@ -476,15 +487,94 @@ public static class ProfileLoader
             return null;
         }
 
+        CalibrationFinderReply? reply = null;
+        if (section.TryGetProperty("finder_reply", out var replySection))
+        {
+            reply = ReadFinderReply(replySection, messages, errors);
+            if (reply is null)
+            {
+                return null;
+            }
+        }
+
         return new ProfileCalibration(
             new CalibrationFinderRequest(
-                string.Equals(
-                    request.GetProperty("direction").GetString(), "SERVER_TO_CLIENT", StringComparison.Ordinal)
-                    ? PacketDirection.ServerToClient
-                    : PacketDirection.ClientToServer,
+                DirectionOf(request),
                 requestLength,
                 rouletteField),
-            TimeSpan.FromMilliseconds(section.GetProperty("finder_reply_max_ms").GetInt32()));
+            TimeSpan.FromMilliseconds(section.GetProperty("finder_reply_max_ms").GetInt32()))
+        {
+            FinderReply = reply,
+        };
+    }
+
+    private static PacketDirection DirectionOf(JsonElement shape) =>
+        string.Equals(shape.GetProperty("direction").GetString(), "SERVER_TO_CLIENT", StringComparison.Ordinal)
+            ? PacketDirection.ServerToClient
+            : PacketDirection.ClientToServer;
+
+    /// <summary>
+    /// Reads <c>calibration.finder_reply</c>: the server's answer to the request when it is a message
+    /// of its own and the match is announced on another one. Its roulette field gets the request's
+    /// checks. Three more rules keep the two-message shape meaningful: it must not describe the pop
+    /// itself (a template whose pop answers the request omits the section); the pop then declares no
+    /// selector, because a message of its own has no "matched" state to learn - its arriving is the
+    /// state; and a reply that also carries the job must have the shape of <c>PLAYER_JOB</c>.
+    /// </summary>
+    private static CalibrationFinderReply? ReadFinderReply(
+        JsonElement section, IReadOnlyList<ProfileMessage> messages, List<ProfileIssue> errors)
+    {
+        const string path = "$.calibration.finder_reply";
+        var length = section.GetProperty("expected_length").GetInt32();
+        var wrapper = new Dictionary<string, object> { ["fields"] = new[] { section.GetProperty("roulette_field") } };
+        var fields = ReadFields(JsonSerializer.SerializeToElement(wrapper), "calibration.finder_reply", length, errors);
+        var rouletteField = fields.Count == 1 ? fields[0] : null;
+        if (rouletteField is null)
+        {
+            return null;
+        }
+
+        if (rouletteField.Type is not (ProfileFieldType.U8 or ProfileFieldType.U16 or ProfileFieldType.U32))
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_CALIBRATION_FIELD", path + ".roulette_field",
+                "the calibration roulette field must be u8, u16 or u32"));
+            return null;
+        }
+
+        var reply = new CalibrationFinderReply(
+            DirectionOf(section),
+            length,
+            rouletteField,
+            section.TryGetProperty("player_job", out var job) && job.ValueKind == JsonValueKind.True);
+        var errorCount = errors.Count;
+        var pop = messages.FirstOrDefault(message => message.Name == "CONTENT_FINDER_POP");
+        if (pop?.Field("roulette_id") is { } popRoulette && pop.Direction == reply.Direction &&
+            pop.AcceptsLength(reply.ExpectedLength) && popRoulette.Offset == rouletteField.Offset &&
+            popRoulette.Type == rouletteField.Type)
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_CALIBRATION_REPLY", path,
+                "finder_reply describes CONTENT_FINDER_POP itself; omit it when the pop answers the request"));
+        }
+
+        if (pop is not null && pop.Fields.Any(field => field.Role == ProfileFieldRole.Selector))
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_CALIBRATION_REPLY", path,
+                "with a finder_reply, CONTENT_FINDER_POP is a message of its own and must declare no selector"));
+        }
+
+        var playerJob = messages.FirstOrDefault(message => message.Name == "PLAYER_JOB");
+        if (reply.CarriesPlayerJob &&
+            (playerJob is null || playerJob.Direction != reply.Direction || playerJob.ExpectedLength != reply.ExpectedLength))
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_CALIBRATION_REPLY", path + ".player_job",
+                "player_job needs a PLAYER_JOB message of the reply's direction and exact length"));
+        }
+
+        return errors.Count == errorCount ? reply : null;
     }
 
     private static IReadOnlyList<ProfileHypothesis> ReadHypotheses(

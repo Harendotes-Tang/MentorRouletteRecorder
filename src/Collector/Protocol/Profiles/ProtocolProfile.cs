@@ -410,6 +410,26 @@ public sealed record CalibrationFinderRequest(
     ProfileField RouletteField);
 
 /// <summary>
+/// The server's answer to the roulette request, as a shape, on a client that answers with a
+/// message of its own and announces the match on another one (GLOBAL 2026.11.03: the reply is
+/// 40 bytes with the roulette id at byte 16, the popup a different 40-byte message with the
+/// roulette id at offset 2). A template without this shape - the CN one - answers the request
+/// with <c>CONTENT_FINDER_POP</c> itself, in another state.
+/// </summary>
+/// <param name="Direction">Direction of the reply; SERVER_TO_CLIENT for every known client.</param>
+/// <param name="ExpectedLength">Exact payload length of the reply.</param>
+/// <param name="RouletteField">Where the echoed roulette id is read from.</param>
+/// <param name="CarriesPlayerJob">
+/// True when the reply is also the template's <c>PLAYER_JOB</c> message: same direction and length,
+/// the job read with that message's fields. Calibration then learns the job's opcode from the reply.
+/// </param>
+public sealed record CalibrationFinderReply(
+    PacketDirection Direction,
+    int ExpectedLength,
+    ProfileField RouletteField,
+    bool CarriesPlayerJob);
+
+/// <summary>
 /// Shape knowledge a template profile lends to the calibration observer. Everything here is
 /// observation-only: it configures how a draft is proposed, never how a message is parsed.
 /// </summary>
@@ -417,4 +437,11 @@ public sealed record CalibrationFinderRequest(
 /// <param name="FinderReplyMax">How long after the request its echo may arrive.</param>
 public sealed record ProfileCalibration(
     CalibrationFinderRequest FinderRequest,
-    TimeSpan FinderReplyMax);
+    TimeSpan FinderReplyMax)
+{
+    /// <summary>
+    /// The reply's own shape when it is not <c>CONTENT_FINDER_POP</c>; null when the template's pop
+    /// is also the reply (docs/protocol-profile-format.md section 11.1).
+    /// </summary>
+    public CalibrationFinderReply? FinderReply { get; init; }
+}
