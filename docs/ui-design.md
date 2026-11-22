@@ -1463,10 +1463,10 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
 
 「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
 `character_identification_enabled`，默认开启，作用于全部区服）位于「设置 › 通用」的记录开关之中、共享校准开关之前，
-只有一个角色的用户也能看到并关闭，说明中写明目前只对国服有效、软件不读取角色名、关闭后改为在总览手动切换。
+只有一个角色的用户也能看到并关闭，说明中写明目前对国服和国际服有效、软件不读取角色名、关闭后改为在总览手动切换。
 
 * 「已识别的游戏角色」（`characterBindingRow`）显示所选档案的绑定数量。数量为零时显示「尚未绑定游戏角色」，
-  且只在该区服自动识别角色时（`identification` 为 `AUTOMATIC`）显示：繁中服、国际服或关闭识别后不会再有绑定，不显示这一行。
+  且只在该区服自动识别角色时（`identification` 为 `AUTOMATIC`）显示：繁中服或关闭识别后不会再有绑定，不显示这一行。
   有绑定时可点「解除」（`forgetIdentitiesButton`），发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
   总览重新询问，已有记录不变。
 * 「不统计的角色」（`ignoredCharactersRow`），该区服有 `IGNORED` 的角色时出现；「重新询问」（`askAgainButton`）

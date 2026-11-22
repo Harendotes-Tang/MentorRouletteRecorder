@@ -401,6 +401,90 @@ public sealed class ProtocolDecodedReplayTests
         Assert.Equal(session.GameBuild, run.GameBuild);
     }
 
+    /// <summary>
+    /// The shipped GLOBAL profile on the sequence the testers' rounds showed (2026-11-21 and 11-22),
+    /// built from the field values alone with every other byte zero: the job echoed at the queue,
+    /// the match notice carrying the roulette, the zone change into the duty, the content-recognised
+    /// clear and the zone change out. A mentor match records one completed run in the Clyteum; the
+    /// same sequence for the Expert roulette (5) records nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(9, 1)]
+    [InlineData(5, 0)]
+    public void TheShippedGlobalProfileRecordsOnlyAMentorMatchFromPopToClear(int roulette, int runs)
+    {
+        var started = new DateTimeOffset(2026, 11, 22, 9, 24, 15, TimeSpan.Zero);
+        var replay = DecodedReplayRunner.Run(
+            GlobalFixture(roulette, started),
+            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "global", "global.2026.11.03.json"),
+            TempDatabase());
+
+        Assert.True(replay.BuildMatched);
+        Assert.True(replay.ProfileUsable);
+        Assert.Equal(0, replay.Parser.ParseFailed);
+        Assert.Equal(runs, replay.Runs.Count);
+        if (runs == 0)
+        {
+            return;
+        }
+
+        var run = Assert.Single(replay.Runs);
+        Assert.Equal(Region.Global, run.Region);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.Equal(1345, run.TerritoryId);
+        Assert.Equal("the Clyteum", run.DutyName);
+        Assert.Equal(19, run.JobId);
+        Assert.Equal(started.AddMilliseconds(373), run.MatchedAtUtc);
+        Assert.Equal(started.AddMilliseconds(7_670), run.EnteredAtUtc);
+        Assert.NotNull(run.EndedAtUtc);
+    }
+
+    /// <summary>A temporary synthetic fixture with the GLOBAL 2026.11.03 opcodes and shapes.</summary>
+    private static string GlobalFixture(int roulette, DateTimeOffset started)
+    {
+        static string Payload(int length, params (int Offset, byte Value)[] bytes)
+        {
+            var payload = new byte[length];
+            foreach (var (offset, value) in bytes)
+            {
+                payload[offset] = value;
+            }
+
+            return Convert.ToHexString(payload).ToLowerInvariant();
+        }
+
+        static JsonObject Message(long t, int opcode, string payload) => new()
+        {
+            ["t_ms"] = t, ["direction"] = "SERVER_TO_CLIENT", ["segment_type"] = 3, ["opcode"] = opcode,
+            ["epoch"] = t, ["payload_hex"] = payload,
+        };
+
+        var fixture = new JsonObject
+        {
+            ["fixture_id"] = "synthetic_global_roulette_" + roulette.ToString(CultureInfo.InvariantCulture),
+            ["format_version"] = 1,
+            ["synthetic"] = true,
+            ["description"] = "国际服 2026.11.03 的报文形状，取值只有字段本身，其余字节为零。",
+            ["profile"] = "global.2026.11.03",
+            ["game_build"] = "2026.11.03.0000.0000",
+            ["started_at_utc"] = UtcTimestamp.ToText(started),
+            ["messages"] = new JsonArray(
+                // Job 19 at the queue, then the match notice, the duty (territory 1345, content 1011),
+                // the clear of director 0x8003_75ca, and the way back to territory 641.
+                Message(63, 0x016f, Payload(40, (0, 1), (1, 19), (16, (byte)roulette))),
+                Message(373, 0x03bf, Payload(40, (0, 3), (2, (byte)roulette))),
+                Message(7_670, 0x00ab, Payload(136, (2, 0x41), (3, 0x05), (6, 0xf3), (7, 0x03))),
+                Message(850_000, 0x00a9, Payload(40, (0, 0x6d), (4, 0xca), (5, 0x75), (6, 0x03), (7, 0x80),
+                    (8, 0x03), (11, 0x40))),
+                Message(861_000, 0x00ab, Payload(136, (2, 0x81), (3, 0x02)))),
+        };
+        var path = Path.Combine(Path.GetDirectoryName(TempDatabase())!, "global.decoded.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, fixture.ToJsonString());
+        File.WriteAllText(path + ".sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        return path;
+    }
+
     [Fact]
     public void ADecodedFixtureCannotBeReplayedWithAFailClosedRegionProfile()
     {

@@ -1,13 +1,28 @@
 # Global Server Testing and Evidence Collection
 
 <a id="current-test"></a>
-## Current test — one completed non-Mentor roulette
+## Current test — automatic recording in normal play
 
-For Global client build **2026.11.03**, the two Mentor runs are already on file. The outstanding comparison is a normal roulette that actually matches and enters a duty. Keep your current 1.9.1 build with the **second-round evidence** card (1.9.1-beta.4 or newer).
+The evidence for Global client build **2026.11.03** is complete. The first test build after 1.9.1 that
+mentions Global automatic recording in its release notes records Mentor Roulette runs on this client
+version automatically and tells your characters apart, the same way as on the Chinese server. What is
+left is to see it work in normal play. No evidence round, capture or payload consent is needed.
 
-1. With the game closed, open the second-round card and start a new capture as described in section 7, steps 1–2. Read the payload consent before starting.
-2. Log in, queue once for a **non-Mentor roulette**, accept the match and enter the duty. Leave normally. The four checkboxes on the card belong to the earlier test. Leave them unchecked.
-3. Use **结束并导出** and send the candidate JSON and its SHA-256 privately. Include the roulette name and actual duty name. Mention a re-formed party if it occurred naturally. No extra Mentor run, manual timing or recording is needed.
+1. Install that test build. The second-round card no longer appears for 2026.11.03; that is expected.
+2. Play the Mentor Roulette as usual. After leaving the duty, open **History**: the run should be there
+   with the duty name, your job and the result (a cleared duty shows as completed).
+3. If you play more than one character, log in with another one: the Overview asks once whether it is
+   a new character. A character you have already answered for is switched to automatically. If the
+   Overview asks again about a character you already answered for (for example on another day or
+   after maintenance), please tell us: it would mean the identification does not hold across days,
+   which has only been checked on one day so far.
+4. Send a short note privately: whether each Mentor run appeared, and anything that looked wrong — a
+   missing run, a wrong duty or job, a run recorded for a roulette that was not the Mentor Roulette, or
+   the wrong character. If something went wrong, attach the diagnostics report
+   (**捕获诊断 → 工具 → 导出诊断报告**); it contains no packet content.
+
+The last evidence round (one completed non-Mentor roulette, 2026-11-22) and the character
+identification round of the same day are on file.
 
 ## Earlier rounds (completed)
 
@@ -259,6 +274,9 @@ provided. Completing this collection does not by itself mean Global automatic re
 been verified.
 
 ## 7. Second round: message content (one round, about half an hour)
+
+> Since 2026-11-22 client version 2026.11.03 records automatically, so this card no longer
+> appears for it. The section stays for later client versions that only have a candidate profile.
 
 Round 1 told us *which* messages matter. Round 2 records the *content* of those few messages,
 so the maintainer can find where the roulette, the duty and the job sit inside them. It needs

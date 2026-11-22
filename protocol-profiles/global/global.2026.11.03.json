@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "profile_id": "global.2026.11.03",
+  "region": "GLOBAL",
+  "game_build": "2026.11.03.0000.0000",
+  "generated_at": "2026-11-22T11:00:00.000Z",
+  "mentor_roulette_id": 9,
+  "compatibility_status": "VERIFIED",
+  "match_window_seconds": 120,
+  "messages": [
+    {
+      "name": "CONTENT_FINDER_POP",
+      "opcode": 959,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 40,
+      "fields": [
+        {
+          "name": "roulette_id",
+          "offset": 2,
+          "type": "u16",
+          "endian": "little",
+          "constraints": {
+            "min": 0,
+            "max": 255
+          }
+        }
+      ]
+    },
+    {
+      "name": "ZONE_INITIALIZATION",
+      "opcode": 171,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 136,
+      "fields": [
+        {
+          "name": "territory_id",
+          "offset": 2,
+          "type": "u16",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "PLAYER_JOB",
+      "opcode": 367,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 40,
+      "fields": [
+        {
+          "name": "finder_state",
+          "offset": 0,
+          "type": "u8",
+          "role": "selector",
+          "constraints": {
+            "in": [
+              1
+            ]
+          }
+        },
+        {
+          "name": "job_id",
+          "offset": 1,
+          "type": "u8",
+          "constraints": {
+            "min": 1,
+            "max": 43
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [],
+  "provenance": {
+    "summary": "国际服 2026.11.03 的正式档案，与国服档案同样按服务器的匹配通知判定导随：匹配通知 S2C 0x03bf（40 字节）在偏移 2 的小端 u16 带所排随机任务的编号，只在匹配成功时出现一次；进出副本由 S2C 0x00ab（136 字节，每次换区恰好一次）判定，它在偏移 2 的小端 u16 同时带区域编号，用来确定副本名。职业取自排本时服务器回送的状态更新 S2C 0x016f（40 字节，第 0 字节为 1，第 1 字节为职业编号），排队期间换职业会退出排队，因此它就是这一场所用的职业。全部常量来自一位国际服测试者的四份文件（均由维护者保存，不在仓库中）：2026-11-20 的元数据 trace（SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad，一场指导者随机）、2026-11-21 的第二轮导出（SHA-256 38cf88bb7279bdf30434aaea6cd98e4559203261b4a31eea7dd62fb7ebcdfe6a，上级迷宫排队后撤回、换职业、指导者随机进入博物战舰无限回廊）、2026-11-22 的第二轮导出（SHA-256 8b59bf509a1864314d95e659697fba1361afab5297b63a61b4cf993a4f11ec06，高难度随机以骑士进入军工要地克吕提俄斯魔导工厂）与同日的角色识别 trace（SHA-256 7cfb30277ed55c540df6bdd8333ebd945c49e5b396fc1498a16602f91adcbb18，元数据，含一场大型任务随机）。没有 DUTY_RESULT：通关由按内容识别的结算信号给出（docs/protocol-profile-format.md §12），该信号已在国际服的四人迷宫与大型任务上观察到。不带 calibration：国际服没有本机校准模板，每个游戏版本都需要随软件发布的档案。",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": [
+      {
+        "field": "messages.CONTENT_FINDER_POP.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 4,
+        "url": null,
+        "note": "S2C 0x03bf（40 字节）在四次实际匹配中各出现恰好一次，且都在排本申请之后、进本之前：11-20 指导者随机（申请后 0.4 秒，进本前约 18 秒）、11-21 指导者随机（申请后约 85 秒，进本前约 26 秒）、11-22 高难度随机（申请后 0.37 秒，进本前 7.3 秒；坦克即时匹配，之后有两条确认进度 0x02cb）、11-22 角色识别 trace 中的大型任务随机（申请后 7.7 秒，进本前 16.9 秒）。11-21 那一轮先排上级迷宫后撤回，整轮只有指导者随机匹配时的一条 0x03bf。11-22 的角色识别 trace 历时 16 分钟（三次登录、一次传送、一场副本），0x03bf 只在那次匹配时出现一次。"
+      },
+      {
+        "field": "messages.CONTENT_FINDER_POP.fields.roulette_id",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "偏移 2 的小端 u16 在 11-21 读出 9（测试者填写：指导者任务），在 11-22 读出 5（测试者确认：高难度），与同次排本申请 C2S 0x0215 第 0 字节、状态更新 0x016f 第 16 字节读出的编号相同。两次的第 3 字节均为 0，取值与国服 ContentRoulette 编号一致（高难度 5、指导者任务 9）。约束 0–255：直接申请某个副本（不经随机任务）的匹配预计在这里读出 0，按其他随机任务处理、不记为解析失败；超过一个字节的值使整条报文作废，不会被当作别的随机任务。读出 0 或其他编号都不会开始导随记录，只有 9 会。"
+      },
+      {
+        "field": "messages.ZONE_INITIALIZATION.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 12,
+        "url": null,
+        "note": "S2C 0x00ab（136 字节）每次换区恰好一次：11-22 角色识别 trace 的六次换区（三次登录、一次传送、进入与离开一场大型任务）各一次，此外从未出现；11-22 第二轮导出的登录、进本、离开三次换区各一次，每次都与换区的其他成员报文同一毫秒到达。11-21 第二轮导出中同样每次换区一条（登录、排队途中的传送、进本，读出 641、341、430）。"
+      },
+      {
+        "field": "messages.ZONE_INITIALIZATION.fields.territory_id",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 6,
+        "url": null,
+        "note": "偏移 2 的小端 u16：11-21 进本读出 430、11-22 进本读出 1345，与测试者说明的博物战舰无限回廊、军工要地克吕提俄斯魔导工厂在 data/duties/global.2026-09-04.json 中的 territory_id 一致；登录、离开副本与排队途中的传送读出 641 与 341（白银乡、高脚孤丘两处住宅区），都不在副本表中。偏移 6 的小端 u16 在副本内为 35 与 1011（与副本表的 content_id 相同）、城镇为 0；本档案不声明它，副本统计与国服记录一样按区域编号归入副本。约束 min 1 挡掉全零负载。"
+      },
+      {
+        "field": "messages.PLAYER_JOB.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 5,
+        "url": null,
+        "note": "S2C 0x016f（40 字节）在每次排本申请之后到两条，第一条约晚 63 ms、第二条晚 190–250 ms（11-20 一次申请、11-21 两次申请、11-22 两份文件各一次申请）；11-22 的两份文件里它只在申请之后出现。第 16 字节回带所排随机任务的编号。"
+      },
+      {
+        "field": "messages.PLAYER_JOB.fields.job_id",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "第 1 字节：11-21 两次申请读出 25 与 40，测试者填写换职业前后为黑魔道士与贤者；11-22 读出 19，测试者确认为骑士。三者都是 ClassJob 编号。读出职业的样本第 0 字节均为 1，声明为筛选器：其他取值的同一报文不读职业，也不计为解析失败。职业只用于补全记录，不参与任何状态判定。"
+      },
+      {
+        "field": "mentor_roulette_id",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "11-21 测试者排的是指导者任务，排本申请第 0 字节、状态更新第 16 字节与匹配通知偏移 2 都读出 9；11-20 的指导者随机由测试者说明。与国服 ContentRoulette 表的指导者任务编号相同。"
+      },
+      {
+        "field": "match_window_seconds",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-22T11:00:00.000Z",
+        "sample_count": 4,
+        "url": null,
+        "note": "匹配通知到进本依次约 18、26、7.3、16.9 秒。窗口与国服档案相同取 120 秒，留出队员迟迟不确认、重新匹配的余地。"
+      }
+    ]
+  },
+  "profile_sha256": "48731dc956b533347d09d1ed93635f7a2e32a377c75036fd2c21a8d3bbeee787"
+}

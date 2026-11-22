@@ -100,7 +100,7 @@ completed_count = COUNT(*) WHERE
   与引入档案之前相同。各区服、各档案的进度分别展示，不相加：区服有多个档案时，「全部角色」的视图只展示次数类统计，
   不展示进度与目标。
 - 每一项另附 `identification`，说明该区服新记录的归属方式（[state-machine.md](state-machine.md) §3.1）：`AUTOMATIC`
-  按登录的角色归入其绑定的档案（目前只有国服）；`MANUAL_REGION` 表示该区服尚未核实角色识别，`MANUAL_OFF` 表示已在设置中关闭，
+  按登录的角色归入其绑定的档案（目前为国服与国际服）；`MANUAL_REGION` 表示该区服尚未核实角色识别，`MANUAL_OFF` 表示已在设置中关闭，
   两者的新记录都归入当前档案。
 - `DashboardStats.profiles` 的每个档案附 `identity_count`：绑定到该档案的角色数（[data-model.md](data-model.md) §4.3），
   只靠手动切换的档案为 0。

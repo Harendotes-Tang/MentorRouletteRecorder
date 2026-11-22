@@ -2,9 +2,11 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
+using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.IntegrationTests;
@@ -93,9 +95,15 @@ public sealed class CandidateLedgerIpcTests
     public async Task PlayerExportContainsOnlyItsClosedRoundAcrossOverlappingClocks()
     {
         const string profile = "global.2026.11.03.candidate";
+        // The round is offered only for a build that does not record yet. The shipped GLOBAL
+        // 2026.11.03 records since 2026-11-22, so the formal selection here stands for a later
+        // build that has a candidate and nothing else.
         await using var fixture = ServerFixture.Start(capture: CaptureFakes.RememberedInstall(
             "2026.11.03.0000.0000", npcapInstalled: false,
-            executablePath: @"D:\Square Enix\Final Fantasy XIV Online\game\ffxiv_dx11.exe"));
+            executablePath: @"D:\Square Enix\Final Fantasy XIV Online\game\ffxiv_dx11.exe"),
+            profileSelector: game => new ProfileSelection(ProfileCompatibilityStatus.Unsupported,
+                ProfileBinding.FailClosed, null, game.Region, game.GameBuild, ProfileSelector.NoProfileMatchesReason,
+                ReasonCode: ProfileSelectionReason.NoMatch));
         var host = fixture.Host;
         var offered = (await fixture.CallAsync("GetCaptureStatus")).Require();
         Assert.Equal("GLOBAL", offered["region"]!.GetValue<string>());
@@ -209,6 +217,31 @@ public sealed class CandidateLedgerIpcTests
         var all = (await fixture.CallAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = FilePath("maintainer") })).Require();
         Assert.Equal(4, all["observation_count"]!.GetValue<int>());
         Assert.Equal(3, all["review_count"]!.GetValue<int>());
+    }
+
+    /// <summary>
+    /// With the shipped profiles, GLOBAL 2026.11.03 records (2026-11-22), so its candidate no longer
+    /// opens a player round: the request is refused and nothing switches to candidate validation.
+    /// </summary>
+    [Fact]
+    public async Task AGlobalBuildThatRecordsOffersNoPlayerRound()
+    {
+        await using var fixture = ServerFixture.Start(capture: CaptureFakes.RememberedInstall(
+            "2026.11.03.0000.0000", npcapInstalled: false,
+            executablePath: @"D:\Square Enix\Final Fantasy XIV Online\game\ffxiv_dx11.exe"));
+        var status = (await fixture.CallAsync("GetCaptureStatus")).Require();
+        Assert.Equal("GLOBAL", status["region"]!.GetValue<string>());
+        Assert.Equal("VERIFIED", status["profile_status"]!.GetValue<string>());
+
+        var refused = await fixture.CallAsync("UpdateCaptureSettings", new JsonObject
+        {
+            ["candidate_validation_enabled"] = true, ["candidate_round_id"] = Guid.NewGuid().ToString("D"),
+            ["candidate_round_profile_id"] = "global.2026.11.03.candidate",
+            ["research_payload_opcodes"] = new JsonArray("0x0215", "0x016f"),
+        });
+
+        Assert.Equal(ErrorCodes.BadRequest, refused.ErrorCode);
+        Assert.False(CaptureSettingsStore.Read(fixture.Host.Settings).CandidateValidationEnabled);
     }
 
     [Fact]

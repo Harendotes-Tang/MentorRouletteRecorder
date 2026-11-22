@@ -118,7 +118,7 @@ public sealed class InstalledBuildPipelineTests : IDisposable
     /// </summary>
     [Theory]
     [InlineData(Region.Tc, "2026.10.01.0000.0000", false, "profile.unavailable.region_unsupported")]
-    [InlineData(Region.Global, "2026.10.01.0000.0000", false, "profile.unavailable.region_unsupported")]
+    [InlineData(Region.Global, "2026.10.01.0000.0000", false, "profile.unavailable.no_match")]
     [InlineData(Region.Cn, "2099.01.01.0000.0000", false, "profile.unavailable.no_match")]
     [InlineData(Region.Cn, null, false, "profile.unavailable.build_unknown")]
     [InlineData(Region.Unknown, "2026.08.05.0000.0000", false, "profile.unavailable.region_unknown")]

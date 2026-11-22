@@ -76,15 +76,18 @@ public static class CharacterIdentification
     public const string KeyFailuresSetting = "capture.character_identity_key_failures";
 
     /// <summary>
-    /// The mode of a region. Only the Chinese service has been verified on a real machine
-    /// (2026-11-15: three characters, each with its own identifier, the same one after logging in
-    /// again and through zone changes); the other regions stay manual until a tester has shown the
-    /// same there.
+    /// The mode of a region. Automatic where a real-machine round has shown the login message
+    /// telling characters apart: the Chinese service (2026-11-14 to 11-16: three characters, each
+    /// with its own identifier, the same one after logging in again, across days and through zone
+    /// changes) and the Global service (2026-11-22, a tester's round: the same 2952-byte login
+    /// message with the actor at offset 24, two characters told apart, the first the same after
+    /// logging in again and through a teleport and a duty; one day only). The Traditional Chinese
+    /// service stays manual until a tester has shown the same there.
     /// </summary>
     /// <param name="region">Service region.</param>
     /// <param name="enabled"><c>capture.character_identification_enabled</c> as it stands.</param>
     public static CharacterIdentificationMode ModeFor(Region region, bool enabled) =>
         !enabled ? CharacterIdentificationMode.ManualOff
-        : region == Region.Cn ? CharacterIdentificationMode.Automatic
+        : region is Region.Cn or Region.Global ? CharacterIdentificationMode.Automatic
         : CharacterIdentificationMode.ManualRegion;
 }

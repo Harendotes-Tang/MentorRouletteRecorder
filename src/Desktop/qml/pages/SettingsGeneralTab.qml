@@ -311,7 +311,7 @@ ColumnLayout {
             objectName: "characterIdentificationToggle"
             label: qsTr("自动识别登录的角色")
             description: tab.captureSettingDescription(
-                qsTr("默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；"
+                qsTr("默认开启，目前对国服和国际服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；"
                      + "第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。"
                      + "关闭后改为在总览手动切换角色。"))
             toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded

@@ -5747,8 +5747,8 @@ SHA256: %3</translation>
         <translation>Game records stay on this PC</translation>
     </message>
     <message>
-        <source>会区分登录的角色（国服，默认开启，可关）</source>
-        <translation>Tells logged-in characters apart (CN, on by default, can be turned off)</translation>
+        <source>会区分登录的角色（国服、国际服，默认开启，可关）</source>
+        <translation>Tells logged-in characters apart (CN and Global, on by default, can be turned off)</translation>
     </message>
     <message>
         <source>为了把记录归到对应的角色，软件会从登录时的流量里读出区分角色的标识，立刻换算成无法还原的标记，只把这个标记保存在本机。不读取角色名，标记不会离开这台电脑。不想要可以在「设置 → 通用」关掉。</source>
@@ -12557,8 +12557,8 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Detect the logged-in character automatically</translation>
     </message>
     <message>
-        <source>默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。关闭后改为在总览手动切换角色。</source>
-        <translation>On by default; currently effective on the Chinese service only. If you have several characters, the app recognises which one you logged in as and switches automatically; a character it sees for the first time is asked about once on the Overview. The app does not read character names; it keeps only a marker on this computer that cannot be turned back into character information. When off, switch characters by hand on the Overview.</translation>
+        <source>默认开启，目前对国服和国际服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。关闭后改为在总览手动切换角色。</source>
+        <translation>On by default; currently effective on the Chinese and Global services. If you have several characters, the app recognises which one you logged in as and switches automatically; a character it sees for the first time is asked about once on the Overview. The app does not read character names; it keeps only a marker on this computer that cannot be turned back into character information. When off, switch characters by hand on the Overview.</translation>
     </message>
     <message>
         <source>游戏更新后获取其他玩家的共享校准</source>

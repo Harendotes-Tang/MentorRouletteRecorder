@@ -77,11 +77,16 @@ public sealed class ServerFixture : IAsyncDisposable
     /// Update-check client. When null the server gets one whose transport refuses to send, so no
     /// transport test can reach a release host however the status is polled.
     /// </param>
+    /// <param name="profileSelector">
+    /// Formal profile selection. When null the shipped catalogue decides, as in production; a test
+    /// about a build the catalogue does not record yet passes its own.
+    /// </param>
     public static ServerFixture Start(
         Action<CollectorHost>? seed = null,
         CaptureServices? capture = null,
         OnlineSpeechClient? speech = null,
-        UpdateCheckClient? updateCheckClient = null)
+        UpdateCheckClient? updateCheckClient = null,
+        Func<GameProcessDetection, ProfileSelection>? profileSelector = null)
     {
         var directory = Path.Combine(
             Path.GetTempPath(), "MentorRecorder.IntegrationTests", Guid.NewGuid().ToString("N"));
@@ -92,7 +97,7 @@ public sealed class ServerFixture : IAsyncDisposable
         var selector = new ProfileSelector(ProfileCatalog.LoadDefault());
         var host = CollectorHost.Open(
             Path.Combine(directory, "test.db"), SystemClock.Instance, capture ?? CaptureFakes.NoGame(),
-            profileSelector: game => selector.Select(game.Region, game.GameBuild),
+            profileSelector: profileSelector ?? (game => selector.Select(game.Region, game.GameBuild)),
             speechClient: speech ?? RefusingSpeechClient,
             updateCheckClient: updateCheckClient ?? RefusingUpdateCheckClient);
         seed?.Invoke(host);

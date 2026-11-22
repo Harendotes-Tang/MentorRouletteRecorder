@@ -92,8 +92,9 @@ QString MockBackend::identificationOf(const QString &region) const
 {
     if (!captureSettings().value(QStringLiteral("character_identification_enabled")).toBool(true))
         return QStringLiteral("MANUAL_OFF");
-    // Verified on the CN client only (docs/plans/per-character-progress.md, phase 1).
-    return region == QLatin1String("CN") ? QStringLiteral("AUTOMATIC") : QStringLiteral("MANUAL_REGION");
+    // Verified on the CN and Global clients (CharacterIdentification.ModeFor in the Collector).
+    return region == QLatin1String("CN") || region == QLatin1String("GLOBAL") ? QStringLiteral("AUTOMATIC")
+                                                                               : QStringLiteral("MANUAL_REGION");
 }
 
 int MockBackend::addCharacterIdentity(const QString &region, const QString &state, int runCount,

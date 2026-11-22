@@ -338,10 +338,36 @@ public sealed class CharacterIdentificationTests
         Assert.Equal(alt, rig.Current());
     }
 
+    /// <summary>
+    /// The Global client's guided round of 2026-11-22: the same login message as on the Chinese
+    /// service, two characters told apart and the first the same after logging in again.
+    /// </summary>
+    [Fact]
+    public void GlobalCharactersAreToldApartLikeTheChineseServicesOnes()
+    {
+        using var rig = new Rig(Region.Global);
+
+        rig.Login(Main, 0x1001);
+        Assert.Equal(1, rig.BoundIdentities());
+        Assert.Empty(rig.Statistics.GetIdentities());
+        var first = rig.Current(Region.Global);
+
+        rig.Login(Alt, 0x2002);
+        var pending = Assert.Single(rig.Statistics.GetIdentities()).Identity;
+        Assert.Equal(Region.Global, pending.Region);
+        Assert.Equal(CharacterIdentityState.Pending, pending.State);
+
+        rig.Login(Main, 0x1001);
+        Assert.Equal(1, rig.BoundIdentities());
+        Assert.Equal(first, rig.Current(Region.Global));
+        Assert.Equal(CharacterIdentificationMode.Automatic,
+            Assert.Single(rig.Statistics.GetDashboard().Achievements, value => value.Region == Region.Global).Identification);
+    }
+
     [Fact]
     public void NobodyIsToldApartWhereTheRegionIsNotVerifiedOrTheSettingIsOff()
     {
-        using (var elsewhere = new Rig(Region.Global))
+        using (var elsewhere = new Rig(Region.Tc))
         {
             elsewhere.Login(Main, 0x1001);
             Assert.Equal(0, elsewhere.BoundIdentities());

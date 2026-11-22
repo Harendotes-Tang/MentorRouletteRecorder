@@ -234,6 +234,7 @@ protocol profiles root: <repo-root>\protocol-profiles
   cn-unsupported       CN       unknown                UNSUPPORTED fail-closed messages=0
   cn.2026.08.05        CN       2026.08.05.0000.0000   VERIFIED    usable      messages=4
   global-unsupported   GLOBAL   unknown                UNSUPPORTED fail-closed messages=0
+  global.2026.11.03    GLOBAL   2026.11.03.0000.0000   VERIFIED    usable      messages=3
   synthetic-cn-shape-v1 UNKNOWN  synthetic-build-3      SYNTHETIC   usable      messages=4
   synthetic-v1         UNKNOWN  synthetic-build-1      SYNTHETIC   usable      messages=7
   tc-unsupported       TC       unknown                UNSUPPORTED fail-closed messages=0

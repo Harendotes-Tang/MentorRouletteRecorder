@@ -591,7 +591,8 @@ QString MockBackend::captureRegion() const
 
 bool MockBackend::unsupportedCaptureRegion() const
 {
-    // All existing live/calibration fixtures describe CN; none establishes a TC template.
+    // All existing live/calibration fixtures describe CN builds; the mock's TC and GLOBAL stand for
+    // builds no shipped profile covers (GLOBAL 2026.11.03 records in the real Collector).
     return captureRegion() != QLatin1String("CN");
 }
 
@@ -1385,7 +1386,7 @@ QJsonObject MockBackend::captureSettings() const
     // only, and this backend never reads anything from the network.
     if (!settings.contains(QStringLiteral("update_check_enabled")))
         settings.insert(QStringLiteral("update_check_enabled"), true);
-    // Default on, like the Collector: only CN tells characters apart (identificationOf).
+    // Default on, like the Collector: CN and GLOBAL tell characters apart (identificationOf).
     if (!settings.contains(QStringLiteral("character_identification_enabled")))
         settings.insert(QStringLiteral("character_identification_enabled"), true);
     if (!settings.contains(QStringLiteral("research_payload_opcodes")))

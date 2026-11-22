@@ -62,14 +62,17 @@ public sealed class DutyClearSignalTests
     /// <summary>
     /// The same content on a GLOBAL client: the body the constants predict for duty 0x0042
     /// hashes to row 41092 of the 2026-11-20 trace (h12 88174b420044), which is what allows a
-    /// GLOBAL profile to take part (ProtocolProfile.ObservesDutyClear).
+    /// GLOBAL profile to take part (ProtocolProfile.ObservesDutyClear). The 2026-11-22 trace
+    /// (SHA-256 7cfb3027...adcbb18) adds a normal raid: row 42996 is the clear of duty 0x75ca.
     /// </summary>
     [Fact]
     public void TheSameBodyWasObservedOnAGlobalClient()
     {
         var digest = Convert.ToHexString(SHA256.HashData(Body(0x0042))).ToLowerInvariant();
+        var raid = Convert.ToHexString(SHA256.HashData(Body(0x75ca))).ToLowerInvariant();
 
         Assert.StartsWith("88174b420044", digest, StringComparison.Ordinal);
+        Assert.StartsWith("48b9ec9193e8", raid, StringComparison.Ordinal);
         Assert.Equal(
             "bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad",
             DutyClearSignal.GlobalEvidenceSha256);

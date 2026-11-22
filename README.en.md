@@ -24,8 +24,8 @@
 Mentor Roulette Recorder passively reads the game traffic on this PC through Npcap. It records Duty Roulette: Mentor matches, duty entries, clears and exits, and tracks achievement progress per region and character.
 You can add missed runs by hand, import older records, view duty and job statistics, and organize your notes. Records, screenshot recognition and share images all stay on this PC.
 
-**The current source version is recorded in [Directory.Build.props](Directory.Build.props); a version there does not mean that its installer has been released.** Automatic recording and login character identification currently support the **Chinese server**; Global client version 2026.11.03 supports opt-in evidence collection for offline analysis.
-The Traditional Chinese and Global servers both support manually managed records. See [CHANGELOG.md](CHANGELOG.md) (Chinese) for the full list of changes and upgrade notes.
+**The current source version is recorded in [Directory.Build.props](Directory.Build.props); a version there does not mean that its installer has been released.** Automatic recording and login character identification currently support the **Chinese server** and the **Global server** (Global client version 2026.11.03).
+The Traditional Chinese server currently supports manually managed records only. See [CHANGELOG.md](CHANGELOG.md) (Chinese) for the full list of changes and upgrade notes.
 
 <p align="center"><img src="docs/screenshots/dashboard-light.png" width="800" alt="The 1.9.0 Overview page with mock data"></p>
 
@@ -48,7 +48,7 @@ The Traditional Chinese and Global servers both support manually managed records
 - **Automatic recording and result confirmation**. Detects matches, duty entry and exit, and records a clear automatically when the duty completion result arrives. When the outcome is unclear, you can confirm it in the result pop-up or under "To do" on the Overview.
   When a duty-start or remaining-time signal is detected, the app also records whether you entered from the start or joined in progress.
 - **Achievements per region and character**. Each character has its own goal, starting count and progress. Add or manage characters in "Settings → Achievement"; history can be filtered by character, and the character a run belongs to can be changed in bulk.
-  On the Chinese server the logged-in character is identified by default, and bound characters are switched automatically. On the Traditional Chinese and Global servers you switch characters manually on the Overview.
+  On the Chinese and Global servers the logged-in character is identified by default, and bound characters are switched automatically. On the Traditional Chinese server you switch characters manually on the Overview.
 - **History and statistics**. Date presets and region and character filters help you find records. The share donuts in duty and job statistics are clickable, and categories that support filtering open the matching history.
   The completion trend can be viewed by day, week or month. The Mentor stats overlay supports custom modules, a mini bar and mouse click-through.
 - **Manual entries, corrections and export**. Manual entries and corrections can store images and notes and keep a revision history; soft-deleted records can be restored within the retention period.
@@ -74,7 +74,7 @@ The Traditional Chinese and Global servers both support manually managed records
 |---|---|---|
 | Chinese server `CN` | Ships with the verified `2026.08.05` protocol profile. Later versions require local or shared calibration | Manual entries, import and export, and per-character statistics. Login character identification can be turned off in Settings |
 | Traditional Chinese server `TC` | Awaiting a verified protocol profile | Has its own Traditional Chinese duty and roulette catalogs; supports manual entries, import and export, and manual character switching |
-| Global server `GLOBAL` | Awaiting a verified protocol profile | Manual entries, import and export, and manual character switching |
+| Global server `GLOBAL` | Ships with the verified `2026.11.03` protocol profile. Later versions need a new profile released with an app update | Manual entries, import and export, and per-character statistics. Login character identification can be turned off in Settings |
 
 The game region determines which records a run belongs to; the interface language can be switched independently. To help verify automatic recording, collect evidence by following the guide for your region.
 See the [Traditional Chinese server testing guide](docs/traditional-chinese-server-testing.md) (Traditional Chinese), the [Global server testing guide](docs/global-server-testing.md) and the [protocol profiles](protocol-profiles/README.md) (Chinese).
@@ -199,7 +199,7 @@ Uninstalling keeps data by default, and attached note images are always kept.
 
 **I want to help collect evidence for the Traditional Chinese or Global server. Where do I start?**
 Open "New region capture" in "Capture diagnostics → Tools", then follow the wizard to choose the region and network adapter, complete one roulette and save a description. Please submit the evidence privately as described in the guide.
-Character identification problems on the Chinese server can be checked separately with "Character identification capture"; that wizard does not add any official records.
+Character identification problems on the Chinese or Global server can be checked separately with "Character identification capture"; that wizard does not add any official records.
 
 ## Building from source
 

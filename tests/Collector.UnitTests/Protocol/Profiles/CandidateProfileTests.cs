@@ -37,11 +37,11 @@ public sealed class CandidateProfileTests : IDisposable
     /// <summary>
     /// The shipped GLOBAL candidate (2026-11-21) exists for the player-facing 国际服候选验证 round only:
     /// it loads and validates, every hypothesis cites the round-1 trace, its payload whitelist fits the
-    /// research limit, and GLOBAL stays exactly as unsupported as before - formal selection, the
-    /// status ordinary players see, and the calibration template are all unchanged.
+    /// research limit, and formal selection never takes it - the same build's VERIFIED profile
+    /// (2026-11-22) is what records, and GLOBAL still has no calibration template.
     /// </summary>
     [Fact]
-    public void ShippedGlobalCandidateIsObservableOnlyAndLeavesGlobalUnsupported()
+    public void ShippedGlobalCandidateIsObservableOnlyAndNeverTheFormalProfile()
     {
         const string globalBuild = "2026.11.03.0000.0000";
         var root = ProfileCatalog.FindDefaultRoot() ?? throw new InvalidOperationException("protocol-profiles not found");
@@ -74,19 +74,20 @@ public sealed class CandidateProfileTests : IDisposable
             Assert.All(profile.Hypotheses, h => Assert.Contains("hypotheses." + h.Name, cited));
         }
 
-        // Ordinary players: the catalogue they run on never holds it, so GLOBAL stays RegionUnsupported.
+        // Ordinary players: the catalogue they run on never holds it; the VERIFIED profile records.
         var formal = new ProfileSelector(ProfileCatalog.LoadDefault()).Select(Region.Global, globalBuild);
-        Assert.False(formal.IsUsable);
-        Assert.Equal(ProfileSelectionReason.RegionUnsupported, formal.ReasonCode);
-        // With candidates loaded it is found for its exact build only, and formal selection still refuses.
+        Assert.True(formal.IsUsable);
+        Assert.Equal("global.2026.11.03", formal.Profile!.ProfileId);
+        // With candidates loaded it is found for its exact build only, and formal selection still
+        // takes the VERIFIED profile, never the candidate.
         var withCandidates = ProfileCatalog.LoadDefault(allowCandidate: true);
         var selector = new ProfileSelector(withCandidates);
         Assert.Equal("global.2026.11.03.candidate", selector.SelectCandidate(Region.Global, globalBuild, enabled: true)?.ProfileId);
         Assert.Null(selector.SelectCandidate(Region.Global, "2026.11.04.0000.0000", enabled: true));
         Assert.Null(selector.SelectCandidate(Region.Global, globalBuild, enabled: false));
-        Assert.False(selector.Select(Region.Global, globalBuild).IsUsable);
-        Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Global, globalBuild).ReasonCode);
-        Assert.Equal("UNSUPPORTED", selector.GetProfileStatus().Status);
+        var withBoth = selector.Select(Region.Global, globalBuild);
+        Assert.True(withBoth.IsUsable);
+        Assert.Equal("global.2026.11.03", withBoth.Profile!.ProfileId);
         // No calibration template for GLOBAL, so nothing arms for it.
         Assert.Null(Protocol.Calibration.CalibrationTemplate.Select(withCandidates, Region.Global));
     }

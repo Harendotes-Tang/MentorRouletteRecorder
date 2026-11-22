@@ -235,7 +235,7 @@ public sealed class CatalogMergeTests : IDisposable
 
         var usable = catalog.Entries.Where(entry => entry.Profile?.ToBinding().IsUsable == true)
             .Select(entry => entry.Profile!.ProfileId).OrderBy(id => id, StringComparer.Ordinal).ToArray();
-        Assert.Equal(new[] { "cn.2026.08.05", "synthetic-cn-shape-v1", "synthetic-v1" }, usable);
+        Assert.Equal(new[] { "cn.2026.08.05", "global.2026.11.03", "synthetic-cn-shape-v1", "synthetic-v1" }, usable);
     }
 
     [Fact]

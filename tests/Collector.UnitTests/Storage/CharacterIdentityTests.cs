@@ -521,6 +521,7 @@ public sealed class CharacterIdentityTests
         var off = fixture.Statistics.GetDashboard().Achievements.ToDictionary(value => value.Region, value => value.Identification);
 
         Assert.Equal(CharacterIdentificationMode.Automatic, on[Region.Cn]);
+        Assert.Equal(CharacterIdentificationMode.Automatic, on[Region.Global]);
         Assert.Equal(CharacterIdentificationMode.ManualRegion, on[Region.Tc]);
         Assert.All(off.Values, mode => Assert.Equal(CharacterIdentificationMode.ManualOff, mode));
     }

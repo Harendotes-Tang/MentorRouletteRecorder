@@ -461,12 +461,12 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Equal(ProfileSelectionReason.NoMatch, selector.Select(Region.Cn, "2099.01.01.0000.0000").ReasonCode);
         Assert.Equal(ProfileSelectionReason.NotUsable, selector.Select(Region.Cn, "unknown").ReasonCode);
         Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Tc, "2026.10.01.0000.0000").ReasonCode);
-        Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Global, "2026.10.01.0000.0000").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.NoMatch, selector.Select(Region.Global, "2026.10.01.0000.0000").ReasonCode);
         Assert.Equal(ProfileSelectionReason.RegionUnknown, selector.Select(Region.Unknown, "2026.08.05.0000.0000").ReasonCode);
     }
 
     [Fact]
-    public void ShippedProfiles_AreValidAndOnlyTheCnAndSyntheticOnesAreUsable()
+    public void ShippedProfiles_AreValidAndOnlyTheVerifiedAndSyntheticOnesAreUsable()
     {
         var catalog = ProfileCatalog.LoadDefault();
 
@@ -480,7 +480,7 @@ public sealed class ProtocolProfileTests : IDisposable
             .Select(entry => entry.Profile!.ProfileId).OrderBy(id => id, StringComparer.Ordinal).ToArray();
         // The two synthetic ones are usable only when a path is passed explicitly, and
         // scripts/package.ps1 deletes protocol-profiles/synthetic/ from every packaged build.
-        Assert.Equal(new[] { "cn.2026.08.05", "synthetic-cn-shape-v1", "synthetic-v1" }, usable);
+        Assert.Equal(new[] { "cn.2026.08.05", "global.2026.11.03", "synthetic-cn-shape-v1", "synthetic-v1" }, usable);
     }
 
     [Fact]
@@ -709,7 +709,8 @@ public sealed class ProtocolProfileTests : IDisposable
         var catalog = ProfileCatalog.LoadDefault();
 
         foreach (var entry in catalog.Entries.Where(entry =>
-                     entry.Report.Region is "CN" or "GLOBAL" && entry.Report.ProfileId != "cn.2026.08.05"))
+                     entry.Report.Region is "CN" or "GLOBAL" &&
+                     entry.Report.ProfileId is not ("cn.2026.08.05" or "global.2026.11.03")))
         {
             var profile = Assert.IsType<ProtocolProfile>(entry.Report.Profile);
             Assert.Equal(ProfileCompatibilityStatus.Unsupported, profile.Status);
@@ -717,7 +718,7 @@ public sealed class ProtocolProfileTests : IDisposable
             Assert.Null(profile.MentorRouletteId);
             Assert.False(profile.ToBinding().IsUsable);
             // Each says it is a placeholder. "No verified capture yet" stopped being true of CN on
-            // 2026-09-07 and is said only of GLOBAL now (audit 2026-11-03, D2-3).
+            // 2026-09-07 and of GLOBAL on 2026-11-22 (audit 2026-11-03, D2-3).
             Assert.Contains("占位符", profile.ProvenanceSummary, StringComparison.Ordinal);
         }
     }

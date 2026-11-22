@@ -496,7 +496,7 @@ LiveEventBus（每订阅者 256 条有界缓冲）
 src/Collector/          C# Collector（见 7.1）
 src/Desktop/            C++20 / Qt 6 Quick 桌面端（cpp/ + qml/ + resources/）
 contracts/              IPC 契约（JSON Schema + 错误码 + CHANGELOG）
-protocol-profiles/      协议档案（国服 cn.2026.08.05 为 VERIFIED；global、tc 仍是 unsupported 占位；synthetic 仅供离线测试；oodle-signatures 为 Oodle 特征说明）
+protocol-profiles/      协议档案（国服 cn.2026.08.05 与国际服 global.2026.11.03 为 VERIFIED；两区服的其他版本与 tc 是 unsupported 占位；synthetic 仅供离线测试；oodle-signatures 为 Oodle 特征说明）
 data/duties/            副本名称与分类映射（国服、国际服、繁中服各一份，含生成器产出与合成样例）
 data/jobs/              职业名称映射
 data/roulettes/         随机任务编号与名称

@@ -75,7 +75,8 @@ public sealed class DutyStartSignalTests
 
     /// <summary>
     /// GLOBAL, 2026-11-20 trace: rows 1299 and 1301, a 90-minute dungeon (duty 0x0042). The
-    /// bodies the constants predict hash to those rows.
+    /// bodies the constants predict hash to those rows. The 2026-11-22 trace adds a 90-minute
+    /// normal raid (duty 0x75ca): rows 4786 and 4789.
     /// </summary>
     [Fact]
     public void TheSameBodiesWereObservedOnAGlobalClient()
@@ -85,6 +86,10 @@ public sealed class DutyStartSignalTests
 
         Assert.StartsWith("29b48e28ae3d", Convert.ToHexString(SHA256.HashData(commencement)).ToLowerInvariant(), StringComparison.Ordinal);
         Assert.StartsWith("616c3a1a49ea", Convert.ToHexString(SHA256.HashData(remaining)).ToLowerInvariant(), StringComparison.Ordinal);
+        Assert.StartsWith("6be34eb8f0d2", Convert.ToHexString(SHA256.HashData(
+            Body(DutyStartSignal.CommencedCommand, 5400, 0x75ca))).ToLowerInvariant(), StringComparison.Ordinal);
+        Assert.StartsWith("04e2db1e5f6e", Convert.ToHexString(SHA256.HashData(
+            Body(DutyStartSignal.TimeRemainingCommand, 5399, 0x75ca))).ToLowerInvariant(), StringComparison.Ordinal);
         Assert.Equal((true, DutyStartSignalKind.Commenced, 5400), Match(commencement));
         Assert.Equal((true, DutyStartSignalKind.TimeRemaining, 5399), Match(remaining));
     }
