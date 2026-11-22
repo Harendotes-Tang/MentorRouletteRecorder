@@ -3,12 +3,13 @@
 <a id="current-test"></a>
 ## Current test — automatic recording in normal play
 
-The evidence for Global client build **2026.11.03** is complete. The first test build after 1.9.1 that
-mentions Global automatic recording in its release notes records Mentor Roulette runs on this client
-version automatically and tells your characters apart, the same way as on the Chinese server. What is
+The evidence for Global client build **2026.11.03** is complete. Test build **1.10.0-beta.1**
+(Pre-release, <https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.10.0-beta.1>)
+and newer record Mentor Roulette runs on this client version automatically and tell your characters
+apart, the same way as on the Chinese server. What is
 left is to see it work in normal play. No evidence round, capture or payload consent is needed.
 
-1. Install that test build. The second-round card no longer appears for 2026.11.03; that is expected.
+1. Install 1.10.0-beta.1 (or a newer test build listed on the releases page). The second-round card no longer appears for 2026.11.03; that is expected.
 2. Play the Mentor Roulette as usual. After leaving the duty, open **History**: the run should be there
    with the duty name, your job and the result (a cleared duty shows as completed).
 3. If you play more than one character, log in with another one: the Overview asks once whether it is
