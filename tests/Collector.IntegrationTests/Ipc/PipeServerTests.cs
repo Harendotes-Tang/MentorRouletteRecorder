@@ -481,7 +481,13 @@ public sealed class PipeServerTests
                     ["target_path"] = target,
                 })).Require();
                 Assert.Equal(target, result["target_path"]!.GetValue<string>());
-                Assert.NotNull(JsonNode.Parse(File.ReadAllText(target)));
+                var document = JsonNode.Parse(File.ReadAllText(target));
+                Assert.NotNull(document);
+                if (message == "ExportDiagnosticsReport")
+                {
+                    Assert.Contains((string?)document["desktop_hang"]?["status"],
+                        new[] { "found", "not_found", "unavailable" });
+                }
             }
         }
         finally
