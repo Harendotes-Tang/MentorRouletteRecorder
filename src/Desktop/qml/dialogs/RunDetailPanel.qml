@@ -465,6 +465,13 @@ Rectangle {
         ColumnLayout {
             spacing: 12
 
+            DutyGuideButton {
+                objectName: "historyDutyGuide"
+                Layout.leftMargin: 16
+                visible: !!root.runData && !!root.runData.run_id
+                run: root.runData
+            }
+
             GridLayout {
                 Layout.fillWidth: true
                 Layout.margins: 16

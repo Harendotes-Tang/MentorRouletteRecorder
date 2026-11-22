@@ -5345,6 +5345,17 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>ContentTypeTag</name>
+    <message>
+        <source>宏</source>
+        <translation>マクロ</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>メモ</translation>
+    </message>
+</context>
+<context>
     <name>DashboardPage</name>
     <message>
         <source>%1 条</source>
@@ -5425,6 +5436,18 @@ SHA256：%3</translation>
     <message>
         <source>空闲</source>
         <translation>待機中</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>リマインダーとマクロ</translation>
+    </message>
+    <message>
+        <source>%1有 %2 条提醒与宏</source>
+        <translation>%1 のリマインダーとマクロ %2 件</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>コンテンツメモとメンターマクロ</translation>
     </message>
     <message>
         <source>匹配时间</source>
@@ -5854,6 +5877,1011 @@ SHA256：%3</translation>
     <message>
         <source>未识别</source>
         <translation>未識別</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDetail</name>
+    <message>
+        <source>副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>ボス / フェーズ</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>キャラクター</translation>
+    </message>
+    <message>
+        <source>适用版本</source>
+        <translation>対応バージョン</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>記録元</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>公開ライブラリ</translation>
+    </message>
+    <message>
+        <source>自己写的</source>
+        <translation>自分で作成</translation>
+    </message>
+    <message>
+        <source>作者</source>
+        <translation>作者</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>ライセンス</translation>
+    </message>
+    <message>
+        <source>状态</source>
+        <translation>状態</translation>
+    </message>
+    <message>
+        <source>更新于</source>
+        <translation>更新日</translation>
+    </message>
+    <message>
+        <source>在左边选一条查看</source>
+        <translation>左の一覧から選んでください</translation>
+    </message>
+    <message>
+        <source>已收藏</source>
+        <translation>お気に入り済み</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>お気に入り</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>マクロの内容</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>リマインダーの内容</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 行</translation>
+    </message>
+    <message>
+        <source>复制后粘贴到游戏的「用户宏」里；一个宏最多 15 行。</source>
+        <translation>コピーしてゲームの「ユーザーマクロ」に貼り付けます。マクロは最大 15 行です。</translation>
+    </message>
+    <message>
+        <source>关联项</source>
+        <translation>関連項目</translation>
+    </message>
+    <message>
+        <source>从提醒生成宏</source>
+        <translation>メモからマクロを作成</translation>
+    </message>
+    <message>
+        <source>另存个人版本</source>
+        <translation>個人用のコピーを保存</translation>
+    </message>
+    <message>
+        <source>对比来源更新</source>
+        <translation>配布元の更新を比較</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>コピーしました</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>コピー</translation>
+    </message>
+    <message>
+        <source>复制队聊／团聊消息</source>
+        <translation>パーティ／アライアンスチャット用にコピー</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>編集</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>ローカルにインポート</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>ローカルにあります</translation>
+    </message>
+    <message>
+        <source>在本地查看</source>
+        <translation>ローカルで表示</translation>
+    </message>
+    <message>
+        <source>删除后不能恢复，确定删除？</source>
+        <translation>削除すると元に戻せません。削除しますか？</translation>
+    </message>
+    <message>
+        <source>确定删除</source>
+        <translation>削除する</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>書き出す</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>投稿</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>削除</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDialog</name>
+    <message>
+        <source>宏</source>
+        <translation>マクロ</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>1 行に 1 コマンド。ゲームにコピーして使います</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>メモ</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>このコンテンツで気をつけることのメモ</translation>
+    </message>
+    <message>
+        <source>大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。</source>
+        <translation>こんにちは！ギミックが不安でしたら、簡単に説明しますので声をかけてください。</translation>
+    </message>
+    <message>
+        <source>等大家看完动画再开，先准备一下。</source>
+        <translation>ムービーが終わるまで待ってから始めましょう。</translation>
+    </message>
+    <message>
+        <source>我是中途加入的，现在进度到哪里？有什么需要先说明的吗？</source>
+        <translation>途中参加です。今はどこまで進んでいますか？先に確認しておくことはありますか？</translation>
+    </message>
+    <message>
+        <source>先停一下，我补充一下刚才的机制，说明后再开。</source>
+        <translation>少し待ってください。さっきのギミックを説明してから再開しましょう。</translation>
+    </message>
+    <message>
+        <source>辛苦了，谢谢大家！</source>
+        <translation>お疲れさまでした。ありがとうございました！</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>コンテンツメモとメンターマクロ</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中国版 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁体字中国語版 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>グローバル版 GLOBAL</translation>
+    </message>
+    <message>
+        <source>全部区服</source>
+        <translation>すべてのサービス地域</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>一般</translation>
+    </message>
+    <message>
+        <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
+        <translation>%1 件をローカルに取り込みました。「ローカル」で編集できます。</translation>
+    </message>
+    <message>
+        <source>正在查询…</source>
+        <translation>確認中…</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
+        <translation>公開ライブラリはオフラインです。ローカルとキャッシュの内容は利用できます。</translation>
+    </message>
+    <message>
+        <source>手动刷新时连接公共共享库。</source>
+        <translation>手動で更新すると公開ライブラリに接続します。</translation>
+    </message>
+    <message>
+        <source>正在刷新公共共享库。</source>
+        <translation>公開ライブラリを更新しています。</translation>
+    </message>
+    <message>
+        <source>公共共享库尚未部署。</source>
+        <translation>公開ライブラリはまだ公開されていません。</translation>
+    </message>
+    <message>
+        <source>公共共享库暂时没有内容。</source>
+        <translation>公開ライブラリにコンテンツがありません。</translation>
+    </message>
+    <message>
+        <source>暂时无法联网或请求受限，保留上次有效缓存。</source>
+        <translation>接続できないか、通信制限中です。前回の有効なキャッシュを使用します。</translation>
+    </message>
+    <message>
+        <source>公共索引或内容校验失败，保留上次有效缓存。</source>
+        <translation>公開インデックスまたは内容を検証できませんでした。前回の有効なキャッシュを使用します。</translation>
+    </message>
+    <message>
+        <source>镜像尚未同步，继续使用现有版本。</source>
+        <translation>ミラーの同期が完了していません。現在の版を使用します。</translation>
+    </message>
+    <message>
+        <source>已保存到本地。</source>
+        <translation>ローカルに保存しました。</translation>
+    </message>
+    <message>
+        <source>已删除本地条目。</source>
+        <translation>ローカルの項目を削除しました。</translation>
+    </message>
+    <message>
+        <source>已导入，可离线使用。</source>
+        <translation>インポートしました。オフラインでも利用できます。</translation>
+    </message>
+    <message>
+        <source>已应用来源更新。</source>
+        <translation>配布元の更新を適用しました。</translation>
+    </message>
+    <message>
+        <source>已安装，请在本地查看或检查更新。</source>
+        <translation>インポート済みです。ローカルで表示するか、更新を確認してください。</translation>
+    </message>
+    <message>
+        <source>来源版本已变化，请重新刷新和对比。</source>
+        <translation>配布元の版が変わりました。更新して比較し直してください。</translation>
+    </message>
+    <message>
+        <source>来源或关联内容已撤回或不可用。</source>
+        <translation>配布元または関連項目は取り下げられたか、利用できません。</translation>
+    </message>
+    <message>
+        <source>本地有同一条目或更新的修改，请重新加载。</source>
+        <translation>同じ項目または新しいローカル変更が存在します。再読み込みしてください。</translation>
+    </message>
+    <message>
+        <source>本地库已达到 400 条。</source>
+        <translation>ローカルライブラリは上限の400件に達しました。</translation>
+    </message>
+    <message>
+        <source>请填写标题，最多 120 字。</source>
+        <translation>タイトルを120文字以内で入力してください。</translation>
+    </message>
+    <message>
+        <source>请填写正文，最多 1600 字。</source>
+        <translation>本文を1600文字以内で入力してください。</translation>
+    </message>
+    <message>
+        <source>完整宏最多 15 行。</source>
+        <translation>マクロは最大15行です。</translation>
+    </message>
+    <message>
+        <source>每行宏最多 180 个 UTF-8 字节。</source>
+        <translation>マクロの各行はUTF-8で最大180バイトです。</translation>
+    </message>
+    <message>
+        <source>聊天指令最多 500 个 UTF-8 字节。</source>
+        <translation>チャットコマンドはUTF-8で最大500バイトです。</translation>
+    </message>
+    <message>
+        <source>聊天复制只支持带正文的单行 /p 或 /a 指令。</source>
+        <translation>チャット用コピーには本文付きの /p または /a コマンド1行が必要です。</translation>
+    </message>
+    <message>
+        <source>剪贴板写入失败或内容不一致。</source>
+        <translation>クリップボードに正確な内容を書き込めませんでした。</translation>
+    </message>
+    <message>
+        <source>已复制到剪贴板。</source>
+        <translation>クリップボードにコピーしました。</translation>
+    </message>
+    <message>
+        <source>文件格式不正确，单次最多 20 条。</source>
+        <translation>ファイルの形式が無効です。一度に扱えるのは20件までです。</translation>
+    </message>
+    <message>
+        <source>无法读取或写入此文件。</source>
+        <translation>ファイルを読み書きできませんでした。</translation>
+    </message>
+    <message>
+        <source>已导出。</source>
+        <translation>エクスポートしました。</translation>
+    </message>
+    <message>
+        <source>关联项必须存在，且提醒和宏只能关联另一种类型。</source>
+        <translation>関連先には異なる種類の既存項目を指定してください。</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条内容并确认投稿许可。</source>
+        <translation>1～20件を選択し、投稿ライセンスを確認してください。</translation>
+    </message>
+    <message>
+        <source>投稿文字超出大小限制，请分批投稿。</source>
+        <translation>投稿のサイズ上限を超えました。分けて投稿してください。</translation>
+    </message>
+    <message>
+        <source>原生投稿尚未配置 GitHub App，可使用浏览器投稿。</source>
+        <translation>アプリ内投稿にはGitHub Appの設定が必要です。ブラウザーで投稿できます。</translation>
+    </message>
+    <message>
+        <source>请在 GitHub 输入设备代码并确认授权。</source>
+        <translation>GitHubでデバイスコードを入力し、アプリを認可してください。</translation>
+    </message>
+    <message>
+        <source>授权代码已过期。</source>
+        <translation>認可コードの有効期限が切れました。</translation>
+    </message>
+    <message>
+        <source>授权未完成。</source>
+        <translation>認可が完了しませんでした。</translation>
+    </message>
+    <message>
+        <source>已取消授权。</source>
+        <translation>認可をキャンセルしました。</translation>
+    </message>
+    <message>
+        <source>上一项授权操作尚在处理。</source>
+        <translation>前の認可操作を処理しています。</translation>
+    </message>
+    <message>
+        <source>未登录 GitHub。</source>
+        <translation>GitHubにサインインしていません。</translation>
+    </message>
+    <message>
+        <source>已登录 GitHub。</source>
+        <translation>GitHubにサインインしました。</translation>
+    </message>
+    <message>
+        <source>GitHub 账号已变化，请重新预览提交。</source>
+        <translation>GitHubアカウントが変わりました。投稿を再確認してください。</translation>
+    </message>
+    <message>
+        <source>已提交投稿，等待工作流处理。</source>
+        <translation>投稿しました。ワークフローの処理待ちです。</translation>
+    </message>
+    <message>
+        <source>投稿正在处理。</source>
+        <translation>投稿を処理しています。</translation>
+    </message>
+    <message>
+        <source>已公开发布。刷新共享库后可查看。</source>
+        <translation>公開しました。ライブラリを更新すると表示されます。</translation>
+    </message>
+    <message>
+        <source>处理失败，请打开 GitHub Issue 查看原因。</source>
+        <translation>処理に失敗しました。GitHubのIssueで詳細を確認してください。</translation>
+    </message>
+    <message>
+        <source>提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。</source>
+        <translation>投稿結果を確認できませんでした。再試行する前にGitHubで確認してください。</translation>
+    </message>
+    <message>
+        <source>投稿已关闭。</source>
+        <translation>投稿はクローズされています。</translation>
+    </message>
+    <message>
+        <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>投稿をコピーしました。ブラウザーのフォームに貼り付けて送信してください。</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>確認済み</translation>
+    </message>
+    <message>
+        <source>过时</source>
+        <translation>古い情報</translation>
+    </message>
+    <message>
+        <source>已撤回</source>
+        <translation>取り下げ済み</translation>
+    </message>
+    <message>
+        <source>社区投稿／未核验</source>
+        <translation>コミュニティ投稿／未確認</translation>
+    </message>
+    <message>
+        <source>输入无效或操作失败。</source>
+        <translation>入力が無効か、操作に失敗しました。</translation>
+    </message>
+    <message>
+        <source>本地</source>
+        <translation>ローカル</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>公開ライブラリ</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>閉じる</translation>
+    </message>
+    <message>
+        <source>还没有提醒或宏</source>
+        <translation>リマインダーもマクロもまだありません</translation>
+    </message>
+    <message>
+        <source>把进本要说的话、要注意的机制存在这里，进了副本一键复制。</source>
+        <translation>突入時に伝える言葉や注意するギミックをここに保存し、コンテンツ内でワンクリックでコピーできます。</translation>
+    </message>
+    <message>
+        <source>新建宏</source>
+        <translation>マクロを作成</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>リマインダーを作成</translation>
+    </message>
+    <message>
+        <source>去公共共享库挑选</source>
+        <translation>公開ライブラリから選ぶ</translation>
+    </message>
+    <message>
+        <source>或者从常用宏示例开始</source>
+        <translation>または、よく使うマクロの例から始める</translation>
+    </message>
+    <message>
+        <source>正在刷新公共库…</source>
+        <translation>公開ライブラリを更新中…</translation>
+    </message>
+    <message>
+        <source>公共共享库还没有内容</source>
+        <translation>公開ライブラリにはまだ内容がありません</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭</source>
+        <translation>公開ライブラリはオフラインです</translation>
+    </message>
+    <message>
+        <source>第一次刷新需要几秒钟。</source>
+        <translation>初回の更新には数秒かかります。</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <translation>公開ライブラリはオフラインです。ローカルとキャッシュの内容は引き続き使えます。「公開ライブラリの接続を許可」をオンにすると、更新して投稿された内容を閲覧できます。</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>公開ライブラリを更新</translation>
+    </message>
+    <message>
+        <source>允许联网并刷新</source>
+        <translation>接続を許可して更新</translation>
+    </message>
+    <message>
+        <source>投稿进度</source>
+        <translation>投稿の進み具合</translation>
+    </message>
+    <message>
+        <source>编号</source>
+        <translation>番号</translation>
+    </message>
+    <message>
+        <source>投稿的 Issue 编号</source>
+        <translation>投稿の Issue 番号</translation>
+    </message>
+    <message>
+        <source>查看状态</source>
+        <translation>状況を確認</translation>
+    </message>
+    <message>
+        <source>在 GitHub 打开</source>
+        <translation>GitHub で開く</translation>
+    </message>
+    <message>
+        <source>来源更新对比</source>
+        <translation>配布元の更新内容を比較</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>使用来源版本</source>
+        <translation>配布元の版を使用</translation>
+    </message>
+    <message>
+        <source>应用更新并保留我的修改</source>
+        <translation>個人の変更を残して更新</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityEditor</name>
+    <message>
+        <source>新建宏</source>
+        <translation>マクロを作成</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>リマインダーを作成</translation>
+    </message>
+    <message>
+        <source>编辑宏</source>
+        <translation>マクロを編集</translation>
+    </message>
+    <message>
+        <source>编辑提醒</source>
+        <translation>メモを編集</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>種類</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>マクロ</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>メモ</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>一般</translation>
+    </message>
+    <message>
+        <source>改为通用</source>
+        <translation>汎用にする</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>コンテンツ名を検索</translation>
+    </message>
+    <message>
+        <source>选择副本</source>
+        <translation>コンテンツを選択</translation>
+    </message>
+    <message>
+        <source>标题</source>
+        <translation>タイトル</translation>
+    </message>
+    <message>
+        <source>起个一眼能认出来的名字</source>
+        <translation>ひと目で分かる名前を付けます</translation>
+    </message>
+    <message>
+        <source>请填写标题</source>
+        <translation>タイトルを入力してください</translation>
+    </message>
+    <message>
+        <source>BOSS（可不填）</source>
+        <translation>ボス（任意）</translation>
+    </message>
+    <message>
+        <source>阶段（可不填）</source>
+        <translation>フェーズ（任意）</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>例如：BOSS 2、尾王</source>
+        <translation>例：ボス 2、ラスボス</translation>
+    </message>
+    <message>
+        <source>例如：转场</source>
+        <translation>例：フェーズ移行</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>マクロの内容</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>リマインダーの内容</translation>
+    </message>
+    <message>
+        <source>一行一条指令，例如：/p 大家好 &lt;se.1&gt;</source>
+        <translation>1 行に 1 コマンド。例：/p よろしくお願いします &lt;se.1&gt;</translation>
+    </message>
+    <message>
+        <source>写下这个副本要注意的事</source>
+        <translation>このコンテンツで気をつけることを書きます</translation>
+    </message>
+    <message>
+        <source>请填写正文</source>
+        <translation>本文を入力してください</translation>
+    </message>
+    <message>
+        <source>超过 15 行了，游戏里要拆成两个宏。</source>
+        <translation>15 行を超えています。ゲーム内では 2 つのマクロに分けてください。</translation>
+    </message>
+    <message>
+        <source>游戏里一个宏最多 15 行。</source>
+        <translation>ゲーム内のマクロは最大 15 行です。</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 行</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>キャラクター</translation>
+    </message>
+    <message>
+        <source>适用游戏版本</source>
+        <translation>対象ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>显示顺序</source>
+        <translation>表示順</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>お気に入り</translation>
+    </message>
+    <message>
+        <source>标签，以逗号分隔</source>
+        <translation>タグ（カンマ区切り）</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>記録元</translation>
+    </message>
+    <message>
+        <source>关联的提醒</source>
+        <translation>関連するリマインダー</translation>
+    </message>
+    <message>
+        <source>关联的宏</source>
+        <translation>関連するマクロ</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>保存</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>只保存在这台电脑上，投稿之后才会公开</source>
+        <translation>この PC にのみ保存されます。投稿するまで公開されません</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityList</name>
+    <message>
+        <source>全选</source>
+        <translation>すべて選択</translation>
+    </message>
+    <message>
+        <source>%1 项</source>
+        <translation>%1 件</translation>
+    </message>
+    <message>
+        <source>%1 / %2 项</source>
+        <translation>%1 / %2 件</translation>
+    </message>
+    <message>
+        <source>当前副本在前</source>
+        <translation>現在のコンテンツが先</translation>
+    </message>
+    <message>
+        <source>选择「%1」</source>
+        <translation>「%1」を選択</translation>
+    </message>
+    <message>
+        <source>取消收藏</source>
+        <translation>お気に入りを解除</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>お気に入り</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>ローカルにあります</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>一致する項目がありません</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>絞り込みを解除</translation>
+    </message>
+    <message>
+        <source>去公共共享库找找</source>
+        <translation>公開ライブラリで探す</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 項目を選択中</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>書き出す</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>投稿</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>ローカルにインポート</translation>
+    </message>
+    <message>
+        <source>取消选择</source>
+        <translation>選択を解除</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunitySubmission</name>
+    <message>
+        <source>投稿到公共共享库</source>
+        <translation>公開ライブラリに投稿</translation>
+    </message>
+    <message>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
+        <translation>投稿は GitHub Issue で送信され、処理が終わると公開ライブラリで誰でも見られるようになります。</translation>
+    </message>
+    <message>
+        <source>核对下面会公开的内容，选好许可并勾选确认。</source>
+        <translation>下の公開される内容を確認し、ライセンスを選んで確認にチェックを入れます。</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>GitHub アカウントで直接送信するか、投稿本文をコピーして、ブラウザーで開く GitHub のフォームに貼り付けて送信します。</translation>
+    </message>
+    <message>
+        <source>把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。</source>
+        <translation>発行された Issue 番号を下部の「投稿の進み具合」に入力すると、いつでも処理状況を確認できます。</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>この %1 件のタイトル、本文、コンテンツ、ボス / フェーズ、リージョン、言語と、選んだライセンスが公開されます。共有する権利のある文章だけを投稿し、個人情報は含めないでください。</translation>
+    </message>
+    <message>
+        <source>公开作者：@%1</source>
+        <translation>公開時の投稿者：@%1</translation>
+    </message>
+    <message>
+        <source>公开作者以提交时登录的 GitHub 账号为准。</source>
+        <translation>投稿時にサインインしているGitHubアカウントが公開されます。</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>ライセンス</translation>
+    </message>
+    <message>
+        <source>收起全文</source>
+        <translation>全文を閉じる</translation>
+    </message>
+    <message>
+        <source>查看将公开的全文</source>
+        <translation>公開される全文を表示</translation>
+    </message>
+    <message>
+        <source>我确认来源，并同意按所选许可公开发布。</source>
+        <translation>出典を確認し、選択したライセンスでの公開に同意します。</translation>
+    </message>
+    <message>
+        <source>GitHub 账号</source>
+        <translation>GitHubアカウント</translation>
+    </message>
+    <message>
+        <source>开始设备授权</source>
+        <translation>デバイス認可を開始</translation>
+    </message>
+    <message>
+        <source>打开 GitHub 授权</source>
+        <translation>GitHubの認可ページを開く</translation>
+    </message>
+    <message>
+        <source>复制代码 %1</source>
+        <translation>コード %1 をコピー</translation>
+    </message>
+    <message>
+        <source>取消授权</source>
+        <translation>認可をキャンセル</translation>
+    </message>
+    <message>
+        <source>退出 GitHub</source>
+        <translation>GitHubからサインアウト</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号提交（%1 项）</source>
+        <translation>GitHub アカウントで送信（%1 件）</translation>
+    </message>
+    <message>
+        <source>复制投稿并打开浏览器</source>
+        <translation>投稿をコピーしてブラウザーを開く</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>キャンセル</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityToolbar</name>
+    <message>
+        <source>%1：</source>
+        <translation>%1：</translation>
+    </message>
+    <message>
+        <source>搜索标题、正文、副本或作者</source>
+        <translation>タイトル・本文・コンテンツ・作者を検索</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>種類</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>ボス / フェーズ</translation>
+    </message>
+    <message>
+        <source>搜索 BOSS 或阶段</source>
+        <translation>ボスまたはフェーズを検索</translation>
+    </message>
+    <message>
+        <source>没有匹配的 BOSS 或阶段</source>
+        <translation>一致するボスやフェーズがありません</translation>
+    </message>
+    <message>
+        <source>这里的内容还没有标 BOSS 或阶段</source>
+        <translation>ここにはボスやフェーズが設定された内容がまだありません</translation>
+    </message>
+    <message>
+        <source>当前副本与通用</source>
+        <translation>現在のコンテンツと共通</translation>
+    </message>
+    <message>
+        <source>不在副本中，只看通用</source>
+        <translation>コンテンツ外：汎用のみ</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>%1 と汎用の内容だけを表示</translation>
+    </message>
+    <message>
+        <source>现在不在副本里，打开后只显示通用的内容</source>
+        <translation>現在コンテンツ外です。オンにすると汎用の内容だけを表示します</translation>
+    </message>
+    <message>
+        <source>只看收藏</source>
+        <translation>お気に入りのみ</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>絞り込みを解除</translation>
+    </message>
+    <message>
+        <source>导入</source>
+        <translation>インポート</translation>
+    </message>
+    <message>
+        <source>从公共共享库挑选</source>
+        <translation>公開ライブラリから選ぶ</translation>
+    </message>
+    <message>
+        <source>到「公共共享库」里勾选，再导入到本地</source>
+        <translation>「公開ライブラリ」で選んでからローカルに取り込みます</translation>
+    </message>
+    <message>
+        <source>导入文件…</source>
+        <translation>ファイルを取り込む…</translation>
+    </message>
+    <message>
+        <source>选一个之前导出的 .json 文件</source>
+        <translation>以前に書き出した .json ファイルを選びます</translation>
+    </message>
+    <message>
+        <source>新建</source>
+        <translation>新規</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>マクロ</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>1 行に 1 コマンド。ゲームにコピーして使います</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>メモ</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>このコンテンツで気をつけることのメモ</translation>
+    </message>
+    <message>
+        <source>从常用宏示例开始</source>
+        <translation>よく使うマクロの例から始める</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>更新中…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>オフライン · キャッシュを表示中</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>オフライン</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>公開ライブラリへの接続を許可</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>公開ライブラリを更新</translation>
+    </message>
+</context>
+<context>
+    <name>DutyGuideAction</name>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」上这个副本的攻略</source>
+        <translation>ブラウザーで「新大陆见闻录」のこのコンテンツの攻略を開く</translation>
+    </message>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」的攻略目录</source>
+        <translation>ブラウザーで「新大陆见闻录」の攻略一覧を開く</translation>
+    </message>
+    <message>
+        <source>查看攻略</source>
+        <translation>攻略を見る</translation>
+    </message>
+    <message>
+        <source>攻略目录</source>
+        <translation>攻略一覧</translation>
+    </message>
+    <message>
+        <source>新大陆见闻录</source>
+        <translation>新大陸見聞録</translation>
     </message>
 </context>
 <context>
@@ -9153,6 +10181,29 @@ SHA256：%3</translation>
     <message>
         <source>关闭</source>
         <translation>閉じる</translation>
+    </message>
+</context>
+<context>
+    <name>MultiFilterButton</name>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <source>%1：%2</source>
+        <translation>%1：%2</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 項目を選択中</translation>
+    </message>
+    <message>
+        <source>可多选</source>
+        <translation>複数選択可</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>クリア</translation>
     </message>
 </context>
 <context>
@@ -12969,6 +14020,25 @@ SHA256：%3</translation>
     <message>
         <source>极神</source>
         <translation>極討滅戦</translation>
+    </message>
+</context>
+<context>
+    <name>mr::DutyCommunityController</name>
+    <message>
+        <source>记录服务未连接</source>
+        <translation>記録サービス未接続</translation>
+    </message>
+    <message>
+        <source>导出提醒和宏</source>
+        <translation>メモとマクロをエクスポート</translation>
+    </message>
+    <message>
+        <source>JSON 文件 (*.json)</source>
+        <translation>JSON ファイル (*.json)</translation>
+    </message>
+    <message>
+        <source>导入提醒和宏</source>
+        <translation>メモとマクロをインポート</translation>
     </message>
 </context>
 <context>

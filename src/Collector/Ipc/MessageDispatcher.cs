@@ -68,7 +68,7 @@ public sealed class MessageDispatcher
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity",
         "BatchMutateRuns", "PreviewRunRegionMigration", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
         "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
-        "SetRunReflection", "GetReflectionSummary",
+        "SetRunReflection", "GetReflectionSummary", "DutyCommunity",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
         "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
@@ -95,7 +95,7 @@ public sealed class MessageDispatcher
         new HashSet<string>(StringComparer.Ordinal)
         {
             "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport",
-            "ExportCsv", "ExportJson", "QueryHistorySelection",
+            "ExportCsv", "ExportJson", "QueryHistorySelection", "DutyCommunity",
         };
 
     /// <summary>Defers history snapshot creation only; paging and release keep pipe receive order.</summary>
@@ -167,6 +167,7 @@ public sealed class MessageDispatcher
             "ExportDiagnosticsReport" => ExportDiagnosticsReport(reader),
             "SetRunReflection" => ReflectionHandlers.SetRunReflection(_host, request.RequestId, reader),
             "GetReflectionSummary" => ReflectionHandlers.GetReflectionSummary(_host, reader),
+            "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, CancellationToken.None).GetAwaiter().GetResult(),
             "QueryCandidateObservations" => CandidateHandlers.Query(_host, reader),
             "ReviewCandidateObservation" => CandidateHandlers.Review(_host, request.RequestId, reader),
             "ExportCandidateEvidence" => CandidateHandlers.Export(_host, reader),
@@ -209,6 +210,7 @@ public sealed class MessageDispatcher
                 _host, new PayloadReader(request.Payload), cancellationToken),
             "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
+            "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, cancellationToken),
             "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
             "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
             "QueryHistorySelection" => Task.Run(() =>

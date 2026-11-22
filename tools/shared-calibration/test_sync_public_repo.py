@@ -29,6 +29,9 @@ EXPECTED = {
     "tools/evidence.py", "tools/evidence_workflow.py", "schemas/calibration-evidence-v1.schema.json",
     ".github/ISSUE_TEMPLATE/evidence-calibration.yml", ".github/ISSUE_TEMPLATE/template-observation.yml",
     ".github/workflows/evidence-calibration.yml",
+    ".github/workflows/publish-community-content.yml", ".github/ISSUE_TEMPLATE/share-community-content.yml",
+    "community/README.md", "community/v1/index.json", "community/v1/submissions.json",
+    "tools/community/publish.py", "tools/community_classification.py", "schemas/community-content-v1.schema.json",
 }
 TEXT_SUFFIXES = {".py", ".sh", ".yml", ".md", ".txt", ""}
 
@@ -45,6 +48,33 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(EXPECTED, set(self.names))
         on_disk = {path.relative_to(self.out).as_posix() for path in self.out.rglob("*") if path.is_file()}
         self.assertEqual(EXPECTED, on_disk)
+
+    def test_updates_preserve_existing_calibration_and_community_state(self):
+        preserved = ["index.json", "submissions.json", "evidence/submissions.json",
+                     "cn/example.mrc1", "global/example.mrc1", "templates/cn.2026.08.05.json",
+                     "community/v1/index.json", "community/v1/submissions.json",
+                     "community/v1/reminders/kept.json", "community/v1/snapshot.json"]
+        for name in preserved:
+            path = self.out / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode("ascii"))
+        (self.out / "tools/community_classification.py").write_text("old", encoding="utf-8")
+        deployed = self.out / "tools/publish.py"
+        deployed.write_text(deployed.read_text(encoding="utf-8") + "\n# Deployment-specific calibration code\n", encoding="utf-8")
+        names = sync_public_repo.update_existing(self.out)
+        self.assertIn("# Deployment-specific calibration code", deployed.read_text(encoding="utf-8"))
+        self.assertFalse(set(preserved) & set(names))
+        for name in preserved:
+            self.assertEqual(name.encode("ascii"), (self.out / name).read_bytes())
+        self.assertIn("def classify(", (self.out / "tools/community_classification.py").read_text(encoding="utf-8"))
+
+    def test_updates_seed_community_only_when_both_data_files_are_absent(self):
+        for name in sync_public_repo.COMMUNITY_SEEDS:
+            (self.out / name).unlink()
+        self.assertTrue(sync_public_repo.COMMUNITY_SEEDS.keys() <= set(sync_public_repo.update_existing(self.out)))
+        (self.out / "community/v1/submissions.json").unlink()
+        with self.assertRaisesRegex(sync_public_repo.SyncError, "incomplete community state"):
+            sync_public_repo.update_existing(self.out)
 
     def test_a_new_repository_starts_with_an_empty_index_the_client_reads(self):
         data = (self.out / "index.json").read_bytes()

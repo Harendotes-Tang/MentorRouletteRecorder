@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MentorRecorder.Collector.Community;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
@@ -51,6 +52,10 @@ public sealed class CollectorHost : IDisposable
         Identities = new CharacterIdentityService(database, Settings, clock);
         HistoryRetention = new HistoryRetentionService(database, clock, LiveEvents.ForgetRuns);
         HistorySelections = new HistorySelectionStore(database);
+        var communityRepository = new CommunityRepository(database);
+        CommunityLibrary = new CommunityLibrary(communityRepository, Settings);
+        CommunityWorkspace = new CommunityWorkspace(communityRepository, CommunityLibrary);
+        CommunityGithub = new CommunityGithub(Path.GetDirectoryName(database.Path)!);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
@@ -66,6 +71,10 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>Open database; the single writer.</summary>
     public SqliteDatabase Database { get; }
+
+    internal CommunityLibrary CommunityLibrary { get; }
+    internal CommunityWorkspace CommunityWorkspace { get; }
+    internal CommunityGithub CommunityGithub { get; }
 
     /// <summary>
     /// The local diagnostic log this process writes to, so <c>GetStatus</c> can report on the

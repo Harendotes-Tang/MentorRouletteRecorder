@@ -121,6 +121,8 @@ IpcClient::~IpcClient()
 
 int IpcClient::timeoutForMessageType(const QString &messageType, int defaultMs)
 {
+    if (messageType == QLatin1String("DutyCommunity"))
+        return qMax(defaultMs, 55'000);
     if (messageType == QLatin1String("SynthesizeSpeech"))
         return kSpeechRequestTimeoutMs;
     if (messageType == QLatin1String("CheckUpdateNow"))

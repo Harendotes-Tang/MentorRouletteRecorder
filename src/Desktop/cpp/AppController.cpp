@@ -104,6 +104,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_history(new HistoryController(backend, this))
     , m_statistics(new StatisticsController(backend, this, settings ? preferredRecordRegion(*settings) : QString()))
     , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
+    , m_dutyCommunity(new DutyCommunityController(backend, this))
     , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
@@ -1011,6 +1012,20 @@ bool AppController::ffxivRunning() const
         .toObject()
         .value(QStringLiteral("ffxiv_running"))
         .toBool(false);
+}
+
+QVariantMap AppController::activeCommunityRun() const
+{
+    return currentRunState() == QLatin1String("ENTERED_DUTY") ? currentGuideRun() : QVariantMap{};
+}
+
+QVariantMap AppController::currentGuideRun() const
+{
+    const auto state = currentRunState();
+    if (!m_currentRunKnown || !backendConnected()
+        || (state != QLatin1String("MENTOR_MATCHED") && state != QLatin1String("ENTERED_DUTY")))
+        return {};
+    return currentRun().value(QStringLiteral("run")).toMap();
 }
 
 QString AppController::currentRunState() const

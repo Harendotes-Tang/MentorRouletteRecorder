@@ -383,6 +383,8 @@ public:
     /// of a captured fact, and it never bumps a run revision.
     BackendReply *setRunReflection(const QString &runId, const QString &mood,
                                    const QString &text);
+    BackendReply *dutyCommunity(const QJsonObject &payload);
+
     /// $defs/GetReflectionSummaryRequest. \a recentLimit is the number of
     /// recent entries the dashboard panel shows (0..20).
     BackendReply *getReflectionSummary(int recentLimit = 3);

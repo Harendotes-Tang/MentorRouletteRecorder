@@ -22,6 +22,7 @@ import tempfile
 import evidence
 import index as repo_index
 import sharecode
+from community_classification import classify as classify_community
 
 LABELS = {"calibration-evidence", "template-observation", "calibration-report"}
 MARKER = "<!-- mentorrecorder-evidence-v1 -->"
@@ -195,7 +196,7 @@ def process(repo, number):
         live = api(f"repos/{repo}/issues/{number}")
         if live.get("number") != number or "pull_request" in live or live.get("state") != "open": return
         labels = {label.get("name") for label in live.get("labels", []) if isinstance(label, dict)}
-        if not labels & LABELS: return
+        if not labels & LABELS or classify_community(live, labels) != "other": return
         user = live.get("user", {})
         login = user.get("login")
         if not isinstance(login, str) or re.fullmatch(r"[A-Za-z0-9-]{1,39}", login) is None: return

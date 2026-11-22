@@ -201,7 +201,7 @@ Window {
             }
             // The buttons lie on the drag area: while the pointer rests on one of
             // them its own tip speaks, not the bar's.
-            readonly property bool buttonHovered: miniButton.hovered || customizeButton.hovered
+            readonly property bool buttonHovered: miniButton.hovered || guideButton.hovered || customizeButton.hovered
                                                   || lockButton.hovered || closeButton.hovered
             OverlayToolTip {
                 objectName: "floatingHeaderTip"
@@ -237,6 +237,11 @@ Window {
                         iconName: "to-mini"
                         tip: qsTr("收成迷你条")
                         onClicked: floating.controller.form = "mini"
+                    }
+                    OverlayGuideButton {
+                        id: guideButton
+                        enabled: !floating.transitioning && action.enabled
+                        tipClearOf: header
                     }
                     OverlayIconButton {
                         id: customizeButton

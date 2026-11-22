@@ -71,6 +71,7 @@ from typing import Any, Iterator
 import evidence
 import index as repo_index
 import issue as issue_form
+from community_classification import classify as classify_community
 import rebuild
 import sharecode
 
@@ -479,7 +480,7 @@ def evaluate_report(event: Any, live: Any) -> ReportResult:
     if not isinstance(state, str) or state.upper() != "OPEN" or not isinstance(live.get("labels"), list):
         return ReportResult(SKIPPED, NOT_OPEN, issue=number)
     labels = _label_names(live)
-    if REPORT_LABEL not in labels:
+    if classify_community(live if "body" in live else issue, labels) != "other" or REPORT_LABEL not in labels:
         return ReportResult(SKIPPED, NOT_LABELLED, issue=number)
     if labels & ANSWER_LABELS:
         return ReportResult(SKIPPED, ALREADY_ANSWERED, issue=number)
@@ -554,6 +555,8 @@ def _read_issue(event: Any, live: Any = FROM_EVENT) -> tuple:
                 or not isinstance(live.get("updated_at"), str)):
             return None, Result(SKIPPED, EVENT_UNREADABLE, issue=number)
         issue = live
+    if classify_community(issue, labels) != "other":
+        return None, Result(SKIPPED, NOT_LABELLED, issue=number)
     user = issue.get("user")
     if not isinstance(user, dict) or not _positive_int(user.get("id")) or not isinstance(user.get("login"), str):
         status = ERROR if live is FROM_EVENT else SKIPPED

@@ -138,7 +138,7 @@ public sealed class IpcHardeningTests
     public void TheMessageTypesAnsweredLaterMatchTheDesktopExtendedDeadlines()
     {
         Assert.Equal(
-            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "ExportCsv", "ExportJson",
+            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "DutyCommunity", "ExportCsv", "ExportJson",
                 "PreviewRunImport", "QueryHistorySelection", "SynthesizeSpeech" },
             MessageDispatcher.AsynchronousMessageTypes.OrderBy(type => type, StringComparer.Ordinal));
     }

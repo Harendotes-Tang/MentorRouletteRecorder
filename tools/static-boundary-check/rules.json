@@ -639,8 +639,9 @@
       "id": "NET-006",
       "category": "outbound-network",
       "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b|\\bQRestAccessManager\\b|\\bHttpMessageInvoker\\b|\\bSocketsHttpHandler\\b|\\bHttpClientHandler\\b|\\bWinHttp\\w+|\\bHttpWebRequest\\b|\\bFtpWebRequest\\b|\\bWebRequest\\s*(?:\\]\\s*::|\\.)\\s*Create|\\bInternet(?:Open(?:Url)?|Connect)[AW]?\\b|\\bHttp(?:OpenRequest|SendRequest)(?:Ex)?[AW]?\\b|\\bURLDownloadTo(?:Cache)?File[AW]?\\b|\\bURLOpen\\w*Stream[AW]?\\b",
-      "message": "禁止外发网络请求（HttpClient、HttpMessageInvoker、SocketsHttpHandler、WebRequest、WinHTTP、WinINet、URLDownloadToFile、QNetworkAccessManager 等 HTTP 客户端）；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4、§8.6） / no outbound network requests (HttpClient, HttpMessageInvoker, SocketsHttpHandler, WebRequest, WinHTTP, WinINet, URLDownloadToFile, QNetworkAccessManager and the other HTTP clients); the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3, 8.4 and 8.6)",
+      "message": "禁止外发网络请求（HttpClient、HttpMessageInvoker、SocketsHttpHandler、WebRequest、WinHTTP、WinINet、URLDownloadToFile、QNetworkAccessManager 等 HTTP 客户端）；例外为共享校准、在线语音、更新与副本社区专用客户端（docs/privacy-boundary.md §8.2–§8.7） / no outbound network requests (HttpClient, HttpMessageInvoker, SocketsHttpHandler, WebRequest, WinHTTP, WinINet, URLDownloadToFile, QNetworkAccessManager and the other HTTP clients); exceptions are the dedicated calibration, speech, update and duty community clients (docs/privacy-boundary.md sections 8.2–8.7)",
       "allow_paths": [
+        "src/Collector/Community/CommunityHttp.cs",
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Speech/OnlineSpeechClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs"
@@ -677,6 +678,7 @@
       "pattern": "(?i:githubusercontent)",
       "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录、开发期数据生成器与专用发布同步脚本（docs/privacy-boundary.md §8.2、§8.4、§8.6） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ the dev-time duty-data generator and tools/release-mirror/sync_release.py (docs/privacy-boundary.md sections 8.2, 8.4 and 8.6)",
       "allow_paths": [
+        "src/Collector/Community/CommunityHttp.cs",
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs",
         "tools/duty-data-generator/generate.py",
@@ -691,8 +693,9 @@
       "variant": "gitcode-api-host",
       "category": "outbound-network",
       "pattern": "(?i:api\\.gitcode\\.com)",
-      "message": "GitCode API 主机仅允许出现在两个既有读取客户端和专用发布同步脚本 / GitCode API host is confined to the two read clients and release mirror tool",
+      "message": "GitCode API 主机仅允许出现在专用读取客户端和发布同步脚本 / GitCode API host is confined to the dedicated readers and release mirror tool",
       "allow_paths": [
+        "src/Collector/Community/CommunityHttp.cs",
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs",
         "tools/release-mirror/sync_release.py"

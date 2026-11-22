@@ -1,0 +1,12 @@
+name: Share a mentor reminder or macro
+description: Submit the validated community block copied from MentorRecorder
+title: "MentorRecorder community contribution"
+labels: [community-content]
+body:
+  - type: textarea
+    id: submission
+    attributes:
+      label: Community submission
+      description: Paste the complete block from MentorRecorder. It includes your selected license. The issue and submitted text are public.
+    validations:
+      required: true

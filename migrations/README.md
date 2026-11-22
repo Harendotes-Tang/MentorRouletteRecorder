@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**17**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**18**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -23,6 +23,7 @@
 > | 15 | `0015_character_identities.sql` | 角色识别 `character_identities`（见过的角色的带密钥摘要及其绑定的档案）；`mentor_runs.identity_id` 记录匹配时登录的角色，既有记录一律为 NULL |
 > | 16 | `0016_character_registration.sql` | 保存升级档案及在登录时识别到的待确认角色 |
 > | 17 | `0017_candidate_player_round.sql` | 保存玩家第二轮采证的轮次标识，按轮次与协议档案查询。升级前的观测保留空标识 |
+> | 18 | `0018_duty_community.sql` | 副本攻略及社区内容 |
 
 ## 命名
 
@@ -147,3 +148,7 @@ HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`ke
 | `name` | 迁移文件名 |
 | `checksum` | 脚本内容的 SHA-256 |
 | `applied_at_utc` | 应用时间（UTC ISO-8601 带毫秒） |
+
+## schema 15 → 16
+
+`0018_duty_community.sql` 新增 `community_local`、`community_cache` 和 `community_receipts`。旧历史、心得、角色和校准相关数据保持原值。Collector 启动时按现有流程留存 v15 升级前快照。

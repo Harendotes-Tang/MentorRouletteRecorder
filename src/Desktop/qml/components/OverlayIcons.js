@@ -6,6 +6,7 @@
 var icons = {
     "progress": "medal",
     "current": "flag",
+    "guide": "book-open-text",
     "time": "timer",
     "duty": "swords",
     "roles": "users",

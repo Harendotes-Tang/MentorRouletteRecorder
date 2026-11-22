@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mentorrecorder.local/contracts/community-content-v1.schema.json",
+  "title": "MentorRecorder duty reminders and macros",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Submission"
+    },
+    {
+      "$ref": "#/$defs/Index"
+    },
+    {
+      "$ref": "#/$defs/Snapshot"
+    },
+    {
+      "$ref": "#/$defs/PublicItem"
+    },
+    {
+      "$ref": "#/$defs/File"
+    }
+  ],
+  "$defs": {
+    "Draft": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+        },
+        "type": {
+          "enum": [
+            "reminder",
+            "macro"
+          ]
+        },
+        "content_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "region": {
+          "enum": [
+            "ALL",
+            "CN",
+            "TC",
+            "GLOBAL"
+          ]
+        },
+        "language": {
+          "enum": [
+            "zh-Hans",
+            "zh-Hant",
+            "en",
+            "ja"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "minLength": 1
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 1600,
+          "minLength": 1
+        },
+        "boss": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "phase": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1
+          },
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "game_version": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 240
+        }
+      },
+      "required": [
+        "schema_version",
+        "id",
+        "type",
+        "content_id",
+        "region",
+        "language",
+        "title",
+        "body",
+        "boss",
+        "phase",
+        "role",
+        "tags",
+        "game_version",
+        "links",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "PublicItem": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+        },
+        "type": {
+          "enum": [
+            "reminder",
+            "macro"
+          ]
+        },
+        "content_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "region": {
+          "enum": [
+            "ALL",
+            "CN",
+            "TC",
+            "GLOBAL"
+          ]
+        },
+        "language": {
+          "enum": [
+            "zh-Hans",
+            "zh-Hant",
+            "en",
+            "ja"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "minLength": 1
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 1600,
+          "minLength": 1
+        },
+        "boss": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "phase": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1
+          },
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "game_version": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "author": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
+            }
+          },
+          "required": [
+            "id",
+            "login"
+          ],
+          "additionalProperties": false
+        },
+        "license": {
+          "enum": [
+            "CC-BY-4.0",
+            "CC-BY-SA-4.0"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "updated_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "status": {
+          "enum": [
+            "community",
+            "verified",
+            "outdated",
+            "withdrawn"
+          ]
+        },
+        "issue": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      },
+      "required": [
+        "schema_version",
+        "id",
+        "type",
+        "content_id",
+        "region",
+        "language",
+        "title",
+        "body",
+        "boss",
+        "phase",
+        "role",
+        "tags",
+        "game_version",
+        "links",
+        "source",
+        "author",
+        "license",
+        "revision",
+        "updated_at",
+        "status",
+        "issue"
+      ],
+      "additionalProperties": false
+    },
+    "Submission": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "license": {
+          "enum": [
+            "CC-BY-4.0",
+            "CC-BY-SA-4.0"
+          ]
+        },
+        "consent": {
+          "const": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Draft"
+          },
+          "maxItems": 20,
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "base_revisions": {
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "license",
+        "consent",
+        "items",
+        "base_revisions"
+      ],
+      "additionalProperties": false
+    },
+    "Index": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "generation": {
+              "const": 0
+            },
+            "snapshot_commit": {
+              "type": "null"
+            },
+            "snapshot_sha256": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "schema_version",
+            "generation",
+            "snapshot_commit",
+            "snapshot_sha256"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "snapshot_commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "snapshot_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "schema_version",
+            "generation",
+            "snapshot_commit",
+            "snapshot_sha256"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicItem"
+          },
+          "maxItems": 400,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "generation",
+        "entries"
+      ],
+      "additionalProperties": false
+    },
+    "File": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "integer",
+                "minimum": -9999,
+                "maximum": 9999
+              },
+              "favorite": {
+                "type": "boolean"
+              },
+              "content": {
+                "$ref": "#/$defs/Draft"
+              },
+              "upstream": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PublicItem"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "position",
+              "favorite",
+              "content",
+              "upstream"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20,
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schema_version",
+        "items"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

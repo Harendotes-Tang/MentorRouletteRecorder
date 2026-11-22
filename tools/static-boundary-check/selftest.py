@@ -754,6 +754,7 @@ SCRIPT_TYPES = (".bat", ".cmd", ".isl", ".iss", ".ps1", ".psm1", ".yaml", ".yml"
 SHARED_CLIENT = "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs"
 SPEECH_CLIENT = "src/Collector/Speech/OnlineSpeechClient.cs"
 UPDATE_CLIENT = "src/Collector/Update/UpdateCheckClient.cs"
+COMMUNITY_CLIENT = "src/Collector/Community/CommunityHttp.cs"
 DUTY_GENERATOR = "tools/duty-data-generator/generate.py"
 RELEASE_MIRROR = "tools/release-mirror/sync_release.py"
 RULE_SCOPES: dict[str, dict[str, tuple[str, ...]]] = {
@@ -773,12 +774,13 @@ RULE_SCOPES: dict[str, dict[str, tuple[str, ...]]] = {
     "NET-002": {"ignore_case_extensions": SCRIPT_TYPES},
     "NET-003": {"ignore_case_extensions": SCRIPT_TYPES},
     "NET-006": {"ignore_case_extensions": SCRIPT_TYPES,
-                "allow_paths": (SHARED_CLIENT, SPEECH_CLIENT, UPDATE_CLIENT)},
+                "allow_paths": (COMMUNITY_CLIENT, SHARED_CLIENT, SPEECH_CLIENT, UPDATE_CLIENT)},
     "NET-007/shared-calibration-hosts": {"allow_paths": (SHARED_CLIENT, DUTY_GENERATOR),
                                          "allow_path_prefixes": ("tools/shared-calibration/",)},
-    "NET-007/github-content-hosts": {"allow_paths": (SHARED_CLIENT, UPDATE_CLIENT, DUTY_GENERATOR, RELEASE_MIRROR),
+    "NET-007/github-content-hosts": {"allow_paths": (COMMUNITY_CLIENT, SHARED_CLIENT, UPDATE_CLIENT, DUTY_GENERATOR,
+                                                     RELEASE_MIRROR),
                                      "allow_path_prefixes": ("tools/shared-calibration/",)},
-    "NET-007/gitcode-api-host": {"allow_paths": (SHARED_CLIENT, UPDATE_CLIENT, RELEASE_MIRROR)},
+    "NET-007/gitcode-api-host": {"allow_paths": (COMMUNITY_CLIENT, SHARED_CLIENT, UPDATE_CLIENT, RELEASE_MIRROR)},
     "NET-007/gitcode-asset-hosts": {"allow_paths": (UPDATE_CLIENT, RELEASE_MIRROR)},
     "NET-007/gitcode-upload-host": {"allow_paths": (RELEASE_MIRROR,)},
     "NET-007/speech-host": {"allow_paths": (SPEECH_CLIENT,)},

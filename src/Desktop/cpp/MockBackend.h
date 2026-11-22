@@ -150,6 +150,8 @@ public:
     /// folder the Desktop's own check refuses unless a test points it there.
     /// false: an older Collector - no `download` object, both messages refused.
     void setUpdateDownloadSupported(bool supported) { m_updateDownloadSupported = supported; }
+    /// Test and --mock-open-community seam: the public library as allowed and refreshed.
+    void setCommunityLibraryFetched(bool fetched) { m_communityOnline = m_communityFetched = fetched; }
     bool updateDownloadSupported() const { return m_updateDownloadSupported; }
     /// A held state for screenshots and tests: "downloading" (45 %), "verifying",
     /// "ready" or "failed". Also makes a newer version known. A held download
@@ -355,6 +357,9 @@ private:
                                     QString *errorMessage);
     QJsonObject synthesizePayload(const QJsonObject &payload, QString *errorCode,
                                   QString *errorMessage, QJsonObject *errorDetails);
+    // -- 副本提醒与导随宏 (MockBackendCommunity.cpp) --------------------------
+    /// $defs/Results/DutyCommunity for one action against the in-memory library.
+    QJsonObject dutyCommunity(const QJsonObject &payload);
     // -- 下载并安装 (MockBackendUpdate.cpp) ----------------------------------
     static bool isUpdateDownloadMessage(const QString &messageType);
     /// {update: $defs/UpdateStatus} after one of the two messages.
@@ -548,6 +553,10 @@ private:
     bool m_midstreamSuspected = false;
     bool m_updateAvailable = false;
     bool m_updateDownloadSupported = true;
+    QJsonArray m_communityLocal;
+    bool m_communitySeeded = false;
+    bool m_communityOnline = false;
+    bool m_communityFetched = false;
     /// $defs/UpdateDownload.state, and the rest of the simulated download.
     QString m_updateDownloadState = QStringLiteral("IDLE");
     qint64 m_updateReceivedBytes = 0;
