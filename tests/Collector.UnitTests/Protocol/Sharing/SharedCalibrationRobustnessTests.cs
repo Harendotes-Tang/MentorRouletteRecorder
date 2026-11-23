@@ -78,8 +78,7 @@ public sealed class SharedCalibrationRobustnessTests : IDisposable
         Assert.NotEqual(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, login, hour: 24);
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, login, hour: 24);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);

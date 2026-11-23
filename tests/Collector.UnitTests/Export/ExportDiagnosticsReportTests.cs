@@ -30,28 +30,12 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
     private const string EnvironmentPlaceholderPattern = "%[A-Za-z]+%";
 
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 9, 4, 13, 45, 0, TimeSpan.Zero));
-    private readonly string _directory;
 
-    public ExportDiagnosticsReportTests()
-    {
-        // A writable local checkout may live outside the user's profile, so the fixture uses a
-        // unique directory of its own rather than relying on OS-protected folders.
-        _directory = Path.Combine(
-            AppContext.BaseDirectory, "MentorRecorder.DiagReport", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
+    // A writable local checkout may live outside the user's profile, so the fixture uses a
+    // unique directory of its own rather than relying on OS-protected folders.
+    private readonly TempDirectory _directory = new("DiagReport", parent: AppContext.BaseDirectory);
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Temp debris only.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     [Theory]
     [InlineData(null)]
@@ -73,7 +57,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
     [Fact]
     public void WritesIntoADirectoryTheCallerNames()
     {
-        var target = Path.Combine(_directory, "chosen");
+        var target = _directory.Combine("chosen");
         Directory.CreateDirectory(target);
 
         var result = NewExport().Write(Loaded(), "0.1.0", target);
@@ -87,9 +71,9 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
     public void ExplicitTargetDoesNotResolveAnInvalidDefaultDatabasePath(bool directoryTarget)
     {
         var export = new DiagnosticsReportExport("invalid\0database.db", _clock);
-        var target = directoryTarget ? _directory : Path.Combine(_directory, "chosen.json");
+        var target = directoryTarget ? _directory.Path : _directory.Combine("chosen.json");
         var expected = directoryTarget
-            ? Path.Combine(_directory, "diag_20260904_1345.json")
+            ? _directory.Combine("diag_20260904_1345.json")
             : target;
 
         var result = export.Write(Loaded(), "0.1.0", target);
@@ -105,7 +89,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         // A report is a fresh observation, so replacing an older file the exporter itself
         // named is the expected behaviour rather than a conflict the user has to resolve.
         // Only that name, though: see RefusesToReplaceAFileItDidNotName.
-        var target = Path.Combine(_directory, "diag_20260904_1345.json");
+        var target = _directory.Combine("diag_20260904_1345.json");
         File.WriteAllText(target, "stale");
 
         var result = NewExport().Write(Loaded(), "0.1.0", target);
@@ -120,7 +104,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         // "diag.json" is a name a person would plausibly choose, and it is not one this
         // exporter produces. Replacing it unasked is how a diagnostics report ends up
         // destroying something the user cannot get back (review finding H3).
-        var target = Path.Combine(_directory, "diag.json");
+        var target = _directory.Combine("diag.json");
         File.WriteAllText(target, "stale");
 
         var failure = Assert.Throws<CollectorException>(
@@ -233,7 +217,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
             <Data Name="ReportId">{reportId}</Data><Data Name="StorePath">C:\ProgramData\PrivateReport</Data>
             """);
         var reads = 0;
-        var export = new DiagnosticsReportExport(Path.Combine(_directory, "runs.db"), _clock, now =>
+        var export = new DiagnosticsReportExport(_directory.Combine("runs.db"), _clock, now =>
         {
             ++reads;
             return DesktopHangReading.FromEvents([wer, hang], now);
@@ -267,7 +251,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
             """<Data Name="AppName">OtherApp.exe</Data>""");
         var stale = WindowsEvent(1002, "Application Hang", "2026-08-27T13:44:18.000Z",
             """<Data Name="AppName">MentorRecorder.Desktop.exe</Data>""");
-        var export = new DiagnosticsReportExport(Path.Combine(_directory, "runs.db"), _clock, now => available
+        var export = new DiagnosticsReportExport(_directory.Combine("runs.db"), _clock, now => available
             ? DesktopHangReading.FromEvents([otherApp, stale], now) : new DesktopHangReading(false));
         var result = export.Write(Loaded(), "1.9.1");
         var summary = JsonNode.Parse(File.ReadAllText(result.TargetPath))!["desktop_hang"]!.AsObject();
@@ -304,7 +288,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         """;
 
     private DiagnosticsReportExport NewExport() =>
-        new(Path.Combine(_directory, "mentor_recorder.db"), _clock);
+        new(_directory.Combine("mentor_recorder.db"), _clock);
 
     /// <summary>A snapshot carrying every kind of value the report must not leak.</summary>
     private static CaptureDiagnosticsSnapshot Loaded() => new()

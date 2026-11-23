@@ -24,11 +24,6 @@ public sealed class SharedCalibrationTrustTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
     /// <summary>The login burst and the idle minute after it: nothing queued yet.</summary>
     private static DecodedMessage[] Login(IEnumerable<DecodedMessage> evening) => Bed.Before(evening, 30_000);
 
@@ -42,8 +37,7 @@ public sealed class SharedCalibrationTrustTests : IDisposable
     [Fact]
     public async Task APublishedCodeDoesNotDisplaceTheMachinesOwnQueueInferredProfileBeforeItsMatchIsSeenToBehave()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         _bed.Publish(WithBogusPop(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState)));
         var pipeline = _bed.Pipeline(_bed.Services());
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
@@ -51,8 +45,7 @@ public sealed class SharedCalibrationTrustTests : IDisposable
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         // The zone marker vouches for the build, which is all a published code needs when nothing records yet.
         // Here the machine's own calibration records, so the code waits for its match.
@@ -62,20 +55,18 @@ public sealed class SharedCalibrationTrustTests : IDisposable
         Assert.Equal(SharedGate.Required, Assert.Single(waiting.Criteria, item => item.Message == CalibratedShape.PopName).Gate);
 
         Bed.Feed(pipeline, session, AfterLogin(evening));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
 
         // The match never arrived on the code's opcode: the machine's own profile recorded the evening's duty.
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
         Assert.False(File.Exists(_bed.SharedProfilePath));
     }
 
     [Fact]
     public async Task APastedCodeThatWouldReplaceAProfileInForceIsToldItWaitsForAQueue()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
         var pipeline = _bed.Pipeline(_bed.Services());
@@ -114,19 +105,17 @@ public sealed class SharedCalibrationTrustTests : IDisposable
         marked = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(SharedGate.Audit, Assert.Single(marked.Criteria, item => item.Message == CalibratedShape.PopName).Gate);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         // Bound on the login burst; the match is audited while it records.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.Idle, pipeline.RunState);
         Assert.True(pipeline.CalibrationStatus().Shared.AuditPending);
 
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
 
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 
     [Fact]
@@ -141,8 +130,7 @@ public sealed class SharedCalibrationTrustTests : IDisposable
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         // Reading the server's match does not on its own outrank three submitters: the well-attested code passed at
         // login and waits for the player's consent; the other waits for its match.
@@ -154,13 +142,12 @@ public sealed class SharedCalibrationTrustTests : IDisposable
         Assert.Equal(SharedConsentOutcome.Accepted, pipeline.AcceptSharedQueueInference());
         await Bed.Idle(pipeline);
         Bed.Feed(pipeline, session, AfterLogin(evening));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
 
         var inUse = pipeline.CalibrationStatus().Shared.Candidates[0];
         Assert.Equal(many.Sha[..12], inUse.Sha12);
         Assert.Equal(CalibrationMatchSource.QueueRequest, inUse.MatchSource);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 
     [Fact]
@@ -183,16 +170,14 @@ public sealed class SharedCalibrationTrustTests : IDisposable
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(honest.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
 
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(honest.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 }

@@ -19,14 +19,7 @@ public sealed class ExportHardeningTests : IDisposable
 {
     private readonly TestDatabase _database = new();
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 9, 4, 13, 45, 0, TimeSpan.Zero));
-    private readonly string _directory;
-
-    public ExportHardeningTests()
-    {
-        _directory = Path.Combine(
-            AppContext.BaseDirectory, "MentorRecorder.ExportHardening", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
+    private readonly TempDirectory _directory = new("ExportHardening", parent: AppContext.BaseDirectory);
 
     // ---- M5: CSV formula injection -------------------------------------------------
 
@@ -77,7 +70,7 @@ public sealed class ExportHardeningTests : IDisposable
             reflections.Upsert(run.RunId, ReflectionMood.Good, "+1，很顺", _clock.UtcNow, tx);
         });
 
-        var path = Path.Combine(_directory, "columns.csv");
+        var path = _directory.Combine("columns.csv");
         new RunExporter(runs, _clock).ExportCsv(path, null, overwrite: false);
         var cells = SplitCsvRow(File.ReadAllLines(path)[1]);
 
@@ -142,7 +135,7 @@ public sealed class ExportHardeningTests : IDisposable
     [Fact]
     public void RetentionNeverSweepsAFolderTheUserChose()
     {
-        var chosen = Path.Combine(_directory, "chosen");
+        var chosen = _directory.Combine("chosen");
         Directory.CreateDirectory(chosen);
         SeedStaleBackups(chosen, 20);
 
@@ -181,7 +174,7 @@ public sealed class ExportHardeningTests : IDisposable
         var stale = StageFile(service.DefaultDirectory, _database.Clock.UtcNow.AddHours(-2));
         var fresh = StageFile(service.DefaultDirectory, _database.Clock.UtcNow.AddMinutes(-5));
 
-        var chosen = Path.Combine(_directory, "chosen-temp");
+        var chosen = _directory.Combine("chosen-temp");
         Directory.CreateDirectory(chosen);
         var untouched = StageFile(chosen, _database.Clock.UtcNow.AddDays(-3));
 
@@ -235,7 +228,7 @@ public sealed class ExportHardeningTests : IDisposable
     [Fact]
     public void AReportRefusesToOverwriteAFileItDidNotName()
     {
-        var thesis = Path.Combine(_directory, "thesis.docx");
+        var thesis = _directory.Combine("thesis.docx");
         File.WriteAllText(thesis, "十年心血");
 
         var error = Assert.Throws<CollectorException>(
@@ -248,7 +241,7 @@ public sealed class ExportHardeningTests : IDisposable
     [Fact]
     public void AnExplicitOverwriteIsHonoured()
     {
-        var thesis = Path.Combine(_directory, "thesis.docx");
+        var thesis = _directory.Combine("thesis.docx");
         File.WriteAllText(thesis, "十年心血");
 
         var result = NewExport().Write(Snapshot(), "0.2.2", thesis, overwrite: true);
@@ -264,15 +257,15 @@ public sealed class ExportHardeningTests : IDisposable
         // the same generated name, and refusing the second would be an error the user cannot
         // act on.
         var export = NewExport();
-        var first = export.Write(Snapshot(), "0.2.2", _directory);
-        var second = export.Write(Snapshot(), "0.2.2", _directory);
+        var first = export.Write(Snapshot(), "0.2.2", _directory.Path);
+        var second = export.Write(Snapshot(), "0.2.2", _directory.Path);
 
         Assert.Equal(first.TargetPath, second.TargetPath);
         Assert.StartsWith(DiagnosticsReportExport.FileNamePrefix, Path.GetFileName(second.TargetPath), StringComparison.Ordinal);
     }
 
     private DiagnosticsReportExport NewExport() =>
-        new(Path.Combine(_directory, "test.db"), _clock);
+        new(_directory.Combine("test.db"), _clock);
 
     private static CaptureDiagnosticsSnapshot Snapshot() => new()
     {
@@ -296,13 +289,6 @@ public sealed class ExportHardeningTests : IDisposable
     public void Dispose()
     {
         _database.Dispose();
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Temp debris only.
-        }
+        _directory.Dispose();
     }
 }

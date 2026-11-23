@@ -63,8 +63,7 @@ public sealed class HardeningTests
     public void SameRequestIdWithADifferentCreateBody_IsRefused()
     {
         using var database = new TestDatabase();
-        var settings = new SettingsRepository(database.Database, database.Clock);
-        settings.EnsureDefaults();
+        var settings = database.Settings();
         var service = new RunMutationService(database.Database, settings, database.Clock);
         var requestId = Guid.NewGuid().ToString("D");
 
@@ -116,141 +115,111 @@ public sealed class HardeningTests
     [Fact]
     public void Logger_WritesNoPayloadAndNoUserName()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.LogTests", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-            using var logger = new RotatingFileLogger(directory, clock);
+        using var temp = TempDirectory.Reserve("LogTests");
+        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
+        using var logger = new RotatingFileLogger(temp.Path, clock);
 
-            logger.Write(LogLevel.Info, "ipc", "connection_accepted", new Dictionary<string, object?>
-            {
-                ["count"] = 3,
-                ["path"] = @"C:\Users\SomebodyElse\AppData\Local\MentorRecorder\x.db",
-            });
-
-            var line = File.ReadAllText(logger.CurrentPath);
-            Assert.Contains("\"event\":\"connection_accepted\"", line, StringComparison.Ordinal);
-            Assert.Contains("\"ts\":\"2026-09-04T07:00:00.000Z\"", line, StringComparison.Ordinal);
-            Assert.DoesNotContain("SomebodyElse", line, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
+        logger.Write(LogLevel.Info, "ipc", "connection_accepted", new Dictionary<string, object?>
         {
-            Directory.Delete(directory, recursive: true);
-        }
+            ["count"] = 3,
+            ["path"] = @"C:\Users\SomebodyElse\AppData\Local\MentorRecorder\x.db",
+        });
+
+        var line = File.ReadAllText(logger.CurrentPath);
+        Assert.Contains("\"event\":\"connection_accepted\"", line, StringComparison.Ordinal);
+        Assert.Contains("\"ts\":\"2026-09-04T07:00:00.000Z\"", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("SomebodyElse", line, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void Logger_DeletesDaysThatHaveAgedOut()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.LogTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var stale = Path.Combine(directory, "collector-20260101.log");
-            var recent = Path.Combine(directory, "collector-20260903.log");
-            File.WriteAllText(stale, "old\n");
-            File.WriteAllText(recent, "yesterday\n");
+        using var temp = new TempDirectory("LogTests");
+        var stale = temp.Combine("collector-20260101.log");
+        var recent = temp.Combine("collector-20260903.log");
+        File.WriteAllText(stale, "old\n");
+        File.WriteAllText(recent, "yesterday\n");
 
-            var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-            using var logger = new RotatingFileLogger(directory, clock);
-            logger.Write(LogLevel.Info, "startup", "database_ready");
+        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
+        using var logger = new RotatingFileLogger(temp.Path, clock);
+        logger.Write(LogLevel.Info, "startup", "database_ready");
 
-            Assert.False(File.Exists(stale), "a log from eight months ago should have been pruned");
-            Assert.True(File.Exists(recent), "yesterday's log is still within the retention window");
-            Assert.True(File.Exists(logger.CurrentPath));
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.False(File.Exists(stale), "a log from eight months ago should have been pruned");
+        Assert.True(File.Exists(recent), "yesterday's log is still within the retention window");
+        Assert.True(File.Exists(logger.CurrentPath));
     }
 
     [SymbolicLinkFact]
     public void ExportPaths_ResolveFinalPathFollowsALocalDirectoryLink()
     {
-        var root = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.LinkTests", Guid.NewGuid().ToString("N"));
-        var target = Path.Combine(Path.GetTempPath(), "MentorRecorder.LinkTarget", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        Directory.CreateDirectory(target);
+        using var root = new TempDirectory("LinkTests");
+        using var target = new TempDirectory("LinkTarget");
 
-        var link = Path.Combine(root, "link");
+        var link = root.Combine("link");
         try
         {
-            Directory.CreateSymbolicLink(link, target);
-            Directory.CreateDirectory(Path.Combine(target, "nested"));
-            File.WriteAllText(Path.Combine(target, "nested", "existing.csv"), "original");
+            Directory.CreateSymbolicLink(link, target.Path);
+            Directory.CreateDirectory(target.Combine("nested"));
+            File.WriteAllText(target.Combine("nested", "existing.csv"), "original");
             var through = Path.Combine(link, "nested", "runs.csv");
 
             var resolved = ExportPaths.ResolveFinalPath(through);
 
             Assert.NotEqual(Path.GetFullPath(through), resolved);
             Assert.StartsWith(
-                Path.GetFullPath(target), resolved, StringComparison.OrdinalIgnoreCase);
+                Path.GetFullPath(target.Path), resolved, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(Path.GetFullPath(through), ExportPaths.Resolve(through));
-            Assert.Equal(Path.Combine(target, "nested", "existing.csv"),
+            Assert.Equal(target.Combine("nested", "existing.csv"),
                 ExportPaths.ResolveFinalPath(Path.Combine(link, "nested", "existing.csv")));
         }
         finally
         {
             Directory.Delete(link);
-            Directory.Delete(root, recursive: true);
-            Directory.Delete(target, recursive: true);
         }
     }
 
     [SymbolicLinkFact]
     public void ExportPaths_ValidatesFileLinksAndNetworkDirectoryLinks()
     {
-        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.LinkTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
+        using var root = new TempDirectory("LinkTests");
+        var target = root.Combine("target.csv");
+        File.WriteAllText(target, "keep");
+        var localFile = root.Combine("local.csv");
+        File.CreateSymbolicLink(localFile, target);
+        Assert.Equal(localFile, ExportPaths.Resolve(localFile));
+        Assert.Equal(target, ExportPaths.ResolveFinalPath(localFile));
+
+        var remoteFile = root.Combine("remote.csv");
+        File.CreateSymbolicLink(remoteFile, @"\\export-server\share\runs.csv");
+        Assert.Equal(ErrorCodes.ExportFailed,
+            Assert.Throws<CollectorException>(() => ExportPaths.Resolve(remoteFile)).Code);
+
+        var remoteDirectory = root.Combine("remote-directory");
+        Directory.CreateSymbolicLink(remoteDirectory, @"\\export-server\share");
+        Assert.Equal(ErrorCodes.ExportFailed,
+            Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(remoteDirectory, "runs.csv"))).Code);
+
+        var localChain = root.Combine("chain");
+        Directory.CreateSymbolicLink(localChain, remoteDirectory);
+        Assert.Equal(ErrorCodes.ExportFailed,
+            Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(localChain, "runs.csv"))).Code);
+
+        var cycle = root.Combine("cycle");
+        Directory.CreateSymbolicLink(cycle, cycle);
+        Assert.Equal(ErrorCodes.ExportFailed,
+            Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(cycle, "runs.csv"))).Code);
+
+        // 重复子链的总工作量也受 64 跳限制，不能只限制递归深度。
+        Directory.CreateSymbolicLink(root.Combine("repeat0"), root.Path);
+        for (var index = 1; index <= 8; index++)
         {
-            var target = Path.Combine(root, "target.csv");
-            File.WriteAllText(target, "keep");
-            var localFile = Path.Combine(root, "local.csv");
-            File.CreateSymbolicLink(localFile, target);
-            Assert.Equal(localFile, ExportPaths.Resolve(localFile));
-            Assert.Equal(target, ExportPaths.ResolveFinalPath(localFile));
-
-            var remoteFile = Path.Combine(root, "remote.csv");
-            File.CreateSymbolicLink(remoteFile, @"\\export-server\share\runs.csv");
-            Assert.Equal(ErrorCodes.ExportFailed,
-                Assert.Throws<CollectorException>(() => ExportPaths.Resolve(remoteFile)).Code);
-
-            var remoteDirectory = Path.Combine(root, "remote-directory");
-            Directory.CreateSymbolicLink(remoteDirectory, @"\\export-server\share");
-            Assert.Equal(ErrorCodes.ExportFailed,
-                Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(remoteDirectory, "runs.csv"))).Code);
-
-            var localChain = Path.Combine(root, "chain");
-            Directory.CreateSymbolicLink(localChain, remoteDirectory);
-            Assert.Equal(ErrorCodes.ExportFailed,
-                Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(localChain, "runs.csv"))).Code);
-
-            var cycle = Path.Combine(root, "cycle");
-            Directory.CreateSymbolicLink(cycle, cycle);
-            Assert.Equal(ErrorCodes.ExportFailed,
-                Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(cycle, "runs.csv"))).Code);
-
-            // 重复子链的总工作量也受 64 跳限制，不能只限制递归深度。
-            Directory.CreateSymbolicLink(Path.Combine(root, "repeat0"), root);
-            for (var index = 1; index <= 8; index++)
-            {
-                var previous = "repeat" + (index - 1);
-                Directory.CreateSymbolicLink(Path.Combine(root, "repeat" + index),
-                    Path.Combine(root, previous, previous));
-            }
-            Assert.Equal(ErrorCodes.ExportFailed,
-                Assert.Throws<CollectorException>(() => ExportPaths.Resolve(Path.Combine(root, "repeat8", "runs.csv"))).Code);
-            Assert.Equal("keep", File.ReadAllText(target));
+            var previous = "repeat" + (index - 1);
+            Directory.CreateSymbolicLink(root.Combine("repeat" + index),
+                root.Combine(previous, previous));
         }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
+        Assert.Equal(ErrorCodes.ExportFailed,
+            Assert.Throws<CollectorException>(() => ExportPaths.Resolve(root.Combine("repeat8", "runs.csv"))).Code);
+        Assert.Equal("keep", File.ReadAllText(target));
     }
 
     [Fact]
@@ -293,19 +262,14 @@ public sealed class SymbolicLinkFactAttribute : FactAttribute
 {
     public SymbolicLinkFactAttribute()
     {
-        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.LinkCapability", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        using var root = new TempDirectory("LinkCapability");
         try
         {
-            Directory.CreateSymbolicLink(Path.Combine(root, "link"), root);
+            Directory.CreateSymbolicLink(root.Combine("link"), root.Path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Skip = "当前 Windows 环境没有创建符号链接的权限。";
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
         }
     }
 }

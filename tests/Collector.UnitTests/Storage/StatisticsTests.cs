@@ -478,20 +478,7 @@ public sealed class StatisticsTests
             TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork),
         };
         var untouched = TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork);
-        var revisions = new RunRevisionRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            foreach (var run in cancelled.Append(left).Append(untouched))
-            {
-                runs.Insert(run, tx);
-                revisions.Append(new RunRevision
-                {
-                    RevisionId = Guid.NewGuid().ToString("D"), RunId = run.RunId, Revision = 1,
-                    ChangedAtUtc = run.UpdatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
-                    Changes = Array.Empty<RunFieldChange>(),
-                }, tx);
-            }
-        });
+        fixture.InsertWithFirstRevision(cancelled.Append(left).Append(untouched).ToArray());
         var mutations = new MentorRecorder.Collector.Storage.Mutations.RunMutationService(fixture.Database, settings, fixture.Clock);
         foreach (var run in cancelled)
         {

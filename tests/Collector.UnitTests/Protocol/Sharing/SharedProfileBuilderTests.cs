@@ -25,20 +25,9 @@ public sealed class SharedProfileBuilderTests : IDisposable
         ["messages.PLAYER_JOB.opcode"] = 3,
     };
 
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "shared-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // A root no test in this class created raises DirectoryNotFoundException.
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     public static TheoryData<string> Cases()
     {
@@ -56,7 +45,7 @@ public sealed class SharedProfileBuilderTests : IDisposable
         var template = CalibrationObserverTests.Template();
         var draft = CalibrationTrafficCases.Derive(name);
         var written = LocalProfileWriter.Write(
-            draft, template, CalibrationTrafficCases.Build, Confirmed, Path.Combine(_root, "protocol-profiles"));
+            draft, template, CalibrationTrafficCases.Build, Confirmed, _root.Combine("protocol-profiles"));
         return ProfileLoader.Load(written.Path);
     }
 
@@ -114,7 +103,7 @@ public sealed class SharedProfileBuilderTests : IDisposable
         Assert.True(built.Profile.ToBinding().IsUsable);
 
         // The returned text is a file the ordinary loader accepts where the catalogue looks.
-        var directory = Path.Combine(_root, ProfileCatalog.SharedDirectoryName, "cn");
+        var directory = _root.Combine(ProfileCatalog.SharedDirectoryName, "cn");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, built.ProfileId + ".json");
         File.WriteAllText(path, built.Json);
@@ -323,7 +312,7 @@ public sealed class SharedProfileBuilderTests : IDisposable
         var draft = CalibrationDraft.Derive(observer.Snapshot(), template, rejections);
         Assert.Equal(queueInferred ? CalibrationMatchSource.QueueRequest : CalibrationMatchSource.Announcement, draft.MatchSource);
         var written = LocalProfileWriter.Write(
-            draft, template, "2026.12.01.0000.0000", Confirmed, Path.Combine(_root, "protocol-profiles"));
+            draft, template, "2026.12.01.0000.0000", Confirmed, _root.Combine("protocol-profiles"));
         var local = ProfileLoader.Load(written.Path);
 
         var export = SharedProfileBuilder.ToShareCode(local, template);

@@ -26,8 +26,7 @@ public sealed class CaptureHealthSeamTests : IDisposable
 
     public CaptureHealthSeamTests()
     {
-        _settings = new SettingsRepository(_database.Database, _database.Clock);
-        _settings.EnsureDefaults();
+        _settings = _database.Settings();
         _settings.SetSetting(CaptureController.FollowGameSetting, "false");
         _adapters.Add("wifi", "Wi-Fi", addresses: "192.168.31.77");
         _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch, @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");

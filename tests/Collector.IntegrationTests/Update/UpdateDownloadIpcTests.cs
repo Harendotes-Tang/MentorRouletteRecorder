@@ -176,7 +176,7 @@ public sealed class UpdateDownloadIpcTests
         Assert.Equal("DISABLED", download["failure"]!.GetValue<string>());
         Assert.False(string.IsNullOrWhiteSpace(download["message"]!.GetValue<string>()));
         await transport.BodyCancelled.WaitAsync(Patience);
-        await EventuallyAsync(() => !File.Exists(part), "the partial file must be removed");
+        await Poll.UntilAsync(() => !File.Exists(part), "the partial file must be removed");
         Assert.False(File.Exists(InstallerPath(fixture)));
     }
 
@@ -264,51 +264,36 @@ public sealed class UpdateDownloadIpcTests
     [Fact]
     public async Task StoppingTheCollectorMidDownloadLeavesNoPartialFile()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.IntegrationTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        using var directory = new TempDirectory("IntegrationTests");
         var transport = new Transport { StallAfter = 40_000 };
+        var host = CollectorHost.Open(
+            directory.Combine("test.db"),
+            capture: CaptureFakes.NoGame(),
+            speechClient: ServerFixture.RefusingSpeechClient,
+            updateCheckClient: transport.Client());
+        var part = directory.Combine("updates", "MentorRecorder-" + Published + "-setup.exe.part");
         try
         {
-            var host = CollectorHost.Open(
-                Path.Combine(directory, "test.db"),
-                capture: CaptureFakes.NoGame(),
-                speechClient: ServerFixture.RefusingSpeechClient,
-                updateCheckClient: transport.Client());
-            var part = Path.Combine(directory, "updates", "MentorRecorder-" + Published + "-setup.exe.part");
-            try
+            Assert.Equal(UpdateCheckRequestOutcome.Checked, await host.Updates.CheckNowIfAllowedAsync());
+            Assert.Equal(UpdateDownloadState.Downloading, host.UpdateDownloads.Start().State);
+            var waited = Stopwatch.StartNew();
+            while (host.UpdateDownloads.Snapshot().ReceivedBytes is not > 0)
             {
-                Assert.Equal(UpdateCheckRequestOutcome.Checked, await host.Updates.CheckNowIfAllowedAsync());
-                Assert.Equal(UpdateDownloadState.Downloading, host.UpdateDownloads.Start().State);
-                var waited = Stopwatch.StartNew();
-                while (host.UpdateDownloads.Snapshot().ReceivedBytes is not > 0)
-                {
-                    Assert.True(waited.Elapsed < Patience, "the download must be under way");
-                    await Task.Delay(10);
-                }
-
-                Assert.True(File.Exists(part));
-            }
-            finally
-            {
-                host.Dispose();
+                Assert.True(waited.Elapsed < Patience, "the download must be under way");
+                await Task.Delay(10);
             }
 
-            Assert.True(transport.BodyCancelled.IsCompleted, "the read in flight must have been cancelled");
-            Assert.False(File.Exists(part));
-            Assert.False(File.Exists(part[..^".part".Length]));
+            Assert.True(File.Exists(part));
         }
         finally
         {
-            try
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-            }
+            host.Dispose();
         }
+
+        Assert.True(transport.BodyCancelled.IsCompleted, "the read in flight must have been cancelled");
+        Assert.False(File.Exists(part));
+        Assert.False(File.Exists(part[..^".part".Length]));
     }
 
     private static Task<JsonObject> PollAsync(PipeClient client, Func<string, bool> until) =>
@@ -330,16 +315,6 @@ public sealed class UpdateDownloadIpcTests
         }
     }
 
-    private static async Task EventuallyAsync(Func<bool> condition, string what)
-    {
-        var waited = Stopwatch.StartNew();
-        while (!condition())
-        {
-            Assert.True(waited.Elapsed < Patience, what);
-            await Task.Delay(10);
-        }
-    }
-
     private static string InstallerPath(ServerFixture fixture) => Path.Combine(
         Path.GetDirectoryName(fixture.DatabasePath)!, "updates", "MentorRecorder-" + Published + "-setup.exe");
 
@@ -352,7 +327,7 @@ public sealed class UpdateDownloadIpcTests
         private readonly TaskCompletionSource _checksumAsked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _checksumReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _bodyCancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private StallingStream? _body;
 
         /// <summary>Holds the checksum request until it is cancelled or <see cref="Release"/> is called.</summary>
         public bool HoldChecksum { get; init; }
@@ -365,7 +340,8 @@ public sealed class UpdateDownloadIpcTests
         /// <summary>Completes when the held checksum request has ended, cancelled or released.</summary>
         public Task ChecksumReleased => _checksumReleased.Task;
 
-        public Task BodyCancelled => _bodyCancelled.Task;
+        /// <summary>Completes once the stalled installer read has been cancelled; never, if the installer was not asked for.</summary>
+        public Task BodyCancelled => Volatile.Read(ref _body)?.Stalled ?? new TaskCompletionSource().Task;
 
         public IReadOnlyList<Uri> Requests
         {
@@ -402,10 +378,14 @@ public sealed class UpdateDownloadIpcTests
 
             if (address == UpdateCheckClient.InstallerUrl(Published))
             {
-                Stream body = StallAfter is { } served
-                    ? new StallingStream(Installer[..served], _bodyCancelled)
-                    : new MemoryStream(Installer);
-                return new UpdateTransportResponse(200, uri, null, Installer.Length, body);
+                if (StallAfter is { } served)
+                {
+                    var stalling = new StallingStream(Installer[..served]);
+                    Volatile.Write(ref _body, stalling);
+                    return new UpdateTransportResponse(200, uri, null, Installer.Length, stalling);
+                }
+
+                return new UpdateTransportResponse(200, uri, null, Installer.Length, new MemoryStream(Installer));
             }
 
             return new UpdateTransportResponse(404, uri, null, 0, new MemoryStream());
@@ -431,44 +411,5 @@ public sealed class UpdateDownloadIpcTests
 
         private static UpdateTransportResponse Body(Uri uri, byte[] bytes) =>
             new(200, uri, null, bytes.Length, new MemoryStream(bytes));
-    }
-
-    /// <summary>Serves a prefix, then waits for bytes that never come until the read is cancelled.</summary>
-    private sealed class StallingStream(byte[] prefix, TaskCompletionSource cancelled) : Stream
-    {
-        private int _position;
-
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_position < prefix.Length)
-            {
-                var count = Math.Min(buffer.Length, prefix.Length - _position);
-                prefix.AsMemory(_position, count).CopyTo(buffer);
-                _position += count;
-                return count;
-            }
-
-            try
-            {
-                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                cancelled.TrySetResult();
-            }
-
-            return 0;
-        }
     }
 }

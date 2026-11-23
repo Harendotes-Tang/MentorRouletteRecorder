@@ -28,6 +28,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
     protected static readonly byte[] Installer = Pattern(200_000);
 
     private readonly TestDatabase _database = new();
+    private readonly TempDirectory _root = new("UpdateDownload");
     private readonly SettingsRepository _settings;
     private readonly string _logDirectory;
     private readonly RotatingFileLogger _log;
@@ -38,7 +39,6 @@ public abstract class UpdateDownloadTestBase : IDisposable
     protected UpdateDownloadTestBase()
     {
         _settings = new SettingsRepository(_database.Database, _database.Clock);
-        Root = Directory.CreateTempSubdirectory("MentorRecorder.UpdateDownload.").FullName;
         DataDirectory = Path.Combine(Root, "data");
         _logDirectory = Path.Combine(Root, "logs");
         Directory.CreateDirectory(DataDirectory);
@@ -46,7 +46,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
     }
 
     /// <summary>The test's own temporary folder: the data directory, the log folder and anything a test adds.</summary>
-    protected string Root { get; }
+    protected string Root => _root.Path;
 
     /// <summary>The Collector's data directory, under <see cref="Root"/>.</summary>
     protected string DataDirectory { get; }
@@ -88,13 +88,13 @@ public abstract class UpdateDownloadTestBase : IDisposable
             {
                 Directory.Delete(Updates);
             }
-
-            Directory.Delete(Root, recursive: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Left for the temp cleaner.
         }
+
+        _root.Dispose();
     }
 
     protected UpdateDownloadService Service(
@@ -130,17 +130,6 @@ public abstract class UpdateDownloadTestBase : IDisposable
         }
 
         return service.Snapshot();
-    }
-
-    /// <summary>Polls until <paramref name="condition"/> holds; the steps are milliseconds, the bound is the test's patience.</summary>
-    protected static async Task EventuallyAsync(Func<bool> condition, string what)
-    {
-        var waited = Stopwatch.StartNew();
-        while (!condition())
-        {
-            Assert.True(waited.Elapsed < Patience, what);
-            await Task.Delay(10);
-        }
     }
 
     /// <summary>The shipping limits, but with no start interval unless one is given.</summary>
@@ -188,7 +177,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
         public static async Task CreateAsync(string link, string target)
         {
             Mklink("/J", link, target);
-            await EventuallyAsync(() => IsJunction(link), "mklink /J must create the junction");
+            await Poll.UntilAsync(() => IsJunction(link), "mklink /J must create the junction");
         }
 
         /// <summary>The same, for a seam that runs synchronously on the download's own task.</summary>
@@ -213,7 +202,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
         public static async Task CreateAsync(string link, string target)
         {
             Mklink("/H", link, target);
-            await EventuallyAsync(() => File.Exists(link), "mklink /H must create the hard link");
+            await Poll.UntilAsync(() => File.Exists(link), "mklink /H must create the hard link");
         }
     }
 
@@ -366,23 +355,8 @@ public abstract class UpdateDownloadTestBase : IDisposable
         }
     }
 
-    /// <summary>A read-only body that refuses every synchronous member; the service must read asynchronously.</summary>
-    protected abstract class BodyStream : Stream
-    {
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
-
     /// <summary>Serves its bytes in fixed chunks and counts how many were taken.</summary>
-    protected sealed class CountingStream(byte[] content) : BodyStream
+    private protected sealed class CountingStream(byte[] content) : AsyncOnlyStream
     {
         public const int Chunk = 4096;
 
@@ -399,65 +373,14 @@ public abstract class UpdateDownloadTestBase : IDisposable
         }
     }
 
-    /// <summary>Serves a prefix, then waits for bytes that never come until the read is cancelled.</summary>
-    protected sealed class StallingStream(byte[] prefix) : BodyStream
-    {
-        private readonly TaskCompletionSource _stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _position;
-
-        /// <summary>Completes once the stalled read has been cancelled.</summary>
-        public Task Stalled => _stalled.Task;
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_position < prefix.Length)
-            {
-                var count = Math.Min(buffer.Length, prefix.Length - _position);
-                prefix.AsMemory(_position, count).CopyTo(buffer);
-                _position += count;
-                return count;
-            }
-
-            try
-            {
-                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _stalled.TrySetResult();
-            }
-
-            return 0;
-        }
-    }
-
     /// <summary>One byte every few milliseconds, for ever.</summary>
-    protected sealed class TricklingStream : BodyStream
+    private protected sealed class TricklingStream : AsyncOnlyStream
     {
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             await Task.Delay(5, cancellationToken).ConfigureAwait(false);
             buffer.Span[0] = 0x4D;
             return 1;
-        }
-    }
-
-    /// <summary>Serves a prefix, then fails the way a connection reset mid-answer does.</summary>
-    protected sealed class FailingStream(byte[] prefix) : BodyStream
-    {
-        private bool _served;
-
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_served)
-            {
-                return ValueTask.FromException<int>(new IOException("the connection was reset"));
-            }
-
-            _served = true;
-            var count = Math.Min(buffer.Length, prefix.Length);
-            prefix.AsMemory(0, count).CopyTo(buffer);
-            return ValueTask.FromResult(count);
         }
     }
 }

@@ -24,9 +24,7 @@ public sealed class InstalledBuildPipelineTests : IDisposable
     [Fact]
     public void ASelectionIsMadeForABuildReadWhileTheGameIsClosed()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState),
-            Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
 
         // Exactly the detection the locator returns from the remembered install: not running,

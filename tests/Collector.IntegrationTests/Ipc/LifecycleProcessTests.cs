@@ -367,21 +367,18 @@ public sealed class ServingCollector : IAsyncDisposable
 public sealed class LifecycleProcessTests : IDisposable
 {
     private readonly CollectorProcessFixture _collector;
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("Lifecycle");
 
     public LifecycleProcessTests(CollectorProcessFixture collector)
     {
         _collector = collector;
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.Lifecycle", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
     }
 
     [Fact]
     public async Task ASecondServeIsRefusedAndTheFirstKeepsServing()
     {
-        var first = Path.Combine(_directory, "first.db");
-        var second = Path.Combine(_directory, "second.db");
+        var first = _directory.Combine("first.db");
+        var second = _directory.Combine("second.db");
 
         await using var serving = await _collector.ServeAsync(first);
         Assert.True(serving.IsRunning);
@@ -422,7 +419,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public async Task AServingCollectorOwnsNoTcpEndpointAtAll()
     {
-        var databasePath = Path.Combine(_directory, "listeners.db");
+        var databasePath = _directory.Combine("listeners.db");
 
         await using var serving = await _collector.ServeAsync(databasePath);
 
@@ -455,7 +452,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public async Task ANamedStopEventEndsAConsolelessCollectorGracefully()
     {
-        var databasePath = Path.Combine(_directory, "stop-event.db");
+        var databasePath = _directory.Combine("stop-event.db");
 
         await using var serving = await _collector.ServeAsync(databasePath);
         await using (var client = await serving.ConnectAsync())
@@ -485,8 +482,8 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public async Task TheServingProcessNamesItselfInServePidAndRemovesItOnAGracefulStop()
     {
-        var databasePath = Path.Combine(_directory, "pid.db");
-        var pidFile = Path.Combine(_directory, "logs", Program.ServePidFileName);
+        var databasePath = _directory.Combine("pid.db");
+        var pidFile = _directory.Combine("logs", Program.ServePidFileName);
 
         await using var serving = await _collector.ServeAsync(databasePath);
         await using (var client = await serving.ConnectAsync())
@@ -516,7 +513,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void APipeHeldBySomethingThatNeverAnswersExitsWithItsOwnCode()
     {
-        var databasePath = Path.Combine(_directory, "unresponsive.db");
+        var databasePath = _directory.Combine("unresponsive.db");
         var pipeName = "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1";
 
         // A pipe instance in the listening state that will never read a frame, let alone
@@ -550,7 +547,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void APipeHeldByAnotherAccountIsReportedAsSuchNotAsAHungCollector()
     {
-        var databasePath = Path.Combine(_directory, "foreign.db");
+        var databasePath = _directory.Combine("foreign.db");
         var pipeName = "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1";
         var security = new PipeSecurity();
         security.AddAccessRule(new PipeAccessRule(
@@ -584,7 +581,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void AFileThatIsNotADatabaseRefusesToStartWithExitCodeThreeAndALogLine()
     {
-        var databasePath = Path.Combine(_directory, "not-a-database.db");
+        var databasePath = _directory.Combine("not-a-database.db");
         File.WriteAllText(databasePath, new string('x', 4096));
 
         var refused = CollectorProcessFixture.RunToCompletion("--serve", "--db", databasePath, "--json");
@@ -608,7 +605,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void ARefusedDatabaseIsRecordedInTheRotatingLog()
     {
-        var databasePath = Path.Combine(_directory, "newer.db");
+        var databasePath = _directory.Combine("newer.db");
         using (var database = Storage.SqliteDatabase.Open(databasePath, Domain.Time.SystemClock.Instance))
         using (var command = database.CreateCommand())
         {
@@ -637,7 +634,7 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void ADatabaseLockedByAnotherProgramRefusesToStartAndSaysSo()
     {
-        var databasePath = Path.Combine(_directory, "locked.db");
+        var databasePath = _directory.Combine("locked.db");
         Storage.SqliteDatabase.Open(databasePath, Domain.Time.SystemClock.Instance).Dispose();
         using var holder = new Microsoft.Data.Sqlite.SqliteConnection(
             new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
@@ -690,7 +687,7 @@ public sealed class LifecycleProcessTests : IDisposable
     /// <summary>Everything the Collector logged beside the databases of this test.</summary>
     private string ReadLogs()
     {
-        var folder = Path.Combine(_directory, "logs");
+        var folder = _directory.Combine("logs");
         return Directory.Exists(folder)
             ? string.Concat(Directory.GetFiles(folder, "*.log").Select(File.ReadAllText))
             : string.Empty;
@@ -703,8 +700,8 @@ public sealed class LifecycleProcessTests : IDisposable
     [Fact]
     public void AnUnwritableLogFolderRefusesToStartTheSameWayAnUnwritableDatabaseDoes()
     {
-        var databasePath = Path.Combine(_directory, "logdir.db");
-        var occupied = Path.Combine(_directory, "not-a-folder");
+        var databasePath = _directory.Combine("logdir.db");
+        var occupied = _directory.Combine("not-a-folder");
         File.WriteAllText(occupied, "this is a file, not a log directory");
 
         var refused = CollectorProcessFixture.RunToCompletion(
@@ -754,8 +751,8 @@ public sealed class LifecycleProcessTests : IDisposable
         // The BCL reserves this name for anonymous pipes. Parsing accepts a bare name,
         // so the refusal comes from creating the actual first server instance.
         var result = CollectorProcessFixture.RunToCompletion("--serve", "--json", "--pipe", "anonymous",
-            "--db", Path.Combine(_directory, "initial-pipe-refused.db"),
-            "--log-dir", Path.Combine(_directory, "initial-pipe-refused-logs"));
+            "--db", _directory.Combine("initial-pipe-refused.db"),
+            "--log-dir", _directory.Combine("initial-pipe-refused-logs"));
         // An orderly refusal, not an unhandled exception (0xE0434352): exit code 3 and a last
         // stderr refusal saying it failed (audit 2026-11-20, G-2).
         Assert.Equal(3, result.ExitCode);
@@ -764,19 +761,6 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.DoesNotContain("Unhandled exception", result.StandardError, StringComparison.Ordinal);
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same as above.
-        }
-    }
+    // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+    public void Dispose() => _directory.Dispose();
 }

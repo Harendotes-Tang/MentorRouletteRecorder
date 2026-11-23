@@ -6,14 +6,12 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>不可信 SQLite 文件不能通过重复连接键放大预览查询的中间结果。</summary>
 public sealed class BackupImportBoundsTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.BackupBounds." + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("BackupBounds");
     private static readonly string[] RunFields =
     [
         "run_id", "region", "content_id", "duty_name", "job_id", "job_name", "role", "matched_at_utc",
         "entered_at_utc", "ended_at_utc", "duration_ms", "result", "source", "soft_deleted", "created_at_utc", "updated_at_utc",
     ];
-
-    public BackupImportBoundsTests() => Directory.CreateDirectory(_directory);
 
     [Theory]
     [InlineData("mentor_runs", false)]
@@ -24,7 +22,7 @@ public sealed class BackupImportBoundsTests : IDisposable
     [InlineData("run_import_metadata", true)]
     public void MissingOrCompositeIdentityKeyIsRejectedBeforeJoining(string malformedTable, bool composite)
     {
-        var path = Path.Combine(_directory, "duplicate-identities.db");
+        var path = _directory.Combine("duplicate-identities.db");
         using (var connection = Open(path))
         {
             foreach (var (table, fields) in new[]
@@ -55,7 +53,7 @@ public sealed class BackupImportBoundsTests : IDisposable
     [Fact]
     public void VirtualTableCannotMasqueradeAsTheHistoryTable()
     {
-        var path = Path.Combine(_directory, "virtual-history.db");
+        var path = _directory.Combine("virtual-history.db");
         using (var connection = Open(path))
         {
             using var command = connection.CreateCommand();
@@ -72,7 +70,7 @@ public sealed class BackupImportBoundsTests : IDisposable
     [InlineData("run_import_metadata")]
     public void ExternalColumnCollationCannotMakeSeveralIdentityRowsMatch(string unusualTable)
     {
-        var path = Path.Combine(_directory, "column-collation.db");
+        var path = _directory.Combine("column-collation.db");
         using (var connection = Open(path))
         {
             using var command = connection.CreateCommand();
@@ -97,5 +95,5 @@ public sealed class BackupImportBoundsTests : IDisposable
         return connection;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 }

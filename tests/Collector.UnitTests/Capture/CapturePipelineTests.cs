@@ -119,34 +119,23 @@ public sealed class CapturePipelineTests
     [Fact]
     public void MachinaTraceLinesAreSampledRatherThanWrittenOnceEachForever()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.TraceSampling", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
+        using var temp = new TempDirectory("TraceSampling");
+        using var logger = new RotatingFileLogger(
+            temp.Path, new TestClock(new DateTimeOffset(2026, 9, 8, 7, 0, 0, TimeSpan.Zero)));
+        using var source = new MachinaCaptureSource(logger);
+        var onTrace = typeof(MachinaCaptureSource).GetMethod(
+            "OnMonitorTrace", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        for (var i = 0; i < 500; i++)
         {
-            using var logger = new RotatingFileLogger(
-                directory, new TestClock(new DateTimeOffset(2026, 9, 8, 7, 0, 0, TimeSpan.Zero)));
-            using var source = new MachinaCaptureSource(logger);
-            var onTrace = typeof(MachinaCaptureSource).GetMethod(
-                "OnMonitorTrace", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-            for (var i = 0; i < 500; i++)
-            {
-                onTrace.Invoke(
-                    source, new object[] { "DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression failure." });
-            }
-
-            var written = File.ReadAllLines(logger.CurrentPath)
-                .Count(line => line.Contains("monitor_trace\"", StringComparison.Ordinal));
-
-            Assert.Equal(MachinaCaptureSource.MonitorTraceSamples, written);
+            onTrace.Invoke(
+                source, new object[] { "DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression failure." });
         }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+
+        var written = File.ReadAllLines(logger.CurrentPath)
+            .Count(line => line.Contains("monitor_trace\"", StringComparison.Ordinal));
+
+        Assert.Equal(MachinaCaptureSource.MonitorTraceSamples, written);
     }
 
     [Fact]

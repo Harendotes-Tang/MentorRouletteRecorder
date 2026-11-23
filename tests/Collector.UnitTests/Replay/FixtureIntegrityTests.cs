@@ -122,66 +122,49 @@ public sealed class FixtureIntegrityTests
     [InlineData(true, "uppercase")]
     public void LoadChecksSidecarBeforeParsingAndAcceptsNormalizedHash(bool decoded, string sidecar)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.FixtureSidecar", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var source = decoded
-                ? Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")
-                : Path.Combine(Directory, "mentor_left_v1.fixture.json");
-            var copy = Path.Combine(directory, Path.GetFileName(source));
-            // Invalid JSON distinguishes integrity checking from document parsing on failure.
-            File.WriteAllBytes(copy, sidecar == "uppercase" ? File.ReadAllBytes(source) : "not JSON"u8.ToArray());
-            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(copy)));
-            if (sidecar != "missing")
-                File.WriteAllText(copy + ".sha256", sidecar == "uppercase" ? "  " + hash + "\r\n" : "not-a-hash");
+        using var temp = new TempDirectory("FixtureSidecar");
+        var source = decoded
+            ? Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")
+            : Path.Combine(Directory, "mentor_left_v1.fixture.json");
+        var copy = temp.Combine(Path.GetFileName(source));
+        // Invalid JSON distinguishes integrity checking from document parsing on failure.
+        File.WriteAllBytes(copy, sidecar == "uppercase" ? File.ReadAllBytes(source) : "not JSON"u8.ToArray());
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(copy)));
+        if (sidecar != "missing")
+            File.WriteAllText(copy + ".sha256", sidecar == "uppercase" ? "  " + hash + "\r\n" : "not-a-hash");
 
-            string LoadHash() => decoded ? DecodedFixtureLoader.Load(copy).Sha256 : ReplayFixtureLoader.Load(copy).Sha256;
-            if (sidecar == "uppercase")
-            {
-                Assert.Equal(hash.ToLowerInvariant(), LoadHash());
-            }
-            else
-            {
-                var prefix = decoded ? "decoded fixture" : "fixture";
-                var error = Assert.Throws<InvalidDataException>(() => LoadHash());
-                Assert.Equal(prefix + (sidecar == "missing"
-                    ? " SHA-256 sidecar is missing: " + copy + ".sha256"
-                    : " SHA-256 mismatch"), error.Message);
-            }
-        }
-        finally
+        string LoadHash() => decoded ? DecodedFixtureLoader.Load(copy).Sha256 : ReplayFixtureLoader.Load(copy).Sha256;
+        if (sidecar == "uppercase")
         {
-            System.IO.Directory.Delete(directory, recursive: true);
+            Assert.Equal(hash.ToLowerInvariant(), LoadHash());
+        }
+        else
+        {
+            var prefix = decoded ? "decoded fixture" : "fixture";
+            var error = Assert.Throws<InvalidDataException>(() => LoadHash());
+            Assert.Equal(prefix + (sidecar == "missing"
+                ? " SHA-256 sidecar is missing: " + copy + ".sha256"
+                : " SHA-256 mismatch"), error.Message);
         }
     }
 
     [Fact]
     public void TamperingWithAFixtureIsDetected()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.FixtureTamper", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var source = Path.Combine(Directory, "mentor_left_v1.fixture.json");
-            var copy = Path.Combine(directory, "mentor_left_v1.fixture.json");
-            File.Copy(source, copy);
-            File.Copy(source + ".sha256", copy + ".sha256");
+        using var temp = new TempDirectory("FixtureTamper");
+        var source = Path.Combine(Directory, "mentor_left_v1.fixture.json");
+        var copy = temp.Combine("mentor_left_v1.fixture.json");
+        File.Copy(source, copy);
+        File.Copy(source + ".sha256", copy + ".sha256");
 
-            File.WriteAllText(
-                copy,
-                File.ReadAllText(copy).Replace(
-                    "\"roulette_id\": 42",
-                    "\"roulette_id\": " + 43.ToString(CultureInfo.InvariantCulture),
-                    StringComparison.Ordinal));
+        File.WriteAllText(
+            copy,
+            File.ReadAllText(copy).Replace(
+                "\"roulette_id\": 42",
+                "\"roulette_id\": " + 43.ToString(CultureInfo.InvariantCulture),
+                StringComparison.Ordinal));
 
-            var error = Assert.Throws<InvalidDataException>(() => ReplayFixtureLoader.Load(copy));
-            Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            System.IO.Directory.Delete(directory, recursive: true);
-        }
+        var error = Assert.Throws<InvalidDataException>(() => ReplayFixtureLoader.Load(copy));
+        Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
     }
 }

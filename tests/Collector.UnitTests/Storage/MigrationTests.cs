@@ -700,18 +700,7 @@ public sealed class MigrationTests
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         { DataSource = path, Pooling = false, ForeignKeys = true }.ConnectionString);
         connection.Open();
-        foreach (var migration in MigrationRunner.Scripts.Where(script => script.Version <= version))
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = migration.Sql;
-            command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(fixture.Clock.UtcNow));
-            command.ExecuteNonQuery();
-            command.CommandText = "INSERT INTO schema_migrations VALUES ($version,$name,$checksum,$migration_now_utc);";
-            command.Parameters.AddWithValue("$version", migration.Version);
-            command.Parameters.AddWithValue("$name", migration.Name);
-            command.Parameters.AddWithValue("$checksum", migration.Checksum);
-            command.ExecuteNonQuery();
-        }
+        LegacySchema.ApplyThrough(connection, version, fixture.Clock.UtcNow);
         return connection;
     }
 }

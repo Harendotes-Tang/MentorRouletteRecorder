@@ -16,20 +16,9 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class SharedCandidateVerifierTests : IDisposable
 {
     private static readonly DateTimeOffset Confirmed = new(2026, 9, 9, 12, 30, 0, TimeSpan.Zero);
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "verifier-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Covers a directory that no test in this class created.
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     private static CalibrationTemplate Template => CalibrationObserverTests.Template();
 
@@ -38,7 +27,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     {
         var draft = CalibrationTrafficCases.Derive(name);
         var written = LocalProfileWriter.Write(draft, Template, CalibrationTrafficCases.Build, Confirmed,
-            Path.Combine(_root, "evening-a", Guid.NewGuid().ToString("N")));
+            _root.Combine("evening-a", Guid.NewGuid().ToString("N")));
         var exported = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), Template);
         Assert.Null(exported.Reason);
         return exported.Payload!;
@@ -313,8 +302,8 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         var earlier = new CalibrationObserver(Template, Region.Cn, "evening-b1");
         Play(earlier, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
         Play(earlier, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, CalibrationTrafficCases.Build, "t", earlier.Snapshot()));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, CalibrationTrafficCases.Build, "t")!;
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, CalibrationTrafficCases.Build, "t", earlier.Snapshot()));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, CalibrationTrafficCases.Build, "t")!;
 
         foreach (var (payload, expected) in new[]
         {
@@ -681,7 +670,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
 
         sharer.Flush();
         var written = LocalProfileWriter.Write(CalibrationDraft.Derive(sharer.Snapshot(), template), template,
-            "2026.12.01.0000.0000", Confirmed, Path.Combine(_root, "global"));
+            "2026.12.01.0000.0000", Confirmed, _root.Combine("global"));
         var payload = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), template).Payload!;
         var candidate = SharedCandidateVerifier.Candidate(payload, template)!;
         Assert.Null(candidate.Territory);

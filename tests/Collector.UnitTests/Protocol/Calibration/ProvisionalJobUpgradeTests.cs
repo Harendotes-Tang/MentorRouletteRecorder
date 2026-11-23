@@ -22,16 +22,10 @@ public sealed class ProvisionalJobUpgradeTests : IDisposable
 
     private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
 
-    private static IReadOnlyDictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
-
     [Fact]
     public void AnInferredProfileWithoutTheJobIsOfferedTheJobAndUsesItAtOnce()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequestNoJob), Bed.Template, Bed.Build,
-            Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequestNoJob);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
         pipeline.Refresh(Bed.Game());
         Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
@@ -44,7 +38,7 @@ public sealed class ProvisionalJobUpgradeTests : IDisposable
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(offered));
+        var result = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
         Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
@@ -56,7 +50,7 @@ public sealed class ProvisionalJobUpgradeTests : IDisposable
                 CalibrationObserverTests.Bytes(24, (0, 9)), 400_000),
         }.Concat(CalibrationObserverTests.Cluster(420_000, 1039, job: 24)));
 
-        var run = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
+        var run = _bed.AllRuns()
             .Single(item => string.Equals(item.ProtocolProfileId, result.ProfileId, StringComparison.Ordinal) &&
                             item.EnteredAtUtc is not null);
         Assert.Equal(24, run.JobId);
@@ -67,9 +61,7 @@ public sealed class ProvisionalJobUpgradeTests : IDisposable
     [Fact]
     public void AnInferredProfileThatAlreadyHasTheJobIsNotAskedAgain()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build,
-            Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);

@@ -63,21 +63,8 @@ public sealed class IdempotencyPruneTests : IDisposable
         var settings = new SettingsRepository(_database.Database, _database.Clock);
         settings.EnsureDefaults();
         var service = new RunMutationService(_database.Database, settings, _database.Clock);
-        var runs = new RunRepository(_database.Database);
         var run = TestDatabase.Run(result: RunResult.Completed, source: RunSource.Manual);
-        _database.Database.RunInTransaction(tx => runs.Insert(run, tx));
-        _database.Database.RunInTransaction(tx => new RunRevisionRepository(_database.Database).Append(
-            new RunRevision
-            {
-                RevisionId = Guid.NewGuid().ToString("D"),
-                RunId = run.RunId,
-                Revision = 1,
-                ChangedAtUtc = _database.Clock.UtcNow,
-                ChangeKind = ChangeKind.CreateManual,
-                Actor = RevisionActor.User,
-                Reason = "手工建立",
-                Changes = Array.Empty<RunFieldChange>(),
-            }, tx));
+        _database.InsertWithFirstRevision(run);
 
         var requestId = Guid.NewGuid().ToString("D");
         var command = new RunReasonCommand(requestId, run.RunId, 1, "这条记录无需保留在统计中");

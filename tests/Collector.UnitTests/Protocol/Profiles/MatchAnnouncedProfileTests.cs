@@ -15,22 +15,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class MatchAnnouncedProfileTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Profiles", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("Profiles");
 
-    public MatchAnnouncedProfileTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     /// <summary>A profile document with the pop travelling the given way and an announcement beside it.</summary>
     /// <param name="popFromClient">True to make CONTENT_FINDER_POP the player's own request.</param>
@@ -62,7 +49,7 @@ public sealed class MatchAnnouncedProfileTests : IDisposable
     [Fact]
     public void AQueueInferredProfileMayDeclareTheAnnouncement()
     {
-        var path = ProfileTestFiles.Write(_directory, "test-announced", Document(popFromClient: true));
+        var path = ProfileTestFiles.Write(_directory.Path, "test-announced", Document(popFromClient: true));
 
         var report = ProfileLoader.Validate(path);
 
@@ -82,7 +69,7 @@ public sealed class MatchAnnouncedProfileTests : IDisposable
     [Fact]
     public void AProfileThatReadsTheServersOwnPopMayNotDeclareIt()
     {
-        var path = ProfileTestFiles.Write(_directory, "test-announced-ctx", Document(popFromClient: false));
+        var path = ProfileTestFiles.Write(_directory.Path, "test-announced-ctx", Document(popFromClient: false));
 
         var report = ProfileLoader.Validate(path);
 
@@ -95,7 +82,7 @@ public sealed class MatchAnnouncedProfileTests : IDisposable
     public void AnAnnouncementTravellingTheOtherWayIsRefused()
     {
         var path = ProfileTestFiles.Write(
-            _directory, "test-announced-dir", Document(popFromClient: true, announcedFromClient: true));
+            _directory.Path, "test-announced-dir", Document(popFromClient: true, announcedFromClient: true));
 
         var report = ProfileLoader.Validate(path);
 

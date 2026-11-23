@@ -1,7 +1,5 @@
-using System.IO.Compression;
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Xml.Linq;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Reference;
@@ -12,7 +10,7 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class ChineseJobAliasTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.AliasTests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("AliasTests");
     // Independent approved expectations: production must read the single catalog, not this test table.
     public static TheoryData<string, int> ApprovedAliases => new()
     {
@@ -21,8 +19,6 @@ public sealed class ChineseJobAliasTests : IDisposable
         { "占星", 33 }, { "绝枪", 37 }, { "枪刃", 37 }, { "钐镰", 39 }, { "镰刀", 39 },
         { "蝰蛇", 41 }, { "绘灵", 42 }, { "画家", 42 }, { "驯兽", 43 },
     };
-
-    public ChineseJobAliasTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
     public void CatalogContainsExactlyTheApprovedAliasesAndLegacyRowsRemainCompatible()
@@ -63,9 +59,9 @@ public sealed class ChineseJobAliasTests : IDisposable
     {
         var cases = ApprovedAliases.ToArray();
         var names = cases.Select(row => (string)row[0]).ToArray();
-        var path = Path.Combine(_directory, "aliases." + kind.ToLowerInvariant());
+        var path = _directory.Combine("aliases." + kind.ToLowerInvariant());
         var table = "副本\t职业\n" + string.Join('\n', names.Select(name => "合成简称副本\t  " + name + "  "));
-        if (kind == "XLSX") WriteTemplate(path, names);
+        if (kind == "XLSX") ImportTemplateFiles.FillPersonalRecords(path, "合成简称副本", names);
         else if (kind == "XLS")
         {
             using var workbook = new HSSFWorkbook();
@@ -168,27 +164,6 @@ public sealed class ChineseJobAliasTests : IDisposable
         Assert.Equal(name, preview["rows"]![0]!["run"]!["job_name"]!.GetValue<string>());
     }
 
-    private static void WriteTemplate(string path, string[] aliases)
-    {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "src/Desktop/resources/import-templates/personal-records.xlsx")))
-            root = root.Parent;
-        Assert.NotNull(root);
-        File.Copy(Path.Combine(root.FullName, "src/Desktop/resources/import-templates/personal-records.xlsx"), path);
-        using var zip = ZipFile.Open(path, ZipArchiveMode.Update);
-        var entry = zip.GetEntry("xl/worksheets/sheet1.xml")!;
-        XDocument document; using (var stream = entry.Open()) document = XDocument.Load(stream);
-        var ns = document.Root!.Name.Namespace;
-        var data = document.Root.Element(ns + "sheetData")!;
-        data.Elements(ns + "row").Where(row => row.Attribute("r")?.Value != "1").Remove();
-        for (var i = 0; i < aliases.Length; i++)
-            data.Add(new XElement(ns + "row", new XAttribute("r", i + 2),
-                new[] { "合成简称副本", "  " + aliases[i] + "  " }.Select((value, column) =>
-                    new XElement(ns + "c", new XAttribute("r", ((char)('A' + column)).ToString() + (i + 2)),
-                        new XAttribute("t", "inlineStr"), new XElement(ns + "is", new XElement(ns + "t", value))))));
-        entry.Delete(); using var output = zip.CreateEntry("xl/worksheets/sheet1.xml").Open(); document.Save(output);
-    }
-
     /// <summary>
     /// Audit 2026-11-03 H2-6. A TC sheet names jobs as the TC client does (騎士, 白魔道士). Those names are catalogue
     /// aliases of their own, taken from the TC client export, so they resolve on import; they change no other
@@ -220,5 +195,5 @@ public sealed class ChineseJobAliasTests : IDisposable
             warning?["key"]?.GetValue<string>() == "import.warning.job_unmatched");
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 }

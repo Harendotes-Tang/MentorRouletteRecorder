@@ -91,12 +91,14 @@ internal static class CalibrationTrafficCases
         _ => new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "PLAYER_JOB" },
     };
 
-    /// <summary>Feeds traffic to a fresh observer and freezes it.</summary>
+    /// <summary>Feeds traffic to a fresh CN observer in session-time order and freezes it.</summary>
     /// <param name="traffic">Messages stamped with the shared helper session.</param>
-    internal static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic)
+    /// <param name="template">Template to observe with; <see cref="CalibrationObserverTests.Template"/> by default.</param>
+    internal static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic, CalibrationTemplate? template = null)
     {
-        var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Region.Cn, "calibration-session");
-        foreach (var message in traffic)
+        var observer = new CalibrationObserver(
+            template ?? CalibrationObserverTests.Template(), Region.Cn, "calibration-session");
+        foreach (var message in traffic.OrderBy(message => message.Mono))
         {
             observer.Accept(message);
         }
@@ -104,6 +106,33 @@ internal static class CalibrationTrafficCases
         observer.Flush();
         return observer.Snapshot();
     }
+
+    /// <summary><see cref="Observe"/>, and the draft the frozen evidence derives with the same template.</summary>
+    /// <param name="traffic">Messages stamped with the shared helper session.</param>
+    /// <param name="template">Template to observe and derive with; <see cref="CalibrationObserverTests.Template"/> by default.</param>
+    internal static (CalibrationSnapshot Snapshot, CalibrationDraft Draft) ObserveAndDerive(
+        IEnumerable<DecodedMessage> traffic, CalibrationTemplate? template = null)
+    {
+        template ??= CalibrationObserverTests.Template();
+        var snapshot = Observe(traffic, template);
+        return (snapshot, CalibrationDraft.Derive(snapshot, template));
+    }
+
+    /// <summary>
+    /// A director message of the CN shape on the zone connection and opcode 0x0204, which no draft or test profile
+    /// declares: by default the clear of the invented duty 0xF00D, otherwise one of the director's other commands.
+    /// </summary>
+    /// <param name="monoMs">Session time in milliseconds.</param>
+    /// <param name="command">Director command.</param>
+    /// <param name="parameter">Its parameter.</param>
+    /// <param name="dutyNumber">Director number of the duty.</param>
+    internal static DecodedMessage Clear(
+        long monoMs,
+        uint command = DirectorBodies.ClearCommand,
+        uint parameter = 0,
+        ushort dutyNumber = DirectorBodies.InventedDuty) =>
+        CalibrationObserverTests.Message(
+            MessageDirection.Inbound, 0x0204, DirectorBodies.Body(command, parameter, dutyNumber), monoMs);
 
     /// <summary>The draft one case derives.</summary>
     /// <param name="name">Case name.</param>
@@ -131,7 +160,7 @@ internal static class CalibrationTrafficCases
     /// job for PLAYER_JOB to be declared, so dropping the exit job is the minimal way to withhold
     /// it.
     /// </summary>
-    private static IEnumerable<DecodedMessage> WithoutExitJob(IEnumerable<DecodedMessage> traffic) =>
+    internal static IEnumerable<DecodedMessage> WithoutExitJob(IEnumerable<DecodedMessage> traffic) =>
         traffic.Where(message => !(message.Opcode == Job &&
             message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000)));
 
@@ -154,7 +183,7 @@ internal static class CalibrationTrafficCases
     /// one (town, duty, town). The duty is still recognised exactly once, but no single opcode
     /// can be written as THE territory message.
     /// </summary>
-    private static IEnumerable<DecodedMessage> TerritoryDecoys() => new[]
+    internal static IEnumerable<DecodedMessage> TerritoryDecoys() => new[]
     {
         CalibrationObserverTests.Message(
             MessageDirection.Inbound, DecoyTerritory, CalibrationObserverTests.Bytes(136, (2, 0x88), (3, 0x13)), 5_010),

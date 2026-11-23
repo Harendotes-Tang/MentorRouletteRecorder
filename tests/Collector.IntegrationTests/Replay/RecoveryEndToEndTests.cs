@@ -27,20 +27,17 @@ namespace MentorRecorder.Collector.IntegrationTests;
 public sealed class RecoveryEndToEndTests : IDisposable
 {
     private readonly CollectorProcessFixture _collector;
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("RecoveryE2E");
 
     public RecoveryEndToEndTests(CollectorProcessFixture collector)
     {
         _collector = collector;
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.RecoveryE2E", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
     }
 
     [Fact]
     public async Task ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview()
     {
-        var databasePath = Path.Combine(_directory, "recovery.db");
+        var databasePath = _directory.Combine("recovery.db");
         var runId = SeedUnfinishedRunInAnotherProcess(databasePath);
 
         // ---- first restart: the recovery pass runs before the pipe is even created -------
@@ -111,7 +108,7 @@ public sealed class RecoveryEndToEndTests : IDisposable
     [Fact]
     public async Task ARecoveredRunReachesAClientThatSubscribesAfterStartup()
     {
-        var databasePath = Path.Combine(_directory, "live.db");
+        var databasePath = _directory.Combine("live.db");
         var runId = SeedUnfinishedRunInAnotherProcess(databasePath);
 
         await using var serving = await _collector.ServeAsync(databasePath);
@@ -185,7 +182,7 @@ public sealed class RecoveryEndToEndTests : IDisposable
             "--replay-decoded",
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "decoded", "synthetic_offset_oob.decoded.json"),
             "--profile",
-            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json"),
+            SyntheticProfile.Path,
             "--db",
             databasePath);
 
@@ -202,19 +199,6 @@ public sealed class RecoveryEndToEndTests : IDisposable
         return run.RunId;
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same as above.
-        }
-    }
+    // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+    public void Dispose() => _directory.Dispose();
 }

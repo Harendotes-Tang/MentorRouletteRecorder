@@ -117,42 +117,27 @@ public sealed class UpdateCheckIpcTests
     [Fact]
     public void TheSwitchSurvivesAReopen()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.IntegrationTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        var databasePath = Path.Combine(directory, "test.db");
-        try
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        using var directory = new TempDirectory("IntegrationTests");
+        var databasePath = directory.Combine("test.db");
+        using (var host = CollectorHost.Open(
+                   databasePath,
+                   capture: CaptureFakes.NoGame(),
+                   speechClient: ServerFixture.RefusingSpeechClient,
+                   updateCheckClient: ServerFixture.RefusingUpdateCheckClient))
         {
-            using (var host = CollectorHost.Open(
-                       databasePath,
-                       capture: CaptureFakes.NoGame(),
-                       speechClient: ServerFixture.RefusingSpeechClient,
-                       updateCheckClient: ServerFixture.RefusingUpdateCheckClient))
-            {
-                CaptureSettingsStore.Apply(host.Settings, new CaptureSettingsUpdate { UpdateCheckEnabled = false });
-            }
-
-            using var reopened = CollectorHost.Open(
-                databasePath,
-                capture: CaptureFakes.NoGame(),
-                speechClient: ServerFixture.RefusingSpeechClient,
-                updateCheckClient: ServerFixture.RefusingUpdateCheckClient);
-
-            Assert.False(CaptureSettingsStore.Read(reopened.Settings).UpdateCheckEnabled);
-            Assert.False(reopened.Updates.Snapshot().Enabled);
-            Assert.False(reopened.Updates.Observe().Enabled);
+            CaptureSettingsStore.Apply(host.Settings, new CaptureSettingsUpdate { UpdateCheckEnabled = false });
         }
-        finally
-        {
-            try
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-            }
-        }
+
+        using var reopened = CollectorHost.Open(
+            databasePath,
+            capture: CaptureFakes.NoGame(),
+            speechClient: ServerFixture.RefusingSpeechClient,
+            updateCheckClient: ServerFixture.RefusingUpdateCheckClient);
+
+        Assert.False(CaptureSettingsStore.Read(reopened.Settings).UpdateCheckEnabled);
+        Assert.False(reopened.Updates.Snapshot().Enabled);
+        Assert.False(reopened.Updates.Observe().Enabled);
     }
 
     [Theory]
@@ -173,24 +158,17 @@ public sealed class UpdateCheckIpcTests
     public async Task TheExportedReportStatesTheCheckWithoutSayingWhereItGoes()
     {
         await using var fixture = ServerFixture.Start();
-        var workspace = Directory.CreateTempSubdirectory("MentorRecorder.UpdateReport").FullName;
-        try
-        {
-            var target = Path.Combine(workspace, "report.json");
-            Assert.True((await fixture.CallAsync(
-                "ExportDiagnosticsReport", new JsonObject { ["target_path"] = target })).Ok);
+        using var workspace = new TempDirectory("UpdateReport");
+        var target = workspace.Combine("report.json");
+        Assert.True((await fixture.CallAsync(
+            "ExportDiagnosticsReport", new JsonObject { ["target_path"] = target })).Ok);
 
-            var report = JsonNode.Parse(await File.ReadAllTextAsync(target))!.AsObject();
-            var update = report["boundary"]!["outbound"]!["update_check"]!;
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(target))!.AsObject();
+        var update = report["boundary"]!["outbound"]!["update_check"]!;
 
-            Assert.True(update["enabled"]!.GetValue<bool>());
-            Assert.False(update["kill_switch"]!.GetValue<bool>());
-            Assert.DoesNotContain(
-                UpdateCheckClient.Repository, report.ToJsonString(), StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            Directory.Delete(workspace, recursive: true);
-        }
+        Assert.True(update["enabled"]!.GetValue<bool>());
+        Assert.False(update["kill_switch"]!.GetValue<bool>());
+        Assert.DoesNotContain(
+            UpdateCheckClient.Repository, report.ToJsonString(), StringComparison.OrdinalIgnoreCase);
     }
 }

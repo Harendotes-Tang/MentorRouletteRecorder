@@ -29,7 +29,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public async Task TraceDrainTimeoutReturnsFailureWithoutClosingAnInFlightWriterOrHashingIt()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "blocked-trace.jsonl");
         var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 1234);
         var source = new FakeCaptureSource();
@@ -254,7 +254,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_StopsAndKeepsAValidSummary_WhenMarkerWritingFails()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "marker-write-failure.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         var processes = new FakeGameProcessProvider()
@@ -305,7 +305,7 @@ public sealed class CaptureTraceTests
     [InlineData(true)]
     public void TraceRun_EndsOnlyWhenAListingAnswersWithoutTheClient(bool clientExits)
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, clientExits ? "exits.jsonl" : "listing-fails.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         var processes = new FakeGameProcessProvider()
@@ -390,7 +390,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_OptsIntoCandidateSignature_ForTheDetectedRegionAndBuild()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "candidate-opt-in.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         const string gameBuild = "2026.08.05.0000.0000";
@@ -434,7 +434,7 @@ public sealed class CaptureTraceTests
     public void TraceRun_RequiresCompleteGameIdentity_BeforeOpeningLiveEvidence(
         string? executablePath, string? gameBuild, bool identityReady)
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "identity-gate.jsonl");
         var processes = new FakeGameProcessProvider()
             .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
@@ -497,7 +497,7 @@ public sealed class CaptureTraceTests
         // A Steam install names the Global region since audit 2026-11-20, A2-5.
         const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
         const string userjoy = @"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe";
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var files = new FakeGameFileReader()
             .With(Path.Combine(Path.GetDirectoryName(unmarked)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000")
             .With(Path.Combine(Path.GetDirectoryName(userjoy)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000");
@@ -555,7 +555,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_RefusesMidstreamLiveCapture_BeforeStartingTheSource()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "midstream-refused.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         const string gameBuild = "2026.08.05.0000.0000";
@@ -625,7 +625,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_RefusesALiveAdapterWithoutAnIpv4BindAddress()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "missing-bind-address.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         var processes = new FakeGameProcessProvider()
@@ -671,7 +671,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_DisposesSource_WhenOutputPathCannotBeCreated()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var blocker = Path.Combine(directory.Path, "not-a-directory");
         File.WriteAllText(blocker, "blocks Directory.CreateDirectory", new UTF8Encoding(false));
         var tracePath = Path.Combine(blocker, "trace.jsonl");
@@ -704,7 +704,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_DoesNotOverwriteExistingEvidence()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "existing.jsonl");
         const string original = "existing evidence\n";
         File.WriteAllText(tracePath, original, new UTF8Encoding(false));
@@ -768,7 +768,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void WritesASha256Sidecar_ThatMatchesTheTraceFile()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "trace.jsonl");
 
         using (var file = new StreamWriter(path, false, new UTF8Encoding(false)))
@@ -790,7 +790,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void RanksThePlantedOpcodeFirst_WhenItAppearsAtEveryPop()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "sample.jsonl");
         File.WriteAllText(path, Sample(), new UTF8Encoding(false));
 
@@ -816,7 +816,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void PrintsTheCandidateAsACandidate_NeverAsVerified()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "sample.jsonl");
         File.WriteAllText(path, Sample(), new UTF8Encoding(false));
 
@@ -837,7 +837,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void ReadsATruncatedTrace_WithoutLosingTheLinesThatSurvived()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "cut.jsonl");
         var lines = Sample().Split('\n', StringSplitOptions.RemoveEmptyEntries);
         File.WriteAllText(
@@ -855,7 +855,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void ReportRefusesAFileAboveItsInMemorySizeLimit()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "oversized.jsonl");
         using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
@@ -873,7 +873,7 @@ public sealed class CaptureTraceTests
     [Fact]
     public void ReportRefusesMoreThanItsMessageRowLimit()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "too-many-rows.jsonl");
         using (var writer = new StreamWriter(path, false, new UTF8Encoding(false)))
         {
@@ -910,7 +910,7 @@ public sealed class CaptureTraceTests
             (CaptureTraceAnalysis.MaxMessageRows + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
         }));
 
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         using var file = new StreamWriter(Path.Combine(directory.Path, "clamped.jsonl"));
         var sink = new CaptureTraceSink(file, new TestClock(DateTimeOffset.UnixEpoch), () => TimeSpan.Zero, int.MaxValue);
         Assert.Equal(CaptureTraceAnalysis.MaxMessageRows, sink.MaxLines);
@@ -975,7 +975,7 @@ public sealed class CaptureTraceTests
     [InlineData(null)]
     public void TraceRun_PreservesKnownAndUnknownConnectionCounts(int? connectionCount)
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "midstream-allowed.jsonl");
         const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
         const string gameBuild = "2026.08.05.0000.0000";
@@ -1139,30 +1139,6 @@ public sealed class CaptureTraceTests
 
         public void OnFault(string reason, Exception? error)
         {
-        }
-    }
-
-    private sealed class TempDirectory : IDisposable
-    {
-        public TempDirectory()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), "MentorRecorderTrace", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Path);
-        }
-
-        public string Path { get; }
-
-        public void Dispose()
-        {
-            try
-            {
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A leftover temp directory is not worth failing a test over.
-            }
         }
     }
 

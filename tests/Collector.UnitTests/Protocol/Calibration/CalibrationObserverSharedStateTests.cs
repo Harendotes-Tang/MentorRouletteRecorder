@@ -16,20 +16,9 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
 {
     private const string Session = "calibration-session";
     private const string Build = CalibrationTrafficCases.Build;
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "shared-state-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Also covers a run in which no test created the directory.
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     internal static CalibratedValues TrueValues => new(
         new CalibratedPop(CalibrationMatchSource.ReplyState, CalibrationTrafficCases.Reply,
@@ -398,14 +387,14 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
     [Fact]
     public void AnEvidenceFileWrittenBeforeTheseFieldsExistedStillLoads()
     {
-        Directory.CreateDirectory(_root);
+        Directory.CreateDirectory(_root.Path);
         File.Copy(
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.json"),
-            Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+            _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
         // Written before the queue rule too: carried, with the pops started over.
-        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha");
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, "template-sha"));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha");
 
         Assert.NotNull(carried);
         Assert.Equal(3, carried!.Clusters.Count);
@@ -439,13 +428,13 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
     [Fact]
     public void AnEvidenceFileWrittenWithPerBurstJobViolationsButNoSharedFieldsStillLoads()
     {
-        Directory.CreateDirectory(_root);
+        Directory.CreateDirectory(_root.Path);
         File.Copy(
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.job-violations.json"),
-            Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+            _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
-        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha");
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, "template-sha"));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha");
 
         Assert.NotNull(carried);
         Assert.Equal(3, carried!.Clusters.Count);
@@ -466,8 +455,8 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         Assert.False(draft.Progress.JobSeen);
 
         // Saved again, the violations survive in the merged layout next to the shared-calibration fields.
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, "template-sha", carried));
-        Assert.Equal(1, CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha")!
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, "template-sha", carried));
+        Assert.Equal(1, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha")!
             .Clusters[1].JobViolations[CalibrationObserverTests.JobOpcode]);
     }
 
@@ -482,9 +471,9 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         observer.Flush();
         var before = observer.Snapshot();
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, "template-sha", before));
-        var text = File.ReadAllText(Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha")!;
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, "template-sha", before));
+        var text = File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha")!;
 
         Assert.DoesNotContain("health", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("candidate", text, StringComparison.OrdinalIgnoreCase);

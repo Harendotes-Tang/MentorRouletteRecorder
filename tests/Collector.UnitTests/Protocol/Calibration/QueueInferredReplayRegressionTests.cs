@@ -10,8 +10,7 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class QueueInferredReplayRegressionTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(),
-        "MentorRecorder.QueueReplay", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve("QueueReplay");
 
     [Theory]
     [InlineData(true)]
@@ -21,7 +20,7 @@ public sealed class QueueInferredReplayRegressionTests : IDisposable
         var template = CalibrationObserverTests.Template();
         var draft = CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest);
         var written = LocalProfileWriter.Write(draft, template, CalibrationTrafficCases.Build,
-            DateTimeOffset.Parse("2026-09-01T00:00:00Z"), _root);
+            DateTimeOffset.Parse("2026-09-01T00:00:00Z"), _root.Path);
         var profile = ProfileLoader.Load(written.Path);
         Assert.True(profile.ToBinding().MatchFromQueue);
         var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest)
@@ -57,12 +56,12 @@ public sealed class QueueInferredReplayRegressionTests : IDisposable
                 payload_hex = Convert.ToHexString(message.Payload.Span),
             }),
         };
-        var path = Path.Combine(_root, "queue.decoded.json");
+        var path = _root.Combine("queue.decoded.json");
         var bytes = JsonSerializer.SerializeToUtf8Bytes(fixture);
         File.WriteAllBytes(path, bytes);
         File.WriteAllText(path + ".sha256", Convert.ToHexString(SHA256.HashData(bytes)));
 
-        var replay = DecodedReplayRunner.Run(path, written.Path, Path.Combine(_root, "replay.db"));
+        var replay = DecodedReplayRunner.Run(path, written.Path, _root.Combine("replay.db"));
 
         Assert.True(replay.ProfileUsable);
         Assert.True(replay.BuildMatched);
@@ -78,9 +77,6 @@ public sealed class QueueInferredReplayRegressionTests : IDisposable
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, recursive: true);
-        }
+        _root.Dispose();
     }
 }

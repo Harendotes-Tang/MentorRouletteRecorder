@@ -329,13 +329,7 @@ public sealed class HistoryRetentionTests
     {
         using var fixture = new TestDatabase();
         using var host = CollectorHost.Open(Path.Combine(Path.GetDirectoryName(fixture.Path)!, "live-purge.db"),
-            fixture.Clock, capture: new CaptureServices
-            {
-                Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-                Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-                Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-                EnableFollowTimer = false,
-            });
+            fixture.Clock, capture: InertCapture.Services());
         var run = host.Mutations.CreateManualRun(new CreateManualRunCommand
         {
             RequestId = Id(), Reason = "测试删除", Result = RunResult.Completed, JobId = 19,
@@ -497,41 +491,31 @@ public sealed class HistoryRetentionTests
     [Fact]
     public void MigrationStartsOldDeletedRowsAtTheUpgradeClock()
     {
-        var path = Path.Combine(Path.GetTempPath(), "MentorRecorder.RetentionMigration", Id(), "legacy.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var temp = new TempDirectory("RetentionMigration");
+        var path = temp.Combine("legacy.db");
         var clock = new TestClock(new DateTimeOffset(2026, 10, 10, 0, 0, 0, TimeSpan.Zero));
-        try
+        using (var old = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
         {
-            using (var old = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
-            {
-                old.Open();
-                foreach (var script in MigrationRunner.Scripts.Where(script => script.Version < 10))
-                {
-                    using var cmd = old.CreateCommand(); cmd.CommandText = script.Sql; cmd.ExecuteNonQuery();
-                    cmd.CommandText = "INSERT INTO schema_migrations VALUES($version,$name,$sum,$now);";
-                    cmd.Parameters.AddWithValue("$version", script.Version); cmd.Parameters.AddWithValue("$name", script.Name);
-                    cmd.Parameters.AddWithValue("$sum", script.Checksum); cmd.Parameters.AddWithValue("$now", UtcTimestamp.ToText(clock.UtcNow)); cmd.ExecuteNonQuery();
-                }
-                using var seed = old.CreateCommand();
-                seed.CommandText = "INSERT INTO mentor_runs(run_id,revision,result,source,soft_deleted,created_at_utc,updated_at_utc) " +
-                    "VALUES($id,1,'COMPLETED','MANUAL',1,'2000-01-01T00:00:00.000Z','2000-01-01T00:00:00.000Z');";
-                seed.Parameters.AddWithValue("$id", Id()); seed.ExecuteNonQuery();
-            }
-            using var migrated = SqliteDatabase.Open(path, clock);
-            var snapshotPath = Assert.Single(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(path)!, "backups"), "pre_schema_9_upgrade_*.db"));
-            using (var snapshot = new SqliteConnection("Data Source=" + snapshotPath + ";Mode=ReadOnly;Pooling=False"))
-            {
-                snapshot.Open(); using var snapshotCheck = snapshot.CreateCommand();
-                snapshotCheck.CommandText = "SELECT MAX(version) FROM schema_migrations;"; Assert.Equal(9L, snapshotCheck.ExecuteScalar());
-                snapshotCheck.CommandText = "PRAGMA integrity_check;"; Assert.Equal("ok", snapshotCheck.ExecuteScalar());
-                snapshotCheck.CommandText = "SELECT updated_at_utc FROM mentor_runs;"; Assert.Equal("2000-01-01T00:00:00.000Z", snapshotCheck.ExecuteScalar());
-            }
-            using var check = migrated.CreateCommand(); check.CommandText = "SELECT deleted_at_utc FROM mentor_runs;";
-            Assert.Equal(UtcTimestamp.ToText(clock.UtcNow), check.ExecuteScalar());
-            using var retention = new HistoryRetentionService(migrated, clock);
-            Assert.Equal(0, retention.CheckExpired(force: true));
-            clock.UtcNow += TimeSpan.FromDays(30); Assert.Equal(1, retention.CheckExpired(force: true));
+            old.Open();
+            LegacySchema.ApplyThrough(old, 9, clock.UtcNow);
+            using var seed = old.CreateCommand();
+            seed.CommandText = "INSERT INTO mentor_runs(run_id,revision,result,source,soft_deleted,created_at_utc,updated_at_utc) " +
+                "VALUES($id,1,'COMPLETED','MANUAL',1,'2000-01-01T00:00:00.000Z','2000-01-01T00:00:00.000Z');";
+            seed.Parameters.AddWithValue("$id", Id()); seed.ExecuteNonQuery();
         }
-        finally { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); }
+        using var migrated = SqliteDatabase.Open(path, clock);
+        var snapshotPath = Assert.Single(Directory.GetFiles(temp.Combine("backups"), "pre_schema_9_upgrade_*.db"));
+        using (var snapshot = new SqliteConnection("Data Source=" + snapshotPath + ";Mode=ReadOnly;Pooling=False"))
+        {
+            snapshot.Open(); using var snapshotCheck = snapshot.CreateCommand();
+            snapshotCheck.CommandText = "SELECT MAX(version) FROM schema_migrations;"; Assert.Equal(9L, snapshotCheck.ExecuteScalar());
+            snapshotCheck.CommandText = "PRAGMA integrity_check;"; Assert.Equal("ok", snapshotCheck.ExecuteScalar());
+            snapshotCheck.CommandText = "SELECT updated_at_utc FROM mentor_runs;"; Assert.Equal("2000-01-01T00:00:00.000Z", snapshotCheck.ExecuteScalar());
+        }
+        using var check = migrated.CreateCommand(); check.CommandText = "SELECT deleted_at_utc FROM mentor_runs;";
+        Assert.Equal(UtcTimestamp.ToText(clock.UtcNow), check.ExecuteScalar());
+        using var retention = new HistoryRetentionService(migrated, clock);
+        Assert.Equal(0, retention.CheckExpired(force: true));
+        clock.UtcNow += TimeSpan.FromDays(30); Assert.Equal(1, retention.CheckExpired(force: true));
     }
 }

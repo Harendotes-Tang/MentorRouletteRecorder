@@ -30,7 +30,8 @@ public sealed class ReplayTests
     [Fact]
     public void Replay_ProducesTransitionsFinalRunDatabaseWritesAndStatistics()
     {
-        var databasePath = TempDatabasePath();
+        using var temp = new TempDirectory("ReplayTests");
+        var databasePath = temp.Combine("replay.db");
 
         var result = FixtureReplayRunner.Run(FixturePath, databasePath);
 
@@ -56,7 +57,8 @@ public sealed class ReplayTests
     [Fact]
     public void Replay_IsIdempotentAcrossProcessEquivalentRuns()
     {
-        var databasePath = TempDatabasePath();
+        using var temp = new TempDirectory("ReplayTests");
+        var databasePath = temp.Combine("replay.db");
         var first = FixtureReplayRunner.Run(FixturePath, databasePath);
 
         var second = FixtureReplayRunner.Run(FixturePath, databasePath);
@@ -71,7 +73,8 @@ public sealed class ReplayTests
     [Fact]
     public void Program_ReplayModeWritesJsonResult()
     {
-        var databasePath = TempDatabasePath();
+        using var temp = new TempDirectory("ReplayTests");
+        var databasePath = temp.Combine("replay.db");
         var original = Console.Out;
         using var output = new StringWriter();
         Console.SetOut(output);
@@ -89,22 +92,12 @@ public sealed class ReplayTests
         Assert.Contains("\"statistics\"", output.ToString(), StringComparison.Ordinal);
     }
 
-    private static string TempDatabasePath()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ReplayTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        return Path.Combine(directory, "replay.db");
-    }
-
     // ----------------------------------------------------------- decoded fixtures ----
     // The decoded fixtures carry invented bytes for an invented profile, and their integrity is
     // itself under test: sidecar hashes, the manifest, and the declaration that they are
     // synthetic. A file that could pass for a real capture must not load.
 
     private static string DecodedDirectory => Path.Combine(AppContext.BaseDirectory, "Fixtures", "decoded");
-
-    private static string ProfilePath => Path.Combine(
-        AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
 
     /// <summary>Every invented profile a decoded fixture is allowed to name.</summary>
     private static readonly string[] SyntheticProfileIds = { "synthetic-v1", "synthetic-cn-shape-v1" };
@@ -208,61 +201,44 @@ public sealed class ReplayTests
     [Fact]
     public void AFixtureThatDoesNotDeclareItselfSyntheticIsRefused()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.DecodedTamper", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var path = Path.Combine(directory, "fake.decoded.json");
-            var document = JsonDocument.Parse(
-                File.ReadAllText(Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json")));
-            var text = document.RootElement.GetRawText()
-                .Replace("\"synthetic\":true", "\"synthetic\":false", StringComparison.Ordinal)
-                .Replace("\"synthetic\": true", "\"synthetic\": false", StringComparison.Ordinal);
-            File.WriteAllText(path, text);
-            File.WriteAllText(
-                path + ".sha256",
-                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant());
+        using var temp = new TempDirectory("DecodedTamper");
+        var path = temp.Combine("fake.decoded.json");
+        var document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json")));
+        var text = document.RootElement.GetRawText()
+            .Replace("\"synthetic\":true", "\"synthetic\":false", StringComparison.Ordinal)
+            .Replace("\"synthetic\": true", "\"synthetic\": false", StringComparison.Ordinal);
+        File.WriteAllText(path, text);
+        File.WriteAllText(
+            path + ".sha256",
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant());
 
-            var error = Assert.Throws<InvalidDataException>(() => DecodedFixtureLoader.Load(path));
+        var error = Assert.Throws<InvalidDataException>(() => DecodedFixtureLoader.Load(path));
 
-            Assert.Contains("synthetic", error.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            System.IO.Directory.Delete(directory, recursive: true);
-        }
+        Assert.Contains("synthetic", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void EditingADecodedFixtureIsDetected()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.DecodedTamper", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var source = Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json");
-            var copy = Path.Combine(directory, "synthetic_complete.decoded.json");
-            File.Copy(source, copy);
-            File.Copy(source + ".sha256", copy + ".sha256");
-            File.WriteAllText(copy, File.ReadAllText(copy).Replace("61441", "61442", StringComparison.Ordinal));
+        using var temp = new TempDirectory("DecodedTamper");
+        var source = Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json");
+        var copy = temp.Combine("synthetic_complete.decoded.json");
+        File.Copy(source, copy);
+        File.Copy(source + ".sha256", copy + ".sha256");
+        File.WriteAllText(copy, File.ReadAllText(copy).Replace("61441", "61442", StringComparison.Ordinal));
 
-            var error = Assert.Throws<InvalidDataException>(() => DecodedFixtureLoader.Load(copy));
+        var error = Assert.Throws<InvalidDataException>(() => DecodedFixtureLoader.Load(copy));
 
-            Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            System.IO.Directory.Delete(directory, recursive: true);
-        }
+        Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void DecodedReplayOfTheCompleteFixtureProducesACompletedRun()
     {
+        using var temp = TempDirectory.Reserve("DecodedReplay");
         var result = DecodedReplayRunner.Run(
-            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), ProfilePath, TempDatabase());
+            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), SyntheticProfile.Path, temp.Combine("replay.db"));
 
         Assert.Equal(RunState.Completed, result.FinalState);
         Assert.True(result.BuildMatched);
@@ -278,12 +254,13 @@ public sealed class ReplayTests
     [Fact]
     public void DecodedReplayIsIdempotent()
     {
-        var databasePath = TempDatabase();
+        using var temp = TempDirectory.Reserve("DecodedReplay");
+        var databasePath = temp.Combine("replay.db");
         var first = DecodedReplayRunner.Run(
-            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), ProfilePath, databasePath);
+            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), SyntheticProfile.Path, databasePath);
 
         var second = DecodedReplayRunner.Run(
-            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), ProfilePath, databasePath);
+            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), SyntheticProfile.Path, databasePath);
 
         Assert.Equal(first.Runs, second.Runs);
         Assert.True(second.Writes.IdempotentReplay);
@@ -295,8 +272,9 @@ public sealed class ReplayTests
     [Fact]
     public void DecodedReplayResolvesTheProfileNamedByTheFixtureWhenNoneIsGiven()
     {
+        using var temp = TempDirectory.Reserve("DecodedReplay");
         var result = DecodedReplayRunner.Run(
-            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), null, TempDatabase());
+            Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"), null, temp.Combine("replay.db"));
 
         Assert.Equal("synthetic-v1", result.ProfileId);
         Assert.Equal(RunState.Completed, result.FinalState);
@@ -305,6 +283,7 @@ public sealed class ReplayTests
     [Fact]
     public void Program_ReplayDecodedModeWritesJsonResult()
     {
+        using var temp = TempDirectory.Reserve("DecodedReplay");
         var original = Console.Out;
         using var output = new StringWriter();
         Console.SetOut(output);
@@ -313,8 +292,8 @@ public sealed class ReplayTests
             var exitCode = Program.Main(new[]
             {
                 "--replay-decoded", Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json"),
-                "--profile", ProfilePath,
-                "--db", TempDatabase(),
+                "--profile", SyntheticProfile.Path,
+                "--db", temp.Combine("replay.db"),
             });
             Assert.Equal(0, exitCode);
         }
@@ -330,7 +309,7 @@ public sealed class ReplayTests
     [Fact]
     public void Program_ValidateProfileReportsSuccessAndFailure()
     {
-        Assert.Equal(0, RunSilently("--validate-profile", ProfilePath));
+        Assert.Equal(0, RunSilently("--validate-profile", SyntheticProfile.Path));
         Assert.Equal(1, RunSilently(
             "--validate-profile",
             Path.Combine(DecodedDirectory, "synthetic_complete.decoded.json")));
@@ -381,10 +360,4 @@ public sealed class ReplayTests
             Console.SetError(originalError);
         }
     }
-
-    private static string TempDatabase() => Path.Combine(
-        Path.GetTempPath(),
-        "MentorRecorder.DecodedReplay",
-        Guid.NewGuid().ToString("N"),
-        "replay.db");
 }

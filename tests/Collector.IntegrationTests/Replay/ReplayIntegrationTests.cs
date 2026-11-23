@@ -72,20 +72,14 @@ public sealed class ReplayIntegrationTests
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".fixture.json");
 
-    private static string TempDatabase() =>
-        Path.Combine(
-            Path.GetTempPath(),
-            "MentorRecorder.ReplayIt",
-            Guid.NewGuid().ToString("N"),
-            "replay.db");
-
     [Theory]
     [MemberData(nameof(FixtureNames))]
     public void ReplayProducesTheHandComputedOutcome(string name)
     {
         var expected = Expectations.Single(row => row.Fixture == name);
 
-        var result = FixtureReplayRunner.Run(FixturePath(name), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath(name), temp.Combine("replay.db"));
 
         Assert.Equal(expected.FinalState, result.FinalState);
         Assert.Equal(expected.RunCount, result.Runs.Count);
@@ -104,7 +98,8 @@ public sealed class ReplayIntegrationTests
     public void ReplayingTwiceWritesNothingTheSecondTime(string name)
     {
         var expected = Expectations.Single(row => row.Fixture == name);
-        var databasePath = TempDatabase();
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var databasePath = temp.Combine("replay.db");
 
         var first = FixtureReplayRunner.Run(FixturePath(name), databasePath);
         var second = FixtureReplayRunner.Run(FixturePath(name), databasePath);
@@ -121,7 +116,8 @@ public sealed class ReplayIntegrationTests
     [Fact]
     public void UnusableProfile_WritesNoRunAndCountsEveryRefusal()
     {
-        var result = FixtureReplayRunner.Run(FixturePath("unknown_profile_v1"), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath("unknown_profile_v1"), temp.Combine("replay.db"));
 
         Assert.False(result.ProfileUsable);
         Assert.Equal("UNSUPPORTED_BUILD", result.ProfileStatus);
@@ -134,7 +130,8 @@ public sealed class ReplayIntegrationTests
     [Fact]
     public void DuplicateFixture_ProducesOneRunAndOneCompletion()
     {
-        var result = FixtureReplayRunner.Run(FixturePath("duplicate_events_v1"), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath("duplicate_events_v1"), temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.Equal(RunResult.Completed, run.Result);
@@ -149,7 +146,8 @@ public sealed class ReplayIntegrationTests
     [Fact]
     public void TwoRunSequence_KeepsTheRunsSeparate()
     {
-        var result = FixtureReplayRunner.Run(FixturePath("two_runs_sequence_v1"), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath("two_runs_sequence_v1"), temp.Combine("replay.db"));
 
         Assert.Equal(2, result.Runs.Count);
         Assert.Equal(2, result.Runs.Select(run => run.RunId).Distinct(StringComparer.Ordinal).Count());
@@ -162,7 +160,8 @@ public sealed class ReplayIntegrationTests
     [Fact]
     public void CompletedFixture_MeasuresDurationFromTheMonotonicReadings()
     {
-        var result = FixtureReplayRunner.Run(FixturePath("synthetic-completed-v1"), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath("synthetic-completed-v1"), temp.Combine("replay.db"));
 
         // Entry at 6000 ms, victory at 126000 ms: two monotonic readings, never two wall clocks.
         Assert.Equal(120_000, Assert.Single(result.Runs).DurationMs);
@@ -172,7 +171,8 @@ public sealed class ReplayIntegrationTests
     [Fact]
     public void CancelledFixture_HasNoEntryTimeAndNoDuration()
     {
-        var result = FixtureReplayRunner.Run(FixturePath("mentor_cancelled_v1"), TempDatabase());
+        using var temp = TempDirectory.Reserve("ReplayIt");
+        var result = FixtureReplayRunner.Run(FixturePath("mentor_cancelled_v1"), temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.Null(run.EnteredAtUtc);

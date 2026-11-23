@@ -45,18 +45,9 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     private const byte Expert = 5;
     private const byte NormalRaids = 15;
 
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (DirectoryNotFoundException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     /// <summary>The GLOBAL 2026.11.03 structure with a two-message calibration section, every opcode the template build's.</summary>
     /// <param name="replyCarriesJob">Whether the reply is also the job message.</param>
@@ -577,9 +568,9 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         var template = GlobalTemplate();
         var (_, draft) = Run(Evening(), template);
 
-        var written = LocalProfileWriter.Write(draft, template, "2026.12.01.0000.0000", Start.AddHours(1), _root);
+        var written = LocalProfileWriter.Write(draft, template, "2026.12.01.0000.0000", Start.AddHours(1), _root.Path);
 
-        Assert.Equal(Path.Combine(_root, "global", "global.2026.12.01.0000.0000.local.json"), written.Path);
+        Assert.Equal(_root.Combine("global", "global.2026.12.01.0000.0000.local.json"), written.Path);
         var report = ProfileLoader.Validate(written.Path);
         Assert.Empty(report.Errors);
         var profile = report.Profile!;
@@ -617,8 +608,8 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         var (snapshot, _) = Run(Evening(), template);
         const string build = "2026.12.01.0000.0000";
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Global, build, "sha", snapshot));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Global, build, "sha")!;
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Global, build, "sha", snapshot));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Global, build, "sha")!;
 
         Assert.Equal(snapshot.PopTallies.OrderBy(entry => entry.Key), carried.PopTallies.OrderBy(entry => entry.Key));
         Assert.Equal(snapshot.Pairs.Select(pair => pair.JobId), carried.Pairs.Select(pair => pair.JobId));
@@ -665,7 +656,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     {
         var build = rehearsed ? "2026.11.03.0000.0000" : "2026.12.01.0000.0000";
         using var db = new TestDatabase();
-        var localRoot = Path.Combine(_root, "profiles");
+        var localRoot = _root.Combine("profiles");
         var template = CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), Region.Global)!;
         var rehearsal = rehearsed ? new CalibrationRehearsal(Region.Global, build) : null;
         ProfileSelector Selector(CalibrationRehearsal? withheld) =>
@@ -685,18 +676,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
 
         pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Global, GameBuild = build });
         Assert.True(pipeline.CalibrationArmed);
-        var sessionId = Guid.NewGuid().ToString("D");
-        db.Database.RunInTransaction(tx => new CaptureSessionRepository(db.Database).Insert(new CaptureSession
-        {
-            CaptureSessionId = sessionId,
-            StartedAtUtc = db.Clock.UtcNow,
-            CollectorVersion = "test",
-            Region = Region.Global,
-            GameBuild = build,
-            ProtocolProfileId = null,
-            ProfileStatus = ProfileStatus.UnsupportedBuild,
-            PacketsObserved = 0,
-        }, tx));
+        var sessionId = db.OpenCaptureSession(Region.Global, build);
         pipeline.OnCaptureStarted(sessionId);
         void Feed(IEnumerable<DecodedMessage> traffic)
         {
@@ -711,8 +691,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         Assert.Equal(CalibrationState.Ready, ready.State);
         Assert.Equal("global.2026.11.03", ready.TemplateProfileId);
 
-        var result = pipeline.ConfirmCalibration(ready.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal));
+        var result = pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready));
 
         Assert.True(result.BoundInSession);
         Assert.Equal("global." + build + ".local", result.ProfileId);

@@ -354,39 +354,30 @@ public sealed class ReflectionTests : IDisposable
         Seed(TestDatabase.Run());
         Set(run.RunId, ReflectionMood.Good, "带新人，一次过。");
 
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.ReflectionExport", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        using var temp = new TempDirectory("ReflectionExport");
         var exporter = new RunExporter(_runs, _database.Clock);
 
-        try
-        {
-            var csv = File.ReadAllText(
-                exporter.ExportCsv(Path.Combine(directory, "runs.csv"), null, false).TargetPath);
-            var header = RunExporter.CsvHeader;
-            // Appended after the original fourteen; joined_in_progress came after them in turn.
-            Assert.Equal("reflection_mood", header[14]);
-            Assert.Equal("reflection_text", header[15]);
-            Assert.Equal("joined_in_progress", header[16]);
-            Assert.Equal("region", header[17]);
-            Assert.Equal("game_build", header[18]);
-            Assert.Contains("good,带新人，一次过。", csv, StringComparison.Ordinal);
+        var csv = File.ReadAllText(
+            exporter.ExportCsv(temp.Combine("runs.csv"), null, false).TargetPath);
+        var header = RunExporter.CsvHeader;
+        // Appended after the original fourteen; joined_in_progress came after them in turn.
+        Assert.Equal("reflection_mood", header[14]);
+        Assert.Equal("reflection_text", header[15]);
+        Assert.Equal("joined_in_progress", header[16]);
+        Assert.Equal("region", header[17]);
+        Assert.Equal("game_build", header[18]);
+        Assert.Contains("good,带新人，一次过。", csv, StringComparison.Ordinal);
 
-            var json = JsonNode.Parse(File.ReadAllText(
-                exporter.ExportJson(Path.Combine(directory, "runs.json"), null, false).TargetPath))!
-                .AsArray();
-            var exported = json.Single(item =>
-                item!["run_id"]!.GetValue<string>() == run.RunId)!.AsObject();
-            var other = json.Single(item =>
-                item!["run_id"]!.GetValue<string>() != run.RunId)!.AsObject();
+        var json = JsonNode.Parse(File.ReadAllText(
+            exporter.ExportJson(temp.Combine("runs.json"), null, false).TargetPath))!
+            .AsArray();
+        var exported = json.Single(item =>
+            item!["run_id"]!.GetValue<string>() == run.RunId)!.AsObject();
+        var other = json.Single(item =>
+            item!["run_id"]!.GetValue<string>() != run.RunId)!.AsObject();
 
-            Assert.Equal("good", exported["reflection"]!["mood"]!.GetValue<string>());
-            Assert.True(other.ContainsKey("reflection"));
-            Assert.Null(other["reflection"]);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.Equal("good", exported["reflection"]!["mood"]!.GetValue<string>());
+        Assert.True(other.ContainsKey("reflection"));
+        Assert.Null(other["reflection"]);
     }
 }

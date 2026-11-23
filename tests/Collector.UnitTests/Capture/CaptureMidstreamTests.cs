@@ -27,8 +27,7 @@ public sealed class CaptureMidstreamTests : IDisposable
 
     public CaptureMidstreamTests()
     {
-        _settings = new SettingsRepository(_database.Database, _database.Clock);
-        _settings.EnsureDefaults();
+        _settings = _database.Settings();
         _adapters.Add("wifi", "Wi-Fi", addresses: "192.168.31.77");
         _processes.Add(
             GameProcessLocator.Dx11ProcessName,

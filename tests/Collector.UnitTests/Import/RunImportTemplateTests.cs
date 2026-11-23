@@ -11,9 +11,8 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>模板直接经过生产解析、预览和临时库提交；说明页不能产生虚构记录。</summary>
 public sealed class RunImportTemplateTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.TemplateTests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("TemplateTests");
     private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note", "joined_in_progress", "region" };
-    public RunImportTemplateTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
     public void UnfilledTemplatesYieldNoCommittableFactsOrFixedIdentity()
@@ -40,7 +39,7 @@ public sealed class RunImportTemplateTests : IDisposable
     public void FilledTemplateCanPreviewAndCommitWithoutInventingIdentity(string kind, string entryMode, bool? joinedInProgress)
     {
         var facts = new[] { "合成模板副本", "骑士", "2026-10-09T20:00:00+08:00", "2026-10-09T20:20:00+08:00", "COMPLETED", "1200000", "合成模板心得", "good", "2026-10-09T20:30:00+08:00", "合成模板备注", entryMode, "国服" };
-        var path = Path.Combine(_directory, "filled." + kind.ToLowerInvariant());
+        var path = _directory.Combine("filled." + kind.ToLowerInvariant());
         File.Copy(Template("personal-records." + kind.ToLowerInvariant()), path);
         if (kind == "JSON")
         {
@@ -94,25 +93,8 @@ public sealed class RunImportTemplateTests : IDisposable
             "English" => job.NameEn,
             _ => job.Abbreviation.ToLowerInvariant(),
         }).ToArray();
-        var path = Path.Combine(_directory, "jobs.xlsx");
-        File.Copy(Template("personal-records.xlsx"), path);
-        using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
-        {
-            var entry = zip.GetEntry("xl/worksheets/sheet1.xml")!;
-            XDocument document;
-            using (var stream = entry.Open()) document = XDocument.Load(stream);
-            var ns = document.Root!.Name.Namespace;
-            var sheetData = document.Root.Element(ns + "sheetData")!;
-            sheetData.Elements(ns + "row").Where(row => row.Attribute("r")?.Value != "1").Remove();
-            for (var i = 0; i < names.Length; i++)
-                sheetData.Add(new XElement(ns + "row", new XAttribute("r", i + 2),
-                    new[] { "合成职业识别副本", "  " + names[i] + "  " }.Select((value, column) =>
-                        new XElement(ns + "c", new XAttribute("r", ((char)('A' + column)).ToString() + (i + 2)),
-                            new XAttribute("t", "inlineStr"), new XElement(ns + "is", new XElement(ns + "t", value))))));
-            entry.Delete();
-            using var output = zip.CreateEntry("xl/worksheets/sheet1.xml").Open();
-            document.Save(output);
-        }
+        var path = _directory.Combine("jobs.xlsx");
+        ImportTemplateFiles.FillPersonalRecords(path, "合成职业识别副本", names);
 
         using var database = new TestDatabase();
         var service = new RunImportService(database.Database, database.Clock);
@@ -173,7 +155,7 @@ public sealed class RunImportTemplateTests : IDisposable
     [Fact]
     public void TheGeneratorFieldsAreTheShippedTemplateColumns()
     {
-        var script = File.ReadAllText(Repository("scripts", "generate-import-templates.py"));
+        var script = File.ReadAllText(RepositoryFiles.Find("scripts", "generate-import-templates.py"));
         var fields = System.Text.RegularExpressions.Regex.Matches(script, "^    [(]" + Quote + "([^" + Quote + "]+)" + Quote + ", " + Quote + "([a-z_]+)" + Quote + ", ",
                 System.Text.RegularExpressions.RegexOptions.Multiline)
             .Select(match => (Label: match.Groups[1].Value, Key: match.Groups[2].Value)).ToArray();
@@ -207,28 +189,7 @@ public sealed class RunImportTemplateTests : IDisposable
         instructions.Replace("\r\n", "\n").Split("字段对照\n")[1]
             .Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line[..line.IndexOf('：')]).ToArray();
 
-    private static string Repository(params string[] parts)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var path = Path.Combine(new[] { directory.FullName }.Concat(parts).ToArray());
-            if (File.Exists(path)) return path;
-            directory = directory.Parent;
-        }
-        throw new FileNotFoundException("Repository file unavailable", Path.Combine(parts));
-    }
-
-    private static string Template(string name)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var path = Path.Combine(directory.FullName, "src", "Desktop", "resources", "import-templates", name);
-            if (File.Exists(path)) return path;
-            directory = directory.Parent;
-        }
-        throw new FileNotFoundException("Template asset unavailable", name);
-    }
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    private static string Template(string name) =>
+        RepositoryFiles.Find("src", "Desktop", "resources", "import-templates", name);
+    public void Dispose() => _directory.Dispose();
 }

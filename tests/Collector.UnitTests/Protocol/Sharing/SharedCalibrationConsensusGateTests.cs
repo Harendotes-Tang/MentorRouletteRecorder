@@ -59,18 +59,12 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     /// </summary>
     private void SharedProfileFor(ShareCodePayload payload, string build, bool settled = true)
     {
-        var path = SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(payload with { GameBuild = build }, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        var path = _bed.WriteSharedProfile(payload with { GameBuild = build });
         if (settled)
         {
             Assert.True(_bed.Store.RecordSettled(Region.Cn, build, ProfileLoader.Load(path).ProfileSha256, Bed.Confirmed));
         }
     }
-
-    /// <summary>This machine's own calibration of <paramref name="build"/>, as the player confirmed it from evening A's traffic.</summary>
-    private void OwnCalibrationFor(string name, string build) =>
-        LocalProfileWriter.Write(CalibrationTrafficCases.Derive(name), Bed.Template, build, Bed.Confirmed, _bed.LocalRoot);
 
     private static SharedGate GateOf(SharedCandidateSummary candidate, string message) =>
         Assert.Single(candidate.Criteria, criterion => criterion.Message == message).Gate;
@@ -90,34 +84,6 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
 
     private static SharedCandidateSummary Find(IEnumerable<SharedCandidateSummary> candidates, SharedCode code) =>
         Assert.Single(candidates, candidate => candidate.Sha12 == code.Sha[..12]);
-
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
-    /// <summary>A run row recorded under the shared profile id now, with its creation revision, as the processor writes them.</summary>
-    private MentorRun SeedRunUnderSharedProfile()
-    {
-        var run = TestDatabase.Run(
-                source: RunSource.AutoNetwork, result: RunResult.CancelledBeforeEntry, enteredAt: _bed.Db.Clock.UtcNow.AddMinutes(2)) with
-            {
-                ProtocolProfileId = ProfileId,
-            };
-        var runs = new RunRepository(_bed.Db.Database);
-        var revisions = new RunRevisionRepository(_bed.Db.Database);
-        _bed.Db.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(run, tx);
-            revisions.Append(new RunRevision
-            {
-                RevisionId = Guid.NewGuid().ToString("D"), RunId = run.RunId, Revision = 1,
-                ChangedAtUtc = run.CreatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
-                Reason = null, Changes = Array.Empty<RunFieldChange>(),
-            }, tx);
-        });
-        return run;
-    }
 
     /// <summary>
     /// §20.7, first case, with the prior this machine computed itself (security review 2026-10-15): two codes differ only on
@@ -155,8 +121,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, truth), CalibratedShape.TerritoryName));
 
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         // Bound on the login burst, as on patch day; what decided it is kept with the profile in use.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -166,13 +131,12 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(new[] { CalibratedShape.PopName }, inUse.Disputed);
         Assert.True(inUse.Preferred);
         Assert.True(inUse.LocalShapePrior);
-        var recorded = SeedRunUnderSharedProfile();
+        var recorded = _bed.SeedRunUnderSharedProfile();
         var requests = _bed.Transport.Requests.Count;
 
         // Its match never arrives on the declared opcode: one healthy evening says so, which is not yet enough.
         Bed.Feed(pipeline, session, AfterLogin(evening));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
         Assert.False(_bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, favoured.Sha));
         Assert.Equal(favoured.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
 
@@ -227,19 +191,17 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         });
 
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.False(File.Exists(_bed.SharedProfilePath));
 
-        Bed.Feed(pipeline, session, UpToEntry(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, UpToEntry(evening));
 
         // The code whose match behaved binds, and the staged duty is recorded.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(truth.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 
     /// <summary>
@@ -251,7 +213,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     {
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = WithOtherSelectors(truth);
-        OwnCalibrationFor(CalibrationTrafficCases.ReplyState, Earlier);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState, Earlier);
         SharedProfileFor(other.Payload, "2026.09.01.0001.0000");
         _bed.PublishListed(new Bed.Listing(other, ShapePrior: true), new Bed.Listing(truth));
         var pipeline = _bed.Pipeline(_bed.Services());
@@ -267,13 +229,11 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Audit, GateOf(Find(candidates, truth), CalibratedShape.PopName));
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, other), CalibratedShape.PopName));
 
-        Bed.Feed(pipeline, session, Login(Bed.Evening()));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(truth.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
     }
 
     /// <summary>
@@ -301,11 +261,9 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
             Assert.Equal(SharedGate.Required, GateOf(candidate, CalibratedShape.PopName));
         });
 
-        Bed.Feed(pipeline, session, Login(Bed.Evening()));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
     }
 
     /// <summary>§20.7, third case: two codes differ on the zone marker; two accounts stand behind one, one behind the other.</summary>
@@ -334,8 +292,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, other), CalibratedShape.PopName));
 
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.Idle, pipeline.RunState);
@@ -344,7 +301,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         // Recording live from the first match on.
         Bed.Feed(pipeline, session, UpToEntry(evening));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 
     /// <summary>
@@ -379,8 +336,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         // No login burst, and a queue that is never matched: the first zone marker the session shows is the duty entry's,
         // and the same duty entry is the supporter's second contradiction.
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.From(Bed.Evening(pop: false), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(pop: false), 30_000));
 
         Assert.True(_bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, supporter.Sha));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
@@ -428,8 +384,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
 
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
         Assert.Equal(1, held);
 
         // Bound on the login burst as chosen, with the match and the duty entry still to be seen while it records.
@@ -445,8 +400,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         // And it reports the consensus it was bound under, not the one the rival made of it meanwhile (review 2026-10-15, L3).
         Assert.Empty(inUse.Disputed);
         Assert.True(inUse.Preferred);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
     }
 
     /// <summary>The last index this machine read for <paramref name="build"/> revokes <paramref name="sha"/>.</summary>
@@ -480,8 +434,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
             Assert.Null(candidate.LocalShapePrior);
             Assert.Equal(SharedGate.Required, GateOf(candidate, CalibratedShape.PopName));
         });
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
     }
 
     /// <summary>
@@ -553,8 +506,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         await Bed.Idle(pipeline);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Login(Bed.Evening()));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
         Assert.Equal(SharedCandidateStatus.AwaitingConsent, Find(pipeline.CalibrationStatus().Shared.Candidates, waiting).Status);
 
@@ -574,8 +526,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(rival.Sha[..12], inUse.Sha12);
         Assert.Equal(new[] { CalibratedShape.PopName }, inUse.Disputed);
         Assert.True(inUse.Preferred);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
     }
 
     /// <summary>
@@ -607,12 +558,11 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, Login(evening));
-        Bed.Feed(pipeline, session, UpToEntry(evening));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, UpToEntry(evening));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(preferred.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
 
     /// <summary>A shared profile adopted from disk was bound by an earlier process: nothing is known to dispute it.</summary>
@@ -620,8 +570,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     public async Task AProfileAdoptedFromDiskReportsNoDisputeAndNoPrior()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()), _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);

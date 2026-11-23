@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using System.Threading.Channels;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
@@ -38,7 +37,7 @@ public sealed class CandidateLiveEventTests
     [Fact]
     public void CaptureStatusDefaultsToCandidateObservationDisabled()
     {
-        using var capture = new CaptureController(FakeCapture());
+        using var capture = new CaptureController(InertCapture.Services());
 
         var status = CaptureWire.CaptureStatus(capture.Snapshot());
 
@@ -52,7 +51,7 @@ public sealed class CandidateLiveEventTests
     public void CaptureStatusListsCandidateHypothesesForWhitelistLabels()
     {
         var profile = CandidateObserverTests.Profile();
-        using var capture = new CaptureController(FakeCapture() with
+        using var capture = new CaptureController(InertCapture.Services() with
         {
             CandidateHypotheses = () => profile.Hypotheses
                 .Select(h => CandidateHypothesisView.From(profile, h)).ToArray(),
@@ -79,7 +78,7 @@ public sealed class CandidateLiveEventTests
     [Fact]
     public void CaptureStatusCandidateHypothesesDefaultToEmpty()
     {
-        using var capture = new CaptureController(FakeCapture());
+        using var capture = new CaptureController(InertCapture.Services());
 
         var status = CaptureWire.CaptureStatus(capture.Snapshot());
 
@@ -90,7 +89,7 @@ public sealed class CandidateLiveEventTests
     public void CandidateStatusUsesOneIndependentReadingWithoutChangingFormalProfile()
     {
         var calls = 0;
-        using var capture = new CaptureController(FakeCapture() with
+        using var capture = new CaptureController(InertCapture.Services() with
         {
             CandidateStatus = () =>
             {
@@ -117,7 +116,7 @@ public sealed class CandidateLiveEventTests
         using var resumeGuesses = new ManualResetEventSlim();
         var startedGuesses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var report = new CandidateRoundReport(DateTimeOffset.UnixEpoch, null, null, null, null);
-        using var capture = new CaptureController(FakeCapture() with
+        using var capture = new CaptureController(InertCapture.Services() with
         {
             CandidateStatus = () => (true, "candidate-fixture", 0),
             CandidateRoundReport = () =>
@@ -149,19 +148,12 @@ public sealed class CandidateLiveEventTests
         using var host = CollectorHost.Open(
             Path.Combine(Path.GetDirectoryName(database.Path)!, "heartbeat.db"),
             database.Clock,
-            capture: FakeCapture());
-        var request = new JsonObject
+            capture: InertCapture.Services());
+        using var stream = new ScriptedPipePeer(new IpcRequest(Guid.NewGuid().ToString("D"), "SubscribeLiveEvents", new JsonObject
         {
-            ["protocol_version"] = IpcEnvelope.ProtocolVersion,
-            ["request_id"] = Guid.NewGuid().ToString("D"),
-            ["message_type"] = "SubscribeLiveEvents",
-            ["payload"] = new JsonObject
-            {
-                ["event_types"] = new JsonArray("RunUpdated"),
-                ["heartbeat_interval_ms"] = 1000,
-            },
-        };
-        using var stream = new SubscriptionStream(request);
+            ["event_types"] = new JsonArray("RunUpdated"),
+            ["heartbeat_interval_ms"] = 1000,
+        }));
         using var lifetime = new CancellationTokenSource();
         var serving = new PipeConnection(stream, new MessageDispatcher(host)).ServeAsync(lifetime.Token);
         Task publishing = Task.CompletedTask;
@@ -211,59 +203,4 @@ public sealed class CandidateLiveEventTests
         Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), "candidate-fixture",
         "FixtureCandidate", "FixtureGroup", "S2C", 123, 456, "abcdef123456",
         "connection-tag", DateTimeOffset.UnixEpoch, 250);
-
-    private static CaptureServices FakeCapture() => new()
-    {
-        Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-        Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-        Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-        EnableFollowTimer = false,
-    };
-
-    /// <summary>One framed subscription request and captured replies, without opening a pipe or socket.</summary>
-    private sealed class SubscriptionStream(JsonObject request) : Stream
-    {
-        private readonly byte[] _request = FrameCodec.Encode(IpcEnvelope.ToBytes(request));
-        private readonly Channel<JsonObject> _writes = Channel.CreateUnbounded<JsonObject>();
-        private int _readOffset;
-
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public ValueTask<JsonObject> NextWrittenAsync(CancellationToken token) => _writes.Reader.ReadAsync(token);
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_readOffset < _request.Length)
-            {
-                var count = Math.Min(buffer.Length, _request.Length - _readOffset);
-                _request.AsMemory(_readOffset, count).CopyTo(buffer);
-                _readOffset += count;
-                return count;
-            }
-
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            return 0;
-        }
-
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            var envelope = JsonNode.Parse(buffer.Span[FrameCodec.PrefixBytes..])!.AsObject();
-            _writes.Writer.TryWrite(envelope);
-            return ValueTask.CompletedTask;
-        }
-
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-    }
 }

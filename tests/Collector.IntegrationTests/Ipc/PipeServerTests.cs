@@ -445,54 +445,45 @@ public sealed class PipeServerTests
         await using var fixture = ServerFixture.Start(host =>
             host.Mutations.CreateManualRun(ManualRun(1)));
 
-        var directory = Path.Combine(
-            AppContext.BaseDirectory, "MentorRecorder.ExportIt", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
+        using var directory = new TempDirectory("ExportIt", parent: AppContext.BaseDirectory);
+        await using var client = await fixture.ConnectAsync();
+
+        var csv = (await client.SendAsync("ExportCsv", new JsonObject
         {
-            await using var client = await fixture.ConnectAsync();
+            ["target_path"] = directory.Combine("runs.csv"),
+        })).Require();
+        Assert.Equal(1, csv["row_count"]!.GetValue<int>());
+        Assert.True(File.Exists(csv["target_path"]!.GetValue<string>()));
 
-            var csv = (await client.SendAsync("ExportCsv", new JsonObject
+        var json = (await client.SendAsync("ExportJson", new JsonObject
+        {
+            ["target_path"] = directory.Combine("runs.json"),
+        })).Require();
+        Assert.Equal(1, json["row_count"]!.GetValue<int>());
+
+        var backup = (await client.SendAsync("BackupDatabase", new JsonObject
+        {
+            ["target_path"] = directory.Combine("backup.db"),
+        })).Require();
+        Assert.True(backup["integrity_check_passed"]!.GetValue<bool>());
+        Assert.True(backup["byte_count"]!.GetValue<long>() > 0);
+        Assert.True(File.Exists(backup["target_path"]!.GetValue<string>()));
+
+        foreach (var message in new[] { "ExportDiagnosticsReport", "ExportCandidateEvidence" })
+        {
+            var target = directory.Combine(message + ".json");
+            var result = (await client.SendAsync(message, new JsonObject
             {
-                ["target_path"] = Path.Combine(directory, "runs.csv"),
+                ["target_path"] = target,
             })).Require();
-            Assert.Equal(1, csv["row_count"]!.GetValue<int>());
-            Assert.True(File.Exists(csv["target_path"]!.GetValue<string>()));
-
-            var json = (await client.SendAsync("ExportJson", new JsonObject
+            Assert.Equal(target, result["target_path"]!.GetValue<string>());
+            var document = JsonNode.Parse(File.ReadAllText(target));
+            Assert.NotNull(document);
+            if (message == "ExportDiagnosticsReport")
             {
-                ["target_path"] = Path.Combine(directory, "runs.json"),
-            })).Require();
-            Assert.Equal(1, json["row_count"]!.GetValue<int>());
-
-            var backup = (await client.SendAsync("BackupDatabase", new JsonObject
-            {
-                ["target_path"] = Path.Combine(directory, "backup.db"),
-            })).Require();
-            Assert.True(backup["integrity_check_passed"]!.GetValue<bool>());
-            Assert.True(backup["byte_count"]!.GetValue<long>() > 0);
-            Assert.True(File.Exists(backup["target_path"]!.GetValue<string>()));
-
-            foreach (var message in new[] { "ExportDiagnosticsReport", "ExportCandidateEvidence" })
-            {
-                var target = Path.Combine(directory, message + ".json");
-                var result = (await client.SendAsync(message, new JsonObject
-                {
-                    ["target_path"] = target,
-                })).Require();
-                Assert.Equal(target, result["target_path"]!.GetValue<string>());
-                var document = JsonNode.Parse(File.ReadAllText(target));
-                Assert.NotNull(document);
-                if (message == "ExportDiagnosticsReport")
-                {
-                    Assert.Contains((string?)document["desktop_hang"]?["status"],
-                        new[] { "found", "not_found", "unavailable" });
-                }
+                Assert.Contains((string?)document["desktop_hang"]?["status"],
+                    new[] { "found", "not_found", "unavailable" });
             }
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
         }
     }
 

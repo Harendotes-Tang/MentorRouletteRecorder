@@ -5,7 +5,6 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
-using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -23,11 +22,10 @@ public sealed class LivePipelineProcessMemoryTests
         int nextPid, int? firstStartOffset, int? nextStartOffset, bool preservesJob)
     {
         using var db = new TestDatabase();
-        var selection = ProfileSelector.SelectExplicit(Path.Combine(
-            AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json"), allowSynthetic: true);
+        var selection = SyntheticProfile.Select();
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), _ => selection);
-        var first = OpenSession(db);
+        var first = db.OpenCaptureSession(Region.Cn, null, ProfileStatus.Unverified);
         pipeline.Refresh(Game(db, 111, firstStartOffset));
         pipeline.OnCaptureStarted(first);
         pipeline.Accept(Message(db, first, 61444, 1, new byte[] { 19, 0, 0, 0 }));
@@ -42,7 +40,7 @@ public sealed class LivePipelineProcessMemoryTests
                 Messages = selection.Profile!.Messages.Where(message => message.Name != "PLAYER_JOB").ToArray(),
             },
         };
-        var second = OpenSession(db);
+        var second = db.OpenCaptureSession(Region.Cn, null, ProfileStatus.Unverified);
         pipeline.Refresh(Game(db, nextPid, nextStartOffset));
         pipeline.OnCaptureStarted(second);
         pipeline.Accept(Message(db, second, 61444, 1, new byte[] { 24, 0, 0, 0 }));
@@ -59,20 +57,6 @@ public sealed class LivePipelineProcessMemoryTests
     private static GameProcessDetection Game(TestDatabase db, int pid, int? startOffset) => new(
         true, pid, "ffxiv_dx11", startOffset is { } offset ? db.Clock.UtcNow.AddSeconds(offset) : null,
         Region.Cn, "synthetic", 2, null, Array.Empty<UserText>());
-
-    private static string OpenSession(TestDatabase db)
-    {
-        var id = Guid.NewGuid().ToString("D");
-        db.Database.RunInTransaction(tx => new CaptureSessionRepository(db.Database).Insert(new CaptureSession
-        {
-            CaptureSessionId = id,
-            StartedAtUtc = db.Clock.UtcNow,
-            CollectorVersion = "test",
-            Region = Region.Cn,
-            ProfileStatus = ProfileStatus.Unverified,
-        }, tx));
-        return id;
-    }
 
     private static DecodedMessage Message(TestDatabase db, string session, ushort opcode, long milliseconds, byte[] payload) =>
         new(session, MessageDirection.Inbound, db.Clock.UtcNow.AddMilliseconds(milliseconds),

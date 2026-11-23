@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -154,6 +156,45 @@ internal static class ProfileTestFiles
 
         var path = Path.Combine(directory, profileId + ".json");
         File.WriteAllText(path, json, new UTF8Encoding(false));
+        return path;
+    }
+
+    /// <summary>A profile file read back with a new identity, for a test to edit before <see cref="WriteStamped"/>.</summary>
+    /// <param name="sourcePath">Profile file to copy, usually a shipped one.</param>
+    /// <param name="profileId">New <c>profile_id</c>.</param>
+    /// <param name="gameBuild">New <c>game_build</c>.</param>
+    /// <param name="generatedAt">New <c>generated_at</c>, or the source's own when null.</param>
+    public static JsonObject Reidentified(
+        string sourcePath, string profileId, string gameBuild, DateTimeOffset? generatedAt = null)
+    {
+        var document = JsonNode.Parse(File.ReadAllText(sourcePath))!.AsObject();
+        document["profile_id"] = profileId;
+        document["game_build"] = gameBuild;
+        if (generatedAt is { } stamp)
+        {
+            document["generated_at"] = stamp.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+        }
+
+        return document;
+    }
+
+    /// <summary>
+    /// Writes <c>&lt;directory&gt;/&lt;profileId&gt;.json</c> as indented UTF-8 without a BOM, with the document's
+    /// canonical <c>profile_sha256</c> stamped into it, and returns the path. The directory is created if needed.
+    /// </summary>
+    /// <param name="directory">Directory to write into.</param>
+    /// <param name="profileId">File name stem.</param>
+    /// <param name="document">Document to stamp and write; its hash field is overwritten.</param>
+    public static string WriteStamped(string directory, string profileId, JsonObject document)
+    {
+        Directory.CreateDirectory(directory);
+        var options = new JsonSerializerOptions { WriteIndented = true };
+
+        // The hash covers everything except itself, so the placeholder never affects it.
+        document["profile_sha256"] = new string('0', 64);
+        document["profile_sha256"] = ProfileLoader.ComputeProfileHash(document.ToJsonString(options));
+        var path = Path.Combine(directory, profileId + ".json");
+        File.WriteAllText(path, document.ToJsonString(options), new UTF8Encoding(false));
         return path;
     }
 }

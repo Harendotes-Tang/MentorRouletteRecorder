@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
@@ -20,22 +19,9 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class CalibrationPipelineTests : IDisposable
 {
     private const string Build = "2026.09.01.0000.0000";
-    private readonly string _localRoot = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "local-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _localRoot = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(_localRoot))
-            {
-                Directory.Delete(_localRoot, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _localRoot.Dispose();
 
     private static ProfileSelection NoProfile(GameProcessDetection game) => new(
         ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null, game.Region, game.GameBuild,
@@ -52,28 +38,10 @@ public sealed class CalibrationPipelineTests : IDisposable
         _ => template,
         () =>
         {
-            var selector = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot));
+            var selector = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot.Path));
             return game => selector.Select(game.Region, game.GameBuild);
         },
-        (draft, chosen, build, now) => LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot));
-
-    private static string OpenSession(TestDatabase db)
-    {
-        var sessionId = Guid.NewGuid().ToString("D");
-        var sessions = new CaptureSessionRepository(db.Database);
-        db.Database.RunInTransaction(tx => sessions.Insert(new CaptureSession
-        {
-            CaptureSessionId = sessionId,
-            StartedAtUtc = db.Clock.UtcNow,
-            CollectorVersion = "test",
-            Region = Region.Cn,
-            GameBuild = Build,
-            ProtocolProfileId = null,
-            ProfileStatus = ProfileStatus.UnsupportedBuild,
-            PacketsObserved = 0,
-        }, tx));
-        return sessionId;
-    }
+        (draft, chosen, build, now) => LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot.Path));
 
     private static void Feed(LiveProtocolPipeline pipeline, string sessionId, IEnumerable<DecodedMessage> traffic)
     {
@@ -82,10 +50,6 @@ public sealed class CalibrationPipelineTests : IDisposable
             pipeline.Accept(message with { CaptureSessionId = sessionId });
         }
     }
-
-    private static Dictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
 
     [Fact]
     public void ANewBuildRunsAsACountingSinkUntilTheUserConfirmsAndThenRecordsInTheSameSession()
@@ -103,7 +67,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
         Assert.Equal(CalibrationState.Waiting, pipeline.CalibrationStatus().State);
 
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         Assert.Contains(CalibrationState.Observing, states);
@@ -117,7 +81,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(RunState.Idle, pipeline.RunState);
         Assert.Equal(0, pipeline.ParseOkCount);
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(ready));
+        var result = pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready));
 
         Assert.True(result.BoundInSession);
         Assert.Equal("cn.2026.09.01.0000.0000.local", result.ProfileId);
@@ -161,7 +125,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var first = OpenSession(db);
+        var first = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(first);
         Feed(pipeline, first, CalibrationObserverTests.Session1());
         Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
@@ -188,13 +152,13 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1(exitJob: 30));
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(ready));
+        var result = pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready));
         Assert.True(result.BoundInSession);
 
         Feed(pipeline, sessionId, new[]
@@ -230,14 +194,14 @@ public sealed class CalibrationPipelineTests : IDisposable
             StartedAtUtc = startOffset is { } offset ? db.Clock.UtcNow.AddSeconds(offset) : null,
         };
         pipeline.Refresh(Game(111, firstStartOffset));
-        var first = OpenSession(db);
+        var first = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(first);
         Feed(pipeline, first, CalibrationObserverTests.Session1(exitJob: 30));
         Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
 
         pipeline.Refresh(Game(nextPid, nextStartOffset));
-        var second = OpenSession(db);
+        var second = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(second);
         if (observeFreshJob)
         {
@@ -251,7 +215,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         // The learned message shapes survive the switch and can still be confirmed immediately.
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
         Feed(pipeline, second, new[]
         {
             CalibrationObserverTests.Message(MessageDirection.Inbound, 0xC002,
@@ -275,13 +239,13 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
-        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        var evidenceRoot = _localRoot.Combine("evidence");
         var services = Services(template).WithEvidenceIn(evidenceRoot);
 
         var first = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         first.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         first.OnCaptureStarted(sessionId);
         Feed(first, sessionId, CalibrationObserverTests.Session1());
         var before = first.CalibrationStatus();
@@ -293,7 +257,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var second = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         second.Refresh(NewBuild);
-        second.OnCaptureStarted(OpenSession(db));
+        second.OnCaptureStarted(db.OpenCaptureSession(Region.Cn, Build));
         var after = second.CalibrationStatus();
 
         Assert.Equal(CalibrationState.Ready, after.State);
@@ -311,13 +275,13 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
-        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        var evidenceRoot = _localRoot.Combine("evidence");
         var services = Services(template).WithEvidenceIn(evidenceRoot);
 
         var first = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         first.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         first.OnCaptureStarted(sessionId);
         Feed(first, sessionId, CalibrationObserverTests.Session1());
         first.OnCaptureStopped(sessionId, CaptureEndReason.UserStop);
@@ -325,7 +289,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var second = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         second.Refresh(NewBuild);
-        var secondSession = OpenSession(db);
+        var secondSession = db.OpenCaptureSession(Region.Cn, Build);
         second.OnCaptureStarted(secondSession);
         second.DiscardCalibration();
         second.OnCaptureStopped(secondSession, CaptureEndReason.UserStop);
@@ -333,7 +297,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var third = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         third.Refresh(NewBuild);
-        third.OnCaptureStarted(OpenSession(db));
+        third.OnCaptureStarted(db.OpenCaptureSession(Region.Cn, Build));
 
         Assert.Equal(CalibrationState.Observing, third.CalibrationStatus().State);
         Assert.Empty(third.CalibrationStatus().Events);
@@ -350,12 +314,12 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
-        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        var evidenceRoot = _localRoot.Combine("evidence");
         var services = Services(template).WithEvidenceIn(evidenceRoot);
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         pipeline.OnCaptureStopped(sessionId, CaptureEndReason.UserStop);
@@ -379,7 +343,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var next = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         next.Refresh(NewBuild);
-        next.OnCaptureStarted(OpenSession(db));
+        next.OnCaptureStarted(db.OpenCaptureSession(Region.Cn, Build));
         Assert.Equal(CalibrationState.Observing, next.CalibrationStatus().State);
         Assert.Empty(next.CalibrationStatus().Events);
     }
@@ -419,7 +383,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
@@ -462,7 +426,7 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
-        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        var evidenceRoot = _localRoot.Combine("evidence");
         Action? late = null;
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template).WithEvidenceIn(evidenceRoot))
@@ -475,7 +439,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             },
         };
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         // The save falls due on the session's last message, which is still in the ring when frozen.
         var last = new MessageKey(Domain.Events.PacketDirection.ServerToClient, 0xE00E, 8);
@@ -518,7 +482,7 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
-        var evidenceRoot = Path.Combine(_localRoot, "evidence-" + other);
+        var evidenceRoot = _localRoot.Combine("evidence-" + other);
         var stored = Services(template).WithEvidenceIn(evidenceRoot);
         LiveProtocolPipeline? pipeline = null;
         var sessionId = string.Empty;
@@ -561,7 +525,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             },
         };
         pipeline.Refresh(NewBuild);
-        sessionId = OpenSession(db);
+        sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         var last = new MessageKey(Domain.Events.PacketDirection.ServerToClient, 0xE00E, 8);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
@@ -611,7 +575,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
 
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
 
         // Session1 with its match message removed, plus a second roulette so the reply opcode
@@ -631,7 +595,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(CalibrationState.Ready, ready.State);
         Assert.DoesNotContain(ready.Events, item => item.Kind == "pop");
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(ready));
+        var result = pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready));
 
         Assert.True(result.BoundInSession);
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
@@ -688,7 +652,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
             .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
@@ -708,7 +672,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         Feed(pipeline, sessionId, new[] { request });
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
         Assert.Equal(RunState.Idle, pipeline.RunState);
 
         Feed(pipeline, sessionId, new[]
@@ -747,7 +711,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
             .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
@@ -786,7 +750,7 @@ public sealed class CalibrationPipelineTests : IDisposable
 
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
         Assert.Equal(9, run.MentorRouletteId);
@@ -814,12 +778,12 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
-        var clear = ClearMessage(900_000);
+        var clear = CalibrationTrafficCases.Clear(900_000);
         Feed(pipeline, sessionId, new[] { clear });
 
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
         Assert.Equal(RunResult.Completed, run.Result);
@@ -841,11 +805,11 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
-        Feed(pipeline, sessionId, new[] { ClearMessage(900_000) });
+        Feed(pipeline, sessionId, new[] { CalibrationTrafficCases.Clear(900_000) });
         pipeline.OnConnectionLost(sessionId);
 
         var ready = pipeline.CalibrationStatus();
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
         Feed(pipeline, sessionId, new[]
         {
             CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA108,
@@ -867,10 +831,10 @@ public sealed class CalibrationPipelineTests : IDisposable
     public void AClearSeenBeforeTheDraftWasReadyIsNotKept()
     {
         using var db = new TestDatabase();
-        var pipeline = ReadyWithADutyUnderWay(db, out _, beforeReady: new[] { ClearMessage(100_000) });
+        var pipeline = ReadyWithADutyUnderWay(db, out _, beforeReady: new[] { CalibrationTrafficCases.Clear(100_000) });
 
         var ready = pipeline.CalibrationStatus();
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.Equal(0, pipeline.DutyClearSignalCount);
@@ -888,13 +852,13 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
         Feed(pipeline, sessionId, new[]
         {
-            ClearMessage(600_000, command: 0x80000015, parameter: 1),
-            ClearMessage(900_000, command: 0x40000007, parameter: 0),
-            ClearMessage(900_001, command: 0x40000007, parameter: 1),
+            CalibrationTrafficCases.Clear(600_000, command: 0x80000015, parameter: 1),
+            CalibrationTrafficCases.Clear(900_000, command: 0x40000007, parameter: 0),
+            CalibrationTrafficCases.Clear(900_001, command: 0x40000007, parameter: 1),
         });
 
         var ready = pipeline.CalibrationStatus();
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.Equal(0, pipeline.IgnoredCount);
@@ -912,10 +876,10 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
         const int maxCardWaitMessages = 2048;
         Feed(pipeline, sessionId, Enumerable.Range(0, maxCardWaitMessages + 10)
-            .Select(index => ClearMessage(500_000 + (index * 100L), dutyNumber: (ushort)index)));
+            .Select(index => CalibrationTrafficCases.Clear(500_000 + (index * 100L), dutyNumber: (ushort)index)));
 
         var ready = pipeline.CalibrationStatus();
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         Assert.Equal(maxCardWaitMessages, pipeline.DutyClearSignalCount);
     }
@@ -933,14 +897,14 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
         Feed(pipeline, sessionId, new[]
         {
-            ClearMessage(494_500, command: 0x40000001, parameter: 7200),
-            ClearMessage(494_563, command: 0x80000004, parameter: 7199),
+            CalibrationTrafficCases.Clear(494_500, command: 0x40000001, parameter: 7200),
+            CalibrationTrafficCases.Clear(494_563, command: 0x80000004, parameter: 7199),
         });
 
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
-        Feed(pipeline, sessionId, new[] { ClearMessage(794_563, command: 0x80000004, parameter: 6899) });
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
+        Feed(pipeline, sessionId, new[] { CalibrationTrafficCases.Clear(794_563, command: 0x80000004, parameter: 6899) });
 
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
@@ -960,7 +924,7 @@ public sealed class CalibrationPipelineTests : IDisposable
 
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         var current = pipeline.GetCurrentRun();
         Assert.Equal(RunState.EnteredDuty, current.State);
@@ -977,12 +941,12 @@ public sealed class CalibrationPipelineTests : IDisposable
     {
         using var db = new TestDatabase();
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
-        Feed(pipeline, sessionId, new[] { ClearMessage(494_500, command: 0x40000001, parameter: 7200) }
-            .Concat(Enumerable.Range(0, 20).Select(index => ClearMessage(
+        Feed(pipeline, sessionId, new[] { CalibrationTrafficCases.Clear(494_500, command: 0x40000001, parameter: 7200) }
+            .Concat(Enumerable.Range(0, 20).Select(index => CalibrationTrafficCases.Clear(
                 494_563 + (index * 300_000L), command: 0x80000004, parameter: (uint)(7199 - (index * 300))))));
 
         var ready = pipeline.CalibrationStatus();
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)).BoundInSession);
 
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
@@ -1004,7 +968,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
         pipeline.Refresh(NewBuild);
-        sessionId = OpenSession(db);
+        sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
             .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
@@ -1032,22 +996,6 @@ public sealed class CalibrationPipelineTests : IDisposable
         return pipeline;
     }
 
-    /// <summary>
-    /// A director message of the CN shape on an opcode no draft declares: by default the clear of the
-    /// invented duty 0xF00D, otherwise one of the director's other commands.
-    /// </summary>
-    private static DecodedMessage ClearMessage(
-        long monoMs, uint command = 0x40000003, uint parameter = 0, ushort dutyNumber = 0xF00D)
-    {
-        var body = new byte[40];
-        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), dutyNumber);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
-        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), command);
-        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(12), parameter);
-        return CalibrationObserverTests.Message(MessageDirection.Inbound, 0x0204, body, monoMs);
-    }
-
     [Fact]
     public void AWrongVerdictVoidsTheDraftAndTheSessionKeepsCounting()
     {
@@ -1056,11 +1004,11 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = new LiveProtocolPipeline(
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         var ready = pipeline.CalibrationStatus();
-        var verdicts = AllCorrect(ready);
+        var verdicts = SharedCalibrationTestBed.AllCorrect(ready);
         verdicts[ready.Events.First(item => item.Kind == "pop").EventId] = CalibrationVerdict.Wrong;
 
         var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(verdicts));
@@ -1068,7 +1016,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(ErrorCodes.CalibrationRejected, error.Code);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
-        Assert.False(Directory.Exists(_localRoot) && Directory.EnumerateFiles(_localRoot, "*.json", SearchOption.AllDirectories).Any());
+        Assert.False(Directory.Exists(_localRoot.Path) && Directory.EnumerateFiles(_localRoot.Path, "*.json", SearchOption.AllDirectories).Any());
 
         // The rejected pop opcode is not proposed again for this session's evidence.
         Assert.NotEqual(CalibrationState.Ready, pipeline.CalibrationStatus().State);
@@ -1128,7 +1076,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         var popBeforeRequest = scenario == 1;
         var traffic = scenario == 2
@@ -1150,15 +1098,15 @@ public sealed class CalibrationPipelineTests : IDisposable
         {
             Assert.False(status.Progress!.PopSeen);
         }
-        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(AllCorrect(status)));
+        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(status)));
 
         Assert.Equal(ErrorCodes.CalibrationNotReady, error.Code);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.Equal(RunState.Idle, pipeline.RunState);
         Assert.Equal(0, pipeline.ParseOkCount);
         Assert.Null(new CaptureSessionRepository(db.Database).Get(sessionId)!.ProtocolProfileId);
-        Assert.False(Directory.Exists(_localRoot) &&
-            Directory.EnumerateFiles(_localRoot, "*.json", SearchOption.AllDirectories).Any());
+        Assert.False(Directory.Exists(_localRoot.Path) &&
+            Directory.EnumerateFiles(_localRoot.Path, "*.json", SearchOption.AllDirectories).Any());
     }
 
     [Theory]
@@ -1170,7 +1118,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var template = CalibrationObserverTests.Template();
         var existing = hasExistingProfile
             ? LocalProfileWriter.Write(CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest),
-                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot)
+                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot.Path)
             : null;
         var original = existing is null ? null : File.ReadAllBytes(existing.Path);
         LiveProtocolPipeline? pipeline = null;
@@ -1179,7 +1127,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         {
             PrepareWrite = (draft, chosen, build, now) =>
             {
-                var pending = LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot);
+                var pending = LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot.Path);
                 // The content is on disk, but another request discards before publication.
                 pipeline!.DiscardCalibration();
                 return pending;
@@ -1187,12 +1135,12 @@ public sealed class CalibrationPipelineTests : IDisposable
         };
         pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         var ready = pipeline.CalibrationStatus();
 
-        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(AllCorrect(ready)));
+        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)));
 
         Assert.Equal(ErrorCodes.CalibrationNotReady, error.Code);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
@@ -1202,7 +1150,7 @@ public sealed class CalibrationPipelineTests : IDisposable
 
         // Rebuilding the catalogue is the next launch: a refused confirmation must leave
         // no usable new file, and must not remove or replace a previously valid profile.
-        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot.Path))
             .Select(NewBuild.Region, Build);
         Assert.Equal(hasExistingProfile, restart.IsUsable);
         if (existing is not null)
@@ -1210,7 +1158,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             Assert.Equal(original, File.ReadAllBytes(existing.Path));
         }
         Assert.Equal(hasExistingProfile ? 1 : 0,
-            Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories).Count());
+            Directory.EnumerateFiles(_localRoot.Path, "*", SearchOption.AllDirectories).Count());
     }
 
     [Fact]
@@ -1237,10 +1185,10 @@ public sealed class CalibrationPipelineTests : IDisposable
         };
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
-        var verdicts = AllCorrect(pipeline.CalibrationStatus());
+        var verdicts = SharedCalibrationTestBed.AllCorrect(pipeline.CalibrationStatus());
         var confirmation = Task.Run(() => Record.Exception(() => pipeline.ConfirmCalibration(verdicts)));
         try
         {
@@ -1248,7 +1196,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             var discard = Task.Run(() => pipeline.DiscardCalibration());
             var status = await discard.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal(CalibrationState.Observing, status.State);
-            Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+            Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot.Path))
                 .Select(NewBuild.Region, Build).IsUsable);
         }
         finally
@@ -1258,9 +1206,9 @@ public sealed class CalibrationPipelineTests : IDisposable
 
         var error = Assert.IsType<CollectorException>(await confirmation);
         Assert.Equal(ErrorCodes.CalibrationNotReady, error.Code);
-        Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+        Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot.Path))
             .Select(NewBuild.Region, Build).IsUsable);
-        Assert.Empty(Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.EnumerateFiles(_localRoot.Path, "*", SearchOption.AllDirectories));
     }
 
     [Theory]
@@ -1272,7 +1220,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var template = CalibrationObserverTests.Template();
         var existing = hasExistingProfile
             ? LocalProfileWriter.Write(CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest),
-                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot)
+                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot.Path)
             : null;
         var original = existing is null ? null : File.ReadAllBytes(existing.Path);
         var services = Services(template) with
@@ -1281,12 +1229,12 @@ public sealed class CalibrationPipelineTests : IDisposable
         };
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         var ready = pipeline.CalibrationStatus();
 
-        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(AllCorrect(ready)));
+        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)));
 
         Assert.Equal(ErrorCodes.ExportFailed, error.Code);
         Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
@@ -1297,7 +1245,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         }
         else
         {
-            Assert.False(Directory.Exists(_localRoot));
+            Assert.False(Directory.Exists(_localRoot.Path));
         }
     }
 
@@ -1311,17 +1259,17 @@ public sealed class CalibrationPipelineTests : IDisposable
         };
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         var ready = pipeline.CalibrationStatus();
 
-        Assert.Throws<IOException>(() => pipeline.ConfirmCalibration(AllCorrect(ready)));
+        Assert.Throws<IOException>(() => pipeline.ConfirmCalibration(SharedCalibrationTestBed.AllCorrect(ready)));
 
-        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot.Path))
             .Select(NewBuild.Region, Build);
         Assert.True(restart.IsUsable);
-        Assert.Single(Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories));
+        Assert.Single(Directory.EnumerateFiles(_localRoot.Path, "*", SearchOption.AllDirectories));
         Assert.Null(new CaptureSessionRepository(db.Database).Get(sessionId)!.ProtocolProfileId);
     }
 
@@ -1333,13 +1281,13 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var first = OpenSession(db);
+        var first = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(first);
         Feed(pipeline, first, CalibrationObserverTests.Cluster(5_000, 5000));
         pipeline.OnCaptureStopped(first, CaptureEndReason.ProcessExit);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
 
-        var second = OpenSession(db);
+        var second = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(second);
         var status = pipeline.CalibrationStatus();
 
@@ -1356,7 +1304,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Cluster(5_000, 5000));
         Feed(pipeline, sessionId, new[]
@@ -1394,7 +1342,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         var before = pipeline.CalibrationStatus();
         var beforeProgress = Assert.IsType<CalibrationProgress>(before.Progress);
@@ -1425,7 +1373,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         var notifications = 0;
         pipeline.CalibrationChanged += _ => notifications++;
@@ -1453,7 +1401,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
             Services(CalibrationObserverTests.Template()));
         pipeline.Refresh(NewBuild);
-        var sessionId = OpenSession(db);
+        var sessionId = db.OpenCaptureSession(Region.Cn, Build);
         pipeline.OnCaptureStarted(sessionId);
         Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
         Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);

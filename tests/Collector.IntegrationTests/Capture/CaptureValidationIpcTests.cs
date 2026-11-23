@@ -194,35 +194,27 @@ public sealed class CaptureValidationIpcTests
         var expectedKey = contradictedChoice
             ? Contracts.Texts.CollectorTexts.CaptureValidationWaitingRegionMismatch().Key
             : Contracts.Texts.CollectorTexts.CaptureValidationWaitingRegion().Key;
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            using var controller = new CaptureValidationController(Path.Combine(directory, "test.db"), new(),
-                new CaptureValidationServices
+        using var directory = new TempDirectory();
+        using var controller = new CaptureValidationController(directory.Combine("test.db"), new(),
+            new CaptureValidationServices
+            {
+                PollInterval = TimeSpan.FromMilliseconds(10),
+                LocateGame = () => capture.Game.Locate() with { Region = Domain.Region.Unknown, Warnings = warnings },
+                Trace = new CaptureTraceServices
                 {
-                    PollInterval = TimeSpan.FromMilliseconds(10),
-                    LocateGame = () => capture.Game.Locate() with { Region = Domain.Region.Unknown, Warnings = warnings },
-                    Trace = new CaptureTraceServices
-                    {
-                        Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                        SourceFactory = () => new FakeCaptureSource(), TcpConnectionCounter = (_, _) => 0,
-                    },
-                });
-            controller.Start("{TEST-ADAPTER}");
-            Assert.True(SpinWait.SpinUntil(
-                () => controller.Snapshot()["reason"]!.GetValue<string>() == "WAITING_REGION", 5000),
-                controller.Snapshot().ToJsonString());
+                    Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
+                    SourceFactory = () => new FakeCaptureSource(), TcpConnectionCounter = (_, _) => 0,
+                },
+            });
+        controller.Start("{TEST-ADAPTER}");
+        Assert.True(SpinWait.SpinUntil(
+            () => controller.Snapshot()["reason"]!.GetValue<string>() == "WAITING_REGION", 5000),
+            controller.Snapshot().ToJsonString());
 
-            var status = controller.Snapshot();
-            ContractSchema.Validate("$defs/CaptureValidationStatus", status, "validation waiting for the region");
-            Assert.Equal(expectedKey, status["message_ref"]!["key"]!.GetValue<string>());
-            controller.Stop();
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
-        }
+        var status = controller.Snapshot();
+        ContractSchema.Validate("$defs/CaptureValidationStatus", status, "validation waiting for the region");
+        Assert.Equal(expectedKey, status["message_ref"]!["key"]!.GetValue<string>());
+        controller.Stop();
     }
 
     /// <summary>

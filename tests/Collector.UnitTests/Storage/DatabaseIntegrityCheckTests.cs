@@ -145,29 +145,9 @@ public sealed class DatabaseIntegrityCheckTests : IDisposable
     [Fact]
     public async Task TheCheckDoesNotWaitForTheWriterGate()
     {
-        // Hold the database gate the way a live-capture write does.
-        using var gateHeld = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var holder = Task.Run(() => _database.Database.Read(_ =>
-        {
-            gateHeld.Set();
-            release.Wait();
-            return 0;
-        }));
-        Assert.True(gateHeld.Wait(TimeSpan.FromSeconds(10)));
-
-        try
-        {
-            // The scan must finish while the gate is still held: it never asks for it.
-            var outcome = await Task.Run(() => _database.Database.CheckIntegrity())
-                .WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.True(outcome.Passed);
-        }
-        finally
-        {
-            release.Set();
-            await holder.WaitAsync(TimeSpan.FromSeconds(10));
-        }
+        // The scan must finish while the gate is still held: it never asks for it.
+        var outcome = await _database.WhileTheWriterGateIsHeldAsync(() => _database.Database.CheckIntegrity());
+        Assert.True(outcome.Passed);
     }
 
     [Fact]

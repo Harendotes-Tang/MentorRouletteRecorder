@@ -14,29 +14,17 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProtocolParserTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Parser", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("Parser");
 
     private readonly ProtocolProfile _profile;
 
     public ProtocolParserTests()
     {
-        Directory.CreateDirectory(_directory);
         _profile = ProfileLoader.Load(
-            ProfileTestFiles.Write(_directory, "parser-profile", ProfileTestFiles.Valid()));
+            ProfileTestFiles.Write(_directory.Path, "parser-profile", ProfileTestFiles.Valid()));
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Temp debris only.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     [Fact]
     public void EveryFieldTypeAndEndiannessIsReadExactlyAsDeclared()
@@ -211,7 +199,7 @@ public sealed class ProtocolParserTests : IDisposable
         zone.Remove("expected_length");
         zone["min_length"] = 1;
         zone["max_length"] = 8;
-        var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory, "parser-oob", document));
+        var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory.Path, "parser-oob", document));
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(profile, sink);
 
@@ -245,7 +233,7 @@ public sealed class ProtocolParserTests : IDisposable
         var document = ProfileTestFiles.Valid();
         var messages = (List<object>)document["messages"];
         ((Dictionary<string, object>)messages[2])["segment_type"] = 3;
-        var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory, "parser-seg", document));
+        var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory.Path, "parser-seg", document));
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(profile, sink);
 
@@ -380,7 +368,7 @@ public sealed class ProtocolParserTests : IDisposable
     public void TerritoryAndJobAreReadFromTheOffsetsTheProfileDeclares()
     {
         var profile = ProfileLoader.Load(
-            ProfileTestFiles.Write(_directory, "parser-identity", WithIdentityMessages()));
+            ProfileTestFiles.Write(_directory.Path, "parser-identity", WithIdentityMessages()));
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(profile, sink);
 
@@ -410,7 +398,7 @@ public sealed class ProtocolParserTests : IDisposable
     public void AJobIdOutsideTheDeclaredRangeIsRefusedRatherThanStored()
     {
         var profile = ProfileLoader.Load(
-            ProfileTestFiles.Write(_directory, "parser-identity-bad", WithIdentityMessages()));
+            ProfileTestFiles.Write(_directory.Path, "parser-identity-bad", WithIdentityMessages()));
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(profile, sink);
 
@@ -497,7 +485,7 @@ public sealed class ProtocolParserTests : IDisposable
         ((List<object>)pop["fields"]).Add(
             ProfileTestFiles.Field("finder_state", 22, "u8", allowed: new[] { 3 }, role: "selector"));
         return ProfileLoader.Load(
-            ProfileTestFiles.Write(_directory, "selector-profile", document));
+            ProfileTestFiles.Write(_directory.Path, "selector-profile", document));
     }
 
     /// <summary>The valid test profile plus the two identity messages, in the CN shape.</summary>
@@ -551,7 +539,7 @@ public sealed class ProtocolParserTests : IDisposable
     {
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
-        var body = DirectorBody(DutyClearSignal.Command, 0);
+        var body = DirectorBodies.Body(DutyClearSignal.Command, 0);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
 
@@ -578,7 +566,7 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
 
-        parser.Accept(Message(opcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+        parser.Accept(Message(opcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
 
         Assert.True(Assert.IsType<DutyResult>(Assert.Single(sink.Events)).Victory);
     }
@@ -590,7 +578,7 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(0x80000015, 1), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(0x80000015, 1), segmentType: 3));
 
         Assert.Empty(sink.Events);
         var stats = parser.GetParserStats();
@@ -608,7 +596,7 @@ public sealed class ProtocolParserTests : IDisposable
     {
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
-        var body = DirectorBody(DutyStartSignal.CommencedCommand, 7200);
+        var body = DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
 
@@ -630,7 +618,7 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
 
-        parser.Accept(Message(OtherDirectorOpcode, DirectorBody(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
+        parser.Accept(Message(OtherDirectorOpcode, DirectorBodies.Body(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
 
         var remaining = Assert.IsType<DutyTimeRemaining>(Assert.Single(sink.Events));
         Assert.Equal(7199, remaining.RemainingSeconds);
@@ -652,7 +640,7 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(declared), sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
 
         Assert.IsType<DutyCommenced>(Assert.Single(sink.Events));
     }
@@ -668,8 +656,8 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile() with { Region = region }, sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
 
         Assert.Empty(sink.Events);
         Assert.Equal(2, parser.GetParserStats().Ignored);
@@ -692,7 +680,7 @@ public sealed class ProtocolParserTests : IDisposable
             });
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(declared), sink);
-        var body = DirectorBody(DutyClearSignal.Command, 0);
+        var body = DirectorBodies.Body(DutyClearSignal.Command, 0);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
         Assert.Empty(sink.Events);
@@ -718,8 +706,8 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(announced), sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
-        parser.Accept(Message(DirectorOpcode, DirectorBody(0x40000007, 1), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(0x40000007, 1), segmentType: 3));
 
         Assert.Collection(
             sink.Events,
@@ -741,7 +729,7 @@ public sealed class ProtocolParserTests : IDisposable
         var parser = new ProfileMessageParser(profile, sink);
         Assert.True(parser.Binding.ObservesDutyClear);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
 
         Assert.Empty(sink.Events);
         Assert.Equal(
@@ -755,7 +743,7 @@ public sealed class ProtocolParserTests : IDisposable
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(null, sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
 
         Assert.Empty(sink.Events);
         Assert.Equal(
@@ -779,14 +767,14 @@ public sealed class ProtocolParserTests : IDisposable
         {
             Message(0xA001, pop, segmentType: 3),
             Message(0xA002, new byte[8], segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x40000001, 7200), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x80000004, 7199), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x80000015, 1), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x8000000C, 58), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x40000003, 1), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x40000007, 0), segmentType: 3),
-            Message(DirectorOpcode, DirectorBody(0x40000007, 1), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x40000001, 7200), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x80000004, 7199), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x80000015, 1), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x8000000C, 58), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x40000003, 1), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x40000007, 0), segmentType: 3),
+            Message(DirectorOpcode, DirectorBodies.Body(0x40000007, 1), segmentType: 3),
             Message(0xA002, new byte[8], segmentType: 3),
         };
 
@@ -805,18 +793,6 @@ public sealed class ProtocolParserTests : IDisposable
         Assert.Equal(
             new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "DUTY_COMMENCED", "DUTY_TIME_REMAINING", "DUTY_RESULT", "ZONE_INITIALIZATION" },
             sink.Events.Select(e => e.EventType).ToArray());
-    }
-
-    /// <summary>A director message of the invented duty 0xF00D: command and parameter, zeros after.</summary>
-    private static byte[] DirectorBody(uint command, uint parameter)
-    {
-        var body = new byte[40];
-        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
-        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), command);
-        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(12), parameter);
-        return body;
     }
 
     /// <summary>

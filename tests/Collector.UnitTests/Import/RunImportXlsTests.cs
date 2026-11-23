@@ -11,8 +11,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>用实际 HSSF 生成 OLE/BIFF8 文件，验证导入边界而不是模拟解析成功。</summary>
 public sealed class RunImportXlsTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.XlsTests", Guid.NewGuid().ToString("N"));
-    public RunImportXlsTests() => Directory.CreateDirectory(_directory);
+    private readonly TempDirectory _directory = new("XlsTests");
 
     [Fact]
     public void FirstVisibleSheetUsesFirstNonemptyHeaderAndSparseChineseColumns()
@@ -125,7 +124,7 @@ public sealed class RunImportXlsTests : IDisposable
     [InlineData("PK\u0003\u0004fake-xlsx")]
     public void RenamedTextAndZipAreRejected(string text)
     {
-        var path = Path.Combine(_directory, "renamed.xls"); File.WriteAllText(path, text, new UTF8Encoding(false));
+        var path = _directory.Combine("renamed.xls"); File.WriteAllText(path, text, new UTF8Encoding(false));
         Assert.Contains("不能只修改后缀", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
     }
 
@@ -181,7 +180,7 @@ public sealed class RunImportXlsTests : IDisposable
         Assert.Contains("5000", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", rows)).Message);
         var columns = Write(workbook => { var sheet = workbook.CreateSheet(); sheet.CreateRow(0).CreateCell(200).SetCellValue("副本"); });
         Assert.Contains("200", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", columns)).Message);
-        var large = Path.Combine(_directory, "oversize.xls"); using (var file = File.Create(large)) file.SetLength(20 * 1024 * 1024 + 1);
+        var large = _directory.Combine("oversize.xls"); using (var file = File.Create(large)) file.SetLength(20 * 1024 * 1024 + 1);
         Assert.Contains("20 MiB", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", large)).Message);
     }
 
@@ -294,7 +293,7 @@ public sealed class RunImportXlsTests : IDisposable
         }
         for (var i = 0; i < fatCount * 128; i++)
             Integer((sectors + 1) * 512 + i * 4, i < sectors - 1 ? i + 1 : i == sectors - 1 ? -2 : i < sectors + fatCount ? -3 : -1);
-        var path = Path.Combine(_directory, "deep-" + depth + ".xls"); File.WriteAllBytes(path, bytes); return path;
+        var path = _directory.Combine("deep-" + depth + ".xls"); File.WriteAllBytes(path, bytes); return path;
     }
 
     private string DateWorkbook(string format, double serial, bool date1904 = false) => Write(workbook =>
@@ -309,7 +308,7 @@ public sealed class RunImportXlsTests : IDisposable
     private string Write(Action<HSSFWorkbook> populate)
     {
         using var workbook = new HSSFWorkbook(); populate(workbook);
-        var path = Path.Combine(_directory, Guid.NewGuid().ToString("N") + ".xls");
+        var path = _directory.Combine(Guid.NewGuid().ToString("N") + ".xls");
         using var file = File.Create(path); workbook.Write(file, leaveOpen: true); return path;
     }
 
@@ -327,7 +326,7 @@ public sealed class RunImportXlsTests : IDisposable
         try
         {
             using var data = new MemoryStream(workbook); filesystem.Root.CreateDocument("Workbook", data); populate?.Invoke(filesystem.Root);
-            var path = Path.Combine(_directory, Guid.NewGuid().ToString("N") + ".xls");
+            var path = _directory.Combine(Guid.NewGuid().ToString("N") + ".xls");
             using var file = File.Create(path); filesystem.WriteFileSystem(file); return path;
         }
         finally { filesystem.Close(); }
@@ -346,5 +345,5 @@ public sealed class RunImportXlsTests : IDisposable
     }
 
     private static void Set(IRow row, params string[] cells) { for (var i = 0; i < cells.Length; i++) row.CreateCell(i).SetCellValue(cells[i]); }
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 }

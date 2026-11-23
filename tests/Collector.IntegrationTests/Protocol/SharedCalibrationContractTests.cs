@@ -7,7 +7,6 @@ using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -216,52 +215,42 @@ public sealed class SharedCalibrationContractTests
     [Fact]
     public void TheEvidenceDocumentTheCollectorWritesIsValidAgainstTheEvidenceSchema()
     {
-        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Evidence", Guid.NewGuid().ToString("N"));
-        try
+        using var root = TempDirectory.Reserve("Evidence");
+        var store = new CalibrationEvidenceReceiptStore(root.Path);
+        var fields = new[] { "zone", "territory", "job", "match" };
+        var verdicts = new[] { "PASS", "CONTRADICT", "WAIT" };
+        foreach (var (region, index) in new[] { "CN", "GLOBAL", "TC" }.Select((region, index) => (region, index)))
         {
-            var store = new CalibrationEvidenceReceiptStore(root);
-            var fields = new[] { "zone", "territory", "job", "match" };
-            var verdicts = new[] { "PASS", "CONTRADICT", "WAIT" };
-            foreach (var (region, index) in new[] { "CN", "GLOBAL", "TC" }.Select((region, index) => (region, index)))
+            var target = Evidence("CalibrationEvidenceTarget", region, "2026.10.28.0000.0000", "shared-template-" + region.ToLowerInvariant(),
+                new string((char)('a' + index), 64), new string((char)('d' + index), 64), index);
+            for (var session = 0; session < 9; session++)
             {
-                var target = Evidence("CalibrationEvidenceTarget", region, "2026.10.28.0000.0000", "shared-template-" + region.ToLowerInvariant(),
-                    new string((char)('a' + index), 64), new string((char)('d' + index), 64), index);
-                for (var session = 0; session < 9; session++)
+                var checks = Array.CreateInstance(EvidenceType("CalibrationEvidenceCheck"), fields.Length - session % 2);
+                for (var check = 0; check < checks.Length; check++)
                 {
-                    var checks = Array.CreateInstance(EvidenceType("CalibrationEvidenceCheck"), fields.Length - session % 2);
-                    for (var check = 0; check < checks.Length; check++)
-                    {
-                        checks.SetValue(Evidence("CalibrationEvidenceCheck", fields[check], verdicts[(check + session) % verdicts.Length]), check);
-                    }
-
-                    var health = Evidence("CalibrationEvidenceHealth", "NONE", (int?)0, 0L, 0L, 0L, false);
-                    var frozen = Evidence("CalibrationEvidenceSession", Guid.NewGuid().ToString("D"), true, health, checks);
-                    Assert.True((bool)Invoke(store, "Append", target, frozen)!, "the store refused a session it should keep");
+                    checks.SetValue(Evidence("CalibrationEvidenceCheck", fields[check], verdicts[(check + session) % verdicts.Length]), check);
                 }
 
-                var document = Invoke(store, "Find", target);
-                Assert.NotNull(document);
-                var json = JsonNode.Parse((string)Invoke(document!, "Serialize")!)!;
-                Assert.Equal(8, json["sessions"]!.AsArray().Count);
-                AssertValidEvidence(json, "evidence for " + region);
-
-                // Not vacuous: one field the schema does not declare is refused.
-                var widened = json.DeepClone();
-                widened["sessions"]![0]!["connection_tag"] = "0";
-                Assert.False(EvaluateEvidence(widened).IsValid, "the evidence schema accepted a field it does not declare");
+                var health = Evidence("CalibrationEvidenceHealth", "NONE", (int?)0, 0L, 0L, 0L, false);
+                var frozen = Evidence("CalibrationEvidenceSession", Guid.NewGuid().ToString("D"), true, health, checks);
+                Assert.True((bool)Invoke(store, "Append", target, frozen)!, "the store refused a session it should keep");
             }
 
-            var receipts = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "receipts.json")))!.AsArray();
-            Assert.Equal(3, receipts.Count);
-            Assert.All(receipts, receipt => AssertValidEvidence(receipt, "a stored receipt"));
+            var document = Invoke(store, "Find", target);
+            Assert.NotNull(document);
+            var json = JsonNode.Parse((string)Invoke(document!, "Serialize")!)!;
+            Assert.Equal(8, json["sessions"]!.AsArray().Count);
+            AssertValidEvidence(json, "evidence for " + region);
+
+            // Not vacuous: one field the schema does not declare is refused.
+            var widened = json.DeepClone();
+            widened["sessions"]![0]!["connection_tag"] = "0";
+            Assert.False(EvaluateEvidence(widened).IsValid, "the evidence schema accepted a field it does not declare");
         }
-        finally
-        {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
-        }
+
+        var receipts = JsonNode.Parse(File.ReadAllText(root.Combine("receipts.json")))!.AsArray();
+        Assert.Equal(3, receipts.Count);
+        Assert.All(receipts, receipt => AssertValidEvidence(receipt, "a stored receipt"));
     }
 
     private static Type EvidenceType(string name) =>

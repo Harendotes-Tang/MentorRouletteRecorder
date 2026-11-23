@@ -26,31 +26,14 @@ public sealed class ExportSnapshotTests : IDisposable
     {
         var runs = new RunRepository(_fixture.Database);
         var original = TestDatabase.Run();
-        _fixture.Database.RunInTransaction(tx => runs.Insert(original, tx));
+        _fixture.InsertRuns(original);
         var exporter = new RunExporter(runs, _fixture.Clock, _fixture.Database);
-        using var held = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var holder = Task.Run(() => _fixture.Database.Read(_ =>
-        {
-            held.Set();
-            release.Wait();
-            return 0;
-        }));
-        try
-        {
-            Assert.True(held.Wait(TimeSpan.FromSeconds(10)));
-            var path = Target(csv ? "unblocked.csv" : "unblocked.json");
-            var outcome = await Task.Run(() => csv
-                ? exporter.ExportCsv(path, null, overwrite: false)
-                : exporter.ExportJson(path, null, overwrite: false)).WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Equal(1, outcome.RowCount);
-            Assert.Contains(original.RunId, File.ReadAllText(path), StringComparison.Ordinal);
-        }
-        finally
-        {
-            release.Set();
-            await holder.WaitAsync(TimeSpan.FromSeconds(10));
-        }
+        var path = Target(csv ? "unblocked.csv" : "unblocked.json");
+        var outcome = await _fixture.WhileTheWriterGateIsHeldAsync(() => csv
+            ? exporter.ExportCsv(path, null, overwrite: false)
+            : exporter.ExportJson(path, null, overwrite: false));
+        Assert.Equal(1, outcome.RowCount);
+        Assert.Contains(original.RunId, File.ReadAllText(path), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -214,7 +197,7 @@ public sealed class ExportSnapshotTests : IDisposable
         var runs = new RunRepository(database);
         database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(), tx));
         var exporter = new RunExporter(runs, _fixture.Clock, database);
-        using var host = CollectorHost.Open(Target("pipe-host.db"), _fixture.Clock, capture: FakeCapture(),
+        using var host = CollectorHost.Open(Target("pipe-host.db"), _fixture.Clock, capture: InertCapture.Services(),
             speechClient: new OnlineSpeechClient((_, _) => throw new InvalidOperationException("test transport is offline")),
             updateCheckClient: new UpdateCheckClient((_, _) => throw new InvalidOperationException("test transport is offline"),
                 readEnvironment: _ => null));
@@ -264,14 +247,6 @@ public sealed class ExportSnapshotTests : IDisposable
             catch (OperationCanceledException) { }
         }
     }
-
-    private static CaptureServices FakeCapture() => new()
-    {
-        Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-        Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-        Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-        EnableFollowTimer = false,
-    };
 
     public void Dispose() => _fixture.Dispose();
 }

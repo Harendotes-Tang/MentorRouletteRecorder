@@ -15,9 +15,7 @@ public sealed class CandidatePayloadStorageTests : IDisposable
     private readonly CandidateObservationRepository _ledger;
     private readonly SettingsRepository _settings;
     private readonly string _session = Guid.NewGuid().ToString("D");
-    private readonly string _outputDirectory = Path.Combine(
-        Path.GetTempPath(),
-        "MentorRecorder.CandidatePayloadTests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _outputDirectory = TempDirectory.Reserve("CandidatePayloadTests");
 
     public CandidatePayloadStorageTests()
     {
@@ -243,11 +241,11 @@ public sealed class CandidatePayloadStorageTests : IDisposable
     private void Whitelist(params string[] opcodes) => _settings.SetSetting(
         CaptureSettingsStore.ResearchPayloadOpcodesSetting, JsonSerializer.Serialize(opcodes));
     private CandidateExportResult Export(string name) => new CandidateEvidenceExporter(_ledger, _fixture.Clock,
-        _fixture.Database.Path).Export(Path.Combine(_outputDirectory, name));
+        _fixture.Database.Path).Export(_outputDirectory.Combine(name));
 
     public void Dispose()
     {
         _fixture.Dispose();
-        if (Directory.Exists(_outputDirectory)) Directory.Delete(_outputDirectory, recursive: true);
+        _outputDirectory.Dispose();
     }
 }

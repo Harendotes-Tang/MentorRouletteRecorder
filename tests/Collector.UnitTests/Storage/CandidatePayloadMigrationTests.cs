@@ -220,13 +220,11 @@ public sealed class CandidatePayloadMigrationTests
 
     private sealed class Schema6Database : IDisposable
     {
-        private readonly string _directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-            "MentorRecorder.PayloadMigrationTests", Guid.NewGuid().ToString("N"));
+        private readonly TempDirectory _directory = new("PayloadMigrationTests");
 
         public Schema6Database()
         {
-            Directory.CreateDirectory(_directory);
-            Path = System.IO.Path.Combine(_directory, "schema6.db");
+            Path = _directory.Combine("schema6.db");
             using var connection = Connect();
             using (var transaction = connection.BeginTransaction())
             {
@@ -301,10 +299,6 @@ public sealed class CandidatePayloadMigrationTests
             transaction.Commit();
         }
 
-        public void Dispose()
-        {
-            try { Directory.Delete(_directory, recursive: true); }
-            catch (IOException) { /* Windows 可能尚未释放句柄；该隔离测试目录留待系统清理。 */ }
-        }
+        public void Dispose() => _directory.Dispose();
     }
 }

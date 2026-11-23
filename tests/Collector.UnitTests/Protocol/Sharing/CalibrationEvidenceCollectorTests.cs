@@ -124,10 +124,8 @@ public sealed class CalibrationEvidenceCollectorTests
         for (var hour = 0; hour < 3; hour++)
         {
             var session = bed.Start(pipeline);
-            SharedCalibrationTestBed.Feed(pipeline, session, SharedCalibrationTestBed.Evening(), hour);
-            await SharedCalibrationTestBed.Idle(pipeline);
-            pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-            await SharedCalibrationTestBed.Idle(pipeline);
+            await SharedCalibrationTestBed.FeedAndSettleAsync(pipeline, session, SharedCalibrationTestBed.Evening(), hour);
+            await SharedCalibrationTestBed.StopAndSettleAsync(pipeline, session);
         }
 
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
@@ -328,8 +326,7 @@ public sealed class CalibrationEvidenceCollectorTests
         pipeline.Refresh(SharedCalibrationTestBed.Game());
         await SharedCalibrationTestBed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        SharedCalibrationTestBed.Feed(pipeline, session, SharedCalibrationTestBed.Evening());
-        await SharedCalibrationTestBed.Idle(pipeline);
+        await SharedCalibrationTestBed.FeedAndSettleAsync(pipeline, session, SharedCalibrationTestBed.Evening());
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.False(pipeline.GetCalibrationEvidence(code.Sha).Available);
         // This reading arrives after the profile has completed its local watch.

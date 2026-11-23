@@ -18,11 +18,11 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// </summary>
 public sealed class ServerFixture : IAsyncDisposable
 {
-    private readonly string _directory;
+    private readonly TempDirectory _directory;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Task _serving;
 
-    private ServerFixture(string directory, CollectorHost host, PipeServer server, List<string> log)
+    private ServerFixture(TempDirectory directory, CollectorHost host, PipeServer server, List<string> log)
     {
         _directory = directory;
         Host = host;
@@ -88,15 +88,13 @@ public sealed class ServerFixture : IAsyncDisposable
         UpdateCheckClient? updateCheckClient = null,
         Func<GameProcessDetection, ProfileSelection>? profileSelector = null)
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.IntegrationTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        var directory = new TempDirectory("IntegrationTests");
 
         // Supplying detector fakes alone opts out of the live protocol bridge. Keep the
         // shipping selector and bridge active so transport tests do not lose that coverage.
         var selector = new ProfileSelector(ProfileCatalog.LoadDefault());
         var host = CollectorHost.Open(
-            Path.Combine(directory, "test.db"), SystemClock.Instance, capture ?? CaptureFakes.NoGame(),
+            directory.Combine("test.db"), SystemClock.Instance, capture ?? CaptureFakes.NoGame(),
             profileSelector: profileSelector ?? (game => selector.Select(game.Region, game.GameBuild)),
             speechClient: speech ?? RefusingSpeechClient,
             updateCheckClient: updateCheckClient ?? RefusingUpdateCheckClient);
@@ -153,13 +151,7 @@ public sealed class ServerFixture : IAsyncDisposable
         _stopping.Dispose();
         Host.Dispose();
 
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        _directory.Dispose();
     }
 }

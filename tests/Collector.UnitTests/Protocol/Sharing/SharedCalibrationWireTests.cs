@@ -58,10 +58,6 @@ public sealed class SharedCalibrationWireTests : IDisposable
     private static ProfileSelection Selecting(ProtocolProfile profile, ProfileOrigin origin) =>
         new(ProfileCompatibilityStatus.Verified, profile.ToBinding(), profile, Region.Cn, Bed.Build, "selected", origin);
 
-    private static Dictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
-
     [Fact]
     public void TheOriginOfASharedProfileHasItsOwnToken()
     {
@@ -194,9 +190,8 @@ public sealed class SharedCalibrationWireTests : IDisposable
     [Fact]
     public void TheShareCodeIsTheOneTheLocalProfileFileGivesAndNoneOnceTheFileChanged()
     {
-        var written = LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
-        var profile = ProfileLoader.Load(written.Path);
+        var written = _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
+        var profile = ProfileLoader.Load(written);
 
         var result = SharedShareCodeExport.From(Selecting(profile, ProfileOrigin.Local), _ => Bed.Template);
 
@@ -211,7 +206,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
 
         // The file on disk is what is shared: once it is no longer the profile in force, there is no code.
         var rewritten = _bed.WriteRefusedLocalProfile();
-        Assert.Equal(written.Path, rewritten);
+        Assert.Equal(written, rewritten);
         Assert.Equal(SharedShareCodeRefusal.NotShareable,
             SharedShareCodeExport.From(Selecting(profile, ProfileOrigin.Local), _ => Bed.Template).Refusal);
     }
@@ -259,7 +254,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, CalibrationObserverTests.Session1());
 
-        var confirmed = pipeline.ConfirmCalibration(AllCorrect(pipeline.CalibrationStatus()));
+        var confirmed = pipeline.ConfirmCalibration(Bed.AllCorrect(pipeline.CalibrationStatus()));
 
         var code = Assert.IsType<SharedShareCode>(pipeline.GetCalibrationShareCode().ShareCode);
         Assert.Equal(SharedProfileBuilder.ToShareCode(ProfileLoader.Load(confirmed.ProfilePath), Bed.Template).Code, code.Code);

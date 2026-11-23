@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -70,7 +69,7 @@ public sealed class CaptureTextRefIpcTests
 
         Assert.False(response.Ok);
         Assert.Equal(code, response.ErrorCode);
-        AssertErrorRef(response, key);
+        CollectorTextCatalogue.AssertRefusal(response, key);
     }
 
     [Fact]
@@ -78,7 +77,7 @@ public sealed class CaptureTextRefIpcTests
     {
         await using var fixture = CaptureServerFixture.Start();
 
-        AssertErrorRef(await fixture.CallAsync("StopCapture"), "capture.stop.not_running");
+        CollectorTextCatalogue.AssertRefusal(await fixture.CallAsync("StopCapture"), "capture.stop.not_running");
     }
 
     [Fact]
@@ -91,7 +90,7 @@ public sealed class CaptureTextRefIpcTests
         Assert.Equal("capture.validation.idle", status["message_ref"]!["key"]!.GetValue<string>());
         CollectorTextCatalogue.AssertParallel(status["message"], status["message_ref"]);
 
-        AssertErrorRef(
+        CollectorTextCatalogue.AssertRefusal(
             await fixture.CallAsync("StartCaptureValidation", new JsonObject { ["adapter_id"] = " " }),
             "capture.validation.adapter_id_invalid");
     }
@@ -101,10 +100,10 @@ public sealed class CaptureTextRefIpcTests
     {
         await using var fixture = CaptureServerFixture.Start();
 
-        AssertErrorRef(
+        CollectorTextCatalogue.AssertRefusal(
             await fixture.CallAsync("ConfirmCalibration", new JsonObject { ["verdicts"] = new JsonArray() }),
             "calibration.verdicts_empty");
-        AssertErrorRef(
+        CollectorTextCatalogue.AssertRefusal(
             await fixture.CallAsync("DiscardCalibration", new JsonObject
             {
                 ["retire_local_profile"] = true,
@@ -134,12 +133,5 @@ public sealed class CaptureTextRefIpcTests
 
         // The OpenAI voices are labelled with their own names, which are not the catalogue's.
         Assert.All(settings["openai_voices"]!.AsArray(), voice => Assert.False(voice!.AsObject().ContainsKey("label_ref")));
-    }
-
-    private static void AssertErrorRef(IpcResponse response, string key)
-    {
-        Assert.False(response.Ok);
-        Assert.Equal(key, response.Payload["message_ref"]!["key"]!.GetValue<string>());
-        Assert.Equal(response.ErrorMessage, CollectorTextCatalogue.Render(response.Payload["message_ref"]));
     }
 }

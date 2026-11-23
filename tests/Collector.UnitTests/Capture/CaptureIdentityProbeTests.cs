@@ -362,7 +362,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void Report_DoesNotCountIdentityLinesAsUnreadable_AndPrintsTheTally()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, "identity.jsonl");
         var probe = new CaptureIdentityProbe(KeyA);
         using (var file = new StreamWriter(path))
@@ -386,7 +386,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void Key_IsCreatedOnce_AndReadBackUnchanged()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, "nested", DatabasePathsKeyName);
 
         var created = IdentityProbeKey.LoadOrCreate(path);
@@ -401,7 +401,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void Key_IsEncryptedAtRest_SoACopiedFileDoesNotCarryIt()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, DatabasePathsKeyName);
 
         var key = IdentityProbeKey.LoadOrCreate(path);
@@ -420,7 +420,7 @@ public sealed class CaptureIdentityProbeTests
     [InlineData(5)]
     public void Key_ThatIsNotAKey_IsRefusedRatherThanReplaced(int length)
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, DatabasePathsKeyName);
         File.WriteAllBytes(path, new byte[length]);
 
@@ -431,7 +431,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void Key_OfTheWrongLengthInsideAValidBlob_IsRefused()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, DatabasePathsKeyName);
         File.WriteAllBytes(path, new byte[7]);
 
@@ -441,7 +441,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void Key_CreatedByManyAtOnce_IsTheSameForAll()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var path = Path.Combine(directory.Path, DatabasePathsKeyName);
         var keys = new byte[16][];
 
@@ -454,7 +454,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public async Task TraceRun_WithTheFlag_CreatesTheKeyAndWritesIdentityLines()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var tracePath = Path.Combine(directory.Path, "trace.jsonl");
         var keyPath = Path.Combine(directory.Path, DatabasePathsKeyName);
         var source = new FakeCaptureSource();
@@ -477,7 +477,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void TraceRun_WithoutTheFlag_TouchesNoKey()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var tracePath = Path.Combine(directory.Path, "trace.jsonl");
         var keyPath = Path.Combine(directory.Path, DatabasePathsKeyName);
         var source = new FakeCaptureSource();
@@ -494,7 +494,7 @@ public sealed class CaptureIdentityProbeTests
     [Fact]
     public void TraceRun_WithAnUnusableKey_RefusesBeforeOpeningTheTrace()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("Identity");
         var tracePath = Path.Combine(directory.Path, "trace.jsonl");
         var keyPath = Path.Combine(directory.Path, DatabasePathsKeyName);
         File.WriteAllBytes(keyPath, new byte[3]);
@@ -633,32 +633,6 @@ public sealed class CaptureIdentityProbeTests
 
         public void OnFault(string reason, Exception? error)
         {
-        }
-    }
-
-    private sealed class TempDirectory : IDisposable
-    {
-        public TempDirectory()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), "MentorRecorderIdentity", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Path);
-        }
-
-        public string Path { get; }
-
-        public void Dispose()
-        {
-            try
-            {
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
         }
     }
 }

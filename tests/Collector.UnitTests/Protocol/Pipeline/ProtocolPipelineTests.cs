@@ -595,7 +595,7 @@ public sealed class ProtocolPipelineTests
     {
         using var fixture = new TestDatabase();
         EnsureSession(fixture);
-        var selection = ProfileSelector.SelectExplicit(SyntheticProfilePath, allowSynthetic: true);
+        var selection = SyntheticProfile.Select();
         Assert.True(selection.IsUsable);
 
         var pipeline = new LiveProtocolPipeline(
@@ -636,7 +636,7 @@ public sealed class ProtocolPipelineTests
         pipeline.Accept(PopMessage(10_000));
         pipeline.Accept(ZoneMessage(15_000));
 
-        var stateChanges = (await DrainAsync(subscription))
+        var stateChanges = (await subscription.DrainAsync())
             .Where(payload => payload["kind"]!.GetValue<string>() == "run_state_changed")
             .ToArray();
 
@@ -668,18 +668,18 @@ public sealed class ProtocolPipelineTests
         });
         if (fromQueue)
         {
-            Assert.Empty(await DrainAsync(live));
+            Assert.Empty(await live.DrainAsync());
             pipeline.Accept(KnownDutyZoneMessage(15_000));
         }
 
-        var matched = Assert.Single(await DrainAsync(live), payload =>
+        var matched = Assert.Single(await live.DrainAsync(), payload =>
             payload["kind"]!.GetValue<string>() == "run_state_changed" &&
             payload["state"]!.GetValue<string>() == (fromQueue ? "ENTERED_DUTY" : "MENTOR_MATCHED"));
         Assert.Equal(fromQueue, matched["match_from_queue"]!.GetValue<bool>());
         Assert.NotNull(matched["run"]);
 
         using var replay = bus.Subscribe(Guid.NewGuid().ToString("D"));
-        var replayed = Assert.Single(await DrainAsync(replay), payload =>
+        var replayed = Assert.Single(await replay.DrainAsync(), payload =>
             payload["event_id"]!.GetValue<string>() == matched["event_id"]!.GetValue<string>());
         Assert.Equal(fromQueue, replayed["match_from_queue"]!.GetValue<bool>());
     }
@@ -705,14 +705,14 @@ public sealed class ProtocolPipelineTests
 
         pipeline.Accept(PopMessage(10_000));
         pipeline.Accept(PopMessage(10_300));
-        var first = (await DrainAsync(live)).Where(payload =>
+        var first = (await live.DrainAsync()).Where(payload =>
             payload["kind"]!.GetValue<string>() == "run_state_changed").ToArray();
         Assert.Single(first);
         Assert.Equal(1, first[0]["match_offer"]!.GetValue<int>());
 
         // Inside the match window: the same run, offered a second time.
         pipeline.Accept(PopMessage(40_000));
-        var second = Assert.Single(await DrainAsync(live), payload =>
+        var second = Assert.Single(await live.DrainAsync(), payload =>
             payload["kind"]!.GetValue<string>() == "run_state_changed");
         Assert.Equal("MENTOR_MATCHED", second["state"]!.GetValue<string>());
         Assert.Equal(2, second["match_offer"]!.GetValue<int>());
@@ -722,7 +722,7 @@ public sealed class ProtocolPipelineTests
         // Long after it: the machine closes the lapsed run and opens another, and the state is
         // MENTOR_MATCHED before and after - which used to mean no event, and no voice, at all.
         pipeline.Accept(PopMessage(400_000));
-        var third = Assert.Single(await DrainAsync(live), payload =>
+        var third = Assert.Single(await live.DrainAsync(), payload =>
             payload["kind"]!.GetValue<string>() == "run_state_changed");
         Assert.Equal("MENTOR_MATCHED", third["state"]!.GetValue<string>());
         Assert.Equal(1, third["match_offer"]!.GetValue<int>());
@@ -773,7 +773,7 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(RunState.Idle, current.State);
         Assert.Null(current.Run);
         Assert.Empty(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
-        Assert.Empty(await DrainAsync(live));
+        Assert.Empty(await live.DrainAsync());
 
         pipeline.Accept(PopMessage(30_000) with { Direction = MessageDirection.Outbound });
         pipeline.Accept(KnownDutyZoneMessage(35_000));
@@ -782,7 +782,7 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(Start.AddSeconds(35), entered.EnteredAtUtc);
         Assert.Equal(1039, entered.TerritoryId);
         Assert.Equal(entered.RunId, pipeline.GetCurrentRun().Run!.RunId);
-        var events = await DrainAsync(live);
+        var events = await live.DrainAsync();
         Assert.Single(events, item => item["kind"]!.GetValue<string>() == "run_created");
         Assert.DoesNotContain(events, item => item["state"]?.GetValue<string>() == "MENTOR_MATCHED");
 
@@ -835,7 +835,7 @@ public sealed class ProtocolPipelineTests
 
     private static ProfileSelection MatchSourceSelection(bool fromQueue)
     {
-        var original = ProfileSelector.SelectExplicit(SyntheticProfilePath, allowSynthetic: true);
+        var original = SyntheticProfile.Select();
         var profile = original.Profile! with
         {
             MatchWindow = fromQueue ? TimeSpan.FromHours(1) : original.Profile!.MatchWindow,
@@ -888,7 +888,7 @@ public sealed class ProtocolPipelineTests
         pipeline.Accept(ZoneMessage(5_000));
         pipeline.Accept(PopMessage(600_000));
 
-        var events = await DrainAsync(subscription);
+        var events = await subscription.DrainAsync();
         var kinds = events.Select(payload => payload["kind"]!.GetValue<string>()).ToArray();
 
         Assert.Equal(1, kinds.Count(kind => kind == "run_finished"));
@@ -973,7 +973,7 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(RunState.Idle, pipeline.GetCurrentRun().State);
         Assert.Equal(RunState.Idle, pipeline.GetCurrentRun().State);
 
-        var idle = (await DrainAsync(subscription))
+        var idle = (await subscription.DrainAsync())
             .Where(payload => payload["kind"]!.GetValue<string>() == "run_state_changed")
             .Where(payload => payload["state"]!.GetValue<string>() == "IDLE")
             .ToArray();
@@ -1203,7 +1203,7 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(Start.AddMilliseconds(2_046_833), run.EndedAtUtc);
         Assert.Equal(2_046_833 - 489_047, run.DurationMs);
 
-        var finished = Assert.Single(await DrainAsync(live), payload =>
+        var finished = Assert.Single(await live.DrainAsync(), payload =>
             payload["kind"]!.GetValue<string>() == "run_finished");
         Assert.Equal("COMPLETED", finished["state"]!.GetValue<string>());
 
@@ -1476,15 +1476,8 @@ public sealed class ProtocolPipelineTests
     }
 
     /// <summary>The clear of the invented duty 0xF00D, on an opcode no test profile declares.</summary>
-    private static DecodedMessage ClearMessage(long monoMs)
-    {
-        var body = new byte[40];
-        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
-        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
-        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), 0x40000003);
-        return CnMessage(0x0204, monoMs, body);
-    }
+    private static DecodedMessage ClearMessage(long monoMs) =>
+        CnMessage(0x0204, monoMs, DirectorBodies.Body(DirectorBodies.ClearCommand));
 
     private static DecodedMessage CnMessage(ushort opcode, long monoMs, byte[] payload) =>
         new(
@@ -1507,28 +1500,10 @@ public sealed class ProtocolPipelineTests
     private static LiveProtocolPipeline NewPipeline(TestDatabase fixture, LiveEventBus bus)
     {
         EnsureSession(fixture);
-        var selection = ProfileSelector.SelectExplicit(SyntheticProfilePath, allowSynthetic: true);
+        var selection = SyntheticProfile.Select();
         Assert.True(selection.IsUsable);
         return new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => selection);
     }
-
-    /// <summary>Reads everything a subscription holds, stopping at the first quiet interval.</summary>
-    /// <param name="subscription">Subscription to drain.</param>
-    private static async Task<IReadOnlyList<System.Text.Json.Nodes.JsonObject>> DrainAsync(
-        LiveEventSubscription subscription)
-    {
-        var events = new List<System.Text.Json.Nodes.JsonObject>();
-        while (await subscription.ReadAsync(TimeSpan.FromMilliseconds(250), CancellationToken.None)
-            is { } payload)
-        {
-            events.Add(payload);
-        }
-
-        return events;
-    }
-
-    private static string SyntheticProfilePath => Path.Combine(
-        AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
 
     /// <summary>A decoded message for the synthetic profile, which is all these tests parse.</summary>
     /// <param name="opcode">Opcode declared by the synthetic profile.</param>

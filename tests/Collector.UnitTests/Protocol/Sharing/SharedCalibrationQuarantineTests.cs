@@ -53,8 +53,7 @@ public sealed class SharedCalibrationQuarantineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
             SharedCalibrationStore.DirectoryFor(bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
@@ -79,8 +78,7 @@ public sealed class SharedCalibrationQuarantineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
 
         PublishBehindEightCachedCandidates(bed, code);
@@ -112,8 +110,7 @@ public sealed class SharedCalibrationQuarantineTests
         await Bed.Idle(pipeline);
         var evening = Bed.Evening().ToArray();
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 200_000));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
 
@@ -125,10 +122,9 @@ public sealed class SharedCalibrationQuarantineTests
         Assert.True(File.Exists(bed.SharedProfilePath));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
 
-        Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(evening, 200_000));
 
-        var recorded = Assert.Single(new RunRepository(bed.Db.Database).Query(null, null, 1, 50).Items);
+        var recorded = Assert.Single(bed.AllRuns());
         Assert.NotNull(recorded.EndedAtUtc);
         Assert.NotEqual(RunResult.Interrupted, recorded.Result);
         Assert.True(File.Exists(bed.SharedProfilePath));
@@ -151,8 +147,7 @@ public sealed class SharedCalibrationQuarantineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 123_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 123_000));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.MentorMatched, pipeline.RunState);
 
@@ -163,8 +158,7 @@ public sealed class SharedCalibrationQuarantineTests
         Assert.Equal(RunState.MentorMatched, pipeline.RunState);
         Assert.True(File.Exists(bed.SharedProfilePath));
 
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
 
         Assert.False(File.Exists(bed.SharedProfilePath));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
@@ -192,8 +186,7 @@ public sealed class SharedCalibrationQuarantineTests
         await Bed.Idle(pipeline);
 
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Evening());
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Evening());
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
 
         var evidence = pipeline.GetCalibrationEvidence(alias);
@@ -280,10 +273,8 @@ public sealed class SharedCalibrationQuarantineTests
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
         var traffic = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Bed.Before(traffic, 200_000));
-        await Bed.Idle(pipeline);
-        Bed.Feed(pipeline, session, Bed.From(traffic, 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(traffic, 200_000));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(traffic, 200_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.False(pipeline.CalibrationArmed);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
@@ -346,39 +337,32 @@ public sealed class SharedCalibrationQuarantineTests
     [Fact]
     public void DiskRoundTripPreservesQuarantineThenRecoveryEpochAndCode()
     {
-        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var payload = ShareCodeTests.Payload(CalibrationMatchSource.Announcement,
-                new ShareCodePop(512, Length: 64)) with { GameBuild = SharedCalibrationIndexTests.Build };
-            var candidate = new SharedCalibrationCandidate(ShareCode.Sha256(payload), ShareCode.Encode(payload), payload,
-                3, DateTimeOffset.UtcNow, SharedCalibrationIndexTests.Commit(), Quarantined: true, QuarantineEpoch: 2);
-            var store = new SharedCalibrationStore(root);
-            SharedCalibrationFetchResult Fetched(SharedCalibrationCandidate code) => new(SharedFetchStatus.Ok,
-                new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
-                new[] { code }, Array.Empty<SharedCodeDiscard>(),
-                Array.Empty<SharedIndexSkip>(), Array.Empty<string>());
-            Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
-                Fetched(candidate), DateTimeOffset.UtcNow).Recorded);
-            var quarantined = Assert.Single(new SharedCalibrationStore(root)
-                .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
-            Assert.True(quarantined.Quarantined, File.ReadAllText(Path.Combine(
-                SharedCalibrationStore.DirectoryFor(root, Region.Cn, payload.GameBuild), SharedCalibrationStore.StateFileName)));
-            Assert.Equal(2, quarantined.QuarantineEpoch);
-            Assert.Equal(SharedPublication.Published, store.Publication(Region.Cn, payload.GameBuild, candidate.CodeSha256));
+        using var temp = TempDirectory.Reserve();
+        var payload = ShareCodeTests.Payload(CalibrationMatchSource.Announcement,
+            new ShareCodePop(512, Length: 64)) with { GameBuild = SharedCalibrationIndexTests.Build };
+        var candidate = new SharedCalibrationCandidate(ShareCode.Sha256(payload), ShareCode.Encode(payload), payload,
+            3, DateTimeOffset.UtcNow, SharedCalibrationIndexTests.Commit(), Quarantined: true, QuarantineEpoch: 2);
+        var store = new SharedCalibrationStore(temp.Path);
+        SharedCalibrationFetchResult Fetched(SharedCalibrationCandidate code) => new(SharedFetchStatus.Ok,
+            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
+            new[] { code }, Array.Empty<SharedCodeDiscard>(),
+            Array.Empty<SharedIndexSkip>(), Array.Empty<string>());
+        Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
+            Fetched(candidate), DateTimeOffset.UtcNow).Recorded);
+        var quarantined = Assert.Single(new SharedCalibrationStore(temp.Path)
+            .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
+        Assert.True(quarantined.Quarantined, File.ReadAllText(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(temp.Path, Region.Cn, payload.GameBuild), SharedCalibrationStore.StateFileName)));
+        Assert.Equal(2, quarantined.QuarantineEpoch);
+        Assert.Equal(SharedPublication.Published, store.Publication(Region.Cn, payload.GameBuild, candidate.CodeSha256));
 
-            Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
-                Fetched(candidate with { Quarantined = false }), DateTimeOffset.UtcNow).Recorded);
-            var recovered = Assert.Single(new SharedCalibrationStore(root)
-                .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
-            Assert.False(recovered.Quarantined);
-            Assert.Equal(2, recovered.QuarantineEpoch);
-            Assert.Equal(candidate.Code, recovered.Code);
-            Assert.False(store.IsRejected(Region.Cn, payload.GameBuild, payload.TemplateSha256, candidate.CodeSha256));
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
-        }
+        Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
+            Fetched(candidate with { Quarantined = false }), DateTimeOffset.UtcNow).Recorded);
+        var recovered = Assert.Single(new SharedCalibrationStore(temp.Path)
+            .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
+        Assert.False(recovered.Quarantined);
+        Assert.Equal(2, recovered.QuarantineEpoch);
+        Assert.Equal(candidate.Code, recovered.Code);
+        Assert.False(store.IsRejected(Region.Cn, payload.GameBuild, payload.TemplateSha256, candidate.CodeSha256));
     }
 }

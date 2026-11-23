@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
-using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Storage;
 
@@ -12,13 +11,11 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class BackupIntegrityTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.BackupIntegrity", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("BackupIntegrity");
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 10, 21, 8, 0, 0, TimeSpan.Zero));
 
-    public BackupIntegrityTests() => Directory.CreateDirectory(_directory);
-
-    private string DatabasePath => Path.Combine(_directory, "mentor_recorder.db");
-    private string BackupDirectory => Path.Combine(_directory, "backups");
+    private string DatabasePath => _directory.Combine("mentor_recorder.db");
+    private string BackupDirectory => _directory.Combine("backups");
 
     /// <summary>Opens copies normally, except a staged copy (".mentor-export-*.tmp"), whose check then fails.</summary>
     private static SqliteConnection CopyFailsItsCheck(string path) =>
@@ -51,20 +48,7 @@ public sealed class BackupIntegrityTests : IDisposable
         using (var old = new SqliteConnection("Data Source=" + DatabasePath + ";Pooling=False"))
         {
             old.Open();
-            foreach (var script in MigrationRunner.Scripts.Where(script => script.Version <= previous))
-            {
-                using var command = old.CreateCommand();
-                command.CommandText = script.Sql;
-                command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(_clock.UtcNow));
-                command.ExecuteNonQuery();
-                command.Parameters.Clear();
-                command.CommandText = "INSERT INTO schema_migrations VALUES($version,$name,$sum,$now);";
-                command.Parameters.AddWithValue("$version", script.Version);
-                command.Parameters.AddWithValue("$name", script.Name);
-                command.Parameters.AddWithValue("$sum", script.Checksum);
-                command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(_clock.UtcNow));
-                command.ExecuteNonQuery();
-            }
+            LegacySchema.ApplyThrough(old, previous, _clock.UtcNow);
         }
 
         var refusal = Assert.Throws<CollectorException>(() => SqliteDatabase.Open(DatabasePath, _clock, CopyFailsItsCheck).Dispose());
@@ -86,7 +70,6 @@ public sealed class BackupIntegrityTests : IDisposable
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
-        try { Directory.Delete(_directory, recursive: true); }
-        catch (IOException) { }
+        _directory.Dispose();
     }
 }

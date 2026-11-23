@@ -9,12 +9,6 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class TemplateObservationTests
 {
-    private sealed class TempDirectory : IDisposable
-    {
-        public string Path { get; } = Directory.CreateTempSubdirectory("mentor-template-observation-").FullName;
-        public void Dispose() => Directory.Delete(Path, recursive: true);
-    }
-
     private const string EvidenceId = "d67c38ad-3a98-4c9e-b570-740edda90525";
     private const string SessionAlias = "54174a36-0660-4ad6-8773-7b2ab8e719b2";
 
@@ -39,7 +33,7 @@ public sealed class TemplateObservationTests
 
     private static Protocol.Sharing.CalibrationEvidenceResult Export(string trace)
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("TemplateObservation");
         var path = Path.Combine(directory.Path, "trace.jsonl");
         File.WriteAllText(path, trace);
         return TemplateObservationExporter.Export(path, CaptureTraceDigest.Compute(path), EvidenceId, SessionAlias);
@@ -113,7 +107,7 @@ public sealed class TemplateObservationTests
     [Fact]
     public void ClosedFileMustStillMatchTheControllersFrozenDigest()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("TemplateObservation");
         var path = Path.Combine(directory.Path, "trace.jsonl");
         File.WriteAllText(path, Trace());
         var digest = CaptureTraceDigest.Compute(path);
@@ -126,7 +120,7 @@ public sealed class TemplateObservationTests
     [Fact]
     public void FileOverSixtyFourMiBLimitIsRejectedBeforeReading()
     {
-        using var directory = new TempDirectory();
+        using var directory = new TempDirectory("TemplateObservation");
         var path = Path.Combine(directory.Path, "trace.jsonl");
         using (var file = File.Create(path)) file.SetLength(CaptureTraceAnalysis.MaxInputBytes + 1);
         Assert.Equal("OBSERVATION_LIMIT", TemplateObservationExporter.Export(path, "", EvidenceId, SessionAlias).Reason);

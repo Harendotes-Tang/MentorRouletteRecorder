@@ -176,27 +176,8 @@ public sealed class StorageExportAtomicityTests : IDisposable
         var committed = TestDatabase.Run();
         _database.Database.RunInTransaction(transaction => runs.Insert(committed, transaction));
 
-        using var gateHeld = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var holder = Task.Run(() => _database.Database.Read(_ =>
-        {
-            gateHeld.Set();
-            release.Wait();
-            return 0;
-        }));
-        Assert.True(gateHeld.Wait(TimeSpan.FromSeconds(10)));
-
         var target = Target("while-capture-writes.db");
-        try
-        {
-            await Task.Run(() => _database.Database.BackupDatabase(target, overwrite: false))
-                .WaitAsync(TimeSpan.FromSeconds(10));
-        }
-        finally
-        {
-            release.Set();
-            await holder.WaitAsync(TimeSpan.FromSeconds(10));
-        }
+        await _database.WhileTheWriterGateIsHeldAsync(() => _database.Database.BackupDatabase(target, overwrite: false));
 
         using var copy = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -253,8 +234,7 @@ public sealed class StorageExportAtomicityTests : IDisposable
     [Fact]
     public void HighestAcceptedPageIsEmptyForBothRunAndRevisionQueries()
     {
-        var settings = new SettingsRepository(_database.Database, _database.Clock);
-        settings.EnsureDefaults();
+        var settings = _database.Settings();
         var mutations = new RunMutationService(_database.Database, settings, _database.Clock);
         var created = mutations.CreateManualRun(new CreateManualRunCommand
         {

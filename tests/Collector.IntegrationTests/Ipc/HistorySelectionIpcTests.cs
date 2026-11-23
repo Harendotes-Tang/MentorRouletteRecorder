@@ -247,7 +247,7 @@ public sealed class HistorySelectionIpcTests
             await using var oneWay = new NamedPipeClientStream(".", fixture.PipeName, PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             await oneWay.ConnectAsync(budget.Token);
-            await oneWay.WriteAsync(EncodeRequest("BatchMutateRuns", requestId, batch.DeepClone().AsObject()), budget.Token);
+            await oneWay.WriteAsync(IpcTestFrames.Request(requestId, "BatchMutateRuns", batch.DeepClone().AsObject()), budget.Token);
             await oneWay.FlushAsync(budget.Token);
             while (repository.TryGetResponse(requestId) is null)
                 await Task.Delay(TimeSpan.FromMilliseconds(20), budget.Token);
@@ -281,8 +281,8 @@ public sealed class HistorySelectionIpcTests
 
         var releaseRequestId = Guid.NewGuid().ToString("D");
         var stageRequestId = Guid.NewGuid().ToString("D");
-        var release = EncodeRequest("QueryHistorySelection", releaseRequestId, ReleaseRequest(selection));
-        var stage = EncodeRequest("StageHistorySelection", stageRequestId,
+        var release = IpcTestFrames.Request(releaseRequestId, "QueryHistorySelection", ReleaseRequest(selection));
+        var stage = IpcTestFrames.Request(stageRequestId, "StageHistorySelection",
             StageRequest(selection, 0, targets.Take(1), last: false));
 
         // Put both requests on the same connection without waiting for release.
@@ -402,15 +402,6 @@ public sealed class HistorySelectionIpcTests
     {
         ["action"] = "soft_delete", ["selection_id"] = id, ["reason"] = "delete this checked set",
     };
-
-    private static byte[] EncodeRequest(string messageType, string requestId, JsonObject payload) =>
-        FrameCodec.Encode(IpcEnvelope.ToBytes(new JsonObject
-        {
-            ["protocol_version"] = IpcEnvelope.ProtocolVersion,
-            ["request_id"] = requestId,
-            ["message_type"] = messageType,
-            ["payload"] = payload,
-        }));
 
     private static JsonObject ReleaseRequest(string selection) =>
         new() { ["selection_id"] = selection, ["release"] = true };

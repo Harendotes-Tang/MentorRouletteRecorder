@@ -577,7 +577,7 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         var service = Service(transport, TimeSpan.FromSeconds(30));
         service.UpdateSettings(AzureUpdate());
         var inFlight = service.SynthesizeAsync(new SpeechRequest(Text, 100, true), default);
-        await WaitUntil(() => transport.Requests.Count == 1);
+        await Poll.UntilAsync(() => transport.Requests.Count == 1, "timed out waiting for the fake transport");
         var waiting = service.SynthesizeAsync(new SpeechRequest(Text + "b", 100, true), default);
 
         service.Dispose();
@@ -615,7 +615,7 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         var admitted = Enumerable.Range(0, 4)
             .Select(index => service.SynthesizeAsync(new SpeechRequest(Text + index, 100, false), default))
             .ToArray();
-        await WaitUntil(() => transport.Requests.Count == 1);
+        await Poll.UntilAsync(() => transport.Requests.Count == 1, "timed out waiting for the fake transport");
 
         var fifth = await Assert.ThrowsAsync<CollectorException>(() =>
             service.SynthesizeAsync(new SpeechRequest(Text + "5", 100, false), default));
@@ -647,7 +647,7 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         service.UpdateSettings(AzureUpdate());
 
         var holder = service.SynthesizeAsync(new SpeechRequest(Text, 100, true), default);
-        await WaitUntil(() => transport.Requests.Count == 1);
+        await Poll.UntilAsync(() => transport.Requests.Count == 1, "timed out waiting for the fake transport");
 
         var waited = await Assert.ThrowsAsync<CollectorException>(() =>
             service.SynthesizeAsync(new SpeechRequest(Text + "b", 100, true), default));
@@ -766,16 +766,6 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         {
             Entered.Dispose();
             Release.Dispose();
-        }
-    }
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, "timed out waiting for the fake transport");
-            await Task.Delay(10);
         }
     }
 

@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using System.Threading.Channels;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Import;
@@ -24,10 +23,10 @@ public sealed class IpcImportAdmissionTests
         await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
         clock.Observe();
 
-        using var firstStream = new RequestStream(PreviewRequest("cancelled-preview"));
+        using var firstStream = new ScriptedPipePeer(PreviewRequest("cancelled-preview"));
         using var firstLifetime = new CancellationTokenSource();
         var firstConnection = new PipeConnection(firstStream, dispatcher).ServeAsync(firstLifetime.Token);
-        using var secondStream = new RequestStream(
+        using var secondStream = new ScriptedPipePeer(
             Enumerable.Range(0, 30).Select(index => PreviewRequest("busy-" + index))
                 .Append(commit).Append(Request("GetVersion", new JsonObject())).ToArray());
         using var secondLifetime = new CancellationTokenSource();
@@ -163,7 +162,7 @@ public sealed class IpcImportAdmissionTests
         var request = CommitRequest(host.Imports.PreviewSource("ROWS", rows: Rows("committed")));
         var dispatcher = new MessageDispatcher(host);
         using var cancellation = new CancellationTokenSource();
-        using var stream = new RequestStream(request) { BeforeWrite = cancellation.Cancel };
+        using var stream = new ScriptedPipePeer(request) { BeforeWrite = cancellation.Cancel };
         var serving = new PipeConnection(stream, dispatcher).ServeAsync(cancellation.Token);
         // The response is attempted only after the SQLite commit has succeeded. Disconnect
         // at that point, before the peer gets any bytes of the successful response.
@@ -194,13 +193,7 @@ public sealed class IpcImportAdmissionTests
 
     private static CollectorHost OpenHost(TestDatabase fixture, IClock clock) => CollectorHost.Open(
         Path.Combine(Path.GetDirectoryName(fixture.Path)!, "admission.db"), clock,
-        capture: new CaptureServices
-        {
-            Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-            Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-            Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-            EnableFollowTimer = false,
-        });
+        capture: InertCapture.Services());
 
     private static JsonObject Row(string name) => new()
     {
@@ -277,55 +270,5 @@ public sealed class IpcImportAdmissionTests
             await _holding;
             _release.Dispose();
         }
-    }
-
-    private sealed class RequestStream(params IpcRequest[] requests) : Stream
-    {
-        private readonly byte[] _input = requests.SelectMany(request => FrameCodec.Encode(IpcEnvelope.ToBytes(new JsonObject
-        {
-            ["protocol_version"] = IpcEnvelope.ProtocolVersion, ["request_id"] = request.RequestId,
-            ["message_type"] = request.MessageType, ["payload"] = request.Payload.DeepClone(),
-        }))).ToArray();
-        private readonly Channel<JsonObject> _writes = Channel.CreateUnbounded<JsonObject>();
-        private int _offset;
-        private int _writtenResponses;
-        public Action? BeforeWrite { get; init; }
-        public int WrittenResponses => Volatile.Read(ref _writtenResponses);
-        public override bool CanRead => true;
-        public override bool CanWrite => true;
-        public override bool CanSeek => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public ValueTask<JsonObject> NextWrittenAsync() => _writes.Reader.ReadAsync();
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_offset < _input.Length)
-            {
-                var count = Math.Min(buffer.Length, _input.Length - _offset);
-                _input.AsMemory(_offset, count).CopyTo(buffer);
-                _offset += count;
-                return count;
-            }
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            return 0;
-        }
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            BeforeWrite?.Invoke();
-            cancellationToken.ThrowIfCancellationRequested();
-            _writes.Writer.TryWrite(JsonNode.Parse(buffer.Span[FrameCodec.PrefixBytes..])!.AsObject());
-            Interlocked.Increment(ref _writtenResponses);
-            return ValueTask.CompletedTask;
-        }
-        public override void Flush() { }
-        // Stream.FlushAsync's default runs Flush on the thread pool. Under the full gate that
-        // pool is shared with the Soak suites, so a reply could stay "unwritten" for seconds;
-        // nine such replies in a burst make PipeConnection close the connection at its
-        // deferred-response limit and the remaining replies never arrive. Complete inline.
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
     }
 }

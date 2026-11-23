@@ -28,19 +28,12 @@ public sealed class LifecycleOrphanTests : IDisposable
     private static readonly TimeSpan ExitBudget = TimeSpan.FromSeconds(15);
 
     private readonly List<Process> _started = new();
-    private readonly string _directory;
-
-    public LifecycleOrphanTests()
-    {
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.Orphan", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
+    private readonly TempDirectory _directory = new("Orphan");
 
     [Fact]
     public async Task KillingTheParentOutrightEndsTheCollectorAndLeavesTheDatabaseIntact()
     {
-        var databasePath = Path.Combine(_directory, "orphan.db");
+        var databasePath = _directory.Combine("orphan.db");
         var parent = StartIdleParent();
 
         var collector = await StartServingCollectorAsync(databasePath, parent.Id);
@@ -83,7 +76,7 @@ public sealed class LifecycleOrphanTests : IDisposable
     {
         // The parent can die between spawning the Collector and the Collector first looking at
         // it. Arriving late must not mean never noticing.
-        var databasePath = Path.Combine(_directory, "already-gone.db");
+        var databasePath = _directory.Combine("already-gone.db");
         var parent = StartIdleParent();
         var deadPid = parent.Id;
         parent.Kill(entireProcessTree: true);
@@ -240,17 +233,7 @@ public sealed class LifecycleOrphanTests : IDisposable
             process.Dispose();
         }
 
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same as above.
-        }
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        _directory.Dispose();
     }
 }

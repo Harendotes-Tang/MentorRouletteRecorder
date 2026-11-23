@@ -22,15 +22,6 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private static Dictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
-
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
     [Fact]
     public async Task ADownloadedCodeVerifiesOnLiveTrafficAndRecordsInsideTheSameSession()
     {
@@ -47,8 +38,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 200_000));
 
         var current = pipeline.Current;
         Assert.Equal(ProfileStatus.Verified, current.Status);
@@ -58,7 +48,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.Equal(current.ProfileId, new CaptureSessionRepository(_bed.Db.Database).Get(session)!.ProtocolProfileId);
         // The pop and the duty entry arrive before the profile exists; once drained they form a complete run.
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(9, run.MentorRouletteId);
         Assert.NotNull(run.EnteredAtUtc);
         Assert.Equal(current.ProfileId, run.ProtocolProfileId);
@@ -72,7 +62,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
 
-        Assert.NotNull(Assert.Single(RunsOf(session)).EndedAtUtc);
+        Assert.NotNull(Assert.Single(_bed.RunsOf(session)).EndedAtUtc);
         var done = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Done, done.State);
         Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(done.Shared.Candidates).Status);
@@ -106,7 +96,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
         Bed.Feed(pipeline, session, Bed.SecondDuty());
         Assert.Equal(RunState.Idle, pipeline.RunState);
-        Assert.Empty(RunsOf(session));
+        Assert.Empty(_bed.RunsOf(session));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
 
         release.Set();
@@ -114,7 +104,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        var runs = RunsOf(session).OrderBy(run => run.EnteredAtUtc).ToArray();
+        var runs = _bed.RunsOf(session).OrderBy(run => run.EnteredAtUtc).ToArray();
         Assert.Equal(2, runs.Length);
         Assert.NotNull(runs[0].EndedAtUtc);
         Assert.NotNull(runs[1].EnteredAtUtc);
@@ -135,15 +125,15 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         var (pipeline, session) = await StartWithTheBindHeldAsync(release);
         var evening = Bed.Evening().ToArray();
         Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        var clear = ClearMessage(200_000);
+        var clear = CalibrationTrafficCases.Clear(200_000);
         Bed.Feed(pipeline, session, new[] { clear });
-        Assert.Empty(RunsOf(session));
+        Assert.Empty(_bed.RunsOf(session));
 
         release.Set();
         await Bed.Idle(pipeline);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(RunResult.Completed, run.Result);
         Assert.False(run.PendingReview);
         Assert.Equal(clear.ObservedAtUtc, run.EndedAtUtc);
@@ -171,8 +161,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening().ToArray(), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening().ToArray(), 200_000));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
 
@@ -181,10 +170,9 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         await Bed.Idle(pipeline);
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
 
-        Bed.Feed(pipeline, session, new[] { ClearMessage(200_000) });
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, new[] { CalibrationTrafficCases.Clear(200_000) });
 
-        Assert.Equal(RunResult.Completed, Assert.Single(RunsOf(session)).Result);
+        Assert.Equal(RunResult.Completed, Assert.Single(_bed.RunsOf(session)).Result);
         Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
         Bed.Feed(pipeline, session, Bed.From(Bed.Evening().ToArray(), 200_000));
 
@@ -209,7 +197,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         pipeline.DutyClearObserved += notes.Add;
         var evening = Bed.Evening().ToArray();
         Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        Bed.Feed(pipeline, session, new[] { ClearMessage(200_000) });
+        Bed.Feed(pipeline, session, new[] { CalibrationTrafficCases.Clear(200_000) });
         pipeline.OnConnectionLost(session);
 
         release.Set();
@@ -217,20 +205,9 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
 
-        Assert.Equal(RunResult.Completed, Assert.Single(RunsOf(session)).Result);
+        Assert.Equal(RunResult.Completed, Assert.Single(_bed.RunsOf(session)).Result);
         Assert.True(Assert.Single(notes).Completed);
         Assert.Equal(1, pipeline.DutyClearCompletionCount);
-    }
-
-    /// <summary>The clear of the invented duty 0xF00D, on the zone connection and an opcode no profile declares.</summary>
-    private static Protocol.Decoded.DecodedMessage ClearMessage(long monoMs)
-    {
-        var body = new byte[40];
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), 0x40000003);
-        return CalibrationObserverTests.Message(Protocol.Decoded.MessageDirection.Inbound, 0x0204, body, monoMs);
     }
 
     /// <summary>
@@ -252,7 +229,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         await Bed.Idle(pipeline);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(RunResult.CancelledBeforeEntry, run.Result);
         Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
         Assert.True(run.PendingReview);
@@ -283,7 +260,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(9, run.MentorRouletteId);
         Assert.NotNull(run.EnteredAtUtc);
         Assert.Null(run.EndedAtUtc);
@@ -310,7 +287,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         pipeline.OnDirectionDamaged(session, connection, Protocol.Decoded.MessageDirection.Inbound);
 
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         if (expected is { } result)
         {
             Assert.Equal(result, run.Result);
@@ -365,12 +342,11 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         Bed.Feed(pipeline, session, Bed.Before(evening, 10_000));
         Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(code.Code).Outcome);
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 10_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 10_000));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        Assert.Equal(30, Assert.Single(RunsOf(session)).JobId);
+        Assert.Equal(30, Assert.Single(_bed.RunsOf(session)).JobId);
     }
 
     [Fact]
@@ -394,7 +370,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(ready));
+        var result = pipeline.ConfirmCalibration(Bed.AllCorrect(ready));
 
         Assert.True(result.BoundInSession);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -412,22 +388,21 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.Equal(SharedConsentOutcome.NothingToAccept, pipeline.AcceptSharedQueueInference());
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
 
         var waiting = pipeline.CalibrationStatus().Shared;
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, waiting.Phase);
         Assert.Equal(SharedCandidateStatus.AwaitingConsent, Assert.Single(waiting.Candidates).Status);
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.Equal(RunState.Idle, pipeline.RunState);
-        Assert.Empty(RunsOf(session));
+        Assert.Empty(_bed.RunsOf(session));
 
         Assert.Equal(SharedConsentOutcome.Accepted, pipeline.AcceptSharedQueueInference());
         await Bed.Idle(pipeline);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
-        Assert.NotNull(Assert.Single(RunsOf(session)).EnteredAtUtc);
+        Assert.NotNull(Assert.Single(_bed.RunsOf(session)).EnteredAtUtc);
         // Asked once per machine per build: the answer is kept with this machine's other settings.
         var remembered = new SettingsRepository(_bed.Db.Database, _bed.Db.Clock).GetSetting(SharedCalibrationSession.QueueConsentSetting);
         Assert.Contains("cn/" + Bed.Build, remembered, StringComparison.Ordinal);
@@ -450,16 +425,14 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         await Bed.Idle(pipeline);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 124_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 124_000));
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
         Assert.False(File.Exists(_bed.SharedProfilePath));
 
         // The friend's code, which reads the server's own match message.
         var better = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(better.Code).Outcome);
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(Bed.Evening(), 200_000), 124_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Before(Bed.Evening(), 200_000), 124_000));
 
         // It binds without asking about queue inference at all, because it does not infer.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -485,8 +458,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         await Bed.Idle(pipeline);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
 
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
         Assert.Equal(SharedConsentOutcome.Accepted, pipeline.AcceptSharedQueueInference());
@@ -525,8 +497,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.Equal(SharedCandidateSource.Manual, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Source);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);

@@ -33,7 +33,7 @@ public sealed class CandidateLedgerTests : IDisposable
 
         Assert.False(_ledger.Add(Observation()));
         Assert.Equal(0, _ledger.Count());
-        Assert.Equal(0, Count("candidate_reviews"));
+        Assert.Equal(0, _fixture.Count("candidate_reviews"));
     }
 
     [Fact]
@@ -49,9 +49,9 @@ public sealed class CandidateLedgerTests : IDisposable
         _settings.SetSetting(CaptureSettingsStore.CandidateValidationSetting, "false");
         Assert.False(_ledger.Add(Observation()));
         Assert.Single(_ledger.Query().Items);
-        Assert.Equal(0, Count("mentor_runs"));
-        Assert.Equal(0, Count("run_events"));
-        Assert.Equal(0, Count("run_revisions"));
+        Assert.Equal(0, _fixture.Count("mentor_runs"));
+        Assert.Equal(0, _fixture.Count("run_events"));
+        Assert.Equal(0, _fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Null(_ledger.Get(oldestId));
         Assert.NotNull(_ledger.Get(SeedId(2)));
         Assert.NotNull(_ledger.Get(newest.ObservationId));
-        Assert.Equal(0, Count("candidate_reviews"));
+        Assert.Equal(0, _fixture.Count("candidate_reviews"));
     }
 
     [Theory]
@@ -146,8 +146,8 @@ public sealed class CandidateLedgerTests : IDisposable
             case "get": Assert.Null(_ledger.Get(observation.ObservationId)); break;
             case "export": Assert.Empty(_ledger.ReadEvidence().Observations); break;
         }
-        Assert.Equal(0, Count("candidate_observations"));
-        Assert.Equal(0, Count("candidate_reviews"));
+        Assert.Equal(0, _fixture.Count("candidate_observations"));
+        Assert.Equal(0, _fixture.Count("candidate_reviews"));
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Equal(2, evidence.Reviews.Count);
         Assert.Equal(new[] { "CORRECT", "WRONG" }, evidence.Reviews.Select(review => review.Verdict));
         Assert.Equal("confirmed", evidence.Reviews[0].Note);
-        Assert.Equal(0, Count("run_revisions"));
+        Assert.Equal(0, _fixture.Count("run_revisions"));
         using var command = _fixture.Database.CreateCommand();
         command.CommandText = "SELECT response_json FROM ipc_idempotency WHERE request_id = $id;";
         command.Parameters.AddWithValue("$id", request);
@@ -219,7 +219,7 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Equal(ErrorCodes.CandidateObservationNotFound, Assert.Throws<CollectorException>(() =>
             _ledger.Review(Id(), Id(), "CORRECT")).Code);
         Assert.Empty(_ledger.ReadEvidence().Reviews);
-        Assert.Equal(0, Count("ipc_idempotency"));
+        Assert.Equal(0, _fixture.Count("ipc_idempotency"));
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Throws<SqliteException>(() => _ledger.Review(Id(), observation.ObservationId, "WRONG"));
         Assert.Equal("CORRECT", _ledger.Get(observation.ObservationId)!.ReviewVerdict);
         Assert.Single(_ledger.ReadEvidence().Reviews);
-        Assert.Equal(1, Count("ipc_idempotency"));
+        Assert.Equal(1, _fixture.Count("ipc_idempotency"));
     }
 
     [Fact]
@@ -265,8 +265,8 @@ public sealed class CandidateLedgerTests : IDisposable
             escaped = observations;
         });
 
-        Assert.Equal(2, Count("candidate_observations"));
-        Assert.Equal(2, Count("candidate_reviews"));
+        Assert.Equal(2, _fixture.Count("candidate_observations"));
+        Assert.Equal(2, _fixture.Count("candidate_reviews"));
         Assert.Throws<InvalidOperationException>(() => escaped!.ToArray());
     }
 
@@ -293,8 +293,8 @@ public sealed class CandidateLedgerTests : IDisposable
             throw new IOException("simulated evidence write failure");
         }));
 
-        Assert.Equal(0, Count("candidate_observations"));
-        Assert.Equal(0, Count("candidate_reviews"));
+        Assert.Equal(0, _fixture.Count("candidate_observations"));
+        Assert.Equal(0, _fixture.Count("candidate_reviews"));
         Assert.True(_ledger.Add(Observation()));
         Assert.Single(_ledger.ReadEvidence().Observations);
     }
@@ -411,13 +411,6 @@ public sealed class CandidateLedgerTests : IDisposable
     private CandidateObservation Observation(DateTimeOffset? at = null) => new(Id(), _session,
         "candidate-test", "FINDER_STATE_NOTIFICATION", "finder", "S2C", 0x0323, 40,
         "0123456789ab", "abcdef012345", at ?? _fixture.Clock.UtcNow, 100);
-
-    private long Count(string table)
-    {
-        using var command = _fixture.Database.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM " + table;
-        return (long)command.ExecuteScalar()!;
-    }
 
     private static string SeedId(int number) => "00000000-0000-0000-0000-" + number.ToString("D12");
 

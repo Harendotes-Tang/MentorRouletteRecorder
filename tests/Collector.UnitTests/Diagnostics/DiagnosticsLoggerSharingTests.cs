@@ -17,22 +17,15 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class DiagnosticsLoggerSharingTests : IDisposable
 {
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("LoggerSharing");
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 9, 8, 8, 0, 0, TimeSpan.Zero));
-
-    public DiagnosticsLoggerSharingTests()
-    {
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.LoggerSharing", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
 
     [Fact]
     public async Task TwoLoggersOnTheSameFileBothGetTheirLinesIn()
     {
         const int perLogger = 60;
-        using var first = new RotatingFileLogger(_directory, _clock);
-        using var second = new RotatingFileLogger(_directory, _clock);
+        using var first = new RotatingFileLogger(_directory.Path, _clock);
+        using var second = new RotatingFileLogger(_directory.Path, _clock);
 
         using var start = new Barrier(2);
         var writers = new[] { first, second }.Select(logger => Task.Run(() =>
@@ -54,7 +47,7 @@ public sealed class DiagnosticsLoggerSharingTests : IDisposable
     [Fact]
     public void AWriteThatCannotBeMadeIsCountedRatherThanForgotten()
     {
-        using var logger = new RotatingFileLogger(_directory, _clock);
+        using var logger = new RotatingFileLogger(_directory.Path, _clock);
         logger.Write(LogLevel.Info, "ipc", "probe");
 
         // A directory in place of the file makes every append fail permanently, which is the
@@ -71,7 +64,7 @@ public sealed class DiagnosticsLoggerSharingTests : IDisposable
     [Fact]
     public void TheComponentAndEventNamesAreSanitisedLikeEveryOtherString()
     {
-        using var logger = new RotatingFileLogger(_directory, _clock);
+        using var logger = new RotatingFileLogger(_directory.Path, _clock);
 
         logger.Write(LogLevel.Warn, "ipc 10.1.2.3", "peer S-1-5-21-1-2-3-1013");
 
@@ -88,7 +81,7 @@ public sealed class DiagnosticsLoggerSharingTests : IDisposable
         // Testing `value is string` is not enough: anything that only becomes text when the
         // line is rendered -- a DirectoryInfo, an IPAddress, any object with a revealing
         // ToString -- must be sanitised as well.
-        using var logger = new RotatingFileLogger(_directory, _clock);
+        using var logger = new RotatingFileLogger(_directory.Path, _clock);
 
         logger.Write(LogLevel.Warn, "capture", "adapter", new Dictionary<string, object?>
         {
@@ -102,15 +95,5 @@ public sealed class DiagnosticsLoggerSharingTests : IDisposable
         Assert.Contains("[ip6]", text, StringComparison.Ordinal);
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Temp debris only.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 }

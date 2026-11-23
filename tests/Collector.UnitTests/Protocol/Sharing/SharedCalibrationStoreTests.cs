@@ -19,29 +19,17 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     private static readonly string OtherTemplate = new('1', 64);
     private static readonly DateTimeOffset T0 = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
     private readonly SharedCalibrationStore _store;
 
     public SharedCalibrationStoreTests()
     {
-        _store = new SharedCalibrationStore(_root);
+        _store = new SharedCalibrationStore(_root.Path);
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (DirectoryNotFoundException)
-        {
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
-    private string Directory_ => SharedCalibrationStore.DirectoryFor(_root, Region.Cn, Build);
+    private string Directory_ => SharedCalibrationStore.DirectoryFor(_root.Path, Region.Cn, Build);
 
     private string StateFile => Path.Combine(Directory_, SharedCalibrationStore.StateFileName);
 
@@ -92,7 +80,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Throws<ArgumentException>(() => _store.LoadCandidates(Region.Cn, Build, "abc"));
         Assert.Throws<ArgumentException>(() => _store.RecordContradiction(Region.Cn, Build, Template, "abc", "session", T0));
         Assert.Throws<ArgumentException>(() => _store.RecordContradiction(Region.Cn, Build, Template, Template, " ", T0));
-        Assert.False(Directory.Exists(_root));
+        Assert.False(Directory.Exists(_root.Path));
     }
 
     // -------------------------------------------------------------------------- codes
@@ -302,7 +290,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
 
         Assert.False(result.Recorded);
         Assert.Equal(0, result.CodesWritten);
-        Assert.False(Directory.Exists(_root));
+        Assert.False(Directory.Exists(_root.Path));
         Assert.Null(_store.LastFetch(Region.Cn, Build, Template));
     }
 

@@ -49,20 +49,7 @@ public sealed class BatchMutationReceiptCompatibilityTests
     {
         using var db = new TestDatabase();
         var runs = new RunRepository(db.Database);
-        db.Database.RunInTransaction(tx =>
-        {
-            foreach (var id in new[] { FirstId, SecondId })
-            {
-                runs.Insert(TestDatabase.Run(id), tx);
-                new RunRevisionRepository(db.Database).Append(new RunRevision
-                {
-                    RevisionId = Guid.NewGuid().ToString("D"), RunId = id, Revision = 1,
-                    ChangedAtUtc = db.Clock.UtcNow, ChangeKind = ChangeKind.CreateManual,
-                    Actor = RevisionActor.User, Reason = "initial fixture record",
-                    Changes = Array.Empty<RunFieldChange>(),
-                }, tx);
-            }
-        });
+        db.InsertWithFirstRevision(TestDatabase.Run(FirstId), TestDatabase.Run(SecondId));
         var request = new BatchMutateRunsCommand(Guid.NewGuid().ToString("D"), "soft_delete",
             [new(SecondId, 1), new(FirstId, 1)], "legacy reason");
 

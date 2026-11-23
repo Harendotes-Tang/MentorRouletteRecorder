@@ -17,11 +17,11 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// </summary>
 public sealed class CaptureServerFixture : IAsyncDisposable
 {
-    private readonly string _directory;
+    private readonly TempDirectory _directory;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Task _serving;
 
-    private CaptureServerFixture(string directory, CollectorHost host, PipeServer server)
+    private CaptureServerFixture(TempDirectory directory, CollectorHost host, PipeServer server)
     {
         _directory = directory;
         Host = host;
@@ -33,7 +33,7 @@ public sealed class CaptureServerFixture : IAsyncDisposable
     public CollectorHost Host { get; }
 
     /// <summary>Throw-away data directory this server's database and side files live in.</summary>
-    public string DataDirectory => _directory;
+    public string DataDirectory => _directory.Path;
 
     /// <summary>The running server.</summary>
     public PipeServer Server { get; }
@@ -49,12 +49,10 @@ public sealed class CaptureServerFixture : IAsyncDisposable
         Func<GameProcessDetection, ProfileSelection>? profileSelector = null,
         CaptureValidationServices? validation = null)
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.CaptureTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        var directory = new TempDirectory("CaptureTests");
 
         var host = CollectorHost.Open(
-            Path.Combine(directory, "test.db"),
+            directory.Combine("test.db"),
             SystemClock.Instance,
             capture ?? CaptureFakes.NoGame(),
             profileSelector: profileSelector, validation: validation,
@@ -99,13 +97,7 @@ public sealed class CaptureServerFixture : IAsyncDisposable
         _stopping.Dispose();
         Host.Dispose();
 
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        _directory.Dispose();
     }
 }

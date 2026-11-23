@@ -196,66 +196,52 @@ public sealed class CalibrationZoneBurstTests
         const string templateSha = "template-sha";
         var template = CalibrationObserverTests.Template();
         var zone = new MessageKey(PacketDirection.ServerToClient, 0xA107, 456);
-        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Rv11." + Guid.NewGuid().ToString("N"));
-        try
+        using var temp = TempDirectory.Reserve("Rv11");
+        CalibrationSnapshot? carried = null;
+        for (var session = 0; session < 10; session++)
         {
-            CalibrationSnapshot? carried = null;
-            for (var session = 0; session < 10; session++)
+            var id = "session-" + session;
+            var observer = new CalibrationObserver(template, Region.Cn, id);
+            if (carried is not null)
             {
-                var id = "session-" + session;
-                var observer = new CalibrationObserver(template, Region.Cn, id);
-                if (carried is not null)
-                {
-                    observer.AdoptEvidence(carried);
-                }
-
-                var shift = TimeSpan.FromHours(session * 2);
-                foreach (var message in LoadsWithOneInTenMarkersOutside(session * 20).OrderBy(m => m.Mono))
-                {
-                    observer.Accept(message with { CaptureSessionId = id, ObservedAtUtc = message.ObservedAtUtc + shift });
-                }
-
-                observer.Flush();
-                Assert.True(CalibrationEvidenceStore.Save(root, Region.Cn, build, templateSha, observer.Snapshot()));
-                carried = CalibrationEvidenceStore.Load(root, Region.Cn, build, templateSha);
-                Assert.NotNull(carried);
+                observer.AdoptEvidence(carried);
             }
 
-            var snapshot = carried!;
-            Assert.Equal(0, snapshot.OverflowCount);
-            Assert.Equal(CalibrationObserver.MaxClusters, snapshot.Clusters.Count);
-            Assert.Equal(20, CalibrationDraft.Outside(snapshot, zone));
-            Assert.True(CalibrationDraft.MarksEnough(snapshot, zone));
-            Assert.Equal(1, CalibrationEvidenceSummary.From(snapshot, template).ZoneCandidates);
-
-            // One more restart, then a duty whose exit background traffic hides: the signature still opens it.
-            var next = new CalibrationObserver(template, Region.Cn, "session-10");
-            next.AdoptEvidence(snapshot);
-            foreach (var message in BeforeExit().Concat(Background()).Concat(CalibrationObserverTests.Cluster(215_000, 5000))
-                         .OrderBy(m => m.Mono))
+            var shift = TimeSpan.FromHours(session * 2);
+            foreach (var message in LoadsWithOneInTenMarkersOutside(session * 20).OrderBy(m => m.Mono))
             {
-                next.Accept(message with
-                {
-                    CaptureSessionId = "session-10", ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(20),
-                });
+                observer.Accept(message with { CaptureSessionId = id, ObservedAtUtc = message.ObservedAtUtc + shift });
             }
 
-            next.Flush();
-            var played = next.Snapshot();
-            Assert.Equal(3, played.Clusters.Count(cluster =>
-                played.ConnectionSessions.TryGetValue(cluster.ConnectionTag, out var owner) && owner == "session-10"));
+            observer.Flush();
+            Assert.True(CalibrationEvidenceStore.Save(temp.Path, Region.Cn, build, templateSha, observer.Snapshot()));
+            carried = CalibrationEvidenceStore.Load(temp.Path, Region.Cn, build, templateSha);
+            Assert.NotNull(carried);
         }
-        finally
+
+        var snapshot = carried!;
+        Assert.Equal(0, snapshot.OverflowCount);
+        Assert.Equal(CalibrationObserver.MaxClusters, snapshot.Clusters.Count);
+        Assert.Equal(20, CalibrationDraft.Outside(snapshot, zone));
+        Assert.True(CalibrationDraft.MarksEnough(snapshot, zone));
+        Assert.Equal(1, CalibrationEvidenceSummary.From(snapshot, template).ZoneCandidates);
+
+        // One more restart, then a duty whose exit background traffic hides: the signature still opens it.
+        var next = new CalibrationObserver(template, Region.Cn, "session-10");
+        next.AdoptEvidence(snapshot);
+        foreach (var message in BeforeExit().Concat(Background()).Concat(CalibrationObserverTests.Cluster(215_000, 5000))
+                     .OrderBy(m => m.Mono))
         {
-            try
+            next.Accept(message with
             {
-                Directory.Delete(root, recursive: true);
-            }
-            catch (IOException)
-            {
-                // Debris in the temp folder is not worth failing a test over.
-            }
+                CaptureSessionId = "session-10", ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(20),
+            });
         }
+
+        next.Flush();
+        var played = next.Snapshot();
+        Assert.Equal(3, played.Clusters.Count(cluster =>
+            played.ConnectionSessions.TryGetValue(cluster.ConnectionTag, out var owner) && owner == "session-10"));
     }
 
     /// <summary>Twenty town loads; on every tenth load overall the marker arrives early and is filed outside the burst.</summary>

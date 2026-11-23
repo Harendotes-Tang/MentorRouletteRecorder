@@ -280,31 +280,16 @@ public sealed class ReviewLifecycleRegressionTests
     [Fact]
     public void ShutdownStopsTheRoundFirstAndDisposesCaptureBeforeTheUpdateWaits()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Shutdown", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            using var logger = new RotatingFileLogger(directory, enabled: false);
-            using var host = CollectorHost.Open(Path.Combine(directory, "shutdown.db"), logger: logger);
-            var order = host.ShutdownSteps().Select(step => step.Record).ToList();
+        using var temp = new TempDirectory("Shutdown");
+        using var logger = new RotatingFileLogger(temp.Path, enabled: false);
+        using var host = CollectorHost.Open(temp.Combine("shutdown.db"), logger: logger);
+        var order = host.ShutdownSteps().Select(step => step.Record).ToList();
 
-            Assert.Equal("validation_stop", order[0]);
-            Assert.Equal(order.IndexOf("validation_dispose") + 1, order.IndexOf("capture_dispose"));
-            Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_download_dispose"));
-            Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_check_dispose"));
-            Assert.True(order.IndexOf("shared_calibration_stop") < order.IndexOf("capture_dispose"));
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // A log or WAL file still closing; the temp directory is swept by the system.
-            }
-        }
+        Assert.Equal("validation_stop", order[0]);
+        Assert.Equal(order.IndexOf("validation_dispose") + 1, order.IndexOf("capture_dispose"));
+        Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_download_dispose"));
+        Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_check_dispose"));
+        Assert.True(order.IndexOf("shared_calibration_stop") < order.IndexOf("capture_dispose"));
     }
 
     private static void WriteSetting(TestDatabase fixture)

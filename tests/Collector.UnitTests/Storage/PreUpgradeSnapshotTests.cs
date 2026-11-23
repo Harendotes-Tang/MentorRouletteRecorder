@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Storage;
 
@@ -11,32 +10,19 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class PreUpgradeSnapshotTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.PreUpgrade", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = TempDirectory.Reserve("PreUpgrade");
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 10, 21, 8, 0, 0, TimeSpan.Zero));
 
-    private string DatabasePath => Path.Combine(_directory, "mentor_recorder.db");
-    private string BackupDirectory => Path.Combine(_directory, "backups");
+    private string DatabasePath => _directory.Combine("mentor_recorder.db");
+    private string BackupDirectory => _directory.Combine("backups");
 
     /// <summary>A database file as a build of schema <paramref name="version"/> left it, with one run.</summary>
     private void CreateAtVersion(int version)
     {
-        Directory.CreateDirectory(_directory);
+        Directory.CreateDirectory(_directory.Path);
         using var old = new SqliteConnection("Data Source=" + DatabasePath + ";Pooling=False");
         old.Open();
-        foreach (var script in MigrationRunner.Scripts.Where(script => script.Version <= version))
-        {
-            using var command = old.CreateCommand();
-            command.CommandText = script.Sql;
-            command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(_clock.UtcNow));
-            command.ExecuteNonQuery();
-            command.Parameters.Clear();
-            command.CommandText = "INSERT INTO schema_migrations VALUES($version,$name,$sum,$now);";
-            command.Parameters.AddWithValue("$version", script.Version);
-            command.Parameters.AddWithValue("$name", script.Name);
-            command.Parameters.AddWithValue("$sum", script.Checksum);
-            command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(_clock.UtcNow));
-            command.ExecuteNonQuery();
-        }
+        LegacySchema.ApplyThrough(old, version, _clock.UtcNow);
         using var seed = old.CreateCommand();
         seed.CommandText = "INSERT INTO mentor_runs(run_id,revision,result,source,soft_deleted,created_at_utc,updated_at_utc) " +
             "VALUES('5f0c7a52-56a7-4c43-8d0b-6a3f4b8e2b11',1,'COMPLETED','MANUAL',0,'2026-10-20T12:00:00.000Z','2026-10-20T12:00:00.000Z');";
@@ -125,7 +111,6 @@ public sealed class PreUpgradeSnapshotTests : IDisposable
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
-        try { Directory.Delete(_directory, recursive: true); }
-        catch (IOException) { }
+        _directory.Dispose();
     }
 }

@@ -37,8 +37,7 @@ public sealed class CaptureControllerTests : IDisposable
 
     public CaptureControllerTests()
     {
-        _settings = new SettingsRepository(_database.Database, _database.Clock);
-        _settings.EnsureDefaults();
+        _settings = _database.Settings();
         _adapters.Add("wifi", "Wi-Fi", addresses: "192.168.31.77");
     }
 
@@ -1656,36 +1655,26 @@ public sealed class CaptureControllerTests : IDisposable
     [Fact]
     public void TheIngressLogLineCarriesDamagedDirectionsAndQueueDrops()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.IngressLog", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
+        using var temp = new TempDirectory("IngressLog");
+        long elapsedMs = 0;
+        using var logger = new Diagnostics.RotatingFileLogger(temp.Path, _database.Clock);
+        WithGame();
+        using var controller = new CaptureController(Services() with
         {
-            long elapsedMs = 0;
-            using var logger = new Diagnostics.RotatingFileLogger(directory, _database.Clock);
-            WithGame();
-            using var controller = new CaptureController(Services() with
-            {
-                Logger = logger,
-                ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
-            });
-            controller.Start();
-            Source.IngressCounters = CaptureIngressCounters.Empty with { DamagedGameDirections = 3 };
-            Interlocked.Add(ref elapsedMs, CaptureController.IngressLogIntervalMs);
-            controller.Poll();
-            controller.Stop();
+            Logger = logger,
+            ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+        });
+        controller.Start();
+        Source.IngressCounters = CaptureIngressCounters.Empty with { DamagedGameDirections = 3 };
+        Interlocked.Add(ref elapsedMs, CaptureController.IngressLogIntervalMs);
+        controller.Poll();
+        controller.Stop();
 
-            var line = Assert.Single(
-                File.ReadAllLines(logger.CurrentPath),
-                text => text.Contains("\"ingress_stats\"", StringComparison.Ordinal));
-            Assert.Contains("\"damaged_game_directions\":3", line, StringComparison.Ordinal);
-            Assert.Contains("\"queue_dropped\":0", line, StringComparison.Ordinal);
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+        var line = Assert.Single(
+            File.ReadAllLines(logger.CurrentPath),
+            text => text.Contains("\"ingress_stats\"", StringComparison.Ordinal));
+        Assert.Contains("\"damaged_game_directions\":3", line, StringComparison.Ordinal);
+        Assert.Contains("\"queue_dropped\":0", line, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1695,36 +1684,26 @@ public sealed class CaptureControllerTests : IDisposable
     [Fact]
     public void TheSnapshotAndTheClosingLogLineCarryTheClearCounters()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ClearLog", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
+        using var temp = new TempDirectory("ClearLog");
+        using var logger = new Diagnostics.RotatingFileLogger(temp.Path, _database.Clock);
+        WithGame();
+        using var controller = new CaptureController(Services() with
         {
-            using var logger = new Diagnostics.RotatingFileLogger(directory, _database.Clock);
-            WithGame();
-            using var controller = new CaptureController(Services() with
-            {
-                Logger = logger,
-                ParserStats = new ClearCountingStats(signals: 4, completions: 2),
-            });
-            controller.Start();
+            Logger = logger,
+            ParserStats = new ClearCountingStats(signals: 4, completions: 2),
+        });
+        controller.Start();
 
-            var snapshot = controller.Snapshot();
-            Assert.Equal(4, snapshot.DutyClearSignalCount);
-            Assert.Equal(2, snapshot.DutyClearCompletionCount);
+        var snapshot = controller.Snapshot();
+        Assert.Equal(4, snapshot.DutyClearSignalCount);
+        Assert.Equal(2, snapshot.DutyClearCompletionCount);
 
-            controller.Stop();
-            var line = Assert.Single(
-                File.ReadAllLines(logger.CurrentPath),
-                text => text.Contains("\"session_closed\"", StringComparison.Ordinal));
-            Assert.Contains("\"duty_clear_signals\":4", line, StringComparison.Ordinal);
-            Assert.Contains("\"duty_clear_completions\":2", line, StringComparison.Ordinal);
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+        controller.Stop();
+        var line = Assert.Single(
+            File.ReadAllLines(logger.CurrentPath),
+            text => text.Contains("\"session_closed\"", StringComparison.Ordinal));
+        Assert.Contains("\"duty_clear_signals\":4", line, StringComparison.Ordinal);
+        Assert.Contains("\"duty_clear_completions\":2", line, StringComparison.Ordinal);
     }
 
     /// <summary>Parser statistics of a parser that has seen the clear signal.</summary>
@@ -2161,8 +2140,7 @@ public sealed class CaptureControllerTests : IDisposable
         using var controller = new CaptureController(services);
         var started = controller.Start();
         var session = started.CaptureSessionId!;
-        SharedCalibrationTestBed.Feed(pipeline, session, SharedCalibrationTestBed.Evening());
-        await SharedCalibrationTestBed.Idle(pipeline);
+        await SharedCalibrationTestBed.FeedAndSettleAsync(pipeline, session, SharedCalibrationTestBed.Evening());
         var runs = new RunRepository(_database.Database);
         var recorded = Assert.Single(runs.Query(null, null, 1, 50).Items);
         Assert.NotNull(recorded.EndedAtUtc);

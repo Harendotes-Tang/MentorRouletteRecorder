@@ -137,15 +137,13 @@ public sealed class CharacterIdentificationTests
 
         public Rig(Region region = Region.Cn, bool recording = false)
         {
-            Settings = new SettingsRepository(Db.Database, Db.Clock);
-            Settings.EnsureDefaults();
+            Settings = Db.Settings();
             Profiles = new CharacterProfileService(Db.Database, Settings, Db.Clock);
             Statistics = new StatisticsRepository(Db.Database, Settings, clock: Db.Clock);
             Events = Bus.Subscribe("test");
             // The synthetic profile records runs; it names no region, so the rig lends it one.
             var synthetic = recording
-                ? ProfileSelector.SelectExplicit(Path.Combine(
-                    AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json"), allowSynthetic: true)
+                ? SyntheticProfile.Select()
                     with { Region = region }
                 : null;
             Pipeline = new LiveProtocolPipeline(Db.Database, Db.Clock, Bus, game => synthetic ?? new ProfileSelection(
@@ -185,12 +183,7 @@ public sealed class CharacterIdentificationTests
 
         public void StartSession(Region region = Region.Cn)
         {
-            Session = Guid.NewGuid().ToString("D");
-            Db.Database.RunInTransaction(tx => new CaptureSessionRepository(Db.Database).Insert(new CaptureSession
-            {
-                CaptureSessionId = Session, StartedAtUtc = Db.Clock.UtcNow, CollectorVersion = "test",
-                Region = region, GameBuild = Build, ProfileStatus = ProfileStatus.UnsupportedBuild,
-            }, tx));
+            Session = Db.OpenCaptureSession(region, Build);
             Pipeline.OnCaptureStarted(Session);
         }
 

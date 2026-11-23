@@ -8,15 +8,15 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class OodleTempOwnershipTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new();
     private static readonly FieldInfo TempPath = typeof(OodleNative_Ffxiv).GetField("_libraryTempPath", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-    public OodleTempOwnershipTests() => Directory.CreateDirectory(Path.Combine(_directory, "Machina.FFXIV"));
+    public OodleTempOwnershipTests() => Directory.CreateDirectory(_directory.Combine("Machina.FFXIV"));
 
     [Fact]
     public void EqualLengthExecutableFilesDoNotEstablishOwnership()
     {
-        var cleaner = new OodleTempCopyCleaner(_directory);
+        var cleaner = new OodleTempCopyCleaner(_directory.Path);
         var game = Write("game.exe");
         cleaner.Arm(game);
         var unrelated = Write("unrelated.exe");
@@ -29,7 +29,7 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void OnlyTheExactRegisteredNativePathIsRemoved()
     {
-        var cleaner = new OodleTempCopyCleaner(_directory);
+        var cleaner = new OodleTempCopyCleaner(_directory.Path);
         cleaner.Arm(Write("game.exe"));
         var native = new OodleNative_Ffxiv(new SigScan());
         var owned = Write(Path.Combine("Machina.FFXIV", "owned.exe"));
@@ -44,7 +44,7 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void InitializationRollbackMayClearTheFieldWithoutLosingTheOwnedPath()
     {
-        var cleaner = new OodleTempCopyCleaner(_directory);
+        var cleaner = new OodleTempCopyCleaner(_directory.Path);
         cleaner.Arm(Write("game.exe"));
         var native = new OodleNative_Ffxiv(new SigScan());
         var owned = Write(Path.Combine("Machina.FFXIV", "failed-initialization.exe"));
@@ -62,7 +62,7 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void MissingDependencyFieldOrOutsidePathNeverFallsBackToDirectoryScanning()
     {
-        var cleaner = new OodleTempCopyCleaner(_directory);
+        var cleaner = new OodleTempCopyCleaner(_directory.Path);
         cleaner.Arm(Write("game.exe"));
         var native = new OodleNative_Ffxiv(new SigScan());
         var outside = Write("outside.exe");
@@ -81,8 +81,8 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void EmptyingTheManifestRemovesTheFileOnTheRunningPathToo()
     {
-        var manifest = Path.Combine(_directory, "oodle-temp.json");
-        var cleaner = new OodleTempCopyCleaner(_directory, manifestPath: manifest);
+        var manifest = _directory.Combine("oodle-temp.json");
+        var cleaner = new OodleTempCopyCleaner(_directory.Path, manifestPath: manifest);
         cleaner.Arm(Write("game.exe"));
         var native = new OodleNative_Ffxiv(new SigScan());
         var owned = Write(Path.Combine("Machina.FFXIV", "owned.exe"));
@@ -101,13 +101,13 @@ public sealed class OodleTempOwnershipTests : IDisposable
 
     private string Write(string name)
     {
-        var path = Path.Combine(_directory, name);
+        var path = _directory.Combine(name);
         var bytes = new byte[4096]; bytes[0] = (byte)'M'; bytes[1] = (byte)'Z';
         File.WriteAllBytes(path, bytes);
         return path;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 
     /// <summary>
     /// Audit 2026-10-03 OB-6. Stopping a capture used to delete every unlocked GUID-named copy in
@@ -118,10 +118,10 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void StoppingACaptureLeavesACopyThisSoftwareNeverRegistered()
     {
-        var folder = Path.Combine(_directory, OodleTempCopyCleaner.MachinaTempFolderName);
+        var folder = _directory.Combine(OodleTempCopyCleaner.MachinaTempFolderName);
         var foreign = Path.Combine(folder, Guid.NewGuid().ToString("D") + ".exe");
         File.WriteAllBytes(foreign, new byte[2048]);
-        using var source = new MachinaCaptureSource(cleaner: new OodleTempCopyCleaner(_directory));
+        using var source = new MachinaCaptureSource(cleaner: new OodleTempCopyCleaner(_directory.Path));
 
         source.Stop();
 
@@ -138,11 +138,11 @@ public sealed class OodleTempOwnershipTests : IDisposable
     [Fact]
     public void ACleanerNeverErasesAnotherCleanersEntriesFromTheManifest()
     {
-        var manifest = Path.Combine(_directory, "oodle-temp.json");
-        var earlier = new OodleTempCopyCleaner(_directory, manifestPath: manifest);
-        var later = new OodleTempCopyCleaner(_directory, manifestPath: manifest);
+        var manifest = _directory.Combine("oodle-temp.json");
+        var earlier = new OodleTempCopyCleaner(_directory.Path, manifestPath: manifest);
+        var later = new OodleTempCopyCleaner(_directory.Path, manifestPath: manifest);
         earlier.Arm(Write("game.exe"));
-        later.Arm(Path.Combine(_directory, "game.exe"));
+        later.Arm(_directory.Combine("game.exe"));
         var kept = Write(Path.Combine("Machina.FFXIV", "still-loaded.exe"));
         var removed = Write(Path.Combine("Machina.FFXIV", "released.exe"));
 

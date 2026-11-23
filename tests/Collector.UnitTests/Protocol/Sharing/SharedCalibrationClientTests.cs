@@ -542,7 +542,7 @@ public sealed class SharedCalibrationClientTests
             .On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) =>
                 throw new HttpRequestException(HttpRequestError.SecureConnectionError, "handshake", new AuthenticationException()))
             .On(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
-                new SharedTransportResponse(200, uri, null, new BrokenStream())))
+                new SharedTransportResponse(200, uri, null, new FailingStream())))
             .On(SharedCalibrationClient.IndexUri(Source.CdnFallback), (_, _) => throw new InvalidOperationException("surprise"));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -770,22 +770,8 @@ public sealed class SharedCalibrationClientTests
         }
     }
 
-    private abstract class ReadOnlyStream : Stream
-    {
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("read asynchronously");
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
-
     /// <summary>Serves whitespace indefinitely, one chunk per read, counting the bytes served.</summary>
-    private sealed class EndlessStream : ReadOnlyStream
+    private sealed class EndlessStream : AsyncOnlyStream
     {
         public const int Chunk = 1024;
 
@@ -798,22 +784,5 @@ public sealed class SharedCalibrationClientTests
             Served += count;
             return ValueTask.FromResult(count);
         }
-    }
-
-    /// <summary>Delivers response headers but never any body.</summary>
-    private sealed class StallingStream : ReadOnlyStream
-    {
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            return 0;
-        }
-    }
-
-    /// <summary>Drops the connection partway through the body.</summary>
-    private sealed class BrokenStream : ReadOnlyStream
-    {
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<int>(new IOException("connection reset"));
     }
 }

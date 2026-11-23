@@ -10,24 +10,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CalibrationTemplateTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new();
 
-    public CalibrationTemplateTests()
-    {
-        Directory.CreateDirectory(_directory);
-    }
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     internal static Dictionary<string, object> CalibrationSection() => new(StringComparer.Ordinal)
     {
@@ -65,7 +50,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     {
         var document = VerifiedDocument();
         document["calibration"] = CalibrationSection();
-        var path = ProfileTestFiles.Write(_directory, "with-calibration", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "with-calibration", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -87,7 +72,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         ((Dictionary<string, object>)section["finder_request"])["roulette_field"] =
             ProfileTestFiles.Field("roulette_id", 0, "bytes", length: 1);
         document["calibration"] = section;
-        var path = ProfileTestFiles.Write(_directory, "bytes-field", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "bytes-field", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -99,13 +84,13 @@ public sealed class CalibrationTemplateTests : IDisposable
     {
         var document = VerifiedDocument(withCalibrationEvidence: false);
         document["calibration"] = CalibrationSection();
-        var missing = ProfileTestFiles.Write(_directory, "template-no-evidence", document);
+        var missing = ProfileTestFiles.Write(_directory.Path, "template-no-evidence", document);
         Assert.Contains(ProfileLoader.Validate(missing).Errors,
             issue => issue.Code == "E_PROFILE_NO_EVIDENCE" && issue.Message.Contains("calibration.finder_request"));
 
         var withEvidence = VerifiedDocument();
         withEvidence["calibration"] = CalibrationSection();
-        var covered = ProfileTestFiles.Write(_directory, "template-with-evidence", withEvidence);
+        var covered = ProfileTestFiles.Write(_directory.Path, "template-with-evidence", withEvidence);
         Assert.Empty(ProfileLoader.Validate(covered).Errors);
     }
 
@@ -120,7 +105,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     [Fact]
     public void ProfileWithoutCalibrationSectionHasNoTemplate()
     {
-        var path = ProfileTestFiles.Write(_directory, "without-calibration", ProfileTestFiles.Valid());
+        var path = ProfileTestFiles.Write(_directory.Path, "without-calibration", ProfileTestFiles.Valid());
 
         var report = ProfileLoader.Validate(path);
 
@@ -158,7 +143,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         }
 
         document["calibration"] = CalibrationSection();
-        var path = ProfileTestFiles.Write(_directory, "refused-" + status.ToLowerInvariant(), document);
+        var path = ProfileTestFiles.Write(_directory.Path, "refused-" + status.ToLowerInvariant(), document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -173,7 +158,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         var section = CalibrationSection();
         section["guess"] = true;
         document["calibration"] = section;
-        var path = ProfileTestFiles.Write(_directory, "unknown-key", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "unknown-key", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -188,7 +173,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         ((Dictionary<string, object>)section["finder_request"])["roulette_field"] =
             ProfileTestFiles.Field("roulette_id", 24, "u8");
         document["calibration"] = section;
-        var path = ProfileTestFiles.Write(_directory, "oob", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "oob", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -200,7 +185,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     {
         var document = VerifiedDocument();
         document["calibration"] = CalibrationSection();
-        var path = ProfileTestFiles.Write(_directory, "stamped", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "stamped", document);
         var stamped = JsonDocument.Parse(File.ReadAllText(path)).RootElement;
 
         var without = VerifiedDocument();
@@ -245,7 +230,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     [Fact]
     public void FinderReplyLoadsAsTheReplysOwnShape()
     {
-        var path = ProfileTestFiles.Write(_directory, "with-reply", WithReply(ReplySection()));
+        var path = ProfileTestFiles.Write(_directory.Path, "with-reply", WithReply(ReplySection()));
 
         var report = ProfileLoader.Validate(path);
 
@@ -261,7 +246,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     [Fact]
     public void FinderReplyNeedsEvidenceOfItsOwn()
     {
-        var path = ProfileTestFiles.Write(_directory, "reply-no-evidence", WithReply(ReplySection(), withReplyEvidence: false));
+        var path = ProfileTestFiles.Write(_directory.Path, "reply-no-evidence", WithReply(ReplySection(), withReplyEvidence: false));
 
         Assert.Contains(ProfileLoader.Validate(path).Errors, issue =>
             issue.Code == "E_PROFILE_NO_EVIDENCE" && issue.Message.Contains(ProfileLoader.CalibrationReplyEvidenceKey));
@@ -273,7 +258,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         var reply = ReplySection();
         reply["expected_length"] = 24;
         reply["roulette_field"] = ProfileTestFiles.Field("roulette_id", 0, "u16", endian: "little", min: 1);
-        var path = ProfileTestFiles.Write(_directory, "reply-is-pop", WithReply(reply));
+        var path = ProfileTestFiles.Write(_directory.Path, "reply-is-pop", WithReply(reply));
 
         var report = ProfileLoader.Validate(path);
 
@@ -287,7 +272,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         var document = WithReply(ReplySection());
         var pop = (Dictionary<string, object>)((List<object>)document["messages"])[0];
         ((List<object>)pop["fields"]).Add(ProfileTestFiles.Field("finder_state", 12, "u8", allowed: new[] { 3 }, role: "selector"));
-        var path = ProfileTestFiles.Write(_directory, "reply-pop-selector", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "reply-pop-selector", document);
 
         Assert.Contains(ProfileLoader.Validate(path).Errors, issue =>
             issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Message.Contains("selector"));
@@ -296,7 +281,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     [Fact]
     public void FinderReplyCarryingTheJobNeedsAJobMessageOfItsShape()
     {
-        var withoutJob = ProfileTestFiles.Write(_directory, "reply-job-missing", WithReply(ReplySection(playerJob: true)));
+        var withoutJob = ProfileTestFiles.Write(_directory.Path, "reply-job-missing", WithReply(ReplySection(playerJob: true)));
         Assert.Contains(ProfileLoader.Validate(withoutJob).Errors, issue =>
             issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Path.EndsWith("player_job", StringComparison.Ordinal));
 
@@ -315,7 +300,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         });
         ((List<object>)((Dictionary<string, object>)document["provenance"])["evidence"])
             .Add(Evidence("messages.PLAYER_JOB.opcode"));
-        var withJob = ProfileTestFiles.Write(_directory, "reply-job", document);
+        var withJob = ProfileTestFiles.Write(_directory.Path, "reply-job", document);
 
         var report = ProfileLoader.Validate(withJob);
         Assert.Empty(report.Errors);
@@ -325,7 +310,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         var job = (Dictionary<string, object>)((List<object>)document["messages"])[^1];
         job["expected_length"] = 16;
         job["fields"] = new List<object> { ProfileTestFiles.Field("job_id", 0, "u8", min: 1, max: 43) };
-        var mismatch = ProfileTestFiles.Write(_directory, "reply-job-length", document);
+        var mismatch = ProfileTestFiles.Write(_directory.Path, "reply-job-length", document);
         Assert.Contains(ProfileLoader.Validate(mismatch).Errors, issue =>
             issue.Code == "E_PROFILE_CALIBRATION_REPLY" && issue.Path.EndsWith("player_job", StringComparison.Ordinal));
     }
@@ -335,12 +320,12 @@ public sealed class CalibrationTemplateTests : IDisposable
     {
         var bytes = ReplySection();
         bytes["roulette_field"] = ProfileTestFiles.Field("roulette_id", 16, "bytes", length: 1);
-        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory, "reply-bytes", WithReply(bytes))).Errors,
+        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory.Path, "reply-bytes", WithReply(bytes))).Errors,
             issue => issue.Code == "E_PROFILE_CALIBRATION_FIELD");
 
         var outside = ReplySection();
         outside["roulette_field"] = ProfileTestFiles.Field("roulette_id", 40, "u8");
-        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory, "reply-oob", WithReply(outside))).Errors,
+        Assert.Contains(ProfileLoader.Validate(ProfileTestFiles.Write(_directory.Path, "reply-oob", WithReply(outside))).Errors,
             issue => issue.Code == "E_PROFILE_FIELD_OOB");
     }
 

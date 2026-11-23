@@ -14,12 +14,16 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProtocolProfileMalformedFieldTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.ProfileMalformed", Guid.NewGuid().ToString("N"), "synthetic");
+    private readonly TempDirectory _root = new("ProfileMalformed");
+    private readonly string _directory;
 
-    public ProtocolProfileMalformedFieldTests() => Directory.CreateDirectory(_directory);
+    public ProtocolProfileMalformedFieldTests()
+    {
+        _directory = _root.Combine("synthetic");
+        Directory.CreateDirectory(_directory);
+    }
 
-    public void Dispose() => Directory.Delete(Path.GetDirectoryName(_directory)!, recursive: true);
+    public void Dispose() => _root.Dispose();
 
     /// <summary>Writes a valid profile, then puts a lone surrogate escape into a string value or into a key.</summary>
     private string WriteWithLoneSurrogate(string profileId, string where)

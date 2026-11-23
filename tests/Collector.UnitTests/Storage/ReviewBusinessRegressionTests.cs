@@ -174,8 +174,7 @@ public sealed class ReviewBusinessRegressionTests
         _ = Service(db, out _);
         var sessionId = NewId();
         EnsureSession(db, sessionId);
-        var selection = ProfileSelector.SelectExplicit(Path.Combine(
-            AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json"), allowSynthetic: true);
+        var selection = SyntheticProfile.Select();
         var bus = new LiveEventBus(db.Clock);
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, bus, _ => selection);
         pipeline.OnCaptureStarted(sessionId);

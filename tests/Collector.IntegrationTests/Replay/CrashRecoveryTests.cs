@@ -17,15 +17,12 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// </summary>
 public sealed class CrashRecoveryTests : IDisposable
 {
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("RecoveryIt");
     private readonly string _databasePath;
 
     public CrashRecoveryTests()
     {
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.RecoveryIt", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-        _databasePath = Path.Combine(_directory, "recovery.db");
+        _databasePath = _directory.Combine("recovery.db");
     }
 
     /// <summary>
@@ -283,7 +280,7 @@ public sealed class CrashRecoveryTests : IDisposable
     [Fact]
     public void Restart_LeavesACompletedRunAlone()
     {
-        var databasePath = Path.Combine(_directory, "completed.db");
+        var databasePath = _directory.Combine("completed.db");
         var fixturePath = Path.Combine(
             AppContext.BaseDirectory, "Fixtures", "synthetic-completed-v1.fixture.json");
         FixtureReplayRunner.Run(fixturePath, databasePath);
@@ -361,15 +358,6 @@ public sealed class CrashRecoveryTests : IDisposable
         Assert.Equal(4096, machine.DedupSetCount);
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-    }
+    // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+    public void Dispose() => _directory.Dispose();
 }

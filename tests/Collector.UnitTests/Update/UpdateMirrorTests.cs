@@ -225,7 +225,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             });
         var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt after sampling");
+        await Poll.UntilAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt after sampling");
 
         var offer = service.Snapshot();
         Assert.Equal(prefix, offer.ReceivedBytes);
@@ -237,7 +237,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             Assert.Null(service.ResolveMirrorOffer(offer.MirrorOfferId!.ToUpperInvariant(), useGitCode: true).MirrorOfferId);
             if (choice != "accept")
             {
-                await EventuallyAsync(() => Volatile.Read(ref mirrorOpens) == 2, "mirror re-open should be attempted");
+                await Poll.UntilAsync(() => Volatile.Read(ref mirrorOpens) == 2, "mirror re-open should be attempted");
                 github.Resume();
             }
         }
@@ -311,11 +311,11 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             });
         var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt");
+        await Poll.UntilAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt");
         service.ResolveMirrorOffer(service.Snapshot().MirrorOfferId!, useGitCode: true);
         await reopenStarted.Task.WaitAsync(Patience);
         github.Resume();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes == Installer.Length - 1,
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes == Installer.Length - 1,
             "GitHub should catch up before GitCode replies");
         finishReopen.TrySetResult();
         await mirrorClosed.Task.WaitAsync(Patience);
@@ -349,7 +349,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
 
         var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
         service.Start();
-        await EventuallyAsync(() => transport.Requests.Contains(Mirror(Exe + ".sha256")), "slow GitHub should probe once");
+        await Poll.UntilAsync(() => transport.Requests.Contains(Mirror(Exe + ".sha256")), "slow GitHub should probe once");
         github.Resume();
 
         var final = await SettleAsync(service);
@@ -374,7 +374,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             UpdateDownloadTransfer.MirrorFinishesSooner(1000, received, primaryRate, mirrorRate, setupSeconds));
     }
 
-    private sealed class PausedInstaller(int prefixLength, bool failAfterResume = false, int? secondPause = null) : BodyStream
+    private sealed class PausedInstaller(int prefixLength, bool failAfterResume = false, int? secondPause = null) : AsyncOnlyStream
     {
         private readonly TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _finish = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -17,20 +17,17 @@ public sealed class ExportTests : IDisposable
     private readonly TestDatabase _database = new();
     private readonly RunRepository _runs;
     private readonly RunExporter _exporter;
-    private readonly string _outputDirectory;
+
+    // A checkout on another drive must support real exports outside the user profile.
+    private readonly TempDirectory _outputDirectory = new("ExportTests", parent: AppContext.BaseDirectory);
 
     public ExportTests()
     {
         _runs = new RunRepository(_database.Database);
         _exporter = new RunExporter(_runs, _database.Clock);
-
-        // A checkout on another drive must support real exports outside the user profile.
-        _outputDirectory = Path.Combine(
-            AppContext.BaseDirectory, "MentorRecorder.ExportTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_outputDirectory);
     }
 
-    private string Target(string name) => Path.Combine(_outputDirectory, name);
+    private string Target(string name) => _outputDirectory.Combine(name);
 
     private void Seed(params MentorRun[] runs) =>
         _database.Database.RunInTransaction(tx =>
@@ -315,7 +312,7 @@ public sealed class ExportTests : IDisposable
         var fileName = BackupService.FileNameFor(_database.Clock.UtcNow);
         var target = targetKind switch
         {
-            "directory" => _outputDirectory,
+            "directory" => _outputDirectory.Path,
             "file" => Target("chosen.db"),
             _ => targetKind,
         };
@@ -361,13 +358,7 @@ public sealed class ExportTests : IDisposable
     public void Dispose()
     {
         _database.Dispose();
-        try
-        {
-            Directory.Delete(_outputDirectory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris under AppContext.BaseDirectory; a locked file is left for the next run to remove.
-        }
+        // Test debris under AppContext.BaseDirectory; a locked file is left for the next run to remove.
+        _outputDirectory.Dispose();
     }
 }

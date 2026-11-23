@@ -18,8 +18,7 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var first = bed.Start(pipeline);
-        Bed.Feed(pipeline, first, Bed.Before(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, first, Bed.Before(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         var candidate = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(code.Sha, candidate.CodeSha256);
@@ -32,11 +31,9 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         restarted.Refresh(Bed.Game());
         await Bed.Idle(restarted);
         var second = bed.Start(restarted);
-        Bed.Feed(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
-        await Bed.Idle(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
         Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
-        Bed.Feed(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
-        await Bed.Idle(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
         Assert.Equal(ProfileStatus.Verified, restarted.Current.Status);
         Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
         restarted.OnCaptureStopped(second, CaptureEndReason.UserStop);
@@ -52,8 +49,7 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
 
@@ -63,8 +59,7 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
         Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
-        Bed.Feed(pipeline, session, Bed.From(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
         // This capture straddled the epoch update and cannot become a recovery session.
@@ -81,8 +76,7 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
         pipeline.StopSharedCalibration();
@@ -96,11 +90,9 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
         await Bed.Idle(restarted);
         Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
         var second = bed.Start(restarted);
-        Bed.Feed(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
-        await Bed.Idle(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
         Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
-        Bed.Feed(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
-        await Bed.Idle(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
         Assert.Equal(ProfileStatus.Verified, restarted.Current.Status);
         restarted.OnCaptureStopped(second, CaptureEndReason.UserStop);
     }
@@ -158,8 +150,7 @@ public sealed class CalibrationEvidenceQuarantinePipelineTests
                 Assert.False(File.Exists(bed.SharedProfilePath));
                 if (!stopBeforeCommit)
                 {
-                    Bed.Feed(pipeline, session, Bed.From(Bed.Evening(), 30_000));
-                    await Bed.Idle(pipeline);
+                    await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(), 30_000));
                     Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
                 }
             }

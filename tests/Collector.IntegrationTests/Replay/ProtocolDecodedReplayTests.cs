@@ -152,20 +152,15 @@ public sealed class ProtocolDecodedReplayTests
     private static string ProfilePathFor(string profileId) => Path.Combine(
         AppContext.BaseDirectory, "protocol-profiles", "synthetic", profileId + ".json");
 
-    private static string TempDatabase() => Path.Combine(
-        Path.GetTempPath(),
-        "MentorRecorder.DecodedIt",
-        Guid.NewGuid().ToString("N"),
-        "replay.db");
-
     [Theory]
     [MemberData(nameof(FixtureNames))]
     public void DecodedReplayProducesTheHandComputedOutcome(string name)
     {
         var expected = Expectations.Single(row => row.Fixture == name);
 
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath(name), ProfilePathFor(expected.Profile), TempDatabase());
+            FixturePath(name), ProfilePathFor(expected.Profile), temp.Combine("replay.db"));
 
         Assert.Equal(expected.BuildMatched, result.BuildMatched);
         Assert.Equal(expected.FinalState, result.FinalState);
@@ -195,7 +190,8 @@ public sealed class ProtocolDecodedReplayTests
     public void ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime(string name)
     {
         var expected = Expectations.Single(row => row.Fixture == name);
-        var databasePath = TempDatabase();
+        using var temp = TempDirectory.Reserve("DecodedIt");
+        var databasePath = temp.Combine("replay.db");
 
         var profile = ProfilePathFor(expected.Profile);
         var first = DecodedReplayRunner.Run(FixturePath(name), profile, databasePath);
@@ -219,10 +215,11 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void ATerritoryAnnouncementAndALoginJobFillInTheStoredRun()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
             FixturePath("synthetic_territory_duty"),
             ProfilePathFor("synthetic-cn-shape-v1"),
-            TempDatabase());
+            temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.Equal(800001, run.TerritoryId);
@@ -254,8 +251,9 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void TheClearCompletesTheRunAndTheExitAfterItChangesNothing()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_duty_clear"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+            FixturePath("synthetic_duty_clear"), ProfilePathFor("synthetic-cn-shape-v1"), temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.Equal(RunResult.Completed, run.Result);
@@ -291,8 +289,9 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void ARemainingTimeReportBeforeAnyCommencementMarksTheRunJoinedInProgress()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_duty_joined"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+            FixturePath("synthetic_duty_joined"), ProfilePathFor("synthetic-cn-shape-v1"), temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.True(run.JoinedInProgress);
@@ -315,8 +314,9 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void WithoutTheClearTheRunWaitsForThePlayer()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_duty_no_clear"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+            FixturePath("synthetic_duty_no_clear"), ProfilePathFor("synthetic-cn-shape-v1"), temp.Combine("replay.db"));
 
         var run = Assert.Single(result.Runs);
         Assert.Equal(RunResult.Unknown, run.Result);
@@ -329,8 +329,9 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void ABuildMismatchWritesNoRunAndLeavesTheStateMachineUntouched()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_build_mismatch"), ProfilePath, TempDatabase());
+            FixturePath("synthetic_build_mismatch"), ProfilePath, temp.Combine("replay.db"));
 
         Assert.False(result.ProfileUsable);
         Assert.Null(result.ProfileId);
@@ -348,8 +349,9 @@ public sealed class ProtocolDecodedReplayTests
     [Fact]
     public void UndeclaredOpcodesNeverBecomeRunEventsAndAreIgnoredNotRefused()
     {
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_unknown_opcode"), ProfilePath, TempDatabase());
+            FixturePath("synthetic_unknown_opcode"), ProfilePath, temp.Combine("replay.db"));
 
         Assert.Equal(3, result.ParsedEvents.Count);
         Assert.DoesNotContain(result.ParsedEvents, row => row.EventType.Contains("60000", StringComparison.Ordinal));
@@ -363,9 +365,8 @@ public sealed class ProtocolDecodedReplayTests
     public void ReplayUsesTheSelectedRegionForBothTheDutyNameAndTheCaptureSession()
     {
         const string profileId = "synthetic-cn-shape-v1";
-        var databasePath = TempDatabase();
-        var directory = Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!).FullName;
-        var profilePath = Path.Combine(directory, profileId + ".json");
+        using var directory = new TempDirectory("DecodedIt");
+        var profilePath = directory.Combine(profileId + ".json");
         var profile = JsonNode.Parse(File.ReadAllText(ProfilePathFor(profileId)))!;
         profile["region"] = "GLOBAL";
         // Model a zone initialisation carrying its own territory, with invented message numbers.
@@ -379,7 +380,7 @@ public sealed class ProtocolDecodedReplayTests
         packets.RemoveAt(2); // This case has no separate territory announcement.
         packets[2]!["payload_hex"] = "ae01000000000000"; // duty 430
         packets[3]!["payload_hex"] = "5501000000000000"; // return to housing area 341
-        var fixturePath = Path.Combine(directory, "region.decoded.json");
+        var fixturePath = directory.Combine("region.decoded.json");
         File.WriteAllText(fixturePath, fixture.ToJsonString());
         File.WriteAllText(fixturePath + ".sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))));
 
@@ -414,10 +415,11 @@ public sealed class ProtocolDecodedReplayTests
     public void TheShippedGlobalProfileRecordsOnlyAMentorMatchFromPopToClear(int roulette, int runs)
     {
         var started = new DateTimeOffset(2026, 11, 22, 9, 24, 15, TimeSpan.Zero);
+        using var temp = new TempDirectory("DecodedIt");
         var replay = DecodedReplayRunner.Run(
-            GlobalFixture(roulette, started),
+            GlobalFixture(temp.Path, roulette, started),
             Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "global", "global.2026.11.03.json"),
-            TempDatabase());
+            temp.Combine("replay.db"));
 
         Assert.True(replay.BuildMatched);
         Assert.True(replay.ProfileUsable);
@@ -440,7 +442,7 @@ public sealed class ProtocolDecodedReplayTests
     }
 
     /// <summary>A temporary synthetic fixture with the GLOBAL 2026.11.03 opcodes and shapes.</summary>
-    private static string GlobalFixture(int roulette, DateTimeOffset started)
+    private static string GlobalFixture(string directory, int roulette, DateTimeOffset started)
     {
         static string Payload(int length, params (int Offset, byte Value)[] bytes)
         {
@@ -478,8 +480,7 @@ public sealed class ProtocolDecodedReplayTests
                     (8, 0x03), (11, 0x40))),
                 Message(861_000, 0x00ab, Payload(136, (2, 0x81), (3, 0x02)))),
         };
-        var path = Path.Combine(Path.GetDirectoryName(TempDatabase())!, "global.decoded.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var path = Path.Combine(directory, "global.decoded.json");
         File.WriteAllText(path, fixture.ToJsonString());
         File.WriteAllText(path + ".sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
         return path;
@@ -491,8 +492,9 @@ public sealed class ProtocolDecodedReplayTests
         var regionProfile = Path.Combine(
             AppContext.BaseDirectory, "protocol-profiles", "cn", "cn-unsupported.json");
 
+        using var temp = TempDirectory.Reserve("DecodedIt");
         var result = DecodedReplayRunner.Run(
-            FixturePath("synthetic_complete"), regionProfile, TempDatabase());
+            FixturePath("synthetic_complete"), regionProfile, temp.Combine("replay.db"));
 
         Assert.False(result.BuildMatched);
         Assert.False(result.ProfileUsable);

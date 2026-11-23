@@ -13,21 +13,9 @@ public sealed class CalibrationServicesSharedCalibrationTests : IDisposable
 {
     private const string Build = SharedCalibrationIndexTests.Build;
 
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (DirectoryNotFoundException)
-        {
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     private static CalibrationServices Bare() => new(
         _ => null,
@@ -54,8 +42,8 @@ public sealed class CalibrationServicesSharedCalibrationTests : IDisposable
     [Fact]
     public void TheVerifiedProfileSeamsReadTheProfileDirectoriesTheyArePointedAt()
     {
-        var local = Path.Combine(_root, "local");
-        var shared = Path.Combine(_root, "shared");
+        var local = _root.Combine("local");
+        var shared = _root.Combine("shared");
         var written = LocalProfileWriter.Write(
             CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState), SharedCalibrationTestBed.Template, Build,
             SharedCalibrationTestBed.Confirmed, local);
@@ -71,7 +59,7 @@ public sealed class CalibrationServicesSharedCalibrationTests : IDisposable
     public async Task WithSharedCalibrationUsesTheGivenFetchAndStore()
     {
         var asked = new List<(Region Region, string Build)>();
-        var store = new SharedCalibrationStore(_root);
+        var store = new SharedCalibrationStore(_root.Path);
 
         var services = Bare().WithSharedCalibration(
             (region, build, _) =>
@@ -89,10 +77,10 @@ public sealed class CalibrationServicesSharedCalibrationTests : IDisposable
     [Fact]
     public void WithSharedCalibrationInPointsARealStoreAtTheRootWithoutFetchingOrWriting()
     {
-        var services = Bare().WithSharedCalibrationIn(_root);
+        var services = Bare().WithSharedCalibrationIn(_root.Path);
 
         var store = Assert.IsType<SharedCalibrationStore>(services.SharedCalibrations);
-        Assert.Equal(Path.GetFullPath(_root), store.Root);
-        Assert.False(Directory.Exists(_root));
+        Assert.Equal(Path.GetFullPath(_root.Path), store.Root);
+        Assert.False(Directory.Exists(_root.Path));
     }
 }

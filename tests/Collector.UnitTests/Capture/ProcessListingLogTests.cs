@@ -11,19 +11,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProcessListingLogTests : IDisposable
 {
-    private readonly string _directory = Directory.CreateTempSubdirectory("MentorRecorder.ListingLog.").FullName;
+    private readonly TempDirectory _directory = new("ListingLog");
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     [Fact]
     public void TheLocatorReportsEveryListingAndWhetherItWasRead()
@@ -47,7 +37,7 @@ public sealed class ProcessListingLogTests : IDisposable
     {
         var clock = new TestClock(new DateTimeOffset(2026, 10, 3, 8, 0, 0, TimeSpan.Zero));
         var now = TimeSpan.Zero;
-        using var logger = new RotatingFileLogger(_directory, clock);
+        using var logger = new RotatingFileLogger(_directory.Path, clock);
         var log = new ProcessListingLog(logger, "capture", () => now);
 
         log.Observe(succeeded: true);

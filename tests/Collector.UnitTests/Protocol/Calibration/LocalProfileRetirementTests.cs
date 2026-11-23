@@ -38,19 +38,6 @@ public sealed class LocalProfileRetirementTests : IDisposable
 
     private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
 
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
-    /// <summary>Writes the local profile one synthetic evening would have produced.</summary>
-    /// <param name="trafficCase">Case from <see cref="CalibrationTrafficCases"/>.</param>
-    /// <param name="root">Directory to write into; the bed's local root by default.</param>
-    private string WriteLocalProfile(string trafficCase, string? root = null) =>
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(trafficCase), Bed.Template, Bed.Build, Bed.Confirmed,
-            root ?? _bed.LocalRoot).Path;
-
     /// <summary>The bed's services with the local-profile seams wired and the retirement watched.</summary>
     private CalibrationServices Services()
     {
@@ -78,7 +65,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void TheProfileThePlayerRetiredIsPutAwayAndCalibrationObservesAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -113,12 +100,12 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void RetiringAProfileMarksNoneOfItsRecordsForReview()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, new[] { Announced(9, 50_000) });
-        var recorded = Assert.Single(RunsOf(session));
+        var recorded = Assert.Single(_bed.RunsOf(session));
         Assert.False(recorded.PendingReview);
 
         pipeline.DiscardCalibration(retireLocalProfile: true);
@@ -138,7 +125,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void TheRetiredProfilesMatchMessageMayBeProposedAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -157,7 +144,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void APlainDiscardLeavesTheProfileInForce()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -180,7 +167,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     public void AProfileThisMachineDidNotWriteIsNotRetired()
     {
         var shipped = Path.Combine(_bed.Root, "shipped");
-        WriteLocalProfile(CalibrationTrafficCases.Announcement, shipped);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement, root: shipped);
         var selector = new ProfileSelector(ProfileCatalog.LoadMerged(shipped, _bed.LocalRoot, _bed.SharedRoot));
         ProfileSelection Select(GameProcessDetection game) => selector.Select(game.Region, game.GameBuild);
         var pipeline = new LiveProtocolPipeline(
@@ -222,7 +209,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void AParkedQueueHoldsTheRetirementForTheProfilesWholeHourAndTheSentenceSaysSo()
     {
-        var written = ProfileLoader.Validate(WriteLocalProfile(CalibrationTrafficCases.QueueRequest)).Profile!;
+        var written = ProfileLoader.Validate(_bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest)).Profile!;
         Assert.True(written.ToBinding().MatchFromQueue);
         Assert.Equal(TimeSpan.FromHours(1), written.MatchWindow);
         var pipeline = _bed.Pipeline(Services());
@@ -257,7 +244,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void AQueueParkedBeforeTheGameClosedNoLongerHoldsTheRetirementOnceTheGameIsStartedAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -281,7 +268,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void ARunIsUnderWayWhileAQueueRequestIsParked()
     {
-        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         Assert.False(pipeline.RunUnderWayNow);
@@ -303,7 +290,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void ARunIsUnderWayFromTheMatchUntilTheDutyIsLeft()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -346,7 +333,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     [Fact]
     public void AProfileThatCannotBePutAwayIsStillNotBoundAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
             RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),

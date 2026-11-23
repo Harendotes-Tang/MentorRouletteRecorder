@@ -25,12 +25,6 @@ public sealed class RunImportServiceTests
     private static JsonObject Commit(RunImportService service, JsonObject preview, string? requestId = null) =>
         service.Commit(preview["preview_id"]!.GetValue<string>(),
             preview["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(), true, requestId ?? Id());
-    private static long Count(TestDatabase fixture, string table)
-    {
-        using var command = fixture.Database.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM " + table;
-        return (long)command.ExecuteScalar()!;
-    }
     private static SettingsRepository Settings(TestDatabase fixture)
     {
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
@@ -225,7 +219,7 @@ public sealed class RunImportServiceTests
         Assert.Equal("new", Row(preview)["status"]!.GetValue<string>());
         Assert.True(Row(preview)["incomplete"]!.GetValue<bool>());
         foreach (var table in new[] { "mentor_runs", "run_reflections", "run_revisions", "run_import_metadata", "run_import_batches" })
-            Assert.Equal(0, Count(fixture, table));
+            Assert.Equal(0, fixture.Count(table));
         var result = Commit(service, preview);
         var run = new RunRepository(fixture.Database).Get(result["run_ids"]![0]!.GetValue<string>())!;
         Assert.Null(run.EnteredAtUtc);
@@ -240,7 +234,7 @@ public sealed class RunImportServiceTests
         var stats = new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard();
         Assert.Equal(0, stats.AttemptCount);
         Assert.Equal(0, stats.CompletedCount);
-        Assert.Equal(1, Count(fixture, "run_revisions"));
+        Assert.Equal(1, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -268,7 +262,7 @@ public sealed class RunImportServiceTests
         Assert.Equal(1, stats.CompletedCount);
         Assert.Equal(1, stats.AchievementProgress);
         Assert.Null(stats.AverageDurationMs);
-        Assert.Equal(2, Count(fixture, "run_revisions"));
+        Assert.Equal(2, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -289,7 +283,7 @@ public sealed class RunImportServiceTests
         Assert.Null(run.EndedAtUtc);
         Assert.Null(run.DurationMs);
         Assert.Equal(1, new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard().CompletedCount);
-        Assert.Equal(2, Count(fixture, "run_revisions"));
+        Assert.Equal(2, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -324,7 +318,7 @@ public sealed class RunImportServiceTests
         Assert.Equal("duplicate", Row(preview)["status"]!.GetValue<string>());
         Assert.Equal(1, Commit(service, preview)["duplicate_count"]!.GetValue<int>());
         Assert.Equal("仅 JSON 含此字段", repository.Get(local.RunId)!.Note);
-        Assert.Equal(1, Count(fixture, "mentor_runs"));
+        Assert.Equal(1, fixture.Count("mentor_runs"));
     }
 
     [Fact]
@@ -341,8 +335,8 @@ public sealed class RunImportServiceTests
         Assert.Equal(1, result["conflict_count"]!.GetValue<int>());
         Assert.Equal(1, result["imported_count"]!.GetValue<int>());
         Assert.Equal("本地更新", repository.Get(incoming.RunId)!.Note);
-        Assert.Equal(2, Count(fixture, "mentor_runs"));
-        Assert.Equal(1, Count(fixture, "run_revisions"));
+        Assert.Equal(2, fixture.Count("mentor_runs"));
+        Assert.Equal(1, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -364,8 +358,8 @@ public sealed class RunImportServiceTests
             service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 1 }, true, requestId)).Code);
         var next = service.PreviewSource("SCREENSHOT", rows: rows, timeZone: "+08:00");
         Assert.All(next["rows"]!.AsArray(), row => Assert.Equal("duplicate", row!["status"]!.GetValue<string>()));
-        Assert.Equal(2, Count(fixture, "mentor_runs"));
-        Assert.Equal(2, Count(fixture, "run_revisions"));
+        Assert.Equal(2, fixture.Count("mentor_runs"));
+        Assert.Equal(2, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -388,7 +382,7 @@ public sealed class RunImportServiceTests
         Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() =>
             mutations.CorrectRun(new CorrectRunCommand(requestId, runId, 1, "测试编号复用", change))).Code);
         Assert.Null(new RunRepository(fixture.Database).Get(runId)!.Note);
-        Assert.Equal(1, Count(fixture, "run_revisions"));
+        Assert.Equal(1, fixture.Count("run_revisions"));
     }
 
     [Fact]
@@ -401,7 +395,7 @@ public sealed class RunImportServiceTests
         Assert.Equal("possible_duplicate", Row(next)["status"]!.GetValue<string>());
         Assert.True(Row(next)["can_import"]!.GetValue<bool>());
         Assert.Equal(1, Commit(service, next)["imported_count"]!.GetValue<int>());
-        Assert.Equal(2, Count(fixture, "mentor_runs"));
+        Assert.Equal(2, fixture.Count("mentor_runs"));
     }
 
     [Fact]
@@ -413,8 +407,8 @@ public sealed class RunImportServiceTests
         var preview = service.PreviewSource("ROWS", rows: new JsonArray(History(), bad), timeZone: "+08:00");
         Assert.Equal("invalid", Row(preview, 1)["status"]!.GetValue<string>());
         Assert.Throws<CollectorException>(() => Commit(service, preview));
-        Assert.Equal(0, Count(fixture, "mentor_runs"));
-        Assert.Equal(0, Count(fixture, "run_import_batches"));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
+        Assert.Equal(0, fixture.Count("run_import_batches"));
     }
 
     [Fact]
@@ -432,7 +426,7 @@ public sealed class RunImportServiceTests
         }
         Assert.Throws<SqliteException>(() => Commit(service, preview));
         foreach (var table in new[] { "mentor_runs", "run_reflections", "run_revisions", "run_import_metadata", "run_import_batches" })
-            Assert.Equal(0, Count(fixture, table));
+            Assert.Equal(0, fixture.Count(table));
     }
 
     [Fact]
@@ -458,8 +452,8 @@ public sealed class RunImportServiceTests
         Commit(service, service.PreviewSource("BACKUP", filePath: path));
         Assert.Equal(before, SHA256.HashData(File.ReadAllBytes(path)));
         Assert.Equal(baseline, settings.GetAchievementSettings());
-        Assert.Equal(0, Count(target, "capture_sessions"));
-        Assert.Equal(1, Count(target, "mentor_runs"));
+        Assert.Equal(0, target.Count("capture_sessions"));
+        Assert.Equal(1, target.Count("mentor_runs"));
         var imported = new RunRepository(target.Database).Query(null, null, 1, 50).Items.Single();
         Assert.Null(imported.CaptureSessionId);
         Assert.Null(imported.ProtocolProfileId);
@@ -485,7 +479,7 @@ public sealed class RunImportServiceTests
         var preview = service.PreviewSource("ROWS", rows: new JsonArray(JsonNode.Parse(json)), timeZone: zone);
         Assert.Equal("invalid", Row(preview)["status"]!.GetValue<string>());
         Assert.False(Row(preview)["can_import"]!.GetValue<bool>());
-        Assert.Equal(0, Count(fixture, "mentor_runs"));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
     }
 
     [Fact]
@@ -497,8 +491,8 @@ public sealed class RunImportServiceTests
         var error = Assert.Throws<CollectorException>(() => service.PreviewSource("SCREENSHOT", rows: rows, timeZone: "+08:00"));
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Contains("分", error.Message);
-        Assert.Equal(0, Count(fixture, "mentor_runs"));
-        Assert.Equal(0, Count(fixture, "run_import_batches"));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
+        Assert.Equal(0, fixture.Count("run_import_batches"));
     }
 
     /// <summary>

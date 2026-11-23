@@ -258,7 +258,7 @@ public sealed class IpcHardeningTests
         using var host = CollectorHost.Open(
             Path.Combine(Path.GetDirectoryName(database.Path)!, "integrity.db"),
             database.Clock,
-            capture: FakeCapture());
+            capture: InertCapture.Services());
         var dispatcher = new MessageDispatcher(host);
 
         // Holding the slot is what a scan in flight does. Taking it here needs no database big
@@ -285,14 +285,6 @@ public sealed class IpcHardeningTests
     private static IpcRequest IntegrityRequest() =>
         new(Guid.NewGuid().ToString("D"), "CheckDatabaseIntegrity", new JsonObject());
 
-    private static CaptureServices FakeCapture() => new()
-    {
-        Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-        Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-        Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-        EnableFollowTimer = false,
-    };
-
     /// <summary>A peer whose full receive buffer keeps a response write pending.</summary>
     private sealed class BlockedWriteStream : MemoryStream
     {
@@ -315,17 +307,9 @@ public sealed class IpcHardeningTests
     }
 
     /// <summary>A peer that connects and then never sends a byte.</summary>
-    private sealed class SilentStream : Stream
+    private sealed class SilentStream : AsyncOnlyStream
     {
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
         public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
 
         public override async ValueTask<int> ReadAsync(
             Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -337,11 +321,5 @@ public sealed class IpcHardeningTests
         public override ValueTask WriteAsync(
             ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
-
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
     }
 }

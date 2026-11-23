@@ -33,15 +33,12 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
         WellKnownSidType.InteractiveSid,
     };
 
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("PipeAcl");
     private readonly CollectorHost _host;
 
     public LifecyclePipeSecurityTests()
     {
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.PipeAcl", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-        _host = CollectorHost.Open(Path.Combine(_directory, "acl.db"), SystemClock.Instance);
+        _host = CollectorHost.Open(_directory.Combine("acl.db"), SystemClock.Instance);
     }
 
     [Fact]
@@ -361,17 +358,8 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     public void Dispose()
     {
         _host.Dispose();
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same as above.
-        }
+
+        // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+        _directory.Dispose();
     }
 }

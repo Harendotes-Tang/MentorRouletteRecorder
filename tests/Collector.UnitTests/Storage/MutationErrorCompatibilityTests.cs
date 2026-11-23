@@ -19,30 +19,11 @@ public sealed class MutationErrorCompatibilityTests
 
     private sealed class Fixture : RunMutationTestContext
     {
-        public int RunCount => CountRows("mentor_runs");
+        public long RunCount => Database.Count("mentor_runs");
 
-        public int RevisionCount => CountRows("run_revisions");
+        public long RevisionCount => Database.Count("run_revisions");
 
-        public int IdempotencyCount => CountRows("ipc_idempotency");
-
-        private int CountRows(string table)
-        {
-            var sql = table switch
-            {
-                "mentor_runs" => "SELECT COUNT(*) FROM mentor_runs;",
-                "run_revisions" => "SELECT COUNT(*) FROM run_revisions;",
-                "ipc_idempotency" => "SELECT COUNT(*) FROM ipc_idempotency;",
-                _ => throw new ArgumentOutOfRangeException(nameof(table), table, null),
-            };
-
-            return Database.Database.Read(_ =>
-            {
-                using var command = Database.Database.CreateCommand();
-                command.CommandText = sql;
-                return Convert.ToInt32(
-                    command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
-            });
-        }
+        public long IdempotencyCount => Database.Count("ipc_idempotency");
     }
 
     [Fact]

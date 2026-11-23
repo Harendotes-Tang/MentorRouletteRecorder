@@ -111,8 +111,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.Equal(SharedCalibrationPhase.Verifying, pipeline.CalibrationStatus().Shared.Phase);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
@@ -128,10 +127,8 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, TrueEvening, hour: 24);
-        await Bed.Idle(pipeline);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening, hour: 24);
+        await Bed.StopAndSettleAsync(pipeline, session);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
         Assert.True(File.Exists(_bed.SharedProfilePath));
@@ -154,8 +151,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         var third = _bed.Start(pipeline);
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Bed.Feed(pipeline, third, EveningWithoutTheDeclaredMarker, hour: 72);
-        pipeline.OnCaptureStopped(third, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, third);
 
         Assert.True(Rejected(code));
         Assert.False(File.Exists(_bed.SharedProfilePath));
@@ -291,8 +287,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.NotNull(pipeline.CalibrationStatus().Shared.ProfileId);
 
-        Bed.Feed(pipeline, session, Bed.From(Bed.Evening(), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(), 200_000));
 
         var shared = pipeline.CalibrationStatus().Shared;
         Assert.Null(shared.ProfileId);
@@ -307,9 +302,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     public async Task AfterARestartASharedProfileWhoseCodeWasRejectedIsWithdrawnNotTrusted()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         foreach (var session in new[] { "session-1", "session-2" })
         {
             _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, session, Bed.Confirmed);
@@ -334,27 +327,15 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     public async Task AStateFileThatCannotBeOpenedWithdrawsNothingAndAKnownRejectionStillDoes()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         // One contradicting session is a record, not a rejection - and it leaves a state file on disk to hold open.
         _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, "session-1", Bed.Confirmed);
         var runs = new RunRepository(_bed.Db.Database);
-        var revisions = new RunRevisionRepository(_bed.Db.Database);
         var recorded = TestDatabase.Run(source: RunSource.AutoNetwork) with
         {
             ProtocolProfileId = SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build),
         };
-        _bed.Db.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(recorded, tx);
-            revisions.Append(new RunRevision
-            {
-                RevisionId = Guid.NewGuid().ToString("D"), RunId = recorded.RunId, Revision = 1,
-                ChangedAtUtc = recorded.CreatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
-                Reason = null, Changes = Array.Empty<RunFieldChange>(),
-            }, tx);
-        });
+        _bed.Db.InsertWithFirstRevision(recorded);
         var state = Path.Combine(
             SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
 
@@ -385,8 +366,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     [Fact]
     public void AfterARestartAQueueInferredLocalProfileStillKeepsLookingForTheAnnouncement()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
 
         var current = pipeline.Refresh(Bed.Game());
@@ -401,9 +381,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     public void AfterARestartAQueueInferredSharedProfileStillKeepsLookingForTheAnnouncement()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>(), Bed.Confirmed),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload, Bed.Confirmed);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
 
         var current = pipeline.Refresh(Bed.Game());
@@ -418,9 +396,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     public void AfterARestartASharedProfileWithoutACompleteDutyIsStillWatchedUnderItsCode()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);

@@ -14,35 +14,22 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
 {
     private const string Build = "2026.09.01.0000.0000";
     private const string TemplateSha = "template-sha";
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "evidence-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = TempDirectory.Reserve();
 
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(_root))
-            {
-                Directory.Delete(_root, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     [Fact]
     public void SameBuildCnAndTcEvidenceCanBeSavedAndDeletedIndependently()
     {
         var snapshot = Observe(CalibrationObserverTests.Session1());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, snapshot));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Tc, Build, TemplateSha, snapshot));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, snapshot));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Tc, Build, TemplateSha, snapshot));
         Assert.NotEqual(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build),
             CalibrationEvidenceStore.FileNameFor(Region.Tc, Build));
         Assert.StartsWith("tc.", CalibrationEvidenceStore.FileNameFor(Region.Tc, Build));
-        CalibrationEvidenceStore.Delete(_root, Region.Tc, Build);
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Tc, Build, TemplateSha));
-        Assert.NotNull(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        CalibrationEvidenceStore.Delete(_root.Path, Region.Tc, Build);
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Tc, Build, TemplateSha));
+        Assert.NotNull(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         Assert.Throws<ArgumentException>(() => CalibrationEvidenceStore.FileNameFor(Region.Unknown, Build));
     }
 
@@ -77,8 +64,8 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         }));
         Assert.DoesNotContain(CalibrationDraft.Derive(before, template).Messages, message => message.Name == "PLAYER_JOB");
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
         Assert.Equal(1, carried!.Clusters[1].JobViolations[CalibrationObserverTests.JobOpcode]);
@@ -113,10 +100,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Null(coordinator.Judge(verdicts));
         Assert.NotEqual(CalibrationState.Ready, coordinator.Snapshot().State);
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
         var restarted = new CalibrationCoordinator();
         restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         restarted.Begin("after-restart");
 
         Assert.NotEqual(CalibrationState.Ready, restarted.Snapshot().State);
@@ -144,11 +131,11 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal(CalibrationMatchSource.MarkerOffset, coordinator.CurrentDraft()!.MatchSource);
         coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
         coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
 
         var restarted = new CalibrationCoordinator();
         restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         restarted.Begin(FirstSession);
         restarted.Discard(FirstSession);
         foreach (var message in traffic)
@@ -180,11 +167,11 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
 
         coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
         coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
 
         var restarted = new CalibrationCoordinator();
         restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         restarted.Discard(null);
         restarted.Begin(FirstSession);
         foreach (var message in traffic)
@@ -215,18 +202,18 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
 
         coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
         coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
 
         // The Collector restarts with the game closed, and the player presses 清空校准进度 before any session.
         var discarding = new CalibrationCoordinator();
         discarding.Arm(template, Region.Cn, Build);
-        discarding.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        discarding.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         discarding.Discard(null);
         Assert.Null(discarding.Evidence());
         // What the pipeline does: delete the file, then write what the coordinator says must stay.
-        CalibrationEvidenceStore.Delete(_root, Region.Cn, Build);
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, discarding.DisprovedOnly()!));
-        var kept = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!;
+        CalibrationEvidenceStore.Delete(_root.Path, Region.Cn, Build);
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, discarding.DisprovedOnly()!));
+        var kept = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!;
         Assert.Equal(0, kept.MessagesSeen);
         Assert.Empty(kept.Pairs);
         Assert.Empty(kept.Clusters);
@@ -237,7 +224,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         // And the Collector restarts again before any session began - where the player may press 清空 once more.
         var third = new CalibrationCoordinator();
         third.Arm(template, Region.Cn, Build);
-        third.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        third.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         third.Discard(null);
         third.Begin(FirstSession);
         foreach (var message in traffic)
@@ -261,9 +248,9 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         var chatter = Enumerable.Range(0, CalibrationDraft.MaxCandidateOccurrences + 1)
             .Select(index => CalibrationObserverTests.Message(
                 MessageDirection.Outbound, movement, CalibrationObserverTests.Bytes(24, (0, 200)), 10_000 + index * 20));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha,
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha,
             Observe(CalibrationObserverTests.Cluster(5_000, 5000).Concat(chatter))));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!;
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!;
         Assert.Contains((PacketDirection.ClientToServer, movement), carried.FrequentOpcodes);
 
         var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Region.Cn, afterRestart);
@@ -308,13 +295,13 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
             DisprovedPopOpcodes = new HashSet<ushort> { 0xC002 },
         };
         var plain = Observe(CalibrationObserverTests.Session1());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, plain));
-        Assert.Same(CalibrationRejections.None, CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.Rejections);
-        Assert.DoesNotContain("rejections", File.ReadAllText(Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build))),
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, plain));
+        Assert.Same(CalibrationRejections.None, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.Rejections);
+        Assert.DoesNotContain("rejections", File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build))),
             StringComparison.Ordinal);
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, plain with { Rejections = rejections }));
-        var read = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.Rejections;
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, plain with { Rejections = rejections }));
+        var read = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.Rejections;
 
         Assert.Equal(rejections.PopOpcodes, read.PopOpcodes);
         Assert.Equal(rejections.ZoneKeys, read.ZoneKeys);
@@ -335,8 +322,8 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         var before = Observe(CalibrationObserverTests.Session1());
         var expected = CalibrationDraft.Derive(before, template);
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
         var restored = new CalibrationObserver(template, Region.Cn, "session-two");
@@ -371,10 +358,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
             .Where(message => message.Mono < TimeSpan.FromMilliseconds(200_000))
             .ToArray();
         var before = Observe(firstEvening);
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
 
         var restored = new CalibrationObserver(template, Region.Cn, "session-two");
-        restored.AdoptEvidence(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!);
+        restored.AdoptEvidence(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!);
         foreach (var message in CalibrationObserverTests.Session1()
             .Where(message => message.Mono >= TimeSpan.FromMilliseconds(200_000))
             .OrderBy(message => message.Mono))
@@ -404,13 +391,13 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     public void APoorerSnapshotNeverOverwritesARicherOne()
     {
         var rich = Observe(CalibrationObserverTests.Session1());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, rich));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, rich));
 
         var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
         Assert.True(thin.MessagesSeen < rich.MessagesSeen);
-        Assert.False(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.False(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
 
-        var kept = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        var kept = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
         Assert.NotNull(kept);
         Assert.Equal(rich.MessagesSeen, kept!.MessagesSeen);
         Assert.Equal(rich.Clusters.Count, kept.Clusters.Count);
@@ -425,15 +412,15 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     public void AfterDiscardingASmallSnapshotIsWrittenNormally()
     {
         var rich = Observe(CalibrationObserverTests.Session1());
-        CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, rich);
-        CalibrationEvidenceStore.Delete(_root, Region.Cn, Build);
+        CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, rich);
+        CalibrationEvidenceStore.Delete(_root.Path, Region.Cn, Build);
 
         var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
         Assert.Equal(
             thin.MessagesSeen,
-            CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.MessagesSeen);
+            CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.MessagesSeen);
     }
 
     /// <summary>
@@ -445,10 +432,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     {
         var template = CalibrationObserverTests.Template();
         var before = Observe(CalibrationObserverTests.Session1());
-        CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before);
+        CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before);
 
         var restored = new CalibrationObserver(template, Region.Cn, "session-two");
-        restored.AdoptEvidence(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!);
+        restored.AdoptEvidence(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!);
 
         Assert.Equal(
             before.MessagesSeen,
@@ -464,54 +451,54 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [Fact]
     public void TheStoreSaysWhyItHandedNothingOver()
     {
-        Assert.Equal("NO_FILE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.Equal("NO_FILE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
 
         CalibrationEvidenceStore.Save(
-            _root, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
+            _root.Path, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
 
-        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
         Assert.Equal("OTHER_TEMPLATE",
-            CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "a-different-template"));
+            CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, "a-different-template"));
         Assert.Equal("NO_FILE",
-            CalibrationEvidenceStore.Explain(_root, Region.Cn, "2026.10.01.0000.0000", TemplateSha));
+            CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, "2026.10.01.0000.0000", TemplateSha));
 
-        File.WriteAllText(Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ no");
-        Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        File.WriteAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ no");
+        Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
     }
 
     [Fact]
     public void EvidenceCollectedUnderAnotherTemplateIsNotAdopted()
     {
         var before = Observe(CalibrationObserverTests.Session1());
-        CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before);
+        CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before);
 
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "a-different-template"));
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, "2026.10.01.0000.0000", TemplateSha));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "a-different-template"));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, "2026.10.01.0000.0000", TemplateSha));
     }
 
     [Fact]
     public void ACorruptOrMissingFileIsSimplyNoEvidence()
     {
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
 
-        Directory.CreateDirectory(_root);
+        Directory.CreateDirectory(_root.Path);
         File.WriteAllText(
-            Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ not json");
+            _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ not json");
 
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
     }
 
     [Fact]
     public void DiscardingRemovesTheFileSoARestartDoesNotBringItBack()
     {
         var before = Observe(CalibrationObserverTests.Session1());
-        CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before);
-        Assert.NotNull(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before);
+        Assert.NotNull(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
 
-        CalibrationEvidenceStore.Delete(_root, Region.Cn, Build);
+        CalibrationEvidenceStore.Delete(_root.Path, Region.Cn, Build);
 
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
-        CalibrationEvidenceStore.Delete(_root, Region.Cn, Build); // Twice is not an error.
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        CalibrationEvidenceStore.Delete(_root.Path, Region.Cn, Build); // Twice is not an error.
     }
 
     /// <summary>
@@ -528,8 +515,8 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         var announced = before.TimedShapes.Single(shape => shape.Opcode == CalibrationTrafficCases.Announce);
         Assert.True(announced.InQueue > 0);
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
         var restored = new CalibrationObserver(template, Region.Cn, "session-two");
@@ -563,15 +550,15 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     public void AFileWrittenBeforeTheTimingTablesExistedStillLoads()
     {
         CalibrationEvidenceStore.Save(
-            _root, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
-        var path = Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+            _root.Path, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
+        var path = _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
         var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         document.Remove("timed_shapes");
         document.Remove("timed_dead");
         document.Remove("timing_overflow");
         File.WriteAllText(path, document.ToJsonString());
 
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
         Assert.Empty(carried!.TimedShapes);
@@ -579,7 +566,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal(0, carried.TimingOverflow);
     }
 
-    private string FilePath => Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+    private string FilePath => _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
 
     /// <summary>
     /// Audit 2026-10-03, OCal-1. A file written while every movement packet that started with a
@@ -594,7 +581,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     {
         var template = CalibrationObserverTests.Template();
         var before = Observe(CalibrationObserverTests.Session1());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
         var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         document.Remove("queue_rule");
         foreach (var pop in document["pops"]!.AsArray())
@@ -606,10 +593,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         document["timing_overflow"] = 2;
         File.WriteAllText(FilePath, document.ToJsonString());
 
-        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
-        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
         Assert.Empty(carried!.Pops);
         Assert.Empty(carried.Markers);
         Assert.Empty(carried.MarkerShapeTotals);
@@ -651,17 +638,17 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     {
         var rich = Observe(CalibrationObserverTests.Session1());
         var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, "the-old-template", rich));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, "the-old-template", rich));
 
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
-        Assert.Equal(thin.MessagesSeen, CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.MessagesSeen);
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
+        Assert.Equal(thin.MessagesSeen, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.MessagesSeen);
 
         var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         document["schema_version"] = CalibrationEvidenceStore.SchemaVersion + 1;
         document["messages_seen"] = rich.MessagesSeen;
         File.WriteAllText(FilePath, document.ToJsonString());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
-        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
+        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
     }
 
     /// <summary>
@@ -675,29 +662,29 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [InlineData("\"text\"")]
     public void AFileThatIsNotAnObjectIsNoEvidenceAndBlocksNoSave(string content)
     {
-        Directory.CreateDirectory(_root);
+        Directory.CreateDirectory(_root.Path);
         File.WriteAllText(FilePath, content);
 
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
-        Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
         var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
-        Assert.NotNull(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
+        Assert.NotNull(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
     }
 
     [Fact]
     public void AFileWithARepeatedEntryIsNoEvidenceAndBlocksNoSave()
     {
         var rich = Observe(CalibrationObserverTests.Session1());
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, rich));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, rich));
         var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         var opcodes = document["opcodes"]!.AsArray();
         opcodes.Add(opcodes[0]!.DeepClone());
         File.WriteAllText(FilePath, document.ToJsonString());
 
-        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
-        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
     }
 
     [Fact]
@@ -707,8 +694,8 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         // if one ever started to. The duty name is the only free text a snapshot carries, and
         // it comes from the shipped duty table rather than from the wire.
         var before = Observe(CalibrationObserverTests.Session1());
-        CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before);
-        var text = File.ReadAllText(Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+        CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before);
+        var text = File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
         Assert.DoesNotContain("payload", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("bytes", text, StringComparison.OrdinalIgnoreCase);

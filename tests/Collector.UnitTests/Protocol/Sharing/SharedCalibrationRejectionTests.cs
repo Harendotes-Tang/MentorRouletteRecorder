@@ -19,10 +19,6 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private static Dictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
-
     [Fact]
     public void TheStoreKeepsTheUserRejectionApartFromContradictionsAndRediscoveringClearsBoth()
     {
@@ -51,8 +47,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 200_000));
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
         Assert.Equal(CalibrationState.Done, pipeline.CalibrationStatus().State);
         Assert.False(pipeline.CalibrationArmed);
@@ -79,7 +74,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         Bed.Feed(pipeline, next, CalibrationObserverTests.Session1(), hour: 24);
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
-        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.True(pipeline.ConfirmCalibration(Bed.AllCorrect(ready)).BoundInSession);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
     }
 
@@ -119,8 +114,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         Assert.DoesNotContain("0x", pasted.Message, StringComparison.OrdinalIgnoreCase);
 
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 200_000));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.False(File.Exists(_bed.SharedProfilePath));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
@@ -158,8 +152,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
     [Fact]
     public void WhileALocalProfileRecordsTheRefusalIsStillShownAndRediscoveringStillClearsIt()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
         var pipeline = _bed.Pipeline(_bed.Services());
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
         Assert.False(pipeline.CalibrationArmed);

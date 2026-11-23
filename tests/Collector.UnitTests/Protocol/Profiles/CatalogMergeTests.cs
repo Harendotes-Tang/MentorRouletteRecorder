@@ -1,6 +1,4 @@
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Storage;
@@ -19,7 +17,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CatalogMergeTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("MentorRecorder.CatalogMerge.").FullName;
+    private readonly TempDirectory _root = new("CatalogMerge");
 
     private static readonly string ShippedTemplatesRoot =
         ProfileCatalog.FindDefaultRoot() ?? throw new InvalidOperationException(
@@ -34,21 +32,11 @@ public sealed class CatalogMergeTests : IDisposable
     private static readonly string UnsupportedTemplatePath =
         Path.Combine(ShippedTemplatesRoot, "cn", "cn-unsupported.json");
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
-    private string ShippedRoot => Path.Combine(_root, "shipped");
+    private string ShippedRoot => _root.Combine("shipped");
 
-    private string LocalRoot => Path.Combine(_root, "local");
+    private string LocalRoot => _root.Combine("local");
 
     /// <summary>Restamps a template profile file with a new identity, keeping its shape.</summary>
     /// <param name="sourcePath">Template file to copy (a real shipped profile).</param>
@@ -61,29 +49,10 @@ public sealed class CatalogMergeTests : IDisposable
         string rootDirectory,
         string profileId,
         string gameBuild,
-        DateTimeOffset? generatedAt = null)
-    {
-        var regionDirectory = Path.Combine(rootDirectory, "cn");
-        Directory.CreateDirectory(regionDirectory);
-
-        var document = JsonNode.Parse(File.ReadAllText(sourcePath))!.AsObject();
-        document["profile_id"] = profileId;
-        document["game_build"] = gameBuild;
-        if (generatedAt is { } stamp)
-        {
-            document["generated_at"] = stamp.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-        }
-
-        // The hash covers everything except itself, so the placeholder below never affects it.
-        document["profile_sha256"] = new string('0', 64);
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        using var draft = JsonDocument.Parse(document.ToJsonString(options));
-        document["profile_sha256"] = ProfileLoader.ComputeProfileHash(draft.RootElement);
-
-        var path = Path.Combine(regionDirectory, profileId + ".json");
-        File.WriteAllText(path, document.ToJsonString(options), new UTF8Encoding(false));
-        return path;
-    }
+        DateTimeOffset? generatedAt = null) =>
+        ProfileTestFiles.WriteStamped(
+            Path.Combine(rootDirectory, "cn"), profileId,
+            ProfileTestFiles.Reidentified(sourcePath, profileId, gameBuild, generatedAt));
 
     private string RestampShipped(string profileId, string gameBuild, DateTimeOffset? generatedAt = null) =>
         Restamp(VerifiedTemplatePath, ShippedRoot, profileId, gameBuild, generatedAt);
@@ -306,11 +275,11 @@ public sealed class CatalogMergeTests : IDisposable
     [Fact]
     public void FindDefaultRoot_OutsideADevelopmentBuildTrustsOnlyTheApplicationFolder()
     {
-        var application = Directory.CreateDirectory(Path.Combine(_root, "app", "bin")).FullName;
-        var working = Directory.CreateDirectory(Path.Combine(_root, "work", "deep")).FullName;
+        var application = Directory.CreateDirectory(_root.Combine("app", "bin")).FullName;
+        var working = Directory.CreateDirectory(_root.Combine("work", "deep")).FullName;
         var plantedAboveApplication = Directory.CreateDirectory(
-            Path.Combine(_root, "app", ProfileCatalog.DirectoryName)).FullName;
-        Directory.CreateDirectory(Path.Combine(_root, "work", ProfileCatalog.DirectoryName));
+            _root.Combine("app", ProfileCatalog.DirectoryName)).FullName;
+        Directory.CreateDirectory(_root.Combine("work", ProfileCatalog.DirectoryName));
 
         var found = ProfileCatalog.FindDefaultRoot(application, working);
 
@@ -336,7 +305,7 @@ public sealed class CatalogMergeTests : IDisposable
     [Fact]
     public void PruneLocalProfiles_OnAMissingDirectoryDeletesNothing()
     {
-        var deleted = ProfileCatalog.PruneLocalProfiles(Path.Combine(_root, "does-not-exist"));
+        var deleted = ProfileCatalog.PruneLocalProfiles(_root.Combine("does-not-exist"));
 
         Assert.Empty(deleted);
     }
@@ -347,9 +316,9 @@ public sealed class CatalogMergeTests : IDisposable
         var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
         try
         {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root);
+            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
 
-            var expected = Path.Combine(Path.GetFullPath(_root), ProfileCatalog.DirectoryName);
+            var expected = Path.Combine(Path.GetFullPath(_root.Path), ProfileCatalog.DirectoryName);
             Assert.Equal(expected, ProfileCatalog.LocalRootPath);
             Assert.Null(ProfileCatalog.FindLocalRoot());
 
@@ -422,7 +391,7 @@ public sealed class CatalogMergeTests : IDisposable
     [InlineData("", false)]
     public void Rehearsal_ReadsOnlyAWellFormedSwitchFile(string text, bool rehearses)
     {
-        var path = Path.Combine(_root, CalibrationRehearsal.FileName);
+        var path = _root.Combine(CalibrationRehearsal.FileName);
         var expected = rehearses ? new CalibrationRehearsal(Region.Global, "2026.11.03.0000.0000") : null;
         foreach (var encoding in new Encoding[] { new UTF8Encoding(false), new UTF8Encoding(true), Encoding.Unicode })
         {
@@ -448,8 +417,8 @@ public sealed class CatalogMergeTests : IDisposable
         var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
         try
         {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root);
-            Assert.Equal(Path.Combine(Path.GetFullPath(_root), CalibrationRehearsal.FileName), CalibrationRehearsal.DefaultPath);
+            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
+            Assert.Equal(Path.Combine(Path.GetFullPath(_root.Path), CalibrationRehearsal.FileName), CalibrationRehearsal.DefaultPath);
             Assert.Equal("global.2026.11.03",
                 new ProfileSelector(ProfileCatalog.LoadMergedDefault()).Select(Region.Global, build).Profile?.ProfileId);
 

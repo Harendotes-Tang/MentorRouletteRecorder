@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -14,9 +13,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>仅使用合成文件验证来源解析；不读取本人数据库、截图或第三方账号。</summary>
 public sealed class RunImportSourceParserTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ImportSourceTests", Guid.NewGuid().ToString("N"));
-
-    public RunImportSourceParserTests() => Directory.CreateDirectory(_directory);
+    private readonly TempDirectory _directory = new("ImportSourceTests");
 
     [Fact]
     public void Csv_ParsesBomQuotedSeparatorsEscapedQuotesAndMultilineWithPhysicalRowNumbers()
@@ -53,7 +50,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Csv_RejectsInvalidUtf8WhenBomDeclaresEncoding()
     {
-        var path = Path.Combine(_directory, "invalid.csv");
+        var path = _directory.Combine("invalid.csv");
         File.WriteAllBytes(path, new byte[] { 0xef, 0xbb, 0xbf, 0xff, 0xfe });
         Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("CSV", path));
     }
@@ -61,7 +58,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Csv_Gb18030FallbackUsesOnlyAnAvailableRuntimeProvider()
     {
-        var path = Path.Combine(_directory, "legacy.csv");
+        var path = _directory.Combine("legacy.csv");
         var providerType = Type.GetType("System.Text.CodePagesEncodingProvider, System.Text.Encoding.CodePages");
         if (providerType?.GetProperty("Instance")?.GetValue(null) is not EncodingProvider provider)
         {
@@ -84,7 +81,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Csv_LegacySixteenColumnExportIsStillNative()
     {
-        var path = Path.Combine(_directory, "legacy.csv");
+        var path = _directory.Combine("legacy.csv");
         var header = string.Join(",", RunExporter.LegacyCsvHeader);
         Assert.Equal(16, RunExporter.LegacyCsvHeader.Count);
         Assert.DoesNotContain("joined_in_progress", header, StringComparison.Ordinal);
@@ -111,7 +108,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             new RunRepository(database.Database).Insert(run, tx);
             new RunReflectionRepository(database.Database).Upsert(run.RunId, ReflectionMood.Good, "-1，合成正文\n完整第二行", database.Clock.UtcNow, tx);
         });
-        var path = Path.Combine(_directory, "native.csv");
+        var path = _directory.Combine("native.csv");
         new RunExporter(new RunRepository(database.Database), database.Clock).ExportCsv(path, null, false);
         var row = Assert.Single(RunImportSourceParser.Parse("CSV", path));
         Assert.Empty(row.Errors);
@@ -176,7 +173,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             new RunRepository(database.Database).Insert(run, tx);
             new RunReflectionRepository(database.Database).Upsert(run.RunId, ReflectionMood.Ok, "合成心得", database.Clock.UtcNow, tx);
         });
-        var path = Path.Combine(_directory, "native.json");
+        var path = _directory.Combine("native.json");
         new RunExporter(new RunRepository(database.Database), database.Clock).ExportJson(path, null, false);
         var row = Assert.Single(RunImportSourceParser.Parse("JSON", path));
         Assert.Empty(row.Errors);
@@ -244,7 +241,7 @@ public sealed class RunImportSourceParserTests : IDisposable
         Assert.Equal(8000, Text(longRow, "reflection_text").Length);
         Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("CSV", text: "副本\n" + string.Join('\n', Enumerable.Repeat("合成", 5001))));
         Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("PASTE", text: string.Join('\t', Enumerable.Repeat("副本", 201))));
-        var path = Path.Combine(_directory, "large.csv");
+        var path = _directory.Combine("large.csv");
         using (var file = File.Create(path)) file.SetLength(20 * 1024 * 1024 + 1);
         Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("CSV", path));
         var rows = new JsonArray();
@@ -267,7 +264,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             <row r="5"><c r="A5" t="inlineStr"><is><t>仅副本</t></is></c></row>
             </sheetData></worksheet>
             """;
-        var rows = RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, sharedStrings: shared));
+        var rows = RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, sharedStrings: shared));
         Assert.Equal(2, rows.Count);
         Assert.Equal(3, rows[0].RowNumber);
         Assert.Equal("合成副本", Text(rows[0], "duty_name"));
@@ -281,14 +278,14 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Xlsx_EmptySheetHasNoRowsAndOverwideRowsRemainErrors()
     {
-        Assert.Empty(RunImportSourceParser.Parse("XLSX", WriteWorkbook("<worksheet><sheetData/></worksheet>")));
+        Assert.Empty(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, "<worksheet><sheetData/></worksheet>")));
         var worksheet = """
             <worksheet><sheetData>
             <row r="1"><c r="A1" t="inlineStr"><is><t>副本</t></is></c></row>
             <row r="5"><c r="A5" t="inlineStr"><is><t>过宽</t></is></c><c r="B5"><v>1</v></c></row>
             </sheetData></worksheet>
             """;
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet)));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet)));
         Assert.Equal(5, row.RowNumber);
         Assert.Equal("过宽", Text(row, "duty_name"));
         Assert.NotEmpty(row.Errors);
@@ -301,7 +298,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             <worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>记录时间</t></is></c></row>
             <row r="2"><c r="A2" s="1"><v>0.5</v></c></row></sheetData></worksheet>
             """;
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, date1904: true, sheetName: "custom.xml")));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, date1904: true, sheetName: "custom.xml")));
         Assert.Empty(row.Errors);
         Assert.Equal("1904-01-01T12:00:00.000", Text(row, "source_recorded_at"));
     }
@@ -314,7 +311,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             <row r="2"><c r="A2" t="inlineStr"><is><t>一_x000D__x000A_二_x005F_x000A_</t></is></c></row>
             <row r="3"><c r="A3" t="inlineStr"><is><t>_xD800_</t></is></c></row></sheetData></worksheet>
             """;
-        var rows = RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet));
+        var rows = RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet));
         Assert.Equal("一\r\n二_x000A_", Text(rows[0], "reflection_text"));
         Assert.Empty(rows[0].Errors);
         Assert.NotEmpty(rows[1].Errors);
@@ -328,7 +325,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             <row r="2"><c r="A2" s="1"><v>46295</v></c><c r="B2" s="2"><v>15000</v></c></row></sheetData></worksheet>
             """;
         var styles = "<styleSheet><numFmts><numFmt numFmtId=\"164\" formatCode=\"yyyy-mm-dd hh:mm\"/><numFmt numFmtId=\"165\" formatCode=\"0 &amp;quot;ms&amp;quot;\"/></numFmts><cellXfs><xf numFmtId=\"0\"/><xf numFmtId=\"164\"/><xf numFmtId=\"165\"/></cellXfs></styleSheet>".Replace("&amp;quot;", "&quot;", StringComparison.Ordinal);
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, styles: styles)));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: styles)));
         Assert.Empty(row.Errors);
         Assert.EndsWith("T00:00:00.000", Text(row, "source_recorded_at"), StringComparison.Ordinal);
         Assert.Equal("15000", Text(row, "duration_ms"));
@@ -344,7 +341,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     public void Xlsx_DateOnlyFormatKeepsDateWithoutInventingMidnight(int formatId, string? format)
     {
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>记录时间</t></is></c></row><row r=\"2\"><c r=\"A2\" s=\"1\"><v>46295.5</v></c></row></sheetData></worksheet>";
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, styles: TemporalStyles(formatId, format))));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(formatId, format))));
         Assert.Empty(row.Errors);
         Assert.Equal(new DateTime(1899, 12, 30).AddDays(46295).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), Text(row, "source_recorded_at"));
         Assert.DoesNotContain('T', Text(row, "source_recorded_at"));
@@ -358,7 +355,7 @@ public sealed class RunImportSourceParserTests : IDisposable
         using var fixture = new TestDatabase();
         // 截图转述：日期数值单元格、战士和已知副本，不冒充投诉者原始工作簿。
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>副本</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>职业</t></is></c><c r=\"C1\" t=\"inlineStr\"><is><t>开始时间</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>异界孤城特罗亚宫廷</t></is></c><c r=\"B2\" t=\"inlineStr\"><is><t>战士</t></is></c><c r=\"C2\" s=\"1\"><v>44832</v></c></row></sheetData></worksheet>";
-        var path = WriteWorkbook(worksheet, styles: TemporalStyles(formatId, format));
+        var path = ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(formatId, format));
         var parsed = Assert.Single(RunImportSourceParser.Parse("XLSX", path));
         Assert.Equal("2022-09-28", Text(parsed, "entered_at_utc"));
         var service = new RunImportService(fixture.Database, fixture.Clock);
@@ -391,7 +388,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     public void Xlsx_TimeOnlyFormatKeepsClockWithoutInventingCalendarDate(int formatId, string? format)
     {
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>开始时间</t></is></c></row><row r=\"2\"><c r=\"A2\" s=\"1\"><v>0.5</v></c></row></sheetData></worksheet>";
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, styles: TemporalStyles(formatId, format))));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(formatId, format))));
         Assert.Empty(row.Errors);
         Assert.Equal("12:00:00.000", Text(row, "entered_at_utc"));
         Assert.DoesNotContain("1899", Text(row, "entered_at_utc"), StringComparison.Ordinal);
@@ -401,7 +398,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     public void Xlsx_ElapsedTimeKeepsHoursAcrossDaysWithoutInventingCalendarDate()
     {
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>耗时</t></is></c></row><row r=\"2\"><c r=\"A2\" s=\"1\"><v>1.5</v></c></row></sheetData></worksheet>";
-        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet, styles: TemporalStyles(164, "[h]:mm:ss"))));
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(164, "[h]:mm:ss"))));
         Assert.Empty(row.Errors);
         Assert.Equal("36:00:00.000", Text(row, "duration_ms"));
     }
@@ -416,15 +413,13 @@ public sealed class RunImportSourceParserTests : IDisposable
         using var fixture = new TestDatabase();
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>副本</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>开始时间</t></is></c><c r=\"C1\" t=\"inlineStr\"><is><t>结束时间</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>合成副本</t></is></c><c r=\"B2\" s=\"1\"><v>" + entered + "</v></c><c r=\"C2\" s=\"1\"><v>" + ended + "</v></c></row></sheetData></worksheet>";
         var service = new RunImportService(fixture.Database, fixture.Clock);
-        var preview = service.PreviewSource("XLSX", WriteWorkbook(worksheet, styles: TemporalStyles(formatId, format)), timeZone: "+08:00");
+        var preview = service.PreviewSource("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(formatId, format)), timeZone: "+08:00");
         var row = Assert.Single(preview["rows"]!.AsArray())!.AsObject();
         Assert.Equal("invalid", row["status"]!.GetValue<string>());
         Assert.False(row["can_import"]!.GetValue<bool>());
         Assert.NotEmpty(row["errors"]!.AsArray());
         Assert.Throws<CollectorException>(() => service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 2 }, true, Guid.NewGuid().ToString("D")));
-        using var count = fixture.Database.CreateCommand();
-        count.CommandText = "SELECT COUNT(*) FROM mentor_runs;";
-        Assert.Equal(0L, (long)count.ExecuteScalar()!);
+        Assert.Equal(0L, fixture.Count("mentor_runs"));
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
         settings.EnsureDefaults();
         Assert.Equal(0, new StatisticsRepository(fixture.Database, settings).GetDashboard().CompletedCount);
@@ -436,7 +431,7 @@ public sealed class RunImportSourceParserTests : IDisposable
         using var fixture = new TestDatabase();
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>副本</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>记录时间</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>合成副本</t></is></c><c r=\"B2\" s=\"1\"><v>46295</v></c></row></sheetData></worksheet>";
         var service = new RunImportService(fixture.Database, fixture.Clock);
-        var preview = service.PreviewSource("XLSX", WriteWorkbook(worksheet, styles: TemporalStyles(14, null)), timeZone: "+08:00");
+        var preview = service.PreviewSource("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet, styles: TemporalStyles(14, null)), timeZone: "+08:00");
         var row = Assert.Single(preview["rows"]!.AsArray())!.AsObject();
         Assert.True(row["can_import"]!.GetValue<bool>());
         Assert.True(row["incomplete"]!.GetValue<bool>());
@@ -461,7 +456,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             <row r="3"><c r="A3" t="s"><v>99</v></c></row>
             <row r="4"><c r="A4" t="inlineStr"><is><t>有效</t></is></c></row></sheetData></worksheet>
             """;
-        var rows = RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet));
+        var rows = RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, worksheet));
         Assert.Equal(3, rows.Count);
         Assert.Equal(string.Empty, Text(rows[0], "reflection_text"));
         Assert.Contains(rows[0].Errors, error => error.Contains("公式", StringComparison.Ordinal));
@@ -473,9 +468,9 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Xlsx_RejectsMacrosExternalRelationshipsAndDtd()
     {
-        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", WriteWorkbook("<worksheet/>", macro: true)));
-        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", WriteWorkbook("<worksheet/>", external: true)));
-        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", WriteWorkbook("<!DOCTYPE x [<!ENTITY value SYSTEM 'file:///not-read'>]><worksheet>&value;</worksheet>")));
+        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, "<worksheet/>", macro: true)));
+        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, "<worksheet/>", external: true)));
+        Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLSX", ImportWorkbookFiles.Write(_directory.Path, "<!DOCTYPE x [<!ENTITY value SYSTEM 'file:///not-read'>]><worksheet>&value;</worksheet>")));
     }
 
     [Fact]
@@ -488,7 +483,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             new RunRepository(database.Database).Insert(run, tx);
             new RunReflectionRepository(database.Database).Upsert(run.RunId, ReflectionMood.Bad, "备份合成心得", database.Clock.UtcNow, tx);
         });
-        var path = Path.Combine(_directory, "software.db");
+        var path = _directory.Combine("software.db");
         database.Database.BackupDatabase(path, false);
         var before = SHA256.HashData(File.ReadAllBytes(path));
         var timestamp = File.GetLastWriteTimeUtc(path);
@@ -509,7 +504,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Backup_AcceptsKnownInitialSchemaWithoutPendingReviewOrReflection()
     {
-        var path = Path.Combine(_directory, "version1.db");
+        var path = _directory.Combine("version1.db");
         var id = Guid.NewGuid().ToString("D");
         using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ConnectionString))
         {
@@ -546,7 +541,7 @@ public sealed class RunImportSourceParserTests : IDisposable
             command.Parameters.AddWithValue("$fingerprint", new string('a', 64));
             command.ExecuteNonQuery();
         }
-        var path = Path.Combine(_directory, "metadata.db");
+        var path = _directory.Combine("metadata.db");
         database.Database.BackupDatabase(path, false);
         var row = Assert.Single(RunImportSourceParser.Parse("BACKUP", path));
         Assert.Empty(row.Errors);
@@ -560,7 +555,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     [Fact]
     public void Backup_RejectsActiveWalAndNonsoftwareStructure()
     {
-        var path = Path.Combine(_directory, "fake.db");
+        var path = _directory.Combine("fake.db");
         using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ConnectionString))
         {
             connection.Open();
@@ -592,30 +587,8 @@ public sealed class RunImportSourceParserTests : IDisposable
 
     private string WriteText(string name, string text)
     {
-        var path = Path.Combine(_directory, name);
+        var path = _directory.Combine(name);
         File.WriteAllText(path, text, new UTF8Encoding(false));
-        return path;
-    }
-
-    private string WriteWorkbook(string worksheet, string? sharedStrings = null, bool date1904 = false,
-        string sheetName = "sheet1.xml", string? styles = null, bool macro = false, bool external = false)
-    {
-        var path = Path.Combine(_directory, Guid.NewGuid().ToString("N") + ".xlsx");
-        using var file = File.Create(path);
-        using var zip = new ZipArchive(file, ZipArchiveMode.Create);
-        void Add(string name, string xml)
-        {
-            using var stream = zip.CreateEntry(name).Open();
-            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
-            writer.Write(xml);
-        }
-        Add("[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/></Types>");
-        Add("xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><workbookPr date1904=\"" + (date1904 ? "1" : "0") + "\"/><sheets><sheet name=\"合成\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
-        Add("xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/" + sheetName + "\"" + (external ? " TargetMode=\"External\"" : "") + "/></Relationships>");
-        Add("xl/worksheets/" + sheetName, worksheet);
-        Add("xl/styles.xml", styles ?? "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><cellXfs><xf numFmtId=\"0\"/><xf numFmtId=\"22\"/></cellXfs></styleSheet>");
-        if (sharedStrings is not null) Add("xl/sharedStrings.xml", sharedStrings);
-        if (macro) Add("xl/vbaProject.bin", "synthetic macro marker, never executed");
         return path;
     }
 
@@ -623,8 +596,5 @@ public sealed class RunImportSourceParserTests : IDisposable
         (format is null ? string.Empty : "<numFmts><numFmt numFmtId=\"" + formatId + "\" formatCode=\"" + System.Security.SecurityElement.Escape(format) + "\"/></numFmts>") +
         "<cellXfs><xf numFmtId=\"0\"/><xf numFmtId=\"" + formatId + "\"/></cellXfs></styleSheet>";
 
-    public void Dispose()
-    {
-        if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
-    }
+    public void Dispose() => _directory.Dispose();
 }

@@ -299,13 +299,135 @@ internal sealed class ManualTimeProvider : TimeProvider
 internal sealed class ScriptedConnections(
     ProcessNetworkConnectionQuery ipv4, ProcessNetworkConnectionQuery? ipv6 = null) : IProcessNetworkConnectionProvider
 {
+    public ScriptedConnections(ProcessNetworkConnectionTables tables)
+        : this(tables.IPv4, tables.IPv6)
+    {
+    }
+
     public ProcessNetworkConnectionQuery IPv4 { get; set; } = ipv4;
     public ProcessNetworkConnectionQuery IPv6 { get; set; } = ipv6 ?? ipv4;
     public int Reads { get; private set; }
 
+    /// <summary>The process the last read asked about.</summary>
+    public int? LastProcessId { get; private set; }
+
+    /// <summary>When set, every read is counted and then throws it, the way a query that did not answer fails.</summary>
+    public Exception? Failure { get; set; }
+
     public ProcessNetworkConnectionTables Read(int processId)
     {
         Reads++;
-        return new ProcessNetworkConnectionTables(IPv4, IPv6);
+        LastProcessId = processId;
+        return Failure is { } failure ? throw failure : new ProcessNetworkConnectionTables(IPv4, IPv6);
+    }
+}
+
+/// <summary>
+/// Capture services that reach nothing: no Npcap, no game process, no adapter, no follow timer. For tests of the
+/// IPC host and storage that need a capture controller to exist but never start one.
+/// </summary>
+internal static class InertCapture
+{
+    public static CaptureServices Services() => new()
+    {
+        Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
+        Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
+        Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
+        EnableFollowTimer = false,
+    };
+}
+
+/// <summary>A capture-source observer that ignores everything it is told.</summary>
+internal sealed class NullCaptureObserver : ICaptureSourceObserver
+{
+    public void OnMessage(Protocol.Decoded.DecodedMessage message)
+    {
+    }
+
+    public void OnDecodeError()
+    {
+    }
+
+    public void OnFault(string reason, Exception? error)
+    {
+    }
+}
+
+/// <summary>A sink that signals <paramref name="entered"/> on each message and then waits for <paramref name="release"/>.</summary>
+internal sealed class GatedSink(ManualResetEventSlim entered, ManualResetEventSlim release) : Protocol.Decoded.IDecodedMessageSink
+{
+    public void Accept(Protocol.Decoded.DecodedMessage message)
+    {
+        entered.Set();
+        release.Wait();
+    }
+}
+
+/// <summary>
+/// The DX11 clients a test declares, swappable while another thread lists them; other process names list
+/// nothing. <see cref="Fails"/> makes every listing fail instead.
+/// </summary>
+internal sealed class ScriptedGameProcesses(params GameProcessCandidate[] clients) : IGameProcessProvider
+{
+    /// <summary>The CN client's executable the scripted clients run.</summary>
+    public const string GamePath = @"D:\SdoA\game\ffxiv_dx11.exe";
+
+    private GameProcessCandidate[] _clients = clients;
+
+    public bool Fails { get; set; }
+
+    /// <summary>A DX11 client started <paramref name="minute"/> minutes after the epoch, identity readable.</summary>
+    public static GameProcessCandidate Client(int pid, int minute, string path = GamePath) => new(
+        pid, GameProcessLocator.Dx11ProcessName, DateTimeOffset.UnixEpoch.AddMinutes(minute), path, false);
+
+    public void Set(params GameProcessCandidate[] clients) => Volatile.Write(ref _clients, clients);
+
+    public IReadOnlyList<GameProcessCandidate> ByName(string name) =>
+        Fails ? throw new InvalidOperationException("simulated process listing failure")
+        : name == GameProcessLocator.Dx11ProcessName ? Volatile.Read(ref _clients) : [];
+}
+
+/// <summary>
+/// Pauses the next read of a double at a boundary a test names: <see cref="PauseNextRead"/> arms it, the read
+/// signals <see cref="Entered"/> and waits until <see cref="Release"/>. Reads pass straight through otherwise.
+/// </summary>
+internal sealed class NextReadGate : IDisposable
+{
+    private readonly ManualResetEventSlim _release = new(true);
+    private int _pauseNext;
+
+    /// <summary>Set once the paused read has arrived.</summary>
+    public ManualResetEventSlim Entered { get; } = new();
+
+    public void PauseNextRead()
+    {
+        Entered.Reset();
+        _release.Reset();
+        Interlocked.Exchange(ref _pauseNext, 1);
+    }
+
+    public void Release() => _release.Set();
+
+    /// <summary>Called by the double on each read; holds the one read that was armed.</summary>
+    /// <param name="boundary">What the read is, for the timeout message.</param>
+    /// <param name="timeout">How long to wait for the release; 20 s by default.</param>
+    public void Pass(string boundary, TimeSpan? timeout = null)
+    {
+        if (Interlocked.Exchange(ref _pauseNext, 0) != 1)
+        {
+            return;
+        }
+
+        Entered.Set();
+        if (!_release.Wait(timeout ?? TimeSpan.FromSeconds(20)))
+        {
+            throw new TimeoutException(boundary + " was not released");
+        }
+    }
+
+    public void Dispose()
+    {
+        Entered.Dispose();
+        _release.Dispose();
     }
 }

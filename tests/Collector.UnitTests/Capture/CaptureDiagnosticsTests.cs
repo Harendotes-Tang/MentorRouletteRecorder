@@ -334,63 +334,47 @@ public sealed class CaptureDiagnosticsTests
         // Driven through the real parser rather than a hand-written view: the guarantee is
         // about what ProfileMessageParser writes, not about what the fixture leaves out
         // (docs/capture-diagnostics.md section 5.3).
-        var directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.ParserErrors", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var profile = ProfileLoader.Load(
-                ProfileTestFiles.Write(directory, "leak-profile", ProfileTestFiles.Valid()));
-            var parser = new ProfileMessageParser(profile, new DiscardingSemanticSink());
+        using var temp = new TempDirectory("ParserErrors");
+        var profile = ProfileLoader.Load(
+            ProfileTestFiles.Write(temp.Path, "leak-profile", ProfileTestFiles.Valid()));
+        var parser = new ProfileMessageParser(profile, new DiscardingSemanticSink());
 
-            // Every byte is recognisable, so any transcription of the payload shows up.
-            var payload = new byte[64];
-            Array.Fill(payload, (byte)0xDE);
-            payload[1] = 0xAD;
-            payload[2] = 0xBE;
-            payload[3] = 0xEF;
+        // Every byte is recognisable, so any transcription of the payload shows up.
+        var payload = new byte[64];
+        Array.Fill(payload, (byte)0xDE);
+        payload[1] = 0xAD;
+        payload[2] = 0xBE;
+        payload[3] = 0xEF;
 
-            // A length no declared message accepts, then an opcode no message claims. The
-            // second is ignored rather than refused, so only one refusal reaches the ring.
-            parser.Accept(DecodedFor(100, payload));
-            parser.Accept(DecodedFor(60000, payload));
+        // A length no declared message accepts, then an opcode no message claims. The
+        // second is ignored rather than refused, so only one refusal reaches the ring.
+        parser.Accept(DecodedFor(100, payload));
+        parser.Accept(DecodedFor(60000, payload));
 
-            var stats = parser.GetParserStats();
-            Assert.Equal(1, stats.ParseFailed);
-            Assert.Equal(1, stats.Ignored);
+        var stats = parser.GetParserStats();
+        Assert.Equal(1, stats.ParseFailed);
+        Assert.Equal(1, stats.Ignored);
 
-            var json = CaptureWire.ParserErrors(stats.RecentErrors
-                    .Select(error => new ParserErrorView(
-                        error.AtUtc, error.Kind, error.Opcode, "S2C", error.Message))
-                    .ToArray())
-                .ToJsonString();
+        var json = CaptureWire.ParserErrors(stats.RecentErrors
+                .Select(error => new ParserErrorView(
+                    error.AtUtc, error.Kind, error.Opcode, "S2C", error.Message))
+                .ToArray())
+            .ToJsonString();
 
-            Assert.DoesNotContain("DEADBEEF", json, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("dead", json, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("beef", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DEADBEEF", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dead", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("beef", json, StringComparison.OrdinalIgnoreCase);
 
-            // Nothing that even looks like a hex dump, an address or a filesystem path may
-            // reach the wire.
-            Assert.DoesNotMatch(HexDumpPattern, json);
-            Assert.DoesNotMatch(IPv4Pattern, json);
-            Assert.DoesNotMatch(WindowsPathPattern, json);
+        // Nothing that even looks like a hex dump, an address or a filesystem path may
+        // reach the wire.
+        Assert.DoesNotMatch(HexDumpPattern, json);
+        Assert.DoesNotMatch(IPv4Pattern, json);
+        Assert.DoesNotMatch(WindowsPathPattern, json);
 
-            // What it does carry: a timestamp, a code and an opcode number.
-            Assert.Contains("E_LEN_MISMATCH", json, StringComparison.Ordinal);
-            Assert.Contains("0x0064", json, StringComparison.Ordinal);
-            Assert.DoesNotContain("E_UNKNOWN_OPCODE", json, StringComparison.Ordinal);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // Temp debris only.
-            }
-        }
+        // What it does carry: a timestamp, a code and an opcode number.
+        Assert.Contains("E_LEN_MISMATCH", json, StringComparison.Ordinal);
+        Assert.Contains("0x0064", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("E_UNKNOWN_OPCODE", json, StringComparison.Ordinal);
     }
 
     [Fact]

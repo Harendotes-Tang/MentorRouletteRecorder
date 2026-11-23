@@ -22,13 +22,6 @@ public sealed class RunImportPagingTests
 
     private static string Id(JsonObject preview) => preview["preview_id"]!.GetValue<string>();
 
-    private static long Count(TestDatabase fixture, string table = "mentor_runs")
-    {
-        using var command = fixture.Database.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM " + table;
-        return (long)command.ExecuteScalar()!;
-    }
-
     [Fact]
     public void TwoThousandAndNinetyRowsAreFrozenBoundedAndCommitAsOneBatch()
     {
@@ -51,12 +44,12 @@ public sealed class RunImportPagingTests
             selected.AddRange(page["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()));
         }
         Assert.Equal(Enumerable.Range(1, 2090), selected);
-        Assert.Equal(0, Count(fixture));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
         var requestId = Guid.NewGuid().ToString("D");
         var result = service.Commit(Id(first), selected, true, requestId);
         Assert.Equal(2090, result["imported_count"]!.GetValue<int>());
-        Assert.Equal(2090, Count(fixture));
-        Assert.Equal(1, Count(fixture, "run_import_batches"));
+        Assert.Equal(2090, fixture.Count("mentor_runs"));
+        Assert.Equal(1, fixture.Count("run_import_batches"));
         Assert.True(service.Commit(Id(first), selected, true, requestId)["replayed"]!.GetValue<bool>());
     }
 
@@ -161,7 +154,7 @@ public sealed class RunImportPagingTests
         Assert.Equal(ErrorCodes.BadRequest, failure.Code);
         Assert.Equal("import.preview.too_large", failure.Text?.Key);
         Assert.Equal(0, CachedCount(service));
-        Assert.Equal(0, Count(fixture));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
     }
 
     [Fact]
@@ -188,7 +181,7 @@ public sealed class RunImportPagingTests
         var failure = Assert.Throws<CollectorException>(() => service.PreviewSource("ROWS", rows: rows, pageSize: 1));
         Assert.Equal(ErrorCodes.BadRequest, failure.Code);
         Assert.Equal(0, CachedCount(service));
-        Assert.Equal(0, Count(fixture));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
     }
 
     [Fact]
@@ -209,7 +202,7 @@ public sealed class RunImportPagingTests
         var error = Assert.Throws<CollectorException>(() => service.PreviewSource("ROWS", rows: Rows(5), pageSize: 1));
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Equal(1, CachedCount(service));
-        Assert.Equal(0, Count(fixture));
+        Assert.Equal(0, fixture.Count("mentor_runs"));
     }
 
     [Fact]

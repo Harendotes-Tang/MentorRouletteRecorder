@@ -130,7 +130,7 @@ public sealed class CalibrationChangeDuringRunIpcTests
     private static Func<GameProcessDetection, ProfileSelection> Selector(
         string gameBuild, ProfileOrigin origin, bool queueInferred = false)
     {
-        var profilePath = Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
+        var profilePath = SyntheticProfile.Path;
         var synthetic = ProfileLoader.Validate(profilePath).Profile
             ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
         var verified = synthetic with

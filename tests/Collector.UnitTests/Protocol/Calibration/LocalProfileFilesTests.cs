@@ -12,19 +12,12 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class LocalProfileFilesTests : IDisposable
 {
     private const string Build = "2026.09.01.0000.0000";
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"), "protocol-profiles");
+    private readonly TempDirectory _temp = TempDirectory.Reserve();
+    private readonly string _root;
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(Path.GetDirectoryName(_root)!, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    public LocalProfileFilesTests() => _root = _temp.Combine("protocol-profiles");
+
+    public void Dispose() => _temp.Dispose();
 
     private string WriteProfileFile(string contents = "{}")
     {

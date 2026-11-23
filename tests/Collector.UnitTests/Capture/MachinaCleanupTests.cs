@@ -38,7 +38,7 @@ public sealed class MachinaCleanupTests
     [Fact]
     public void RegisteredTempCopiesArePersistedAndReclaimedByTheNextStart()
     {
-        using var root = new TempRoot();
+        using var root = new TempDirectory("OodleManifest");
         var manifest = Path.Combine(root.Path, "oodle-temp.json");
         var machinaTemp = Path.Combine(root.Path, "temp", OodleTempCopyCleaner.MachinaTempFolderName);
         Directory.CreateDirectory(machinaTemp);
@@ -74,7 +74,7 @@ public sealed class MachinaCleanupTests
     [Fact]
     public void SweepRefusesAnyRegisteredPathOutsideMachinasOwnTempFolder()
     {
-        using var root = new TempRoot();
+        using var root = new TempDirectory("OodleManifest");
         var manifest = Path.Combine(root.Path, "oodle-temp.json");
         var elsewhere = Path.Combine(root.Path, "important.exe");
         File.WriteAllBytes(elsewhere, new byte[16]);
@@ -91,7 +91,7 @@ public sealed class MachinaCleanupTests
     [Fact]
     public void AnUnreadableManifestIsSilentlyEmpty()
     {
-        using var root = new TempRoot();
+        using var root = new TempDirectory("OodleManifest");
         var missing = Path.Combine(root.Path, "absent.json");
         Assert.Empty(OodleTempCopyCleaner.ReadManifest(missing));
         Assert.Equal(0, OodleTempCopyCleaner.SweepManifest(missing));
@@ -107,25 +107,6 @@ public sealed class MachinaCleanupTests
     private sealed class PathHolder(string path)
     {
         public string Path = path;
-    }
-
-    private sealed class TempRoot : IDisposable
-    {
-        public TempRoot()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), "MentorRecorder.OodleManifest", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Path);
-        }
-
-        public string Path { get; }
-
-        public void Dispose()
-        {
-            try { Directory.Delete(Path, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
     }
 
     internal sealed class NativeMonitor : IMachinaMonitor

@@ -14,21 +14,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CaptureDoctorTests : IDisposable
 {
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.CaptureDoctor", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _root = new("CaptureDoctor");
 
-    public CaptureDoctorTests() => Directory.CreateDirectory(_root);
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     // -------------------------------------------------------- the profile section ----
 
@@ -83,7 +71,7 @@ public sealed class CaptureDoctorTests : IDisposable
         Assert.Equal(0, temp["registered_missing"]!.GetValue<int>());
 
         // Nothing that could identify the machine: the count is a number, not a path.
-        Assert.DoesNotContain(_root, writer.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(_root.Path, writer.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -101,7 +89,7 @@ public sealed class CaptureDoctorTests : IDisposable
         Assert.Contains("游戏程序临时副本", text, StringComparison.Ordinal);
         Assert.Contains(bytes.ToString(System.Globalization.CultureInfo.InvariantCulture), text, StringComparison.Ordinal);
         Assert.Contains("自动删除", text, StringComparison.Ordinal);
-        Assert.DoesNotContain(_root, text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(_root.Path, text, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A clean machine reports zeroes rather than failing or scanning anything.</summary>
@@ -115,7 +103,7 @@ public sealed class CaptureDoctorTests : IDisposable
             new CaptureServices
             {
                 EnableFollowTimer = false,
-                OodleTempManifestPath = Path.Combine(_root, "absent.json"),
+                OodleTempManifestPath = _root.Combine("absent.json"),
             },
             writer);
 
@@ -126,13 +114,13 @@ public sealed class CaptureDoctorTests : IDisposable
 
     private string WriteManifestWithOneCopy(out long bytes)
     {
-        var machinaTemp = Path.Combine(_root, "temp", OodleTempCopyCleaner.MachinaTempFolderName);
+        var machinaTemp = _root.Combine("temp", OodleTempCopyCleaner.MachinaTempFolderName);
         Directory.CreateDirectory(machinaTemp);
         var copy = Path.Combine(machinaTemp, Guid.NewGuid().ToString("N") + ".exe");
         bytes = 4096;
         File.WriteAllBytes(copy, new byte[bytes]);
 
-        var manifest = Path.Combine(_root, "oodle-temp.json");
+        var manifest = _root.Combine("oodle-temp.json");
         File.WriteAllText(
             manifest,
             new JsonObject { ["version"] = 1, ["paths"] = new JsonArray(copy) }.ToJsonString());
@@ -152,6 +140,6 @@ public sealed class CaptureDoctorTests : IDisposable
         Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
         Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
         EnableFollowTimer = false,
-        OodleTempManifestPath = Path.Combine(_root, "absent.json"),
+        OodleTempManifestPath = _root.Combine("absent.json"),
     };
 }

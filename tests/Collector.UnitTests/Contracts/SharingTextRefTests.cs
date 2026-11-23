@@ -2,7 +2,6 @@ using System.Reflection;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.UnitTests;
 

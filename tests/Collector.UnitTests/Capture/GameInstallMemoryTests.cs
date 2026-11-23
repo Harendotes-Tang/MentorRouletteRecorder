@@ -17,25 +17,11 @@ public sealed class GameInstallMemoryTests : IDisposable
     private const string CnVersionFile = @"D:\SdoA\FFXIV\game\ffxivgame.ver";
     private const string Build = "2026.09.18.0000.0000";
 
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Tests", "install-memory-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = TempDirectory.Reserve();
 
-    private string MemoryPath => Path.Combine(_directory, DatabasePaths.GameInstallFileName);
+    private string MemoryPath => _directory.Combine(DatabasePaths.GameInstallFileName);
 
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(_directory))
-            {
-                Directory.Delete(_directory, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     private static FakeGameFileReader VersionFile(string content = Build + "\n") =>
         new FakeGameFileReader().With(CnVersionFile, content);
@@ -100,7 +86,7 @@ public sealed class GameInstallMemoryTests : IDisposable
     [Fact]
     public void File_RecallsNothing_FromAFileThatIsNotJson()
     {
-        Directory.CreateDirectory(_directory);
+        Directory.CreateDirectory(_directory.Path);
         File.WriteAllText(MemoryPath, "{ this is not json");
 
         Assert.Null(new FileGameInstallMemory(MemoryPath).Recall());
@@ -109,7 +95,7 @@ public sealed class GameInstallMemoryTests : IDisposable
     [Fact]
     public void File_RecallsNothing_FromAFileThatIsTooLarge()
     {
-        Directory.CreateDirectory(_directory);
+        Directory.CreateDirectory(_directory.Path);
         File.WriteAllText(
             MemoryPath,
             "{\"executable_path\":\"" + CnExecutable.Replace(@"\", @"\\") + "\",\"pad\":\"" +
@@ -134,7 +120,7 @@ public sealed class GameInstallMemoryTests : IDisposable
     [InlineData(@"D:\SdoA\FFXIV\game\notes.txt:ffxiv_dx11.exe")]
     public void File_RecallsNothing_ForAPathThatIsNotAnAbsoluteClientPath(string path)
     {
-        Directory.CreateDirectory(_directory);
+        Directory.CreateDirectory(_directory.Path);
         File.WriteAllText(
             MemoryPath, "{\"executable_path\":" + System.Text.Json.JsonSerializer.Serialize(path) + "}");
 
@@ -170,8 +156,8 @@ public sealed class GameInstallMemoryTests : IDisposable
     {
         // The parent is a file, so creating the directory and writing both fail. Remembering
         // where the game is must never be able to take capture down with it.
-        Directory.CreateDirectory(_directory);
-        var blocked = Path.Combine(_directory, "blocked");
+        Directory.CreateDirectory(_directory.Path);
+        var blocked = _directory.Combine("blocked");
         File.WriteAllText(blocked, "not a directory");
         var memory = new FileGameInstallMemory(Path.Combine(blocked, DatabasePaths.GameInstallFileName));
 
@@ -193,7 +179,7 @@ public sealed class GameInstallMemoryTests : IDisposable
     [Fact]
     public void DatabasePaths_PutTheMemoryBesideTheDatabase()
     {
-        var database = Path.Combine(_directory, "mentor_recorder.db");
+        var database = _directory.Combine("mentor_recorder.db");
 
         Assert.Equal(MemoryPath, DatabasePaths.ResolveGameInstallMemory(database));
         Assert.Equal(

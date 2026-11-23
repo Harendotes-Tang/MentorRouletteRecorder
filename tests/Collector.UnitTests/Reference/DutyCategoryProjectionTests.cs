@@ -81,8 +81,7 @@ public sealed class DutyCategoryProjectionTests
         Assert.NotEqual(Assert.Single(first.Items).RunId, Assert.Single(second.Items).RunId);
         Assert.Equal(new[] { "2026-09-04" }, runs.QueryCalendarDays("2026-09", filter));
         Assert.Equal(1, runs.Query(new RunFilter { DutyCategories = new[] { "大型任务" } }, null, 1, 20).Total);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
         var statistics = new StatisticsRepository(fixture.Database, settings);
         Assert.Equal(2, statistics.GetDashboard(filter).AttemptCount);
         Assert.Equal(2, statistics.GetDungeonStats(filter).Sum(row => row.AttemptCount));
@@ -198,8 +197,7 @@ public sealed class DutyCategoryProjectionTests
         var runId = committed["run_ids"]![0]!.GetValue<string>();
         var runs = new RunRepository(fixture.Database);
         Assert.Equal("团队任务", Wire.Runs(runs.Query(null, null, 1, 20))["items"]![0]!["duty_category"]!.GetValue<string>());
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
         new RunMutationService(fixture.Database, settings, fixture.Clock).CorrectRun(new CorrectRunCommand(
             Guid.NewGuid().ToString("D"), runId, 1, "only note", new RunChangeSet
             { Specified = new HashSet<string> { RunFields.Note }, Note = "unchanged category" }));
@@ -248,12 +246,11 @@ public sealed class DutyCategoryProjectionTests
         var runs = new RunRepository(fixture.Database);
         var unknown = TestDatabase.Run(contentId: 92) with { Region = Region.Unknown, DutyCategory = "大型任务", TerritoryId = 174 };
         var tc = TestDatabase.Run(contentId: 92) with { Region = Region.Tc, DutyCategory = "大型任务", TerritoryId = 174 };
-        fixture.Database.RunInTransaction(tx => { runs.Insert(unknown, tx); runs.Insert(tc, tx); });
+        fixture.InsertRuns(unknown, tc);
 
         var filter = new RunFilter { DutyCategories = new[] { "团队任务" } };
         Assert.Equal(2, runs.Query(filter, null, 1, 20).Total);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
         Assert.All(new StatisticsRepository(fixture.Database, settings).GetDungeonStats(),
             row => Assert.Equal("团队任务", row.DutyCategory));
         Assert.All(Wire.Runs(runs.Query(null, null, 1, 20))["items"]!.AsArray(),

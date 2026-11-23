@@ -35,19 +35,8 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
     private string RetiredPath => ProfilePath + LocalProfileFiles.RetiredByRequestSuffix;
 
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
     private CalibrationServices Services(bool fetch = false) =>
         _bed.Services(fetch).WithLocalProfilesIn(_bed.LocalRoot);
-
-    /// <summary>Writes the local profile one synthetic evening would have produced.</summary>
-    /// <param name="trafficCase">Case from <see cref="CalibrationTrafficCases"/>.</param>
-    private string WriteLocalProfile(string trafficCase) =>
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(trafficCase), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot).Path;
 
     /// <summary>The same profile with its job message withheld, as a machine wrote it before the job rule worked.</summary>
     private string WriteLocalProfileLackingTheJob(string trafficCase)
@@ -75,7 +64,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void RetiringAndRestoringBringsBackTheSameFileAndRecordsWithItAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var before = File.ReadAllBytes(ProfilePath);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
@@ -99,7 +88,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
         // Bound inside the session that is already running, so the next match is recorded.
         Bed.Feed(pipeline, session, new[] { Announced(9, 300_000) });
-        Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
+        Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
@@ -134,7 +123,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public async Task RestoringTakesOverFromASharedProfileInUseWithoutRejectingItsCode()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
         _bed.Publish(code);
         var pipeline = _bed.Pipeline(Services(fetch: true));
@@ -144,8 +133,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
         // She retires her own calibration to try the friend's code.
         pipeline.DiscardCalibration(retireLocalProfile: true);
         await Bed.Idle(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
         Assert.Equal(SharedConsentOutcome.Accepted, pipeline.AcceptSharedQueueInference());
         await Bed.Idle(pipeline);
@@ -162,7 +150,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
         Assert.DoesNotContain(shared.Candidates, candidate => candidate.Status == SharedCandidateStatus.Rejected);
         Assert.False(shared.UserRejected);
         // Nothing the shared profile recorded is suspect: nothing contradicted it.
-        Assert.DoesNotContain(RunsOf(session), run => run.PendingReview);
+        Assert.DoesNotContain(_bed.RunsOf(session), run => run.PendingReview);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
@@ -175,14 +163,12 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void ARestoredProfileTheCatalogueRanksBelowTheOneInUseStaysRestoredAndIsAnsweredTruthfully()
     {
-        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         // Retired through 重新校准 on an earlier evening.
         File.Move(ProfilePath, RetiredPath);
         var retired = File.ReadAllBytes(RetiredPath);
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         var pipeline = _bed.Pipeline(Services());
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
         var session = _bed.Start(pipeline);
@@ -222,13 +208,13 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void RestoreIsRefusedWhenALocalProfileIsAlreadyOnDisk()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         pipeline.DiscardCalibration(retireLocalProfile: true);
 
         // A fresh calibration produced a profile for the same build in the meantime.
-        WriteLocalProfile(CalibrationTrafficCases.ReplyState);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
         var current = File.ReadAllBytes(ProfilePath);
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
@@ -248,7 +234,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void AProfileTheTrafficDisprovedIsNeverOfferedBack()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         File.Move(ProfilePath, ProfilePath + LocalProfileFiles.RetiredSuffix);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
@@ -273,7 +259,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void ARenameThatThrowsIsAnswerdAsARefusal()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = Services();
         var pipeline = _bed.Pipeline(services with
         {
@@ -298,7 +284,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void AFileTheLoaderRefusesGoesBackIntoRetirement()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         pipeline.DiscardCalibration(retireLocalProfile: true);
@@ -320,9 +306,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     public void AFileTheLoaderRefusesDoesNotInterruptTheProfileInUse()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         Directory.CreateDirectory(Path.GetDirectoryName(RetiredPath)!);
         File.WriteAllText(RetiredPath, "{\"schema_version\": 1}");
         var pipeline = _bed.Pipeline(Services());
@@ -353,7 +337,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void ACatalogueThatCannotBeReadJustNowUndoesTheRestoreInsteadOfCondemningTheProfile()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var before = File.ReadAllBytes(ProfilePath);
         var services = Services();
         var unreadable = false;

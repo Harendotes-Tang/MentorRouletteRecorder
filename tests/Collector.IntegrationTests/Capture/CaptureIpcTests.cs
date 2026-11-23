@@ -4,7 +4,6 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -372,11 +371,7 @@ public sealed class CaptureIpcTests
         const string gameBuild = "integration-live-build";
         using var source = new FakeCaptureSource();
 
-        var profilePath = Path.Combine(
-            AppContext.BaseDirectory,
-            "protocol-profiles",
-            "synthetic",
-            "synthetic-v1.json");
+        var profilePath = SyntheticProfile.Path;
         var synthetic = ProfileLoader.Validate(profilePath).Profile
             ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
         var verified = synthetic with
@@ -513,8 +508,7 @@ public sealed class CaptureIpcTests
     private static Func<GameProcessDetection, ProfileSelection> SyntheticSelector(
         string gameBuild, string profileId)
     {
-        var profilePath = Path.Combine(
-            AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
+        var profilePath = SyntheticProfile.Path;
         var synthetic = ProfileLoader.Validate(profilePath).Profile
             ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
         var verified = synthetic with

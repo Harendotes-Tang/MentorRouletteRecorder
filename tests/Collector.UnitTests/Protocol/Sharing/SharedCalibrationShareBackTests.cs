@@ -45,8 +45,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
 
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Before(evening, 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 30_000));
 
         // Bound and recording, with the match still being audited: nothing to vouch for yet.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -54,8 +53,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         AssertRefused(pipeline.GetCalibrationShareCode(), SharedShareCodeRefusal.SharedNotProven);
 
         Bed.Feed(pipeline, session, Bed.From(evening, 30_000));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
         Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
         return (pipeline, code);
     }
@@ -130,35 +128,6 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
             Array.Empty<SharedCalibrationCandidate>(), Array.Empty<SharedCodeDiscard>(), Array.Empty<SharedIndexSkip>(), new[] { sha }),
         _bed.Db.Clock.UtcNow).Recorded);
 
-    /// <summary>A run row recorded under the shared profile id after its bind, with its creation revision, as the processor writes them.</summary>
-    private MentorRun SeedRunUnderSharedProfile()
-    {
-        var run = TestDatabase.Run(
-                source: RunSource.AutoNetwork, result: RunResult.CancelledBeforeEntry, enteredAt: _bed.Db.Clock.UtcNow.AddMinutes(2)) with
-            {
-                ProtocolProfileId = SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build),
-            };
-        var runs = new RunRepository(_bed.Db.Database);
-        var revisions = new RunRevisionRepository(_bed.Db.Database);
-        _bed.Db.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(run, tx);
-            revisions.Append(new RunRevision
-            {
-                RevisionId = Guid.NewGuid().ToString("D"), RunId = run.RunId, Revision = 1,
-                ChangedAtUtc = run.CreatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
-                Reason = null, Changes = Array.Empty<RunFieldChange>(),
-            }, tx);
-        });
-        Assert.False(new RunRepository(_bed.Db.Database).Get(run.RunId)!.PendingReview);
-        return run;
-    }
-
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
     /// <summary>
     /// Review 2026-10-15 (M1): a settled profile records with calibration disarmed, so the revocation check that runs when a
     /// profile is adopted under calibration never ran for it. After a restart the store's record of the revocation is
@@ -178,18 +147,17 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var evening = Bed.Evening().ToArray();
         // The revocation scenario needs a settled profile. Finish the login bind before replaying the duty;
         // stopping while its background write is pending deliberately discards that session's staging.
-        Bed.Feed(pipeline, session, Bed.Before(evening, 30_000));
-        await Bed.Idle(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 30_000));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Bed.Feed(pipeline, session, Bed.From(evening, 30_000));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
         Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
-        Assert.Single(RunsOf(session));
+        Assert.Single(_bed.RunsOf(session));
 
         // A record the profile made that nothing else marked: the evening's own run ends without a clear on this build and
         // is pending review for that reason already.
-        var recorded = SeedRunUnderSharedProfile();
+        var recorded = _bed.SeedRunUnderSharedProfile();
+        Assert.False(new RunRepository(_bed.Db.Database).Get(recorded.RunId)!.PendingReview);
         RevokeInStore(code.Sha);
         var requests = _bed.Transport.Requests.Count;
         var again = _bed.Pipeline(_bed.Services());
@@ -230,8 +198,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
         var inUse = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(SharedCandidateStatus.InUse, inUse.Status);
         Assert.Equal(SharedCandidateProvenance.Imported, inUse.Provenance);
@@ -244,8 +211,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
 
         var next = _bed.Start(again);
         Bed.Feed(again, next, Bed.Evening());
-        again.OnCaptureStopped(next, CaptureEndReason.UserStop);
-        await Bed.Idle(again);
+        await Bed.StopAndSettleAsync(again, next);
 
         var proven = Assert.Single(again.CalibrationStatus().Shared.Candidates);
         Assert.Equal(SharedCandidateStatus.Proven, proven.Status);
@@ -302,7 +268,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         {
             Bed.Feed(pipeline, session, Bed.Evening());
             await writing.Task.WaitAsync(TimeSpan.FromSeconds(30));
-            Assert.Empty(RunsOf(session));
+            Assert.Empty(_bed.RunsOf(session));
             if (bindBeforeStop)
             {
                 release.Set();
@@ -319,7 +285,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
 
         var summary = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(bindBeforeStop ? SharedCandidateStatus.Proven : SharedCandidateStatus.InUse, summary.Status);
-        Assert.Equal(bindBeforeStop ? 1 : 0, RunsOf(session).Count);
+        Assert.Equal(bindBeforeStop ? 1 : 0, _bed.RunsOf(session).Count);
         AssertRefused(pipeline.GetCalibrationShareCode(),
             bindBeforeStop ? SharedShareCodeRefusal.Shared : SharedShareCodeRefusal.SharedNotProven);
     }
@@ -342,9 +308,8 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         // This scenario requires the pasted code to have replayed a complete duty. Stopping before
         // its background bind commits discards the session's staging and cannot prove that duty.
         await Bed.Idle(pipeline);
-        Assert.Single(RunsOf(session));
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        Assert.Single(_bed.RunsOf(session));
+        await Bed.StopAndSettleAsync(pipeline, session);
         var proven = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(pasted.Sha[..12], proven.Sha12);
         Assert.Equal(SharedCandidateStatus.Proven, proven.Status);
@@ -373,8 +338,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = _bed.CodeFromEveningA(CalibrationTrafficCases.MarkerOffset);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()), _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         var profile = ProfileLoader.Load(_bed.SharedProfilePath);
         var selection = new ProfileSelection(
             ProfileCompatibilityStatus.Verified, profile.ToBinding(), profile, Region.Cn, Bed.Build, "selected", ProfileOrigin.Shared);

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.Tests;
 
@@ -86,20 +87,23 @@ internal static class CollectorTextCatalogue
         }
     }
 
-    private static JsonObject Load()
+    /// <summary>The catalogue key a reference names.</summary>
+    /// <param name="reference">A <c>$defs/TextRef</c>.</param>
+    public static string Key(JsonNode? reference) => reference!["key"]!.GetValue<string>();
+
+    /// <summary>
+    /// Asserts that the Collector refused a request with the sentence <paramref name="key"/> names: the answer is not
+    /// OK, its <c>message_ref</c> has that key, and the error message is exactly what the reference renders to.
+    /// </summary>
+    /// <param name="response">The refusal.</param>
+    /// <param name="key">The catalogue key it must carry.</param>
+    public static void AssertRefusal(IpcResponse response, string key)
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var path = Path.Combine(directory.FullName, "contracts", "collector-texts.json");
-            if (File.Exists(path))
-            {
-                return JsonNode.Parse(File.ReadAllText(path))!["texts"]!.AsObject();
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException("contracts/collector-texts.json not found above " + AppContext.BaseDirectory);
+        Assert.False(response.Ok);
+        Assert.Equal(key, Key(response.Payload["message_ref"]));
+        Assert.Equal(response.ErrorMessage, Render(response.Payload["message_ref"]));
     }
+
+    private static JsonObject Load() =>
+        JsonNode.Parse(File.ReadAllText(RepositoryFiles.Find("contracts", "collector-texts.json")))!["texts"]!.AsObject();
 }

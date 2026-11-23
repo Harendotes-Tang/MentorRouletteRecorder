@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.UnitTests;
 

@@ -30,19 +30,6 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
     // ------------------------------------------------------------------ helpers
 
-    private IReadOnlyList<MentorRun> RunsOf(string session) =>
-        new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
-            .Where(run => string.Equals(run.CaptureSessionId, session, StringComparison.Ordinal))
-            .ToArray();
-
-    /// <summary>Writes the local profile one synthetic evening would have produced.</summary>
-    /// <param name="trafficCase">Case from <see cref="CalibrationTrafficCases"/>.</param>
-    /// <param name="root">Directory to write into; the bed's local root by default.</param>
-    private string WriteLocalProfile(string trafficCase, string? root = null) =>
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(trafficCase), Bed.Template, Bed.Build, Bed.Confirmed,
-            root ?? _bed.LocalRoot).Path;
-
     /// <summary>The bed's services with the local-profile seams wired and the retirement watched.</summary>
     /// <param name="select">Selector the reload hands back; the bed's own by default.</param>
     private CalibrationServices Services(Func<GameProcessDetection, ProfileSelection>? select = null)
@@ -103,7 +90,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void ALocalAnnouncementTheTrafficDisprovesWithdrawsItself()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -112,7 +99,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         // One match recorded under the profile before the traffic catches it out.
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, new[] { Announced(9, 50_000) });
-        var recorded = Assert.Single(RunsOf(session));
+        var recorded = Assert.Single(_bed.RunsOf(session));
         Assert.False(recorded.PendingReview);
 
         Bed.Feed(pipeline, session, BellRows(100_000));
@@ -152,7 +139,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void ADisprovedVersionMarksOnlyWhatThatVersionRecorded()
     {
-        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var provisional = _bed.Pipeline(Services());
         provisional.Refresh(Bed.Game());
         var earlier = _bed.Start(provisional);
@@ -163,7 +150,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
             }
             .Concat(CalibrationObserverTests.Cluster(65_000, 1039)), hour: 1);
         provisional.OnCaptureStopped(earlier, CaptureEndReason.UserStop);
-        var before = Assert.Single(RunsOf(earlier));
+        var before = Assert.Single(_bed.RunsOf(earlier));
         Assert.False(before.PendingReview);
 
         // Two hours after that run the player confirmed the upgrade: the same id, written anew.
@@ -175,7 +162,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         upgraded.Refresh(Bed.Game());
         var later = _bed.Start(upgraded);
         Bed.Feed(upgraded, later, new[] { Announced(9, 50_000) }, hour: 3);
-        var after = Assert.Single(RunsOf(later));
+        var after = Assert.Single(_bed.RunsOf(later));
         Assert.Equal(before.ProtocolProfileId, after.ProtocolProfileId);
 
         Bed.Feed(upgraded, later, BellRows(100_000), hour: 3);
@@ -210,7 +197,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     public void TheSameBurstAgainstAShippedProfileChangesNothing()
     {
         var shipped = Path.Combine(_bed.Root, "shipped");
-        WriteLocalProfile(CalibrationTrafficCases.Announcement, shipped);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement, root: shipped);
         var selector = new ProfileSelector(ProfileCatalog.LoadMerged(shipped, _bed.LocalRoot, _bed.SharedRoot));
         ProfileSelection Select(GameProcessDetection game) => selector.Select(game.Region, game.GameBuild);
         var pipeline = new LiveProtocolPipeline(
@@ -228,7 +215,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void TheSameBurstAgainstALocalProfileWithASelectorChangesNothing()
     {
-        WriteLocalProfile(CalibrationTrafficCases.ReplyState);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -243,7 +230,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void TheSameBurstAgainstAQueueInferredLocalProfileChangesNothing()
     {
-        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -259,7 +246,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void OrdinaryPlayAgainstALocalAnnouncementProfileWithdrawsNothing()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
 
@@ -267,7 +254,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
         Assert.Empty(_retired);
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
-        var run = Assert.Single(RunsOf(session));
+        var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(9, run.MentorRouletteId);
         Assert.False(run.PendingReview);
     }
@@ -277,7 +264,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void TheWithdrawalSurvivesARetirementAndAReloadThatThrow()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
             RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
@@ -304,7 +291,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void AProfileThatCannotBePutAwayIsStillNotBoundAgain()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
             RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
@@ -330,7 +317,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void AProfileThatCannotBePutAwayIsNotBoundAgainThroughASharedSelector()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
             RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
@@ -362,11 +349,9 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void AProfileBoundAfterAWithdrawalKeepsTheJobReadThisSession()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        SharedProfileFiles.Write(
-            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
-            _bed.SharedRoot);
+        _bed.WriteSharedProfile(code.Payload);
         var pipeline = _bed.Pipeline(Services());
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
         var session = _bed.Start(pipeline);
@@ -378,7 +363,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
         Bed.Feed(pipeline, session, CalibrationObserverTests.QueueAndPop(200_000, 9, 210_000));
 
-        var run = Assert.Single(RunsOf(session), item => item.ProtocolProfileId == pipeline.Current.ProfileId);
+        var run = Assert.Single(_bed.RunsOf(session), item => item.ProtocolProfileId == pipeline.Current.ProfileId);
         Assert.Equal(24, run.JobId);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
@@ -391,7 +376,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
     [Fact]
     public void AProfileCalibratedAfreshAfterAWithdrawalSurvivesASharedReselect()
     {
-        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -402,8 +387,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         _bed.Play(pipeline, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.Announcement), hour: 1);
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
-        var confirmed = pipeline.ConfirmCalibration(offered.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal));
+        var confirmed = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
 
         ((ISharedCalibrationHost)pipeline).ReselectAfterSharedChange(_bed.DiskSelect());

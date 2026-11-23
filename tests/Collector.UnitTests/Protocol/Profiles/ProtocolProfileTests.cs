@@ -15,22 +15,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProtocolProfileTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.Profiles", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("Profiles");
 
-    public ProtocolProfileTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 
     [Fact]
     public void TraditionalPlaceholderLoadsWithoutBorrowingAnyRecordingCapability()
@@ -48,7 +35,7 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.False(profile.ToBinding().IsUsable);
         Assert.Null(Protocol.Calibration.CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), Region.Tc));
 
-        var wrongDirectory = Path.Combine(_directory, "cn");
+        var wrongDirectory = _directory.Combine("cn");
         Directory.CreateDirectory(wrongDirectory);
         var wrongPath = Path.Combine(wrongDirectory, Path.GetFileName(path));
         File.Copy(path, wrongPath);
@@ -58,7 +45,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void ValidProfile_LoadsWithEveryDeclaredMessage()
     {
-        var path = ProfileTestFiles.Write(_directory, "test-valid", ProfileTestFiles.Valid());
+        var path = ProfileTestFiles.Write(_directory.Path, "test-valid", ProfileTestFiles.Valid());
 
         var report = ProfileLoader.Validate(path);
 
@@ -77,7 +64,7 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document.Remove("game_build");
-        var path = ProfileTestFiles.Write(_directory, "test-missing", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-missing", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -99,7 +86,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var pop = (Dictionary<string, object>)((List<object>)document["messages"])[0];
         ((List<object>)pop["fields"])[0] =
             ProfileTestFiles.Field("roulette_id", 0, "u16", endian: "little", allowed: Array.Empty<int>());
-        var path = ProfileTestFiles.Write(_directory, "test-empty-in", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-empty-in", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -133,7 +120,7 @@ public sealed class ProtocolProfileTests : IDisposable
             ProfileTestFiles.Field("finder_state", 22, "u8", allowed: new[] { 3 }, role: "selector"));
 
         var profile = ProfileLoader.Load(
-            ProfileTestFiles.Write(_directory, "test-selector", document));
+            ProfileTestFiles.Write(_directory.Path, "test-selector", document));
 
         var message = profile.Message("CONTENT_FINDER_POP")!;
         Assert.Equal(ProfileFieldRole.Selector, message.Field("finder_state")!.Role);
@@ -161,7 +148,7 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["mentor_roulette_id"] = "42";
-        var path = ProfileTestFiles.Write(_directory, "test-badtype", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-badtype", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -174,7 +161,7 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["extra_field"] = 1;
-        var path = ProfileTestFiles.Write(_directory, "test-extra", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-extra", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -186,7 +173,7 @@ public sealed class ProtocolProfileTests : IDisposable
     public void ProfileWhoseHashDoesNotMatchItsBody_IsRefused()
     {
         var document = ProfileTestFiles.Valid();
-        var path = ProfileTestFiles.Write(_directory, "test-hash", document, stamp: false);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-hash", document, stamp: false);
 
         var report = ProfileLoader.Validate(path);
 
@@ -197,7 +184,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void EditingAProfileAfterStampingIsDetected()
     {
-        var path = ProfileTestFiles.Write(_directory, "test-tamper", ProfileTestFiles.Valid());
+        var path = ProfileTestFiles.Write(_directory.Path, "test-tamper", ProfileTestFiles.Valid());
         var text = File.ReadAllText(path).Replace(
             "\"mentor_roulette_id\": 42", "\"mentor_roulette_id\": 43", StringComparison.Ordinal);
         File.WriteAllText(path, text);
@@ -211,7 +198,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void ProfileReferencingAFixtureThatDoesNotMatchItsHash_IsRefused()
     {
-        var fixturePath = Path.Combine(_directory, "referenced.json");
+        var fixturePath = _directory.Combine("referenced.json");
         File.WriteAllText(fixturePath, "{\"a\":1}");
         var document = ProfileTestFiles.Valid();
         document["fixtures"] = new List<object>
@@ -222,7 +209,7 @@ public sealed class ProtocolProfileTests : IDisposable
                 ["sha256"] = new string('0', 64),
             },
         };
-        var path = ProfileTestFiles.Write(_directory, "test-fixhash", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-fixhash", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -233,7 +220,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void ProfileReferencingAFixtureThatMatches_IsVerified()
     {
-        var fixturePath = Path.Combine(_directory, "referenced.json");
+        var fixturePath = _directory.Combine("referenced.json");
         var content = "{\"a\":1}";
         File.WriteAllText(fixturePath, content);
         var digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))).ToLowerInvariant();
@@ -242,7 +229,7 @@ public sealed class ProtocolProfileTests : IDisposable
         {
             new Dictionary<string, object> { ["path"] = "referenced.json", ["sha256"] = digest },
         };
-        var path = ProfileTestFiles.Write(_directory, "test-fixok", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-fixok", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -253,7 +240,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void AnUnreadableFixtureRefusesOnlyItsProfileAndCatalogLoadingContinues()
     {
-        var fixturePath = Path.Combine(_directory, "locked-fixture.bin");
+        var fixturePath = _directory.Combine("locked-fixture.bin");
         File.WriteAllText(fixturePath, "fixture content");
         var document = ProfileTestFiles.Valid();
         document["fixtures"] = new List<object>
@@ -264,8 +251,8 @@ public sealed class ProtocolProfileTests : IDisposable
                 ["sha256"] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))).ToLowerInvariant(),
             },
         };
-        var path = ProfileTestFiles.Write(_directory, "test-fixlocked", document);
-        var healthyPath = ProfileTestFiles.Write(_directory, "test-healthy", ProfileTestFiles.Valid());
+        var path = ProfileTestFiles.Write(_directory.Path, "test-fixlocked", document);
+        var healthyPath = ProfileTestFiles.Write(_directory.Path, "test-healthy", ProfileTestFiles.Valid());
         using var locked = new FileStream(fixturePath, FileMode.Open, FileAccess.Read, FileShare.None);
 
         var report = ProfileLoader.Validate(path);
@@ -274,7 +261,7 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Null(report.Profile);
         Assert.False(report.FixtureVerified);
         Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_FIXTURE_UNREADABLE");
-        var catalog = ProfileCatalog.LoadMerged(_directory, null);
+        var catalog = ProfileCatalog.LoadMerged(_directory.Path, null);
         Assert.Contains(catalog.Entries, entry => entry.Path == healthyPath && entry.Profile is not null);
         Assert.Contains(catalog.Entries, entry => entry.Path == path &&
             entry.Report.Errors.Any(error => error.Code == "E_PROFILE_FIXTURE_UNREADABLE"));
@@ -292,7 +279,7 @@ public sealed class ProtocolProfileTests : IDisposable
                 ["sha256"] = new string('a', 64),
             },
         };
-        var path = ProfileTestFiles.Write(_directory, "test-fixmissing", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-fixmissing", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -307,7 +294,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "UNSUPPORTED";
         document["mentor_roulette_id"] = null!;
-        var path = ProfileTestFiles.Write(_directory, "test-unsup", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-unsup", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -321,7 +308,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "CANDIDATE";
         document["mentor_roulette_id"] = null!;
-        var path = ProfileTestFiles.Write(_directory, "test-cand", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-cand", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -334,7 +321,7 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "VERIFIED";
-        var path = ProfileTestFiles.Write(_directory, "test-verified", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-verified", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -348,7 +335,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         var messages = (List<object>)document["messages"];
         ((Dictionary<string, object>)messages[2]).Remove("victory_values");
-        var path = ProfileTestFiles.Write(_directory, "test-novictory", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-novictory", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -363,7 +350,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var messages = (List<object>)document["messages"];
         var fields = (List<object>)((Dictionary<string, object>)messages[1])["fields"];
         ((Dictionary<string, object>)fields[0])["offset"] = 7;
-        var path = ProfileTestFiles.Write(_directory, "test-fieldoob", document);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-fieldoob", document);
 
         var report = ProfileLoader.Validate(path);
 
@@ -376,7 +363,7 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["profile_id"] = "test-somethingelse";
-        var path = ProfileTestFiles.Write(_directory, "test-namemismatch", document, rewriteId: false);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-namemismatch", document, rewriteId: false);
 
         var report = ProfileLoader.Validate(path);
 
@@ -387,10 +374,10 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void TwoProfilesClaimingTheSameRegionAndBuild_RefuseEachOther()
     {
-        ProfileTestFiles.Write(_directory, "test-dup-a", ProfileTestFiles.Valid());
-        ProfileTestFiles.Write(_directory, "test-dup-b", ProfileTestFiles.Valid());
+        ProfileTestFiles.Write(_directory.Path, "test-dup-a", ProfileTestFiles.Valid());
+        ProfileTestFiles.Write(_directory.Path, "test-dup-b", ProfileTestFiles.Valid());
 
-        var catalog = ProfileCatalog.Load(_directory);
+        var catalog = ProfileCatalog.Load(_directory.Path);
 
         Assert.Equal(2, catalog.Entries.Count);
         Assert.All(catalog.Entries, entry =>
@@ -404,8 +391,8 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void Selector_MatchesRegionAndBuildAndExcludesSyntheticByDefault()
     {
-        ProfileTestFiles.Write(_directory, "test-sel", ProfileTestFiles.Valid());
-        var catalog = ProfileCatalog.Load(_directory);
+        ProfileTestFiles.Write(_directory.Path, "test-sel", ProfileTestFiles.Valid());
+        var catalog = ProfileCatalog.Load(_directory.Path);
 
         var withoutSynthetic = new ProfileSelector(catalog).Select(Region.Unknown, "test-build-1");
         var withSynthetic =
@@ -421,8 +408,8 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void Selector_WithAnUnknownBuildFailsClosed()
     {
-        ProfileTestFiles.Write(_directory, "test-sel2", ProfileTestFiles.Valid());
-        var selector = new ProfileSelector(ProfileCatalog.Load(_directory), allowSynthetic: true);
+        ProfileTestFiles.Write(_directory.Path, "test-sel2", ProfileTestFiles.Valid());
+        var selector = new ProfileSelector(ProfileCatalog.Load(_directory.Path), allowSynthetic: true);
 
         var unknownBuild = selector.Select(Region.Unknown, "some-other-build");
         var noBuild = selector.Select(Region.Unknown, null);
@@ -435,7 +422,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void Selector_WithNoBuildSourceReportsAFailClosedSnapshot()
     {
-        var selector = new ProfileSelector(ProfileCatalog.Load(_directory));
+        var selector = new ProfileSelector(ProfileCatalog.Load(_directory.Path));
 
         var snapshot = selector.GetProfileStatus();
 
@@ -684,9 +671,9 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void Catalog_IgnoresOodleSignatureJsonFiles()
     {
-        ProfileTestFiles.Write(_directory, "test-valid", ProfileTestFiles.Valid());
+        ProfileTestFiles.Write(_directory.Path, "test-valid", ProfileTestFiles.Valid());
 
-        var oodleDirectory = Path.Combine(_directory, ProfileCatalog.OodleSignatureDirectoryName);
+        var oodleDirectory = _directory.Combine(ProfileCatalog.OodleSignatureDirectoryName);
         Directory.CreateDirectory(oodleDirectory);
         File.WriteAllText(Path.Combine(oodleDirectory, "cn.2026.08.05.json"), """
         {
@@ -696,7 +683,7 @@ public sealed class ProtocolProfileTests : IDisposable
         }
         """);
 
-        var catalog = ProfileCatalog.Load(_directory);
+        var catalog = ProfileCatalog.Load(_directory.Path);
 
         var entry = Assert.Single(catalog.Entries);
         Assert.True(entry.Report.Ok, string.Join("; ", entry.Report.Errors.Select(error => error.Message)));

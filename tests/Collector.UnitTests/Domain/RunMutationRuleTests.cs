@@ -207,8 +207,7 @@ public sealed class RunMutationRuleTests
                 DurationMs = null,
             }, tx);
         });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
 
         var dashboard = new StatisticsRepository(fixture.Database, settings).GetDashboard();
 

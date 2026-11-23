@@ -1,6 +1,3 @@
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Storage;
@@ -17,7 +14,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CatalogSharedPrecedenceTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("MentorRecorder.CatalogShared.").FullName;
+    private readonly TempDirectory _root = new("CatalogShared");
 
     private static readonly string TemplatePath = Path.Combine(
         ProfileCatalog.FindDefaultRoot() ?? throw new InvalidOperationException("protocol-profiles not found"),
@@ -26,23 +23,13 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
     private static readonly string CandidateTemplatePath = Path.Combine(
         Path.GetDirectoryName(TemplatePath)!, "cn.2026.08.05.candidate.json");
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Test debris in the OS temp folder is not worth failing a test over.
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
-    private string Shipped => Path.Combine(_root, "shipped");
+    private string Shipped => _root.Combine("shipped");
 
-    private string Local => Path.Combine(_root, "local");
+    private string Local => _root.Combine("local");
 
-    private string Shared => Path.Combine(_root, "shared");
+    private string Shared => _root.Combine("shared");
 
     private enum Shape
     {
@@ -55,16 +42,7 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
         string root, string profileId, string build, Shape shape = Shape.Announcement,
         DateTimeOffset? generatedAt = null, string? source = null)
     {
-        var directory = Path.Combine(root, "cn");
-        Directory.CreateDirectory(directory);
-        var document = JsonNode.Parse(File.ReadAllText(source ?? TemplatePath))!.AsObject();
-        document["profile_id"] = profileId;
-        document["game_build"] = build;
-        if (generatedAt is { } stamp)
-        {
-            document["generated_at"] = stamp.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-        }
-
+        var document = ProfileTestFiles.Reidentified(source ?? TemplatePath, profileId, build, generatedAt);
         var messages = document["messages"]!.AsArray();
         if (shape != Shape.Announcement)
         {
@@ -76,16 +54,7 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
             messages.Remove(messages.Single(node => node!["name"]!.GetValue<string>() == "ZONE_TERRITORY"));
         }
 
-        document["profile_sha256"] = new string('0', 64);
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        using (var draft = JsonDocument.Parse(document.ToJsonString(options)))
-        {
-            document["profile_sha256"] = ProfileLoader.ComputeProfileHash(draft.RootElement);
-        }
-
-        var path = Path.Combine(directory, profileId + ".json");
-        File.WriteAllText(path, document.ToJsonString(options), new UTF8Encoding(false));
-        return path;
+        return ProfileTestFiles.WriteStamped(Path.Combine(root, "cn"), profileId, document);
     }
 
     private ProfileCatalog Merge(bool allowCandidate = false) => ProfileCatalog.LoadMerged(Shipped, Local, Shared, allowCandidate);
@@ -372,9 +341,9 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
         var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
         try
         {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root);
+            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
 
-            var expected = Path.Combine(Path.GetFullPath(_root), "protocol-profiles-shared");
+            var expected = Path.Combine(Path.GetFullPath(_root.Path), "protocol-profiles-shared");
             Assert.Equal(expected, ProfileCatalog.SharedRootPath);
             Assert.Null(ProfileCatalog.FindSharedRoot());
             Directory.CreateDirectory(expected);

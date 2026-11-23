@@ -263,41 +263,31 @@ public sealed class CaptureValidationTests
     public void ASourceFaultWithoutAnExceptionKeepsItsSafeCategory()
     {
         using var db = new TestDatabase();
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ValidationFault", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
+        using var temp = new TempDirectory("ValidationFault");
+        using (var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(temp.Path, db.Clock))
         {
-            using (var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(directory, db.Clock))
-            {
-                var source = new FakeCaptureSource();
-                var services = Services(() => Game(), source);
-                using var controller = new CaptureValidationController(db.Path, new(),
-                    services with { Trace = services.Trace with { Logger = logger } });
-                controller.Start("wifi");
-                Until(controller, "state", "RECORDING");
-                source.Fault(@"private trace D:\Games\ffxiv.exe 10.1.2.3");
-                Until(controller, "state", "FAILED");
+            var source = new FakeCaptureSource();
+            var services = Services(() => Game(), source);
+            using var controller = new CaptureValidationController(db.Path, new(),
+                services with { Trace = services.Trace with { Logger = logger } });
+            controller.Start("wifi");
+            Until(controller, "state", "RECORDING");
+            source.Fault(@"private trace D:\Games\ffxiv.exe 10.1.2.3");
+            Until(controller, "state", "FAILED");
 
-                var lines = File.ReadAllText(logger.CurrentPath);
-                Assert.Contains("validation_failed", lines);
-                Assert.Contains("\"category\":\"MonitorFault\"", lines);
-                Assert.Contains("\"stage\":\"Recording\"", lines);
-                Assert.DoesNotContain("ffxiv.exe", lines);
-                using var formal = new CaptureController(new CaptureServices { EnableFollowTimer = false });
-                var report = SanitizedDiagnosticsReport.Build(formal.Snapshot() with
-                {
-                    LastValidationFailure = controller.LastFailure,
-                }, "test", db.Clock.UtcNow);
-                Assert.Equal("MonitorFault", report["last_validation_failure"]!["category"]!.GetValue<string>());
-                Assert.Equal("Recording", report["last_validation_failure"]!["stage"]!.GetValue<string>());
-                Assert.DoesNotContain("private trace", report.ToJsonString());
-            }
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            var lines = File.ReadAllText(logger.CurrentPath);
+            Assert.Contains("validation_failed", lines);
+            Assert.Contains("\"category\":\"MonitorFault\"", lines);
+            Assert.Contains("\"stage\":\"Recording\"", lines);
+            Assert.DoesNotContain("ffxiv.exe", lines);
+            using var formal = new CaptureController(new CaptureServices { EnableFollowTimer = false });
+            var report = SanitizedDiagnosticsReport.Build(formal.Snapshot() with
+            {
+                LastValidationFailure = controller.LastFailure,
+            }, "test", db.Clock.UtcNow);
+            Assert.Equal("MonitorFault", report["last_validation_failure"]!["category"]!.GetValue<string>());
+            Assert.Equal("Recording", report["last_validation_failure"]!["stage"]!.GetValue<string>());
+            Assert.DoesNotContain("private trace", report.ToJsonString());
         }
     }
 

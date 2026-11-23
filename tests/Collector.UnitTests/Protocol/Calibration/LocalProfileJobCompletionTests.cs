@@ -31,10 +31,6 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
 
     private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
 
-    private static IReadOnlyDictionary<string, CalibrationVerdict> AllCorrect(CalibrationStatusSnapshot status) =>
-        status.Events.Where(item => item.RequiresConfirmation)
-            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal);
-
     /// <summary>
     /// The profile a machine wrote before the job rule could name the message: the very draft one
     /// evening produces, with the job message and its evidence entry taken back out again.
@@ -81,7 +77,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
-        var result = pipeline.ConfirmCalibration(AllCorrect(offered));
+        var result = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
         Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
         Assert.NotEqual(CalibrationState.Ready, pipeline.CalibrationStatus().State);
@@ -93,7 +89,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
                 CalibrationObserverTests.Bytes(64, (16, 9)), 500_000),
         }.Concat(CalibrationObserverTests.Cluster(520_000, 1039, job: 24)));
 
-        var run = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items
+        var run = _bed.AllRuns()
             .Single(item => string.Equals(item.ProtocolProfileId, result.ProfileId, StringComparison.Ordinal) &&
                             item.EnteredAtUtc is not null && item.MentorRouletteId == 9);
         Assert.Equal(24, run.JobId);
@@ -120,7 +116,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
-        pipeline.ConfirmCalibration(AllCorrect(offered));
+        pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
         Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
         Assert.Equal(CalibrationState.Done, pipeline.CalibrationStatus().State);
@@ -132,7 +128,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
 
         var completion = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, completion.State);
-        pipeline.ConfirmCalibration(AllCorrect(completion));
+        pipeline.ConfirmCalibration(Bed.AllCorrect(completion));
         Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
         pipeline.OnCaptureStopped(second, CaptureEndReason.UserStop);
     }
@@ -185,9 +181,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
     [Fact]
     public void AFinishedProfileThatAlreadyHasTheJobIsNotCalibratedBeside()
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.Announcement), Bed.Template, Bed.Build,
-            Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var pipeline = Pipeline();
         pipeline.Refresh(Bed.Game());
 

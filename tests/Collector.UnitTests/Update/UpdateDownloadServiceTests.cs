@@ -65,7 +65,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var service = Service(transport);
 
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes == 50_000, "progress must be visible while downloading");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes == 50_000, "progress must be visible while downloading");
 
         var snapshot = service.Snapshot();
         Assert.Equal(State.Downloading, snapshot.State);
@@ -85,7 +85,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var transport = new Transport().Publish(Published, Installer, body: body);
         var service = Service(transport);
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
         Assert.True(File.Exists(PartPath()));
 
         var answer = service.Cancel();
@@ -147,7 +147,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var transport = new Transport().Publish(Published, Installer, body: first);
         var service = Service(transport);
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
         service.Cancel();
 
         // Once the cancelled one has finished (NothingStartsWhileACancelledDownloadIsStillFinishing).
@@ -181,7 +181,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         });
         var service = Service(transport);
         service.Start();
-        await EventuallyAsync(() => transport.Requests.Count == 2, "the installer must have been asked");
+        await Poll.UntilAsync(() => transport.Requests.Count == 2, "the installer must have been asked");
         var first = service.Running!;
         service.Cancel();
 
@@ -329,7 +329,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var body = new StallingStream(Installer[..20_000]);
         var service = Service(new Transport().Publish(Published, Installer, body: body));
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
 
         var answer = service.Withdraw();
 
@@ -398,7 +398,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
 
         var first = service.Start();
         var running = service.Running;
-        await EventuallyAsync(() => transport.Requests.Count == 2, "the installer must have been asked");
+        await Poll.UntilAsync(() => transport.Requests.Count == 2, "the installer must have been asked");
         var second = service.Start(reinstall: true);
 
         Assert.Equal(State.Downloading, first.State);
@@ -574,7 +574,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var transport = new Transport().Publish(Published, Installer, body: body);
         var service = Service(transport);
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
         var running = service.Running!;
 
         service.Dispose();
@@ -629,7 +629,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var transport = new Transport().Publish(Published, Installer, body: new StallingStream(Installer[..1000]));
         var service = Service(transport);
         service.Start();
-        await EventuallyAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
 
         service.Cancel();
         await SettleAsync(service);

@@ -41,7 +41,6 @@ public sealed class ContractSchemaTests
                 200, request.Uri, "audio/wav", null, new MemoryStream(WaveFile.Silence()))),
             readEnvironment: _ => null);
         await using var fixture = ServerFixture.Start(capture: CaptureFakes.Ready(source), speech: speech);
-        var workspace = Directory.CreateTempSubdirectory("MentorRecorder.Contract").FullName;
 
         var envelopes = new List<JsonObject>();
         await using var client = await fixture.ConnectAsync();
@@ -53,7 +52,8 @@ public sealed class ContractSchemaTests
             }
         };
 
-        try
+        // A backup handle can linger on Windows; the temp cleaner will get it.
+        using (var workspace = new TempDirectory("Contract"))
         {
             // -- subscribe first, so the mutations below are observed as live events ------
             var subscribe = await client.SendAsync(
@@ -272,7 +272,7 @@ public sealed class ContractSchemaTests
             Assert.True((await client.SendAsync("ReviewCandidateObservation", new JsonObject
                 { ["observation_id"] = candidate.ObservationId, ["verdict"] = "UNSURE" })).Ok);
             Assert.True((await client.SendAsync("ExportCandidateEvidence", new JsonObject
-                { ["target_path"] = Path.Combine(workspace, "candidates.json") })).Ok);
+                { ["target_path"] = workspace.Combine("candidates.json") })).Ok);
 
             // -- calibration: nothing is being calibrated here, so discarding is a no-op and
             // confirming is refused; the successful path needs a build with no profile and a
@@ -296,7 +296,7 @@ public sealed class ContractSchemaTests
                 "ExportCsv",
                 new JsonObject
                 {
-                    ["target_path"] = Path.Combine(workspace, "runs.csv"),
+                    ["target_path"] = workspace.Combine("runs.csv"),
                     ["filter"] = new JsonObject(),
                     ["overwrite"] = true,
                     ["sort"] = new JsonObject { ["field"] = "history_date", ["direction"] = "asc" },
@@ -305,7 +305,7 @@ public sealed class ContractSchemaTests
                 "ExportJson",
                 new JsonObject
                 {
-                    ["target_path"] = Path.Combine(workspace, "runs.json"),
+                    ["target_path"] = workspace.Combine("runs.json"),
                     ["filter"] = new JsonObject(),
                     ["overwrite"] = true,
                 })).Ok);
@@ -359,7 +359,7 @@ public sealed class ContractSchemaTests
             // below can read the bytes that actually landed on disk.
             var report = await client.SendAsync(
                 "ExportDiagnosticsReport",
-                new JsonObject { ["target_path"] = Path.Combine(workspace, "diag.json") });
+                new JsonObject { ["target_path"] = workspace.Combine("diag.json") });
             var reportPath = report.Require()["target_path"]!.GetValue<string>();
             Assert.True(File.Exists(reportPath));
             Assert.True(report.Require()["byte_count"]!.GetValue<long>() > 0);
@@ -497,17 +497,6 @@ public sealed class ContractSchemaTests
 
             // Live events are asynchronous; the mutations above published several.
             await WaitForEventsAsync(envelopes, 4);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(workspace, recursive: true);
-            }
-            catch (IOException)
-            {
-                // A backup handle can linger on Windows; the temp cleaner will get it.
-            }
         }
 
         // -- validation ---------------------------------------------------------------------

@@ -8,15 +8,15 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class CandidateProfileTests : IDisposable
 {
     private const string Build = "2026.08.05.0000.0000";
-    private readonly string _directory = Directory.CreateTempSubdirectory("MentorRecorder.CandidateProfiles.").FullName;
+    private readonly TempDirectory _directory = new("CandidateProfiles");
 
     [Fact]
     public void DefaultCatalogDoesNotRetainCandidatesAndFormalSelectionNeverUsesThem()
     {
         Write("candidate-a", Candidate());
 
-        Assert.Empty(ProfileCatalog.Load(_directory).Entries);
-        var enabledCatalog = ProfileCatalog.Load(_directory, allowCandidate: true);
+        Assert.Empty(ProfileCatalog.Load(_directory.Path).Entries);
+        var enabledCatalog = ProfileCatalog.Load(_directory.Path, allowCandidate: true);
         Assert.Single(enabledCatalog.Entries);
         var selector = new ProfileSelector(enabledCatalog);
         var current = selector.Current;
@@ -100,7 +100,7 @@ public sealed class CandidateProfileTests : IDisposable
         var candidate = Candidate();
         candidate["region"] = "TC";
         Write("tc-candidate", candidate);
-        var selector = new ProfileSelector(ProfileCatalog.Load(_directory, allowCandidate: true));
+        var selector = new ProfileSelector(ProfileCatalog.Load(_directory.Path, allowCandidate: true));
         Assert.NotNull(selector.SelectCandidate(Region.Tc, Build, enabled: true));
         Assert.Null(selector.SelectCandidate(Region.Cn, Build, enabled: true));
         Assert.Null(selector.SelectCandidate(Region.Tc, Build, enabled: false));
@@ -117,7 +117,7 @@ public sealed class CandidateProfileTests : IDisposable
     public void CandidateSelectionRequiresExactKnownIdentity(Region region, string? build)
     {
         Write("candidate-identity", Candidate());
-        var selector = new ProfileSelector(ProfileCatalog.Load(_directory, allowCandidate: true));
+        var selector = new ProfileSelector(ProfileCatalog.Load(_directory.Path, allowCandidate: true));
 
         Assert.Null(selector.SelectCandidate(region, build, enabled: true));
     }
@@ -141,7 +141,7 @@ public sealed class CandidateProfileTests : IDisposable
                 ["note"] = "Synthetic test-only evidence for selection isolation.",
             }).ToList();
         Write("formal-test", formal);
-        var catalog = ProfileCatalog.Load(_directory, allowCandidate: true);
+        var catalog = ProfileCatalog.Load(_directory.Path, allowCandidate: true);
         var selector = new ProfileSelector(catalog);
 
         Assert.True(catalog.IsAmbiguous(Region.Cn, Build, candidate: true));
@@ -344,7 +344,7 @@ public sealed class CandidateProfileTests : IDisposable
     }
 
     private string Write(string id, Dictionary<string, object> document) =>
-        ProfileTestFiles.Write(_directory, id, document);
+        ProfileTestFiles.Write(_directory.Path, id, document);
 
     private static List<object> Guesses(params (string Kind, int Offset, int Size)[] guesses) => guesses
         .Select(guess => (object)new Dictionary<string, object>
@@ -376,5 +376,5 @@ public sealed class CandidateProfileTests : IDisposable
         return document;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 }

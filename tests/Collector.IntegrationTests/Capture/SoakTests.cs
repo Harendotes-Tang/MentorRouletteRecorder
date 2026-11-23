@@ -82,15 +82,9 @@ public sealed class SoakTests : IDisposable
     private const string GameBuild = "soak-build";
 
     private readonly ITestOutputHelper _output;
-    private readonly string _directory;
+    private readonly TempDirectory _directory = new("Soak");
 
-    public SoakTests(ITestOutputHelper output)
-    {
-        _output = output;
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.Soak", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
+    public SoakTests(ITestOutputHelper output) => _output = output;
 
     /// <summary>Duration this run will use, honouring <see cref="DurationVariable"/>.</summary>
     public static TimeSpan ResolveDuration()
@@ -135,7 +129,7 @@ public sealed class SoakTests : IDisposable
     public void AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact()
     {
         var duration = ResolveDuration();
-        var databasePath = Path.Combine(_directory, "soak.db");
+        var databasePath = _directory.Combine("soak.db");
 
         using var harness = SoakHarness.Start(databasePath);
 
@@ -270,7 +264,7 @@ public sealed class SoakTests : IDisposable
     [Fact]
     public void JobNoiseAfterACompletedCycleClearsOnlyTheObservableTerminalState()
     {
-        var databasePath = Path.Combine(_directory, "completed-then-noise.db");
+        var databasePath = _directory.Combine("completed-then-noise.db");
         using var harness = SoakHarness.Start(databasePath);
         harness.Controller.Start();
         var epoch = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -344,21 +338,8 @@ public sealed class SoakTests : IDisposable
         return process.WorkingSet64;
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Windows can hold a WAL handle briefly; the temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same as above.
-        }
-    }
+    // Windows can hold a WAL handle briefly; the temp cleaner will get it.
+    public void Dispose() => _directory.Dispose();
 
     /// <summary>A sink that is slow on purpose, to force the queue into its drop path.</summary>
     private sealed class SlowCountingSink : Protocol.Decoded.IDecodedMessageSink
@@ -512,8 +493,7 @@ public sealed class SoakTests : IDisposable
         /// </summary>
         private static ProtocolProfile LoadSoakProfile()
         {
-            var path = Path.Combine(
-                AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
+            var path = SyntheticProfile.Path;
             var loaded = ProfileLoader.Validate(path).Profile
                 ?? throw new InvalidOperationException(
                     "the checked-in synthetic profile must load: " + path);

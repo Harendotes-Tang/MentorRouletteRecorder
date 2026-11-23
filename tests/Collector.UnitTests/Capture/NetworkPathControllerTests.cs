@@ -127,53 +127,43 @@ public sealed class NetworkPathControllerTests
     [Fact]
     public void AnUnreadableTcpTableIsLoggedOncePerReasonAndItsRecoveryOnce()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.TcpTableLog", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var time = new ManualTimeProvider();
-            var connections = new ScriptedConnections(ProcessNetworkConnectionQuery.FailedBecause("native_size:5"));
-            using var fixture = new Fixture(connections, time, directory);
-            var controller = fixture.Controller;
+        using var temp = new TempDirectory("TcpTableLog");
+        var time = new ManualTimeProvider();
+        var connections = new ScriptedConnections(ProcessNetworkConnectionQuery.FailedBecause("native_size:5"));
+        using var fixture = new Fixture(connections, time, temp.Path);
+        var controller = fixture.Controller;
 
-            controller.Snapshot();
-            time.Advance(1001);
-            controller.Snapshot();
-            connections.IPv4 = new ProcessNetworkConnectionQuery(
-                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:1");
-            connections.IPv6 = ProcessNetworkConnectionQuery.FailedBecause("native_size:50");
-            time.Advance(1001);
-            controller.Snapshot();
-            connections.IPv4 = new ProcessNetworkConnectionQuery(
-                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:2");
-            time.Advance(1001);
-            controller.Snapshot();
-            connections.IPv6 = new ProcessNetworkConnectionQuery(
-                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>());
-            time.Advance(1001);
-            controller.Snapshot();
-            time.Advance(1001);
-            controller.Snapshot();
+        controller.Snapshot();
+        time.Advance(1001);
+        controller.Snapshot();
+        connections.IPv4 = new ProcessNetworkConnectionQuery(
+            NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:1");
+        connections.IPv6 = ProcessNetworkConnectionQuery.FailedBecause("native_size:50");
+        time.Advance(1001);
+        controller.Snapshot();
+        connections.IPv4 = new ProcessNetworkConnectionQuery(
+            NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:2");
+        time.Advance(1001);
+        controller.Snapshot();
+        connections.IPv6 = new ProcessNetworkConnectionQuery(
+            NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>());
+        time.Advance(1001);
+        controller.Snapshot();
+        time.Advance(1001);
+        controller.Snapshot();
 
-            var lines = File.ReadAllLines(fixture.Log.CurrentPath);
-            var unreadable = lines
-                .Where(text => text.Contains("\"tcp_table_unreadable\"", StringComparison.Ordinal))
-                .ToArray();
-            Assert.Equal(2, unreadable.Length);
-            Assert.Contains("\"ipv4\":\"FAILED\"", unreadable[0], StringComparison.Ordinal);
-            Assert.Contains("\"ipv4_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
-            Assert.Contains("\"ipv6_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
-            Assert.Contains("\"ipv4\":\"OK\"", unreadable[1], StringComparison.Ordinal);
-            Assert.Contains("\"ipv4_detail\":\"skipped_rows:1\"", unreadable[1], StringComparison.Ordinal);
-            Assert.Contains("\"ipv6_detail\":\"native_size:50\"", unreadable[1], StringComparison.Ordinal);
-            Assert.Single(lines, text => text.Contains("\"tcp_table_readable\"", StringComparison.Ordinal));
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+        var lines = File.ReadAllLines(fixture.Log.CurrentPath);
+        var unreadable = lines
+            .Where(text => text.Contains("\"tcp_table_unreadable\"", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, unreadable.Length);
+        Assert.Contains("\"ipv4\":\"FAILED\"", unreadable[0], StringComparison.Ordinal);
+        Assert.Contains("\"ipv4_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
+        Assert.Contains("\"ipv6_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
+        Assert.Contains("\"ipv4\":\"OK\"", unreadable[1], StringComparison.Ordinal);
+        Assert.Contains("\"ipv4_detail\":\"skipped_rows:1\"", unreadable[1], StringComparison.Ordinal);
+        Assert.Contains("\"ipv6_detail\":\"native_size:50\"", unreadable[1], StringComparison.Ordinal);
+        Assert.Single(lines, text => text.Contains("\"tcp_table_readable\"", StringComparison.Ordinal));
     }
 
     private sealed class Fixture : IDisposable
@@ -193,8 +183,7 @@ public sealed class NetworkPathControllerTests
         internal Fixture(IProcessNetworkConnectionProvider? connections = null, TimeProvider? time = null,
             string? logDirectory = null)
         {
-            var settings = new SettingsRepository(_database.Database, _database.Clock);
-            settings.EnsureDefaults();
+            var settings = _database.Settings();
             Processes.Add(GameProcessLocator.Dx11ProcessName, FirstPid, DateTimeOffset.UnixEpoch,
                 @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
             var adapters = new FakeAdapterProvider().Add("wifi", "Wi-Fi", addresses: "192.0.2.10");

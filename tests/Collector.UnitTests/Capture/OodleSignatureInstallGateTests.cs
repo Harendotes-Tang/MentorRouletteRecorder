@@ -18,10 +18,7 @@ public sealed class OodleSignatureInstallGateTests : IDisposable
     private const string Build = "2026.08.05.0000.0000";
     private const int DeclaredRva = 0x00000010;
 
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "MentorRecorder.OodleGate", Guid.NewGuid().ToString("N"));
-
-    public OodleSignatureInstallGateTests() => Directory.CreateDirectory(_root);
+    private readonly TempDirectory _root = new("OodleGate");
 
     [Fact]
     public void AScanThatMatchesEverySignatureExactlyOnceAtTheDeclaredRvaIsAccepted()
@@ -77,16 +74,7 @@ public sealed class OodleSignatureInstallGateTests : IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    public void Dispose() => _root.Dispose();
 
     private static IReadOnlyList<OodleSignatureMatch> Results(
         Func<SignatureType, OodleSignatureMatch> build) =>
@@ -94,12 +82,12 @@ public sealed class OodleSignatureInstallGateTests : IDisposable
 
     private OodleSignatureProfile Profile()
     {
-        var executable = Path.Combine(_root, Guid.NewGuid().ToString("N") + ".exe");
+        var executable = _root.Combine(Guid.NewGuid().ToString("N") + ".exe");
         File.WriteAllBytes(executable, [0x4d, 0x5a]);
         var bytes = File.ReadAllBytes(executable);
         var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var path = OodleSignatureTestFiles.Write(
-            Path.Combine(_root, OodleSignatureProfile.DirectoryName),
+            _root.Combine(OodleSignatureProfile.DirectoryName),
             Guid.NewGuid().ToString("N"), Build, hash, bytes.LongLength, resolvedRva: DeclaredRva);
 
         return OodleSignatureProfile.TryLoad(path, out var reason)

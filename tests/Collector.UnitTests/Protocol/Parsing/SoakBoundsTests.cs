@@ -157,8 +157,7 @@ public sealed class SoakBoundsTests
     /// <summary>The checked-in synthetic profile, which is the only one that may be used offline.</summary>
     private static ProtocolProfile Profile()
     {
-        var path = Path.Combine(
-            AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-v1.json");
+        var path = SyntheticProfile.Path;
         return ProfileLoader.Validate(path).Profile
             ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
     }

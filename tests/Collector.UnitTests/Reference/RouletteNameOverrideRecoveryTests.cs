@@ -7,8 +7,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>损坏的可选显示映射回退，并允许下一次有效改名修复文件。</summary>
 public sealed class RouletteNameOverrideRecoveryTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.RouletteNames." + Guid.NewGuid().ToString("N"));
-    public RouletteNameOverrideRecoveryTests() => Directory.CreateDirectory(_directory);
+    private readonly TempDirectory _directory = new("RouletteNames");
 
     [Theory]
     [InlineData("[]")]
@@ -45,7 +44,7 @@ public sealed class RouletteNameOverrideRecoveryTests : IDisposable
         var now = new DateTimeOffset(2026, 10, 19, 0, 0, 0, TimeSpan.Zero);
         Assert.True(RouletteNameOverrides.Record(path, Region.Cn, 42, "恢复后的本机名称", now));
         Assert.Equal("恢复后的本机名称", RouletteNameOverrides.Load(path)[(Region.Cn, 42)]);
-        Assert.Empty(Directory.GetFiles(_directory, "*.tmp-*"));
+        Assert.Empty(Directory.GetFiles(_directory.Path, "*.tmp-*"));
     }
 
     /// <summary>
@@ -80,7 +79,7 @@ public sealed class RouletteNameOverrideRecoveryTests : IDisposable
         var before = File.ReadAllBytes(path);
         Assert.False(RouletteNameOverrides.Record(path, Region.Cn, 42, "新的本机名称", new DateTimeOffset(2026, 10, 21, 0, 0, 0, TimeSpan.Zero)));
         Assert.Equal(before, File.ReadAllBytes(path));
-        Assert.Empty(Directory.GetFiles(_directory, "*.tmp-*"));
+        Assert.Empty(Directory.GetFiles(_directory.Path, "*.tmp-*"));
     }
 
     [Fact]
@@ -95,10 +94,10 @@ public sealed class RouletteNameOverrideRecoveryTests : IDisposable
 
     private string Write(string json)
     {
-        var path = Path.Combine(_directory, "roulette-names.json");
+        var path = _directory.Combine("roulette-names.json");
         File.WriteAllText(path, json, new UTF8Encoding(false));
         return path;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => _directory.Dispose();
 }

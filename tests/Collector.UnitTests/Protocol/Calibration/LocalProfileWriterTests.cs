@@ -15,18 +15,12 @@ public sealed class LocalProfileWriterTests : IDisposable
 {
     private const string Build = "2026.09.01.0000.0000";
     private static readonly DateTimeOffset Confirmed = new(2026, 9, 9, 12, 30, 0, TimeSpan.Zero);
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"), "protocol-profiles");
+    private readonly TempDirectory _temp = TempDirectory.Reserve();
+    private readonly string _root;
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(Path.GetDirectoryName(_root)!, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public LocalProfileWriterTests() => _root = _temp.Combine("protocol-profiles");
+
+    public void Dispose() => _temp.Dispose();
 
     private static UserText Label(string chinese) => new("test.calibration_label", chinese);
 
@@ -398,8 +392,7 @@ public sealed class LocalProfileWriterTests : IDisposable
         Assert.Equal(CalibrationState.Ready, ready.State);
 
         var refusal = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(
-            ready.Events.Where(item => item.RequiresConfirmation)
-                .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal)));
+            SharedCalibrationTestBed.AllCorrect(ready)));
 
         Assert.Equal(key, refusal.Text!.Key);
         Assert.Empty(refusal.Text.Args);

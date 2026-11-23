@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -44,10 +43,8 @@ public sealed class DisplayTimeZoneIpcTests
 
             // Unknown: refused with its reference, and New York stays in force.
             var refused = await client.SendAsync("SetDisplayTimeZone", new JsonObject { ["time_zone"] = "Mars/Olympus_Mons" });
-            Assert.False(refused.Ok);
+            CollectorTextCatalogue.AssertRefusal(refused, "ipc.request.time_zone_unknown");
             Assert.Equal(ErrorCodes.BadRequest, refused.ErrorCode);
-            Assert.Equal("ipc.request.time_zone_unknown", refused.Payload["message_ref"]!["key"]!.GetValue<string>());
-            Assert.Equal(refused.ErrorMessage, CollectorTextCatalogue.Render(refused.Payload["message_ref"]));
             Assert.Equal("time_zone", refused.Payload["field"]!.GetValue<string>());
             Assert.Equal("America/New_York", DisplayTimeZone.Id);
             Assert.Equal(new[] { "2026-09-15" }, await DaysAsync(client));

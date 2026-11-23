@@ -975,8 +975,7 @@ public sealed class NetworkRecoveryTests
 
         internal Fixture(bool subscriptionFails = false)
         {
-            var settings = new SettingsRepository(_database.Database, _database.Clock);
-            settings.EnsureDefaults();
+            var settings = _database.Settings();
             Adapters.Add("wifi", "192.0.2.10");
             Tcp.With(FirstPid, "192.0.2.10").With(SecondPid, "192.0.2.10");
             Processes.Add(GameProcessLocator.Dx11ProcessName, FirstPid, DateTimeOffset.UnixEpoch,

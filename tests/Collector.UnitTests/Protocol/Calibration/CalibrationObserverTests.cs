@@ -681,25 +681,17 @@ public sealed class CalibrationObserverTests
     [Fact]
     public void TemplateSelectionPrefersTheHighestBuildAndRefusesATie()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            WriteTemplate(directory, "older", "build-1");
-            WriteTemplate(directory, "newer", "build-2");
-            var catalog = ProfileCatalog.Load(directory);
-            Assert.Equal("newer", CalibrationTemplate.Select(catalog, Region.Unknown)!.Source.ProfileId);
-            Assert.Null(CalibrationTemplate.Select(catalog, Region.Cn));
+        using var temp = new TempDirectory();
+        WriteTemplate(temp.Path, "older", "build-1");
+        WriteTemplate(temp.Path, "newer", "build-2");
+        var catalog = ProfileCatalog.Load(temp.Path);
+        Assert.Equal("newer", CalibrationTemplate.Select(catalog, Region.Unknown)!.Source.ProfileId);
+        Assert.Null(CalibrationTemplate.Select(catalog, Region.Cn));
 
-            // Two files claiming build-2 are AMBIGUOUS at the catalogue level and drop out; the
-            // older build is what remains.
-            WriteTemplate(directory, "twin", "build-2");
-            Assert.Equal("older", CalibrationTemplate.Select(ProfileCatalog.Load(directory), Region.Unknown)!.Source.ProfileId);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        // Two files claiming build-2 are AMBIGUOUS at the catalogue level and drop out; the
+        // older build is what remains.
+        WriteTemplate(temp.Path, "twin", "build-2");
+        Assert.Equal("older", CalibrationTemplate.Select(ProfileCatalog.Load(temp.Path), Region.Unknown)!.Source.ProfileId);
     }
 
     private static void WriteTemplate(string directory, string profileId, string build)

@@ -110,13 +110,7 @@ public sealed class PipeDeferredResponseBoundsTests
 
     private static CollectorHost OpenHost(TestDatabase fixture, UpdateCheckClient? updates = null) => CollectorHost.Open(
         Path.Combine(Path.GetDirectoryName(fixture.Path)!, "deferred-bounds.db"), fixture.Clock,
-        capture: new CaptureServices
-        {
-            Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
-            Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
-            Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
-            EnableFollowTimer = false,
-        },
+        capture: InertCapture.Services(),
         speechClient: new OnlineSpeechClient((_, _) => throw new InvalidOperationException("these tests never reach a speech service")),
         updateCheckClient: updates ?? new UpdateCheckClient(
             (_, _) => throw new InvalidOperationException("these tests never reach a release host"), readEnvironment: _ => null));
@@ -125,7 +119,7 @@ public sealed class PipeDeferredResponseBoundsTests
     /// Hands the connection the scripted requests one frame per read, holds every answer until <c>writes</c> completes,
     /// and ends the stream once every request has its answer.
     /// </summary>
-    private sealed class ScriptedStream((string MessageType, JsonObject Payload)[] requests, Task writes) : Stream
+    private sealed class ScriptedStream((string MessageType, JsonObject Payload)[] requests, Task writes) : AsyncOnlyStream
     {
         private readonly TaskCompletionSource _answered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _allRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -148,11 +142,7 @@ public sealed class PipeDeferredResponseBoundsTests
             }
         }
 
-        public override bool CanRead => true;
         public override bool CanWrite => true;
-        public override bool CanSeek => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
@@ -167,13 +157,7 @@ public sealed class PipeDeferredResponseBoundsTests
 
                 var requestId = Guid.NewGuid().ToString("D");
                 RequestIds.Add(requestId);
-                _next = FrameCodec.Encode(IpcEnvelope.ToBytes(new JsonObject
-                {
-                    ["protocol_version"] = IpcEnvelope.ProtocolVersion,
-                    ["request_id"] = requestId,
-                    ["message_type"] = requests[_read].MessageType,
-                    ["payload"] = requests[_read].Payload.DeepClone(),
-                }));
+                _next = IpcTestFrames.Request(requestId, requests[_read].MessageType, requests[_read].Payload);
                 _read++;
             }
 
@@ -189,7 +173,7 @@ public sealed class PipeDeferredResponseBoundsTests
             await writes.WaitAsync(cancellationToken);
             lock (_responses)
             {
-                _responses.Add(JsonNode.Parse(buffer.Span[FrameCodec.PrefixBytes..])!.AsObject());
+                _responses.Add(IpcTestFrames.Reply(buffer.Span));
                 if (_responses.Count == requests.Length)
                 {
                     _answered.TrySetResult();
@@ -197,19 +181,14 @@ public sealed class PipeDeferredResponseBoundsTests
             }
         }
 
-        public override void Flush() { }
         public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     /// <summary>
     /// 每次读取恰好提供一帧。异步消息故意使用非法字段，在任何网络调用前形成契约错误；
     /// 生产传输的写入背压由可取消的无限等待模拟，测试不连接命名管道或远端服务。
     /// </summary>
-    private sealed class DeferredResponseStream(int requests, bool blockWrites) : Stream
+    private sealed class DeferredResponseStream(int requests, bool blockWrites) : AsyncOnlyStream
     {
         private byte[]? _next;
         private int _nextOffset;
@@ -218,11 +197,7 @@ public sealed class PipeDeferredResponseBoundsTests
         public int CompletedWrites { get; private set; }
         public int CancelledWrites { get; private set; }
         public List<JsonObject> Responses { get; } = new();
-        public override bool CanRead => true;
         public override bool CanWrite => true;
-        public override bool CanSeek => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
@@ -230,13 +205,8 @@ public sealed class PipeDeferredResponseBoundsTests
             if (_next is null)
             {
                 if (FramesRead == requests) return ValueTask.FromResult(0);
-                _next = FrameCodec.Encode(IpcEnvelope.ToBytes(new JsonObject
-                {
-                    ["protocol_version"] = IpcEnvelope.ProtocolVersion,
-                    ["request_id"] = Guid.NewGuid().ToString("D"),
-                    ["message_type"] = "CheckUpdateNow",
-                    ["payload"] = new JsonObject { ["unexpected"] = true },
-                }));
+                _next = IpcTestFrames.Request(
+                    Guid.NewGuid().ToString("D"), "CheckUpdateNow", new JsonObject { ["unexpected"] = true });
                 FramesRead++;
             }
             var count = Math.Min(buffer.Length, _next.Length - _nextOffset);
@@ -255,15 +225,10 @@ public sealed class PipeDeferredResponseBoundsTests
                 catch (OperationCanceledException) { CancelledWrites++; throw; }
             }
             cancellationToken.ThrowIfCancellationRequested();
-            Responses.Add(JsonNode.Parse(buffer.Span[FrameCodec.PrefixBytes..])!.AsObject());
+            Responses.Add(IpcTestFrames.Reply(buffer.Span));
             CompletedWrites++;
         }
 
-        public override void Flush() { }
         public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
     }
 }

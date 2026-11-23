@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
-using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.UnitTests;
 

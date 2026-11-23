@@ -31,14 +31,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     private const string IPv6Address = "2001:0db8:85a3:0000:0000:8a2e:0370:7334";
     private const string IPv6Compressed = "fe80::1c2d:5eff:fe4a:9b01";
 
-    private readonly string _directory;
-
-    public DiagnosticsLogHygieneTests()
-    {
-        _directory = Path.Combine(
-            Path.GetTempPath(), "MentorRecorder.LogHygiene", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_directory);
-    }
+    private readonly TempDirectory _directory = new("LogHygiene");
 
     // --------------------------------------------------------------- envelope and paths ----
 
@@ -131,7 +124,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     public void RotationKeepsAtMostFiveFilesOfAtMostTwoMebibytesEach()
     {
         var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(_directory, clock);
+        using var logger = new RotatingFileLogger(_directory.Path, clock);
 
         // Roughly 24 MiB of text, which is more than twice what the policy may keep.
         var filler = new string('x', 64 * 1024);
@@ -140,7 +133,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
             logger.Write(LogLevel.Info, "soak", "filler", new Dictionary<string, object?>() { ["blob"] = filler });
         }
 
-        var files = Directory.GetFiles(_directory, "collector-*.log");
+        var files = Directory.GetFiles(_directory.Path, "collector-*.log");
 
         Assert.True(
             files.Length <= RotatingFileLogger.MaxFiles,
@@ -170,7 +163,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     {
         // Diagnostics are optional; the data is not. A log directory that cannot be created
         // must cost a log line, not the process.
-        var impossible = Path.Combine(_directory, "file-not-a-directory");
+        var impossible = _directory.Combine("file-not-a-directory");
         File.WriteAllText(impossible, "this is a file, so it can never be a log directory");
 
         using var logger = new RotatingFileLogger(
@@ -324,13 +317,13 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     public void TheHostWritesTheClearToTheDiagnosticLog()
     {
         var clock = new TestClock(new DateTimeOffset(2026, 10, 5, 3, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(Path.Combine(_directory, "logs"), clock);
+        using var logger = new RotatingFileLogger(_directory.Combine("logs"), clock);
         var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
             Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
             allowSynthetic: true);
         string logPath;
         using (var host = CollectorHost.Open(
-                   Path.Combine(_directory, "host.db"), clock, new CaptureServices(), logger, _ => selection))
+                   _directory.Combine("host.db"), clock, new CaptureServices(), logger, _ => selection))
         {
             var pipeline = host.LiveProtocol!;
             const string session = "30000000-0000-4000-8000-000000000031";
@@ -374,13 +367,13 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     public void TheHostWritesACalibrationFaultToTheDiagnosticLogWithItsPathRedacted()
     {
         var clock = new TestClock(new DateTimeOffset(2026, 11, 3, 3, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(Path.Combine(_directory, "logs"), clock);
+        using var logger = new RotatingFileLogger(_directory.Combine("logs"), clock);
         var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
             Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
             allowSynthetic: true);
         string logPath;
         using (var host = CollectorHost.Open(
-                   Path.Combine(_directory, "host.db"), clock, new CaptureServices(), logger, _ => selection))
+                   _directory.Combine("host.db"), clock, new CaptureServices(), logger, _ => selection))
         {
             // The event is raised only by the pipeline itself; its backing delegate is what a raise calls.
             var raise = (Action<string, string?, Exception?>?)typeof(LiveProtocolPipeline)
@@ -407,24 +400,10 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     private string Write(Action<RotatingFileLogger> write)
     {
         var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(_directory, clock);
+        using var logger = new RotatingFileLogger(_directory.Path, clock);
         write(logger);
         return File.ReadAllText(logger.CurrentPath, new UTF8Encoding(false));
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_directory, recursive: true);
-        }
-        catch (IOException)
-        {
-            // The temp cleaner will get it.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same.
-        }
-    }
+    public void Dispose() => _directory.Dispose();
 }

@@ -238,18 +238,7 @@ public sealed class DutyIdentityMutationTests
                 TerritoryId = territoryId, DutySource = source,
                 DutyName = "原始副本", DutyCategory = "原始分类",
             };
-            Database.Database.RunInTransaction(tx =>
-            {
-                Runs.Insert(Original, tx);
-                Revisions.Append(new RunRevision
-                {
-                    RevisionId = NewId(), RunId = Original.RunId, Revision = 1,
-                    ChangedAtUtc = Database.Clock.UtcNow, ChangeKind = ChangeKind.CreateManual,
-                    Actor = RevisionActor.User, Reason = "测试初始记录", RequestId = NewId(),
-                    Changes = Array.Empty<RunFieldChange>(),
-                }, tx);
-                return 0;
-            });
+            Database.InsertWithFirstRevision(Original);
         }
 
         public MentorRun CorrectDuty()

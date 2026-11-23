@@ -30,11 +30,11 @@ public static class ContractSchema
     // refuses. Evaluations take microseconds, so serialising them costs nothing.
     private static readonly object EvaluationGate = new();
 
-    /// <summary>Absolute path of the contract file.</summary>
-    public static string Path => System.IO.Path.Combine(RepositoryRoot, "contracts", "ipc-v1.schema.json");
+    /// <summary>Absolute path of the contract file, found by walking up from the test binary.</summary>
+    public static string Path { get; } = RepositoryFiles.Find("contracts", "ipc-v1.schema.json");
 
-    /// <summary>The repository root, found by walking up from the test binary.</summary>
-    public static string RepositoryRoot { get; } = FindRepositoryRoot();
+    /// <summary>The repository root: the folder that holds <c>contracts/</c>.</summary>
+    public static string RepositoryRoot => System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(Path))!;
 
     /// <summary>The whole contract document, parsed.</summary>
     public static JsonObject Root => Document.Value;
@@ -183,22 +183,5 @@ public static class ContractSchema
         var text = File.ReadAllText(Path);
         return JsonNode.Parse(text) as JsonObject
             ?? throw new InvalidOperationException("契约文件不是一个 JSON 对象。");
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(System.IO.Path.Combine(directory.FullName, "contracts", "ipc-v1.schema.json")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException(
-            "找不到仓库根目录（从 " + AppContext.BaseDirectory + " 向上没有 contracts/ipc-v1.schema.json）。");
     }
 }

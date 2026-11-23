@@ -65,8 +65,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
     {
         foreach (var message in traffic)
         {
-            Bed.Feed(pipeline, session, new[] { message });
-            await Bed.Idle(pipeline);
+            await Bed.FeedAndSettleAsync(pipeline, session, new[] { message });
         }
     }
 
@@ -80,8 +79,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
 
     private LiveProtocolPipeline QueueInferredLocalWithBetterCodePublished(LiveEventBus? bus = null)
     {
-        LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot);
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
         var pipeline = _bed.Pipeline(_bed.Services(), bus);
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
@@ -108,7 +106,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
 
         await FeedSettling(pipeline, session, Bed.From(evening, 229_000));
 
-        var runs = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items.OrderBy(run => run.MatchedAtUtc).ToArray();
+        var runs = _bed.AllRuns().OrderBy(run => run.MatchedAtUtc).ToArray();
         Assert.Equal(2, runs.Length);
         Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));
         Assert.All(runs, run => Assert.NotNull(run.EndedAtUtc));
@@ -163,7 +161,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
             recover.ExecuteNonQuery();
             await FeedSettling(pipeline, session, CalibrationObserverTests.Noise(440_000, 450_000));
         }
-        var runs = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items.OrderBy(run => run.MatchedAtUtc).ToArray();
+        var runs = _bed.AllRuns().OrderBy(run => run.MatchedAtUtc).ToArray();
         Assert.Equal(2, runs.Length);
         Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));
         Assert.All(runs, run => Assert.NotNull(run.EndedAtUtc));
@@ -201,8 +199,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         Assert.NotNull(_bed.Store.BoundSince(Region.Cn, Bed.Build, document));
 
         _bed.Db.Clock.UtcNow += TimeSpan.FromHours(2);
-        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        await Bed.Idle(pipeline);
+        await Bed.StopAndSettleAsync(pipeline, session);
 
         Assert.Equal(
             UtcTimestamp.Truncate(_bed.Db.Clock.UtcNow - SharedBindResult.ClockAllowance),
@@ -238,20 +235,11 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         await FeedSettling(pipeline, session, Bed.From(evening, 214_000));
         var fresh = Assert.Single(await StateChanges(live), payload => payload["state"]!.GetValue<string>() == "MENTOR_MATCHED");
         Assert.False(fresh["match_from_queue"]!.GetValue<bool>());
-        Assert.Equal(2, new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items.Count);
+        Assert.Equal(2, _bed.AllRuns().Count);
     }
 
-    private static async Task<IReadOnlyList<JsonObject>> StateChanges(LiveEventSubscription subscription)
-    {
-        var events = new List<JsonObject>();
-        while (await subscription.ReadAsync(TimeSpan.FromMilliseconds(250), CancellationToken.None) is { } payload)
-        {
-            if (payload["kind"]?.GetValue<string>() == LiveEventBus.KindToken(LiveEventKind.RunStateChanged))
-            {
-                events.Add(payload);
-            }
-        }
-
-        return events;
-    }
+    private static async Task<IReadOnlyList<JsonObject>> StateChanges(LiveEventSubscription subscription) =>
+        (await subscription.DrainAsync())
+            .Where(payload => payload["kind"]?.GetValue<string>() == LiveEventBus.KindToken(LiveEventKind.RunStateChanged))
+            .ToArray();
 }

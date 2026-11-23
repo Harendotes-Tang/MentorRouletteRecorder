@@ -434,9 +434,7 @@ public sealed class CandidateObserverTests
         Assert.Null(pipeline.GetCurrentRun().Run);
         foreach (var table in new[] { "mentor_runs", "run_events", "run_revisions" })
         {
-            using var command = db.Database.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM " + table;
-            Assert.Equal(0L, command.ExecuteScalar());
+            Assert.Equal(0L, db.Count(table));
         }
         pipeline.ApplyCandidateSettings(false);
         pipeline.Accept(Message(6, 8));
