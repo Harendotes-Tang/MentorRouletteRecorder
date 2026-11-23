@@ -30,16 +30,6 @@ struct Scene : mrtest::QmlComponentScene
 
 };
 
-int countItems(QQuickItem *root, const QString &name)
-{
-    int count = root && root->objectName() == name ? 1 : 0;
-    if (root) {
-        for (QQuickItem *child : root->childItems())
-            count += countItems(child, name);
-    }
-    return count;
-}
-
 } // namespace
 
 namespace {
@@ -85,7 +75,7 @@ Window {
     QVERIFY(list);
     // Five rows, and no section header anywhere in the list.
     QTRY_COMPARE(list->property("count").toInt(), 5);
-    QCOMPARE(countItems(list, QStringLiteral("comboSectionHeader")), 0);
+    QCOMPARE(mrtest::findVisualItems(list, QStringLiteral("comboSectionHeader")).size(), 0);
     QVERIFY(list->property("section").value<QObject *>()->property("delegate").isNull()
             || !list->property("section").value<QObject *>()->property("delegate").value<QObject *>());
     QCOMPARE(scene.warnings.count(), 0);
@@ -138,7 +128,7 @@ Window {
     QVERIFY(list);
     QTRY_COMPARE(list->property("count").toInt(), 3);
     // Two groups, two headers.
-    QTRY_COMPARE(countItems(list, QStringLiteral("comboSectionHeader")), 2);
+    QTRY_COMPARE(mrtest::findVisualItems(list, QStringLiteral("comboSectionHeader")).size(), 2);
     QCOMPARE(scene.warnings.count(), 0);
 }
 

@@ -6,8 +6,8 @@
 
 #include "AppController.h"
 #include "IBackend.h"
+#include "QmlComponentTestSupport.h"
 
-#include <QDir>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -60,48 +60,13 @@ struct Scene {
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
 
-    static QQuickItem *find(QQuickItem *from, const QString &name)
-    {
-        if (!from)
-            return nullptr;
-        if (from->objectName() == name)
-            return from;
-        const auto children = from->childItems();
-        for (QQuickItem *child : children) {
-            if (QQuickItem *match = find(child, name))
-                return match;
-        }
-        return nullptr;
-    }
-
     QQuickItem *item(const QString &name) const
     {
-        return window() ? find(window()->contentItem(), name) : nullptr;
+        return window() ? mrtest::findVisualItem(window()->contentItem(), name) : nullptr;
     }
 };
 
 /// Equal as far as a scale, an opacity or a pixel position can be told apart.
 [[maybe_unused]] bool fuzzyEqual(qreal a, qreal b) { return qAbs(a - b) < 0.01; }
-
-/// Registers Theme and every component, dialog, page and chart of the shipping QML under
-/// the MentorRecorder module. False when the source tree is not where the build said.
-[[maybe_unused]] bool registerShippingQml()
-{
-    const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    if (!QDir(qmlRoot).exists())
-        return false;
-    qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                  QStringLiteral("/pages"), QStringLiteral("/charts")}) {
-        const auto files = QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files);
-        for (const auto &file : files) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
-    }
-    return true;
-}
 
 } // namespace

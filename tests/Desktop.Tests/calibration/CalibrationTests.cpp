@@ -14,6 +14,8 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
@@ -27,8 +29,6 @@
 
 #include <QDateTime>
 #include <QDir>
-#include <QFont>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
@@ -169,18 +169,7 @@ public:
     }
 };
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 /// The words the screenshot guard in main.cpp forbids on a player page, plus
 /// the raw contract tokens no player-facing string may leak.
@@ -241,16 +230,7 @@ private:
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &file : QDir(qmlRoot + QStringLiteral("/components"))
-                                    .entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/components/") + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
+        QVERIFY(mrtest::registerSourceQmlComponents());
     }
 
     // -- projections --------------------------------------------------------
@@ -1576,27 +1556,12 @@ MR_DESKTOP_TEST_SUITE(Calibration)
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
 #ifdef Q_OS_WIN
-    QStringList cjkFamilies;
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
-        const QString path = QDir(windowsDir).filePath(QString::fromLatin1(file));
-        const int id = QFontDatabase::addApplicationFont(path);
-        const QStringList registered = QFontDatabase::applicationFontFamilies(id);
-        if (id >= 0 && !registered.isEmpty()) {
-            for (const QString &family : registered) {
-                if (!cjkFamilies.contains(family))
-                    cjkFamilies.append(family);
-            }
-        }
-    }
+    const QStringList cjkFamilies = mrtest::useWindowsFonts({"Fonts/msyh.ttc", "Fonts/simhei.ttf"});
     if (cjkFamilies.isEmpty()) {
         qCritical("CalibrationTests requires a loadable Windows CJK font (msyh.ttc or simhei.ttf).");
         return 6;
     }
     qInfo() << "calibration CJK families" << cjkFamilies;
-    QFont testFont;
-    testFont.setFamilies(cjkFamilies);
-    QGuiApplication::setFont(testFont);
 #endif
     CalibrationTests tests;
     return QTest::qExec(&tests, argc, argv);

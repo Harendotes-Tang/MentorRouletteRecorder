@@ -35,6 +35,9 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "FileTestSupport.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -51,12 +54,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QFont>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QJsonValue>
-#include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -92,18 +92,7 @@ constexpr auto kMockInstallerUrl =
     "MentorRecorder-99.9.9-setup.exe";
 constexpr qint64 kMiB = 1024LL * 1024;
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 /// $defs/UpdateDownload.
 QJsonObject download(const QString &state, const QJsonObject &extra = {})
@@ -466,19 +455,7 @@ class UpdateInstallTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                      QStringLiteral("/pages"), QStringLiteral("/charts")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     // -- the download ---------------------------------------------------------
@@ -843,10 +820,7 @@ private Q_SLOTS:
         const QString link = scene.dataDirectory.filePath(QStringLiteral("updates"));
         // A junction needs no privilege; a test machine that cannot make one
         // still runs every other check.
-        const int made = QProcess::execute(QStringLiteral("cmd.exe"),
-            {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
-             QDir::toNativeSeparators(link), QDir::toNativeSeparators(elsewhere.path())});
-        if (made != 0 || !QFileInfo::exists(scene.installerPath()))
+        if (!mrtest::makeJunction(link, elsewhere.path()) || !QFileInfo::exists(scene.installerPath()))
             QSKIP("this machine cannot create a directory junction");
         scene.open(Scene::ready(scene.installerPath(), file.sha256));
         auto *update = scene.update();
@@ -1422,23 +1396,8 @@ MR_DESKTOP_TEST_SUITE(UpdateInstall)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
-#ifdef Q_OS_WIN
     // The offscreen platform finds no system fonts; the copy under test is CJK.
-    QStringList cjkFamilies;
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
-        const int id = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
-        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
-            if (!cjkFamilies.contains(family))
-                cjkFamilies.append(family);
-        }
-    }
-    if (!cjkFamilies.isEmpty()) {
-        QFont testFont;
-        testFont.setFamilies(cjkFamilies);
-        QGuiApplication::setFont(testFont);
-    }
-#endif
+    mrtest::useWindowsFonts({"Fonts/msyh.ttc", "Fonts/simhei.ttf"});
     UpdateInstallTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

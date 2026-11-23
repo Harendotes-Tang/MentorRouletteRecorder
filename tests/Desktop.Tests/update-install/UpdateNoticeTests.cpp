@@ -31,6 +31,8 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -41,10 +43,7 @@
 #include "RoleCatalog.h"
 #include "UpdateController.h"
 
-#include <QDir>
 #include <QFile>
-#include <QFont>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -71,18 +70,7 @@ constexpr auto kInstallerUrl =
     "MentorRecorder-9.9.9-setup.exe";
 constexpr auto kCheckedAt = "2026-09-17T02:00:00.000Z";
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 void collectText(QQuickItem *item, QStringList &texts)
 {
@@ -336,19 +324,7 @@ class UpdateNoticeTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                      QStringLiteral("/pages"), QStringLiteral("/charts")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     // The version the title bar ("v" + App.appVersion) and the 关于 page show is
@@ -1069,23 +1045,8 @@ MR_DESKTOP_TEST_SUITE(UpdateNotice)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
-#ifdef Q_OS_WIN
     // The offscreen platform finds no system fonts; the copy under test is CJK.
-    QStringList cjkFamilies;
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
-        const int id = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
-        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
-            if (!cjkFamilies.contains(family))
-                cjkFamilies.append(family);
-        }
-    }
-    if (!cjkFamilies.isEmpty()) {
-        QFont testFont;
-        testFont.setFamilies(cjkFamilies);
-        QGuiApplication::setFont(testFont);
-    }
-#endif
+    mrtest::useWindowsFonts({"Fonts/msyh.ttc", "Fonts/simhei.ttf"});
     UpdateNoticeTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

@@ -1,5 +1,6 @@
 // Real Qt popup transitions: reversal, reduced motion, keyboard and modal cleanup.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 
 #include <QDir>
@@ -75,17 +76,7 @@ class DialogMotionTests : public QObject {
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const QString &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")}) {
-            const auto files = QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files);
-            for (const auto &file : files) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void entranceAndExitReachTheirTargets()

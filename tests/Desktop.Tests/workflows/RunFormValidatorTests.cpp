@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "DisplayTimeZone.h"
 #include "Formatters.h"
@@ -7,9 +8,7 @@
 #include "RunFormValidator.h"
 
 #include <QDateTime>
-#include <QDir>
 #include <QGuiApplication>
-#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -68,11 +67,7 @@ QVariantMap crossMidnightRun()
             {"job_id", null}};
 }
 
-QVariantMap asMap(const QVariant &value)
-{
-    return value.metaType() == QMetaType::fromType<QJSValue>()
-        ? value.value<QJSValue>().toVariant().toMap() : value.toMap();
-}
+using mrtest::qmlMap;
 
 } // namespace
 
@@ -84,17 +79,7 @@ class RunFormValidatorTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_SOURCE_DIR) + "/src/Desktop/qml";
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + "/Theme.qml"),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const QString &directory : {QStringLiteral("components"), QStringLiteral("dialogs")}) {
-            const QDir folder(qmlRoot + "/" + directory);
-            for (const QString &file : folder.entryList({"*.qml"}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(folder.filePath(file)),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void init()
@@ -263,7 +248,7 @@ ApplicationWindow {
         QVERIFY(QMetaObject::invokeMethod(m_dialog, "submit"));
         QCOMPARE(m_dialog->property("errorCode").toString(), "");
         QCOMPARE(corrected.count(), 1);
-        QCOMPARE(asMap(corrected.first().first()), QVariantMap({{"note", "new note"}}));
+        QCOMPARE(qmlMap(corrected.first().first()), QVariantMap({{"note", "new note"}}));
     }
 
     void fallBackCorrectionUsesTheStoredUtcInstants_data()
@@ -308,7 +293,7 @@ ApplicationWindow {
         QCOMPARE(m_dialog->property("errorText").toString().isEmpty(), errorCode.isEmpty());
         if (errorCode.isEmpty()) {
             QCOMPARE(corrected.count(), 1);
-            QCOMPARE(asMap(corrected.first().first()), expectedChanges);
+            QCOMPARE(qmlMap(corrected.first().first()), expectedChanges);
         } else {
             QCOMPARE(corrected.count(), 0);
         }
@@ -324,12 +309,12 @@ ApplicationWindow {
         QVERIFY(QMetaObject::invokeMethod(m_dialog, "submit"));
         QCOMPARE(m_dialog->property("errorCode").toString(), "");
         QCOMPARE(corrected.count(), 1);
-        const auto changes = asMap(corrected.first().first());
+        const auto changes = qmlMap(corrected.first().first());
         QCOMPARE(changes.size(), 2);
         QCOMPARE(changes.value("ended_at_utc").toString(), utcOn(QDate(2026, 9, 9), QTime(0, 20, 14, 789)));
         QCOMPARE(changes.value("duration_ms").toLongLong(), 87902333);
-        const auto rows = mr::RunFormValidator::diff(asMap(m_dialog->property("beforeState")),
-                                                    asMap(m_dialog->property("formState")));
+        const auto rows = mr::RunFormValidator::diff(qmlMap(m_dialog->property("beforeState")),
+                                                    qmlMap(m_dialog->property("formState")));
         QCOMPARE(rows.size(), 1);
         QCOMPARE(rows.first().toMap().value("k").toString(), QString::fromUtf8("结束日期"));
     }
@@ -348,7 +333,7 @@ ApplicationWindow {
         QVERIFY(QMetaObject::invokeMethod(m_dialog, "submit"));
         QCOMPARE(m_dialog->property("errorCode").toString(), "");
         QCOMPARE(created.count(), 1);
-        const auto fields = asMap(created.first().first());
+        const auto fields = qmlMap(created.first().first());
         const auto expected = crossMidnightRun();
         for (const auto *key : {"matched_at_utc", "entered_at_utc", "ended_at_utc"})
             QCOMPARE(fields.value(key), expected.value(key));

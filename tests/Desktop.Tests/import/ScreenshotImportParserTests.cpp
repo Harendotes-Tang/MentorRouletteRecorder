@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "ScopedEnvironmentVariable.h"
 #include "ScreenshotImportParser.h"
 #include "JobCatalog.h"
 #include "JobIconClassifier.h"
@@ -8,7 +9,6 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QPainter>
-#include <QScopeGuard>
 #include <QSet>
 #include <QTemporaryDir>
 #include <QTest>
@@ -382,15 +382,7 @@ void ScreenshotImportParserTests::localTemplateMatchRemainsReviewable()
         QSKIP("The host test target must link the existing mr_icons resource.");
     QTemporaryDir localData;
     QVERIFY(localData.isValid());
-    const QByteArray previousLocalData = qgetenv("LOCALAPPDATA");
-    const bool wasSet = qEnvironmentVariableIsSet("LOCALAPPDATA");
-    const auto restore = qScopeGuard([&] {
-        if (wasSet)
-            qputenv("LOCALAPPDATA", previousLocalData);
-        else
-            qunsetenv("LOCALAPPDATA");
-    });
-    qputenv("LOCALAPPDATA", localData.path().toUtf8());
+    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
     QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
     QImage icon(56, 56, QImage::Format_ARGB32);
     icon.fill(Qt::transparent);
@@ -457,15 +449,7 @@ void ScreenshotImportParserTests::jobTemplatesExcludeBaseCraftingAndLimitedJobs(
         QSKIP("The host test target must link the existing mr_icons resource.");
     QTemporaryDir localData;
     QVERIFY(localData.isValid());
-    const QByteArray previousLocalData = qgetenv("LOCALAPPDATA");
-    const bool wasSet = qEnvironmentVariableIsSet("LOCALAPPDATA");
-    const auto restore = qScopeGuard([&] {
-        if (wasSet)
-            qputenv("LOCALAPPDATA", previousLocalData);
-        else
-            qunsetenv("LOCALAPPDATA");
-    });
-    qputenv("LOCALAPPDATA", localData.path().toUtf8());
+    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
     QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
     QImage icon(56, 56, QImage::Format_ARGB32);
     icon.fill(Qt::transparent);
@@ -892,15 +876,7 @@ void ScreenshotImportParserTests::webRowJobIconLeftOfLevelIsMatched()
         QSKIP("The host test target must link the existing mr_icons resource.");
     QTemporaryDir localData;
     QVERIFY(localData.isValid());
-    const QByteArray previousLocalData = qgetenv("LOCALAPPDATA");
-    const bool wasSet = qEnvironmentVariableIsSet("LOCALAPPDATA");
-    const auto restore = qScopeGuard([&] {
-        if (wasSet)
-            qputenv("LOCALAPPDATA", previousLocalData);
-        else
-            qunsetenv("LOCALAPPDATA");
-    });
-    qputenv("LOCALAPPDATA", localData.path().toUtf8());
+    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
     QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
     QImage icon(56, 56, QImage::Format_ARGB32);
     icon.fill(Qt::transparent);

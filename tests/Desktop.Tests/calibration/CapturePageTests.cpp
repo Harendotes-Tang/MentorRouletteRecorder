@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CollectorText.h"
@@ -52,18 +53,7 @@
 
 namespace {
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 void collectVisibleText(QQuickItem *item, QStringList &texts)
 {
@@ -601,19 +591,7 @@ private slots:
     void initTestCase()
     {
         // The shipping QML straight from the source tree, as the other page suites load it.
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                      QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     // -- 标题行 -------------------------------------------------------------

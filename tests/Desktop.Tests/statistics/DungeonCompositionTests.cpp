@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -19,7 +20,6 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QJSValue>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -151,43 +151,9 @@ qint64 total(const QVariantList &buckets)
     return result;
 }
 
-QVariantList qmlList(const QVariant &value)
-{
-    return value.metaType() == QMetaType::fromType<QJSValue>()
-           ? value.value<QJSValue>().toVariant().toList() : value.toList();
-}
-
-QQuickItem *findItem(QQuickItem *from, const QString &name)
-{
-    if (!from)
-        return nullptr;
-    if (from->objectName() == name)
-        return from;
-    for (QQuickItem *child : from->childItems()) {
-        if (auto *match = findItem(child, name))
-            return match;
-    }
-    return nullptr;
-}
-
-// Every item of that name in creation order, which for Repeater delegates is
-// the model's order.
-void collectItems(QQuickItem *from, const QString &name, QList<QQuickItem *> &out)
-{
-    if (!from)
-        return;
-    if (from->objectName() == name)
-        out.append(from);
-    for (QQuickItem *child : from->childItems())
-        collectItems(child, name, out);
-}
-
-QList<QQuickItem *> findItems(QQuickItem *from, const QString &name)
-{
-    QList<QQuickItem *> out;
-    collectItems(from, name, out);
-    return out;
-}
+using mrtest::findVisualItem;
+using mrtest::findVisualItems;
+using mrtest::qmlList;
 
 qreal sceneLeft(QQuickItem *item)
 {
@@ -260,7 +226,7 @@ ApplicationWindow {
     }
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    QQuickItem *item(const QString &name) const { return findItem(window()->contentItem(), name); }
+    QQuickItem *item(const QString &name) const { return findVisualItem(window()->contentItem(), name); }
 
     bool capture(const QString &name) const
     {
@@ -317,7 +283,7 @@ private:
         QCOMPARE(nameOnly.value("role_group").toString(), QString::fromUtf8("治疗"));
         auto *tableRow = scene.item(QStringLiteral("jobsTableRow") + QString::number(shown.size() - 2));
         QVERIFY(tableRow);
-        auto *role = findItem(tableRow, QStringLiteral("jobRowRole"));
+        auto *role = findVisualItem(tableRow, QStringLiteral("jobRowRole"));
         QVERIFY(role);
         QCOMPARE(role->property("role").toString(), QString::fromUtf8("治疗"));
         auto *header = scene.item(QStringLiteral("jobsHeader"));
@@ -333,18 +299,7 @@ private Q_SLOTS:
     void initTestCase()
     {
         QVERIFY(QFile::exists(QStringLiteral(":/i18n/mentor_recorder_en.qm")));
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const QString &directory : {QStringLiteral("/components"), QStringLiteral("/charts"),
-                                         QStringLiteral("/pages"), QStringLiteral("/dialogs")}) {
-            for (const QString &file : QDir(qmlRoot + directory).entryList(
-                     {QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     void installedMainScenarioResourceMatchesBothCatalogues()
@@ -744,29 +699,29 @@ private Q_SLOTS:
             QVERIFY(position.x() + chart->width() <= page->width() + 0.5);
             // The ring, and the legend row of every type that was cleared (the
             // rest share one folded row), stay inside the card.
-            QVERIFY(findItem(chart, QStringLiteral("shareDonutLegend")));
+            QVERIFY(findVisualItem(chart, QStringLiteral("shareDonutLegend")));
             int rows = 0;
-            while (findItem(chart, QStringLiteral("shareDonutRow") + QString::number(rows)))
+            while (findVisualItem(chart, QStringLiteral("shareDonutRow") + QString::number(rows)))
                 ++rows;
             QVERIFY(rows > 0);
-            auto *folded = findItem(chart, QStringLiteral("shareDonutZeroRow"));
+            auto *folded = findVisualItem(chart, QStringLiteral("shareDonutZeroRow"));
             QVERIFY(folded);
             // 副本类型 has types nobody cleared here; every 主线 / 行会令 group has runs.
             QCOMPARE(rows, chart == category ? 5 : 4);
             QCOMPARE(folded->isVisible(), rows < qmlList(chart->property("visibleBuckets")).size());
             QCOMPARE(folded->isVisible(), chart == category);
-            QList<QQuickItem *> cells{findItem(chart, QStringLiteral("shareDonutRing")), folded};
+            QList<QQuickItem *> cells{findVisualItem(chart, QStringLiteral("shareDonutRing")), folded};
             for (int index = 0; index < rows; ++index) {
-                auto *count = findItem(chart, QStringLiteral("shareDonutCount") + QString::number(index));
-                auto *share = findItem(chart, QStringLiteral("shareDonutShare") + QString::number(index));
+                auto *count = findVisualItem(chart, QStringLiteral("shareDonutCount") + QString::number(index));
+                auto *share = findVisualItem(chart, QStringLiteral("shareDonutShare") + QString::number(index));
                 QVERIFY(count && share);
                 QTRY_VERIFY(count->width() > 0 && share->width() > 0);
                 const QPointF countEnd = count->mapToItem(chart, QPointF(count->width(), 0));
                 const QPointF shareStart = share->mapToItem(chart, QPointF());
                 QVERIFY2(shareStart.x() - countEnd.x() <= 12.0,
                          "Completion count and percentage must stay together, not at opposite card edges");
-                cells << findItem(chart, QStringLiteral("shareDonutSwatch") + QString::number(index))
-                      << findItem(chart, QStringLiteral("shareDonutLabel") + QString::number(index))
+                cells << findVisualItem(chart, QStringLiteral("shareDonutSwatch") + QString::number(index))
+                      << findVisualItem(chart, QStringLiteral("shareDonutLabel") + QString::number(index))
                       << count << share;
             }
             for (QQuickItem *cell : cells) {
@@ -1037,9 +992,9 @@ private Q_SLOTS:
                         // known buckets at zero share the folded row, and a
                         // zero 未识别 is in neither.
                         const int shown = 1 + (unknown == 0 ? 0 : 1);
-                        QTRY_VERIFY(findItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown - 1)));
-                        QTRY_VERIFY(!findItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown)));
-                        auto *folded = findItem(chart, QStringLiteral("shareDonutZeroLabel"));
+                        QTRY_VERIFY(findVisualItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown - 1)));
+                        QTRY_VERIFY(!findVisualItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown)));
+                        auto *folded = findVisualItem(chart, QStringLiteral("shareDonutZeroLabel"));
                         QVERIFY(folded && folded->isVisible());
                         QCOMPARE(folded->property("text").toString().split(QStringLiteral(" · ")).size(), rawSize - 2);
                         QVERIFY(!folded->property("text").toString().contains(raw.last().toMap().value("label").toString()));
@@ -1140,7 +1095,7 @@ private Q_SLOTS:
                                       : QStringLiteral("dungeonRowJoinedInProgress");
         QList<QQuickItem *> cells;
         const auto refreshCells = [&] {
-            cells = findItems(scene.window()->contentItem(), cellName);
+            cells = findVisualItems(scene.window()->contentItem(), cellName);
             return cells.size();
         };
         QTRY_COMPARE(refreshCells(), 2);
@@ -1181,7 +1136,7 @@ private Q_SLOTS:
                  : {std::tuple{"jobsTableHeaderJob", "jobRowJob", 84},
                     std::tuple{"jobsTableHeaderRuns", "jobRowRuns", 48}}) {
                 auto *columnHeader = scene.item(QString::fromLatin1(headerName));
-                auto *cell = findItem(row, QString::fromLatin1(rowCellName));
+                auto *cell = findVisualItem(row, QString::fromLatin1(rowCellName));
                 QVERIFY(columnHeader);
                 QVERIFY(cell);
                 QVERIFY2(aligned(columnHeader, cell),
@@ -1191,7 +1146,7 @@ private Q_SLOTS:
                 QVERIFY2(cell->width() >= minimum - 0.5,
                          qPrintable(QStringLiteral("%1 is %2 px").arg(QLatin1String(rowCellName)).arg(cell->width())));
             }
-            auto *runs = findItem(row, QStringLiteral("jobRowRuns"));
+            auto *runs = findVisualItem(row, QStringLiteral("jobRowRuns"));
             QCOMPARE(qRound(runs->width()), page->property("runsColumnWidth").toInt());
             QCOMPARE(page->property("runsColumnWidth").toInt(), width == 1280 ? 180 : 48);
         }
@@ -1210,12 +1165,12 @@ private Q_SLOTS:
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 0.0);
         // Nothing cleared: the bare track around a 0, the reason in the legend,
         // and neither a row nor the folded row of zeros.
-        auto *empty = findItem(chart, QStringLiteral("shareDonutEmpty"));
+        auto *empty = findVisualItem(chart, QStringLiteral("shareDonutEmpty"));
         QVERIFY(empty && empty->isVisible());
-        QVERIFY(findItem(chart, QStringLiteral("shareDonutTrack"))->isVisible());
-        QCOMPARE(findItem(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
-        QVERIFY(!findItem(chart, QStringLiteral("shareDonutRow0")));
-        QVERIFY(!findItem(chart, QStringLiteral("shareDonutZeroRow"))->isVisible());
+        QVERIFY(findVisualItem(chart, QStringLiteral("shareDonutTrack"))->isVisible());
+        QCOMPARE(findVisualItem(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
+        QVERIFY(!findVisualItem(chart, QStringLiteral("shareDonutRow0")));
+        QVERIFY(!findVisualItem(chart, QStringLiteral("shareDonutZeroRow"))->isVisible());
         QCOMPARE(qmlList(chart->property("buckets")).size(), 4);
         QCOMPARE(qmlList(chart->property("visibleBuckets")).size(), 3);
         scene.backend.fail = true;

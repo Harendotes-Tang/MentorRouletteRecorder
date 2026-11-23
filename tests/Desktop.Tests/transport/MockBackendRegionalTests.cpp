@@ -1,13 +1,12 @@
 #include "DesktopTestRunner.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AutomaticRecordingController.h"
-#include "CollectorText.h"
 #include "DutyCatalog.h"
 #include "MockBackend.h"
 
 #include <QGuiApplication>
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QMap>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -15,101 +14,14 @@
 
 namespace {
 
-struct Answer {
-    bool done = false;
-    bool ok = false;
-    QJsonObject payload;
-    QString code;
-    QString message;
-};
-
-Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payload = {})
-{
-    Answer answer;
-    backend.request(type, payload)->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
-            answer.done = true;
-            answer.ok = ok;
-            answer.payload = QJsonObject::fromVariantMap(result);
-            answer.code = code;
-            answer.message = message;
-        });
-    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
-        answer.code = QStringLiteral("TEST_NO_REPLY");
-    return answer;
-}
-
-Answer askWithId(mr::IBackend &backend, const QString &type, const QJsonObject &payload,
-                 const QString &requestId)
-{
-    Answer answer;
-    mr::BackendReply *reply = backend.requestWithId(type, payload, requestId);
-    if (reply->requestId() != requestId)
-        answer.code = QStringLiteral("TEST_WRONG_REQUEST_ID");
-    reply->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
-            answer.done = true;
-            answer.ok = ok;
-            answer.payload = QJsonObject::fromVariantMap(result);
-            if (answer.code != QLatin1String("TEST_WRONG_REQUEST_ID"))
-                answer.code = code;
-            answer.message = message;
-        });
-    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
-        answer.code = QStringLiteral("TEST_NO_REPLY");
-    return answer;
-}
-
-QJsonObject autoRun(const QString &id, const QString &result, bool entered)
-{
-    return {{QStringLiteral("run_id"), id},
-            {QStringLiteral("revision"), 1},
-            {QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")},
-            {QStringLiteral("mentor_roulette_id"), 9},
-            {QStringLiteral("result"), result},
-            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-01T12:00:00.000Z")},
-            {QStringLiteral("entered_at_utc"),
-             entered ? QJsonValue(QStringLiteral("2026-09-01T12:01:00.000Z"))
-                     : QJsonValue(QJsonValue::Null)},
-            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-01T12:10:00.000Z")},
-            {QStringLiteral("duration_ms"), entered ? QJsonValue(540000.0) : QJsonValue(QJsonValue::Null)},
-            {QStringLiteral("contributes_to_goal"), true},
-            {QStringLiteral("manually_created"), false},
-            {QStringLiteral("manually_corrected"), false},
-            {QStringLiteral("soft_deleted"), false},
-            {QStringLiteral("pending_review"), false},
-            {QStringLiteral("created_at_utc"), QStringLiteral("2026-09-01T12:00:00.000Z")},
-            {QStringLiteral("updated_at_utc"), QStringLiteral("2026-09-01T12:10:00.000Z")}};
-}
-
-int runCount(mr::MockBackend &backend)
-{
-    return ask(backend, QStringLiteral("QueryRuns"),
-               {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("include_deleted"), true}}},
-                {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
-        .payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt();
-}
-
-Answer previewImport(mr::MockBackend &backend, const QString &kind, const QJsonArray &rows,
-                     const QString &sourceName)
-{
-    QJsonObject payload{{QStringLiteral("source_kind"), kind},
-                        {QStringLiteral("source_name"), sourceName},
-                        {QStringLiteral("time_zone"), QStringLiteral("+08:00")}};
-    if (kind == QLatin1String("JSON"))
-        payload.insert(QStringLiteral("text"), QString::fromUtf8(QJsonDocument(rows).toJson(QJsonDocument::Compact)));
-    else
-        payload.insert(QStringLiteral("rows"), rows);
-    return ask(backend, QStringLiteral("PreviewRunImport"), payload);
-}
-
-QStringList importStatuses(const Answer &preview)
-{
-    QStringList statuses;
-    for (const auto &row : preview.payload.value(QStringLiteral("rows")).toArray())
-        statuses.append(row.toObject().value(QStringLiteral("status")).toString());
-    return statuses;
-}
+using mrtest::Answer;
+using mrtest::ask;
+using mrtest::askWithId;
+using mrtest::autoRun;
+using mrtest::collectorChinese;
+using mrtest::importStatuses;
+using mrtest::previewImport;
+using mrtest::runCount;
 
 class MockBackendRegionalTests : public QObject
 {
@@ -373,7 +285,7 @@ private Q_SLOTS:
         QCOMPARE(profile.value("message_ref").toObject().value("key").toString(),
                  QStringLiteral("profile.unavailable.region_unsupported"));
         QCOMPARE(profile.value("message").toString(),
-                 mr::collector_text::chinese(mr::collector_text::textRef("profile.unavailable.region_unsupported")));
+                 collectorChinese("profile.unavailable.region_unsupported"));
 
         mr::AutomaticRecordingController recording(&backend);
         QTRY_COMPARE(recording.state(), QStringLiteral("blocked"));
@@ -681,7 +593,7 @@ private Q_SLOTS:
         const Answer refused = previewMove(copies);
         QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(refused.message,
-                 mr::collector_text::chinese(mr::collector_text::textRef("history.region.duplicate")));
+                 collectorChinese("history.region.duplicate"));
 
         // One match time but two different entry times: two records, moved together.
         QJsonObject later = record(second, QStringLiteral("MANUAL"));
@@ -711,7 +623,7 @@ private Q_SLOTS:
              {"display_name", QString::fromUtf8("白露")}});
         QCOMPARE(confirm.code, QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(confirm.message,
-                 mr::collector_text::chinese(mr::collector_text::textRef("identity.registration_moved")));
+                 collectorChinese("identity.registration_moved"));
     }
 
     void anImportNamedForAProfileFilesItsRegionsRecordsThere()

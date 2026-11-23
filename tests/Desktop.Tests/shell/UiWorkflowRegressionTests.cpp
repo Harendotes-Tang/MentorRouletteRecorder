@@ -1,4 +1,6 @@
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -16,7 +18,6 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QGuiApplication>
-#include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
@@ -295,22 +296,10 @@ ApplicationWindow {
     QObject *page() const { return item(QStringLiteral("settingsPage")); }
     // Repeater delegates are not QObject children of the window, so the visual
     // tree is searched, the same way main.cpp's self-check does.
-    static QQuickItem *find(QQuickItem *from, const QString &name)
-    {
-        if (!from)
-            return nullptr;
-        if (from->objectName() == name)
-            return from;
-        for (QQuickItem *child : from->childItems()) {
-            if (QQuickItem *match = find(child, name))
-                return match;
-        }
-        return nullptr;
-    }
     QQuickItem *item(const QString &name) const
     {
         const auto *window = qobject_cast<QQuickWindow *>(root.get());
-        return window ? find(window->contentItem(), name) : nullptr;
+        return window ? mrtest::findVisualItem(window->contentItem(), name) : nullptr;
     }
     bool selectTab(const QString &id) const
     {
@@ -423,7 +412,7 @@ ApplicationWindow {
     QQuickItem *item(const QString &name) const
     {
         auto *scene = window();
-        return scene ? SettingsFixture::find(scene->contentItem(), name) : nullptr;
+        return scene ? mrtest::findVisualItem(scene->contentItem(), name) : nullptr;
     }
 };
 
@@ -470,7 +459,7 @@ ApplicationWindow {
     QQuickItem *item(const QString &name) const
     {
         auto *scene = qobject_cast<QQuickWindow *>(root.get());
-        return scene ? SettingsFixture::find(scene->contentItem(), name) : nullptr;
+        return scene ? mrtest::findVisualItem(scene->contentItem(), name) : nullptr;
     }
     QStringList visibleTexts() const
     {
@@ -598,22 +587,11 @@ private Q_SLOTS:
 
 void UiWorkflowRegressionTests::initTestCase()
 {
-    const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    QVERIFY(QDir(qmlRoot).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
     // charts/ is registered too: DashboardPage draws its trend with TrendChart, which lives
     // there. TrendChart only instantiates the QtGraphs variant when the GraphsAvailable
     // context property says so, and no scene here sets it, so the hand-drawn fallback is what
     // these tests render.
-    for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"),
-                                  QStringLiteral("/dialogs"), QStringLiteral("/pages")}) {
-        for (const auto &file : QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
-    }
+    QVERIFY(mrtest::registerShippingQml());
 }
 
 /// 历史记录每页行数随窗口高度：高窗口装得下多少行就取多少，矮窗口也不少于
@@ -681,7 +659,7 @@ void UiWorkflowRegressionTests::historyPagerStaysInsideTheWindow()
     auto *page = qobject_cast<QQuickItem *>(fixture.history());
     QVERIFY(window && page);
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    auto *jump = findWithProperty(window->contentItem(), "objectName", QStringLiteral("historyPageJump"));
+    auto *jump = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyPageJump"));
     QVERIFY(jump);
     auto *pager = jump->parentItem();
     QVERIFY(pager);
@@ -746,9 +724,9 @@ ApplicationWindow {
     QVERIFY2(root, qPrintable(component.errorString()));
     auto *window = qobject_cast<QQuickWindow *>(root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    auto *tab = findWithProperty(window->contentItem(), "objectName", QStringLiteral("goalTab"));
-    auto *goal = findWithProperty(window->contentItem(), "objectName", QStringLiteral("goalField"));
-    auto *baseline = findWithProperty(window->contentItem(), "objectName", QStringLiteral("baselineField"));
+    auto *tab = mrtest::findVisualItem(window->contentItem(), QStringLiteral("goalTab"));
+    auto *goal = mrtest::findVisualItem(window->contentItem(), QStringLiteral("goalField"));
+    auto *baseline = mrtest::findVisualItem(window->contentItem(), QStringLiteral("baselineField"));
     QVERIFY(tab && goal && baseline);
     QTRY_VERIFY(controller.achievementSettingsLoaded());
     QTRY_COMPARE(baseline->property("text").toString(), QStringLiteral("640"));
@@ -1410,7 +1388,7 @@ void verifyCustomHistoryDateInput(UiFixture &fixture, QQuickItem *range, QQuickI
     QCOMPARE(fixture.controller.historyFilter(), applied);
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(menu->property("visible").toBool());
-    auto *custom = SettingsFixture::find(window->contentItem(), QStringLiteral("historyDatePreset_custom"));
+    auto *custom = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyDatePreset_custom"));
     QVERIFY(custom);
     custom->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(window, Qt::Key_Space);
@@ -1488,7 +1466,7 @@ void verifyHistoryRegionErrorAndHelp(UiFixture &fixture, QQuickItem *region, QOb
     QVERIFY(helpRequested.isValid());
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(menu->property("visible").toBool());
-    auto *help = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionHelp"));
+    auto *help = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionHelp"));
     QVERIFY(help);
     help->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(window, Qt::Key_Space);
@@ -1547,7 +1525,7 @@ void UiWorkflowRegressionTests::historyDatePresetsAndKeyboardKeepTheAppliedRange
     QTRY_VERIFY(range->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(menu->property("visible").toBool());
-    auto *last7 = SettingsFixture::find(window->contentItem(), QStringLiteral("historyDatePreset_last7"));
+    auto *last7 = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyDatePreset_last7"));
     QVERIFY(last7);
     last7->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(window, Qt::Key_Space);
@@ -1597,8 +1575,8 @@ void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountSta
     QCOMPARE(shown.toString(), QString::fromUtf8("…"));
     for (const QString &key : {QStringLiteral("all"), QStringLiteral("CN"),
                               QStringLiteral("TC"), QStringLiteral("GLOBAL")})
-        QVERIFY(SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_") + key));
-    QVERIFY(!SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
+        QVERIFY(mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_") + key));
+    QVERIFY(!mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
     QTRY_VERIFY(!fixture.backend.pending.isEmpty());
     fixture.backend.holdTypes.removeAll(QStringLiteral("QueryRuns"));
     while (fixture.backend.release(QStringLiteral("QueryRuns"), fixture.backend.answers.value(QStringLiteral("QueryRuns")))) { }
@@ -1613,7 +1591,7 @@ void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountSta
         QTest::qWait(100);
         QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("history-regions.png"))));
     }
-    auto *tc = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_TC"));
+    auto *tc = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_TC"));
     tc->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(!menu->property("visible").toBool());
@@ -1627,15 +1605,15 @@ void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountSta
     QTRY_COMPARE(region->property("selection").toString(), QStringLiteral("UNKNOWN"));
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(menu->property("visible").toBool());
-    auto *unknown = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN"));
+    auto *unknown = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN"));
     QVERIFY(unknown);
     QVERIFY(unknown->property("checked").toBool());
-    auto *cn = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_CN"));
+    auto *cn = mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_CN"));
     cn->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(!menu->property("visible").toBool());
     QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("region")).toString(), QStringLiteral("CN"));
-    QTRY_VERIFY(!SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
+    QTRY_VERIFY(!mrtest::findVisualItem(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
     QTRY_VERIFY(region->hasActiveFocus());
 
     verifyHistoryRegionErrorAndHelp(fixture, region, facets);
@@ -1679,7 +1657,7 @@ void UiWorkflowRegressionTests::historyDetailDropsAnImageRefusalOfAnotherRun()
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    auto *panel = findWithProperty(window->contentItem(), "objectName", QStringLiteral("runDetailPanel"));
+    auto *panel = mrtest::findVisualItem(window->contentItem(), QStringLiteral("runDetailPanel"));
     QVERIFY(panel);
 
     fixture.controller.openHistoryForRun(run(QStringLiteral("run-a")));
@@ -2997,15 +2975,7 @@ MR_DESKTOP_TEST_SUITE(UiWorkflowRegression)
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
         qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
-    // Match main.cpp's screenshot font initialization; offscreen defaults may
-    // otherwise choose a condensed fallback and conceal real layout overflow.
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
-    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
-    QFont font;
-    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
-    QGuiApplication::setFont(font);
+    mrtest::useScreenshotFontStack();
     UiWorkflowRegressionTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

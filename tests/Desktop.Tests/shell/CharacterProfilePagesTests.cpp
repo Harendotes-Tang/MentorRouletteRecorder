@@ -8,6 +8,8 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -18,8 +20,6 @@
 #include "RunFormValidator.h"
 #include "RunListModel.h"
 
-#include <QDir>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -34,19 +34,6 @@
 #include <memory>
 
 namespace {
-
-QQuickItem *findItem(QQuickItem *from, const QString &name, bool visibleOnly)
-{
-    if (!from || (visibleOnly && !from->isVisible()))
-        return nullptr;
-    if (from->objectName() == name)
-        return from;
-    for (QQuickItem *child : from->childItems()) {
-        if (QQuickItem *match = findItem(child, name, visibleOnly))
-            return match;
-    }
-    return nullptr;
-}
 
 /// The shipping window on the mock backend, onboarding suppressed.
 struct Pages {
@@ -116,8 +103,8 @@ struct Pages {
     /// A popup, or anything else that is an object rather than an item.
     QObject *object(const QString &name) const { return root->findChild<QObject *>(name); }
     /// The item on show under this name; popups' contents live in the window's overlay.
-    QQuickItem *shown(const QString &name) const { return findItem(window()->contentItem(), name, true); }
-    QQuickItem *any(const QString &name) const { return findItem(window()->contentItem(), name, false); }
+    QQuickItem *shown(const QString &name) const { return mrtest::findShownVisualItem(window()->contentItem(), name); }
+    QQuickItem *any(const QString &name) const { return mrtest::findVisualItem(window()->contentItem(), name); }
 
     bool click(const QString &name) const
     {
@@ -159,19 +146,7 @@ class CharacterProfilePagesTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"),
-                                      QStringLiteral("/dialogs"), QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     void historyMigrationRequiresExplicitOverlapAndMovesTheSelectedRecord()
@@ -747,18 +722,9 @@ MR_DESKTOP_TEST_SUITE(CharacterProfilePages)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
-#ifdef Q_OS_WIN
     // The offscreen platform lists no Windows fonts; load the system's Chinese one so a
     // captured window can be read.
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    const int fontId = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QStringLiteral("Fonts/msyh.ttc")));
-    const auto families = QFontDatabase::applicationFontFamilies(fontId);
-    if (!families.isEmpty()) {
-        QFont font;
-        font.setFamilies(families);
-        QGuiApplication::setFont(font);
-    }
-#endif
+    mrtest::useWindowsFonts({"Fonts/msyh.ttc"});
     CharacterProfilePagesTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

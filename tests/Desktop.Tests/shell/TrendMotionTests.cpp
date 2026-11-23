@@ -261,7 +261,7 @@ private:
 
 void TrendMotionTests::initTestCase()
 {
-    QVERIFY(registerShippingQml());
+    QVERIFY(mrtest::registerShippingQml());
 }
 
 void TrendMotionTests::trendHoverMatchesRenderedBars()

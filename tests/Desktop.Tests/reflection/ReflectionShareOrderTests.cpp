@@ -9,7 +9,6 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
-#include <QJSValue>
 #include <QQmlContext>
 #include <QQmlListReference>
 #include <QQuickItem>
@@ -21,20 +20,11 @@
 
 namespace {
 
-QQuickItem *findVisual(QQuickItem *root, const QString &name)
-{
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems())
-        if (auto *found = findVisual(child, name))
-            return found;
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 QStringList runIds(QObject *dialog)
 {
-    const QVariant value = dialog->property("runsData");
-    const auto runs = value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList() : value.toList();
+    const auto runs = mrtest::qmlList(dialog->property("runsData"));
     QStringList ids;
     for (const auto &run : runs)
         ids.append(run.toMap().value(QStringLiteral("run_id")).toString());
@@ -156,32 +146,32 @@ ApplicationWindow {
         QVERIFY(QTest::qWaitForWindowExposed(host));
 
         host->resize(1500, 900);
-        auto *stack = findVisual(host->contentItem(), QStringLiteral("reflectionShareIndividualCards"));
-        auto *preview = findVisual(host->contentItem(), QStringLiteral("reflectionSharePreview"));
+        auto *stack = findVisualItem(host->contentItem(), QStringLiteral("reflectionShareIndividualCards"));
+        auto *preview = findVisualItem(host->contentItem(), QStringLiteral("reflectionSharePreview"));
         QVERIFY(stack && preview);
         // The dialog fills the window; the cards stop at their limit and sit in the middle.
         QTRY_COMPARE(dialog->property("width").toReal(), 1500.0);
         QTRY_COMPARE(stack->width(), dialog->property("cardLimit").toReal());
         QVERIFY(preview->width() > 1400);
         QVERIFY(qAbs(stack->mapToItem(preview, QPointF(stack->width() / 2, 0)).x() - preview->width() / 2) < 12);
-        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareCloseButton"))->isVisible());
+        QVERIFY(!findVisualItem(host->contentItem(), QStringLiteral("reflectionShareCloseButton"))->isVisible());
 
         const QStringList newest{QStringLiteral("3"), QStringLiteral("2"), QStringLiteral("1")};
         QCOMPARE(runIds(dialog), newest);
         const auto tap = [host](const QString &name) {
-            auto *button = findVisual(host->contentItem(), name);
+            auto *button = findVisualItem(host->contentItem(), name);
             if (!button || !button->isVisible())
                 return false;
             QTest::mouseClick(host, Qt::LeftButton, Qt::NoModifier, centerInWindow(button));
             return true;
         };
         // The first row has nowhere further up to go, the last nowhere further down.
-        QTRY_VERIFY(findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveLast_0")));
-        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_0"))->isVisible());
-        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveLast_2"))->isVisible());
+        QTRY_VERIFY(findVisualItem(host->contentItem(), QStringLiteral("reflectionShareMoveLast_0")));
+        QVERIFY(!findVisualItem(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_0"))->isVisible());
+        QVERIFY(!findVisualItem(host->contentItem(), QStringLiteral("reflectionShareMoveLast_2"))->isVisible());
         QVERIFY(tap(QStringLiteral("reflectionShareMoveLast_0")));
         QTRY_COMPARE(runIds(dialog), (QStringList{QStringLiteral("2"), QStringLiteral("1"), QStringLiteral("3")}));
-        QTRY_VERIFY(findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_2")));
+        QTRY_VERIFY(findVisualItem(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_2")));
         // The rows are rebuilt in the new order, and the last one lies below the window: bring it in.
         QTest::qWait(200);
         auto *flick = qvariant_cast<QObject *>(preview->property("contentItem"));
@@ -190,7 +180,7 @@ ApplicationWindow {
         QTest::qWait(100);
         QVERIFY(tap(QStringLiteral("reflectionShareMoveFirst_2")));
         QTRY_COMPARE(runIds(dialog), newest);
-        QCOMPARE(findVisual(host->contentItem(), QStringLiteral("reflectionImageOrder"))->property("currentIndex").toInt(), 2);
+        QCOMPARE(findVisualItem(host->contentItem(), QStringLiteral("reflectionImageOrder"))->property("currentIndex").toInt(), 2);
 
         const QString shot = qEnvironmentVariable("MR_SHARE_WINDOW_SHOT");
         if (!shot.isEmpty())
@@ -223,7 +213,7 @@ ApplicationWindow {
         const auto open = [dialog, &runs] {
             return QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs)));
         };
-        const auto visual = [window](const QString &name) { return findVisual(window->contentItem(), name); };
+        const auto visual = [window](const QString &name) { return findVisualItem(window->contentItem(), name); };
         const auto grip = [visual](int i) { return visual(QStringLiteral("reflectionShareDragGrip_%1").arg(i)); };
         QVERIFY(open());
         QTRY_VERIFY(dialog->property("opened").toBool());
@@ -252,7 +242,7 @@ ApplicationWindow {
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, edge);
         QTRY_COMPARE(runIds(dialog), manual);
         QCOMPARE(order->property("currentIndex").toInt(), 2);
-        QVERIFY(!findVisual(stack, QStringLiteral("reflectionShareDragGrip_0")));
+        QVERIFY(!findVisualItem(stack, QStringLiteral("reflectionShareDragGrip_0")));
 
         QVariant captured;
         QVERIFY(QMetaObject::invokeMethod(dialog, "captureEntries", Q_RETURN_ARG(QVariant, captured)));
@@ -282,12 +272,12 @@ ApplicationWindow {
         QTRY_COMPARE(dialog->property("dropIndex").toInt(), 0);
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, first);
         QTRY_COMPARE(runIds(dialog), oldest);
-        QVERIFY(!findVisual(combined, QStringLiteral("reflectionShareDragGrip_0")));
+        QVERIFY(!findVisualItem(combined, QStringLiteral("reflectionShareDragGrip_0")));
         const QQmlListReference timeline(combined, "collectionEntries");
         QCOMPARE(timeline.count(), 3);
         auto *firstEntry = qobject_cast<QQuickItem *>(timeline.at(0));
         QVERIFY(firstEntry);
-        auto *firstNote = findVisual(firstEntry, QStringLiteral("reflectionShareFullText"));
+        auto *firstNote = findVisualItem(firstEntry, QStringLiteral("reflectionShareFullText"));
         QVERIFY(firstNote);
         QCOMPARE(firstNote->property("text").toString(), QStringLiteral("心得 1"));
         controller.saveTo(combined, target.filePath(QStringLiteral("combined.png")));
@@ -349,7 +339,7 @@ ApplicationWindow {
         }
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs))));
         QTRY_VERIFY(dialog->property("opened").toBool());
-        const auto visible = [window](const QString &name) { return findVisual(window->contentItem(), name); };
+        const auto visible = [window](const QString &name) { return findVisualItem(window->contentItem(), name); };
         auto *mode = visible(QStringLiteral("reflectionImageOutputMode"));
         auto *preview = visible(QStringLiteral("reflectionSharePreview"));
         auto *combined = visible(QStringLiteral("reflectionShareCombinedCard"));
@@ -365,9 +355,9 @@ ApplicationWindow {
         auto *target = qobject_cast<QQuickItem *>(entries.at(to));
         auto *first = qobject_cast<QQuickItem *>(entries.at(0));
         QVERIFY(source && target && first);
-        auto *sourceText = findVisual(source, QStringLiteral("reflectionShareFullText"));
-        auto *targetTitle = findVisual(target, QStringLiteral("reflectionShareDutyTitle"));
-        auto *targetText = findVisual(target, QStringLiteral("reflectionShareFullText"));
+        auto *sourceText = findVisualItem(source, QStringLiteral("reflectionShareFullText"));
+        auto *targetTitle = findVisualItem(target, QStringLiteral("reflectionShareDutyTitle"));
+        auto *targetText = findVisualItem(target, QStringLiteral("reflectionShareFullText"));
         QVERIFY(sourceText && targetTitle && targetText);
         const auto date = target->property("playedDate").toString().mid(5).replace(QLatin1Char('-'), QLatin1Char('.'));
         const auto children = target->childItems();
@@ -447,7 +437,7 @@ ApplicationWindow {
         QTRY_VERIFY(!ghost->isVisible());
         auto *moved = qobject_cast<QQuickItem *>(entries.at(to));
         QVERIFY(moved);
-        auto *movedNote = findVisual(moved, QStringLiteral("reflectionShareFullText"));
+        auto *movedNote = findVisualItem(moved, QStringLiteral("reflectionShareFullText"));
         QVERIFY(movedNote);
         QCOMPARE(movedNote->property("text").toString(), from == 0 ? shortNote : longNote);
         const auto after = window->grabWindow();
@@ -482,7 +472,7 @@ ApplicationWindow {
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(ShareScene::runs()))));
         QTRY_VERIFY(dialog->property("opened").toBool());
         const auto grip = [window](int i) {
-            return findVisual(window->contentItem(), QStringLiteral("reflectionShareDragGrip_%1").arg(i));
+            return findVisualItem(window->contentItem(), QStringLiteral("reflectionShareDragGrip_%1").arg(i));
         };
         const QStringList newest{QStringLiteral("3"), QStringLiteral("2"), QStringLiteral("1")};
         QCOMPARE(runIds(dialog), newest);

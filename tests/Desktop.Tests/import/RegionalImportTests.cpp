@@ -1,31 +1,15 @@
 #include "DesktopTestRunner.h"
+#include "RecordingBackend.h"
 #include "DutyCatalog.h"
 #include "GameNames.h"
 #include "ImportRecordsController.h"
-#include "IBackend.h"
 
 #include <QApplication>
 #include <QJsonArray>
 #include <QtTest>
 
 namespace {
-class RegionalImportBackend final : public mr::IBackend
-{
-public:
-    using IBackend::IBackend;
-    mr::BackendReply *pending = nullptr;
-    QJsonObject payload;
-    int requestCount = 0;
-    QString backendName() const override { return QStringLiteral("regional-import-test"); }
-    bool isConnected() const override { return true; }
-    mr::BackendReply *request(const QString &type, const QJsonObject &requestPayload) override
-    {
-        ++requestCount;
-        payload = requestPayload;
-        pending = new mr::BackendReply(QStringLiteral("request"), type, this);
-        return pending;
-    }
-};
+using RegionalImportBackend = mrtest::RecordingBackend;
 
 QJsonObject previewRow(int number, const QString &region, int content = 5)
 {
@@ -39,7 +23,7 @@ QJsonObject previewRow(int number, const QString &region, int content = 5)
 
 void answerPreview(RegionalImportBackend &backend, const QJsonArray &rows)
 {
-    backend.pending->succeed({{"preview_id", "regional-preview"}, {"rows", rows},
+    backend.last().reply->succeed({{"preview_id", "regional-preview"}, {"rows", rows},
         {"summary", QJsonObject{{"total", rows.size()}, {"new", rows.size()}}}});
 }
 
@@ -165,9 +149,9 @@ private Q_SLOTS:
         QVERIFY(!missing.value("baseline_known").toBool());
         QVERIFY(!missing.value("baseline_count").isValid());
         QVERIFY(!missing.value("deducted_count").isValid());
-        const int before = backend.requestCount;
+        const auto before = backend.calls.size();
         controller.commit();
-        QCOMPARE(backend.requestCount, before);
+        QCOMPARE(backend.calls.size(), before);
         QVERIFY(!controller.canCommit());
 
         controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
@@ -176,8 +160,8 @@ private Q_SLOTS:
         QCOMPARE(controller.baselineDeductionPreview(), 1);
         QVERIFY(controller.canCommit());
         controller.commit();
-        QCOMPARE(backend.requestCount, before + 1);
-        QVERIFY(backend.payload.value("deduct_from_baseline").toBool());
+        QCOMPARE(backend.calls.size(), before + 1);
+        QVERIFY(backend.last().payload.value("deduct_from_baseline").toBool());
     }
 
     void legacyScalarOnlyAuthorizesCnAndExplicitZeroSnapshotIsKnown()
@@ -196,9 +180,9 @@ private Q_SLOTS:
             QCOMPARE(controller.waitingForBaseline(), region != QLatin1String("CN"));
             QCOMPARE(controller.canCommit(), region == QLatin1String("CN"));
             if (region != QLatin1String("CN")) {
-                const int before = backend.requestCount;
+                const auto before = backend.calls.size();
                 controller.commit();
-                QCOMPARE(backend.requestCount, before);
+                QCOMPARE(backend.calls.size(), before);
                 controller.setAchievements({QVariantMap{{"region", region}, {"baseline_completed_count", 0}}});
                 QVERIFY(!controller.waitingForBaseline());
                 QCOMPARE(controller.baselineDeductionPreview(), 0);
@@ -237,7 +221,7 @@ private Q_SLOTS:
         QTRY_VERIFY(controller.previewValid());
         controller.setRowSelected(1, false);
         controller.batchUpdateSelected({{"region", "TC"}});
-        const QJsonArray rows = backend.payload.value("rows").toArray();
+        const QJsonArray rows = backend.last().payload.value("rows").toArray();
         QCOMPARE(rows.size(), 2);
         QCOMPARE(rows[0].toObject().value("region").toString(), QStringLiteral("TC"));
         QVERIFY(!rows[0].toObject().contains("territory_id"));
@@ -266,7 +250,7 @@ private Q_SLOTS:
         controller.setOwnRecordsConfirmed(true);
         controller.setDeductFromBaseline(true);
         controller.commit();
-        backend.pending->succeed({{"imported_count", 3}, {"duplicate_count", 0}, {"conflict_count", 0},
+        backend.last().reply->succeed({{"imported_count", 3}, {"duplicate_count", 0}, {"conflict_count", 0},
             {"baseline_deducted_count", 3},
             {"baseline_adjustments", QJsonArray{
                 QJsonObject{{"region", "CN"}, {"baseline_deducted_count", 1}, {"baseline_completed_count", 99}},
@@ -294,8 +278,8 @@ private Q_SLOTS:
         controller.setDefaultRegion(QStringLiteral("TC"));
         QCOMPARE(controller.defaultRegion(), QStringLiteral("TC"));
         controller.importText(QStringLiteral("副本\n合成副本"));
-        QCOMPARE(backend.requestCount, 1);
-        QVERIFY(!backend.payload.contains("rows")); // The first reading is the source as it is.
+        QCOMPARE(backend.calls.size(), 1);
+        QVERIFY(!backend.last().payload.contains("rows")); // The first reading is the source as it is.
         const auto readRow = [](int number, const QJsonValue &region, const QString &runId = {}) {
             QJsonObject row = previewRow(number, "UNKNOWN");
             QJsonObject candidate = row.value("candidate").toObject();
@@ -312,9 +296,9 @@ private Q_SLOTS:
                                 readRow(3, QStringLiteral("UNKNOWN")),
                                 readRow(4, QStringLiteral("UNKNOWN"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")),
                                 previewRow(5, "GLOBAL")});
-        QCOMPARE(backend.requestCount, 2); // Read again at once, as after a batch pick.
+        QCOMPARE(backend.calls.size(), 2); // Read again at once, as after a batch pick.
         QVERIFY(controller.busy());
-        const QJsonArray sent = backend.payload.value("rows").toArray();
+        const QJsonArray sent = backend.last().payload.value("rows").toArray();
         QCOMPARE(sent.size(), 5);
         for (int i = 0; i < 3; ++i) {
             QCOMPARE(sent[i].toObject().value("region").toString(), QStringLiteral("TC"));
@@ -331,7 +315,7 @@ private Q_SLOTS:
         answerPreview(backend, {previewRow(1, "TC"), possible, previewRow(3, "TC"), previewRow(4, "UNKNOWN"),
                                 previewRow(5, "GLOBAL")});
         QTRY_VERIFY(controller.previewValid());
-        QCOMPARE(backend.requestCount, 2); // Once.
+        QCOMPARE(backend.calls.size(), 2); // Once.
         QCOMPARE(controller.currentCandidate().value("region").toString(), QStringLiteral("TC"));
         // The second reading decides what is preselected, as a first preview: a possible duplicate never is.
         QVERIFY(controller.rows()[0].toMap().value("selected").toBool());
@@ -342,11 +326,11 @@ private Q_SLOTS:
         // take the default region like the first reading (audit 2026-11-10 I3-1).
         controller.setColumnMapping({{QStringLiteral("duty_name"), QStringLiteral("副本")}});
         controller.revalidate();
-        const int reread = backend.requestCount;
-        QVERIFY(!backend.payload.contains("rows"));
+        const auto reread = backend.calls.size();
+        QVERIFY(!backend.last().payload.contains("rows"));
         answerPreview(backend, {readRow(1, QJsonValue::Undefined)});
-        QCOMPARE(backend.requestCount, reread + 1);
-        QCOMPARE(backend.payload.value("rows").toArray()[0].toObject().value("region").toString(), QStringLiteral("TC"));
+        QCOMPARE(backend.calls.size(), reread + 1);
+        QCOMPARE(backend.last().payload.value("rows").toArray()[0].toObject().value("region").toString(), QStringLiteral("TC"));
 
         // Only a named region is a default; without one the rows stay as the Collector read them.
         for (const QString &none : {QString(), QStringLiteral("UNKNOWN"), QStringLiteral("all")}) {
@@ -358,7 +342,7 @@ private Q_SLOTS:
             unset.importText(QStringLiteral("副本\n合成副本"));
             answerPreview(plain, {readRow(1, QJsonValue::Undefined)});
             QTRY_VERIFY(unset.previewValid());
-            QCOMPARE(plain.requestCount, 1);
+            QCOMPARE(plain.calls.size(), 1);
         }
     }
 };

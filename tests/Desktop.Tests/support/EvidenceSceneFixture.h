@@ -10,6 +10,7 @@
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "MockBackend.h"
+#include "QmlComponentTestSupport.h"
 
 #include <QDateTime>
 #include <QHash>
@@ -27,15 +28,6 @@
 #include <memory>
 
 namespace {
-
-[[maybe_unused]] QQuickItem *findItem(QQuickItem *root, const QString &name)
-{
-    if (!root) return nullptr;
-    if (root->objectName() == name) return root;
-    for (auto *child : root->childItems())
-        if (auto *found = findItem(child, name)) return found;
-    return nullptr;
-}
 
 /// The mock, with what a test scripts on top of it: the round the Collector reports
 /// (GetCaptureValidationStatus), the game's TCP connections in GetStatus.capture.network_path,
@@ -253,11 +245,11 @@ ApplicationWindow {
             return false;
         }
         window = qobject_cast<QQuickWindow *>(root.get());
-        page = window ? findItem(window->contentItem(), QStringLiteral("evidencePage")) : nullptr;
+        page = window ? mrtest::findVisualItem(window->contentItem(), QStringLiteral("evidencePage")) : nullptr;
         return page != nullptr;
     }
 
-    QQuickItem *item(const QString &name) const { return findItem(page, name); }
+    QQuickItem *item(const QString &name) const { return mrtest::findVisualItem(page, name); }
     QString text(const QString &name) const
     {
         auto *found = item(name);

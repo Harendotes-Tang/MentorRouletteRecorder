@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CandidateReviewController.h"
@@ -152,18 +153,7 @@ QJsonObject completedMockPayload(mr::BackendReply *reply)
     return QJsonObject::fromVariantMap(done.first()[1].toMap());
 }
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 } // namespace
 
 namespace {
@@ -173,16 +163,7 @@ class CandidateReviewTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &file : QDir(qmlRoot + QStringLiteral("/components"))
-                                    .entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/components/") + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
+        QVERIFY(mrtest::registerSourceQmlComponents());
     }
 
     void mockResearchWhitelistMatchesCurrentCandidateDeclarations()

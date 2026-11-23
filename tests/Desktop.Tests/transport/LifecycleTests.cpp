@@ -13,6 +13,9 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "TestNamedPipe.h"
+#include "ScopedEnvironmentVariable.h"
+#include "CollectorStubTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -33,7 +36,6 @@
 #include <QGuiApplication>
 #include <QSettings>
 #include <QSignalSpy>
-#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QPointer>
 #include <QProcess>
@@ -85,13 +87,8 @@ QString shortLivedProgram()
 QString longLivedProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    QString path = QDir(directory).absoluteFilePath(QStringLiteral("long-lived.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\n"));
-    script.close();
-    return path;
+    return mrtest::writeStubScript(directory, QStringLiteral("long-lived.cmd"),
+                                   QByteArrayLiteral("pause > nul\r\n"));
 #else
     Q_UNUSED(directory)
     return QStringLiteral("/bin/sleep");
@@ -103,64 +100,12 @@ QString longLivedProgram(const QString &directory)
 QString unresponsiveHolderProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    QString path =
-        QDir(directory).absoluteFilePath(QStringLiteral("unresponsive-holder.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
-                 + QByteArray::number(mr::CollectorProcess::kUnresponsiveHolderExitCode)
-                 + QByteArrayLiteral("\r\n"));
-    script.close();
-    return path;
+    return mrtest::writeStubScript(directory, QStringLiteral("unresponsive-holder.cmd"),
+                                   QByteArrayLiteral("exit /b ")
+                                       + QByteArray::number(mr::CollectorProcess::kUnresponsiveHolderExitCode)
+                                       + QByteArrayLiteral("\r\n"));
 #else
     Q_UNUSED(directory)
-    return QString();
-#endif
-}
-
-/// A program that exits with the Collector's ERR_ALREADY_RUNNING code.
-///
-/// Written into \a directory as a one-line batch file: no system binary exits
-/// with a chosen code on demand.
-QString alreadyRunningProgram(const QString &directory)
-{
-#ifdef Q_OS_WIN
-    QString path =
-        QDir(directory).absoluteFilePath(QStringLiteral("already-running.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
-                 + QByteArray::number(mr::CollectorProcess::kAlreadyRunningExitCode)
-                 + QByteArrayLiteral("\r\n"));
-    script.close();
-    return path;
-#else
-    Q_UNUSED(directory)
-    return QString();
-#endif
-}
-
-/// A Collector stand-in that refuses to start the way the Collector does: one
-/// line on standard error, then \a exitCode. Every launch also appends a line
-/// to runs.txt beside it, so a test can tell whether anything launched it again.
-QString refusingProgram(const QString &directory, int exitCode, const QByteArray &stderrLine)
-{
-#ifdef Q_OS_WIN
-    QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n>&2 echo ")
-                 + stderrLine + QByteArrayLiteral("\r\nexit /b ")
-                 + QByteArray::number(exitCode) + QByteArrayLiteral("\r\n"));
-    script.close();
-    return path;
-#else
-    Q_UNUSED(directory)
-    Q_UNUSED(exitCode)
-    Q_UNUSED(stderrLine)
     return QString();
 #endif
 }
@@ -170,26 +115,12 @@ QString refusingProgram(const QString &directory, int exitCode, const QByteArray
 QString crashOnRequestProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    QString path = QDir(directory).absoluteFilePath(QStringLiteral("crash-on-request.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\nexit /b 1\r\n"));
-    script.close();
-    return path;
+    return mrtest::writeStubScript(directory, QStringLiteral("crash-on-request.cmd"),
+                                   QByteArrayLiteral("pause > nul\r\nexit /b 1\r\n"));
 #else
     Q_UNUSED(directory)
     return QString();
 #endif
-}
-
-/// How many times a refusingProgram() stub in \a directory was launched.
-int launchesIn(const QString &directory)
-{
-    QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
-    if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
-        return 0;
-    return static_cast<int>(runs.readAll().count('\n'));
 }
 
 /// Make the supervised child crash now: close the standard input its stub
@@ -200,39 +131,12 @@ void crashChild(mr::CollectorProcess &collector)
         process->closeWriteChannel();
 }
 
-/// The pid file the child of this build writes: serve.pid, or the development
-/// pipe's own file (CollectorProcess::servePidFileName, BuildFlavourTests).
-QString servePidName()
-{
-    const QString pipe = mr::ipc::currentUserPipeName();
-    return mr::build::isDevelopmentBuild() && !pipe.isEmpty()
-        ? QStringLiteral("serve.%1.pid").arg(pipe) : QStringLiteral("serve.pid");
-}
-
-/// Write \a pid into this build's serve.pid file inside \a directory, the way
-/// the Collector records the holder of the per-user serve lease.
-bool writeServePid(const QString &directory, qint64 pid)
-{
-    QFile file(QDir(directory).absoluteFilePath(servePidName()));
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
-        return false;
-    file.write(QByteArray::number(pid));
-    file.close();
-    return true;
-}
-
-/// Backdate serve.pid so the takeover stops reading it as "written seconds
-/// ago", which is the one state in which nothing may be ended.
-bool ageServePid(const QString &directory, qint64 milliseconds)
-{
-    QFile file(QDir(directory).absoluteFilePath(servePidName()));
-    if (!file.open(QIODevice::ReadWrite))
-        return false;
-    const bool ok = file.setFileTime(QDateTime::currentDateTime().addMSecs(-milliseconds),
-                                     QFileDevice::FileModificationTime);
-    file.close();
-    return ok;
-}
+using mrtest::alreadyRunningProgram;
+using mrtest::ageServePid;
+using mrtest::launchesIn;
+using mrtest::refusingProgram;
+using mrtest::servePidName;
+using mrtest::writeServePid;
 
 /// One tasklist/taskkill call the takeover made.
 struct ToolCall {
@@ -630,8 +534,7 @@ void LifecycleTests::theServeLeasePidIsReadFromTheCollectorsDataDirectory()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(directory.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(directory.path()));
 
     QCOMPARE(mr::CollectorProcess::collectorDataDirectory(),
              QDir::cleanPath(QDir(directory.path()).absolutePath()));
@@ -665,8 +568,6 @@ void LifecycleTests::theServeLeasePidIsReadFromTheCollectorsDataDirectory()
         QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
         QVERIFY(mr::CollectorProcess::serveLeasePidPath().isEmpty());
     }
-
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// taskkill and tasklist are judged by exit code and by parsed fields, never by
@@ -723,9 +624,8 @@ void LifecycleTests::systemToolsComeFromTheSystemDirectoryNotFromTheEnvironment(
         QVERIFY(file.open(QIODevice::WriteOnly));
         file.write("MZ");
     }
-    const QByteArray previous = qgetenv("SystemRoot");
-    qputenv("SystemRoot", QDir::toNativeSeparators(planted.path()).toLocal8Bit());
-    const auto restore = qScopeGuard([&previous] { qputenv("SystemRoot", previous); });
+    const mrtest::ScopedEnvironmentVariable systemRoot("SystemRoot",
+                                                       QDir::toNativeSeparators(planted.path()).toLocal8Bit());
 
     wchar_t buffer[MAX_PATH] = {};
     const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
@@ -757,8 +657,7 @@ void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -796,8 +695,6 @@ void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
     QTest::qWait(300);
     QVERIFY(calls.isEmpty());
     QCOMPARE(takeovers.count(), 1);
-
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// The stop event alone is usually enough, and when it is, nothing is ended.
@@ -810,16 +707,13 @@ void LifecycleTests::aHolderThatLeavesOnItsOwnIsNeverEnded()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString stub = longLivedProgram(directory.path());
-    if (stub.isEmpty()) {
-        qputenv("MR_DATA_DIR", previous);
+    if (stub.isEmpty())
         QSKIP("No long-lived stub program available on this machine.");
-    }
 
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
@@ -851,7 +745,6 @@ void LifecycleTests::aHolderThatLeavesOnItsOwnIsNeverEnded()
     QCOMPARE(takeovers.count(), 0);
 
     collector.stop();
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// Forcing is the last step of the sequence, never the first.
@@ -862,16 +755,13 @@ void LifecycleTests::aWedgedHolderIsForcedOnlyAsALastResort()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString stub = longLivedProgram(directory.path());
-    if (stub.isEmpty()) {
-        qputenv("MR_DATA_DIR", previous);
+    if (stub.isEmpty())
         QSKIP("No long-lived stub program available on this machine.");
-    }
 
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
@@ -918,7 +808,6 @@ void LifecycleTests::aWedgedHolderIsForcedOnlyAsALastResort()
     QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 5000);
 
     collector.stop();
-    qputenv("MR_DATA_DIR", previous);
 }
 
 void LifecycleTests::aChangedLeaseStopsTheTakeover_data()
@@ -941,9 +830,7 @@ void LifecycleTests::aChangedLeaseStopsTheTakeover()
     QFETCH(bool, samePid);
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
 
@@ -978,9 +865,7 @@ void LifecycleTests::anAbortedTakeoverCannotContinueInsideANewAttempt()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
     mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
@@ -1008,9 +893,7 @@ void LifecycleTests::anAbortedPoliteKillTimerCannotContinueInsideANewAttempt()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
     mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
@@ -1046,8 +929,7 @@ void LifecycleTests::aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -1079,8 +961,6 @@ void LifecycleTests::aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded
     const QString message = takeovers.at(0).at(1).toString();
     QVERIFY(message.contains(QString::fromUtf8("无法结束它")));
     QVERIFY(!message.contains(QString::fromUtf8("已结束它")));
-
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// One takeover - list, ask, end, relaunch - is one of the kMaxTakeoverAttempts.
@@ -1093,9 +973,7 @@ void LifecycleTests::eachTakeoverCountsOnceAgainstTheCap()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QVERIFY(writeServePid(data.path(), 424242));
     QVERIFY(ageServePid(data.path(), 60000));
 
@@ -1151,16 +1029,13 @@ void LifecycleTests::anUnresponsiveHolderExitAsksBeforeItEndsAnything()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString stub = unresponsiveHolderProgram(directory.path());
-    if (stub.isEmpty()) {
-        qputenv("MR_DATA_DIR", previous);
+    if (stub.isEmpty())
         QSKIP("No way to fake an exit code on this machine.");
-    }
 
     QVERIFY(writeServePid(data.path(), QCoreApplication::applicationPid()));
 
@@ -1193,7 +1068,6 @@ void LifecycleTests::anUnresponsiveHolderExitAsksBeforeItEndsAnything()
     QCOMPARE(collector.stateToken(), QStringLiteral("reused"));
 
     collector.stop();
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// The ordinary "the first Desktop closed, so this one takes the lease" path
@@ -1203,16 +1077,13 @@ void LifecycleTests::aVanishedHolderJustLetsOurOwnChildTakeTheLease()
 {
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
 
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString stub = longLivedProgram(directory.path());
-    if (stub.isEmpty()) {
-        qputenv("MR_DATA_DIR", previous);
+    if (stub.isEmpty())
         QSKIP("No long-lived stub program available on this machine.");
-    }
 
     // No serve.pid at all: nothing is holding the lease.
     mr::CollectorProcess collector(stub, nullptr);
@@ -1231,7 +1102,6 @@ void LifecycleTests::aVanishedHolderJustLetsOurOwnChildTakeTheLease()
     QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
 
     collector.stop();
-    qputenv("MR_DATA_DIR", previous);
 }
 
 /// IpcClient fails every request still in flight from its own destructor, and
@@ -1280,10 +1150,10 @@ void LifecycleTests::aReleaseBuildLaunchesOnlyTheCollectorBesideIt()
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.close();
 
-    const QByteArray previous = qgetenv("MR_COLLECTOR_PATH");
-    qputenv("MR_COLLECTOR_PATH", QFile::encodeName(planted));
-    const QString resolved = mr::CollectorProcess::resolveDefaultExecutable();
-    qputenv("MR_COLLECTOR_PATH", previous);
+    const QString resolved = [&planted] {
+        const mrtest::ScopedEnvironmentVariable collectorPath("MR_COLLECTOR_PATH", QFile::encodeName(planted));
+        return mr::CollectorProcess::resolveDefaultExecutable();
+    }();
 
     QCOMPARE(QFileInfo(resolved).fileName(), QStringLiteral("MentorRecorder.Collector.exe"));
     const QString folder = QDir::cleanPath(QFileInfo(resolved).absolutePath());
@@ -1325,11 +1195,10 @@ void LifecycleTests::theCollectorDataDirectoryIsTheRealOneEvenInQtTestMode()
     QSKIP("%LOCALAPPDATA% is a Windows location.");
 #else
     QVERIFY(QStandardPaths::isTestModeEnabled());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qunsetenv("MR_DATA_DIR");
-    const QString directory = mr::CollectorProcess::collectorDataDirectory();
-    if (!previous.isEmpty())
-        qputenv("MR_DATA_DIR", previous);
+    const QString directory = [] {
+        const mrtest::ScopedEnvironmentVariable noDataDirectory("MR_DATA_DIR", std::nullopt);
+        return mr::CollectorProcess::collectorDataDirectory();
+    }();
 
     const QString local = qEnvironmentVariable("LOCALAPPDATA");
     QVERIFY(!local.isEmpty());
@@ -1590,10 +1459,8 @@ void LifecycleTests::aRefusedStartIsTriedAgainQuietlyUntilItSucceeds()
     QCOMPARE(restarts.count(), 0);
 
     // The cause goes away; the next quiet retry starts it for good.
-    QFile script(stub);
-    QVERIFY(script.open(QIODevice::WriteOnly | QIODevice::Truncate));
-    script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\n"));
-    script.close();
+    QVERIFY(!mrtest::writeStubScript(directory.path(), QFileInfo(stub).fileName(),
+                                     QByteArrayLiteral("pause > nul\r\n")).isEmpty());
     QTRY_VERIFY_WITH_TIMEOUT(collector.stateToken() == QStringLiteral("running"), 10000);
     QVERIFY(!collector.isStartRefused());
     QCOMPARE(restarts.count(), 0);
@@ -1667,8 +1534,7 @@ void LifecycleTests::stopAsksAChildThatHasNotRecordedItsLeaseYet()
 #else
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString stub = longLivedProgram(directory.path());
@@ -1691,7 +1557,6 @@ void LifecycleTests::stopAsksAChildThatHasNotRecordedItsLeaseYet()
     collector.stop();
     const DWORD signalled = ::WaitForSingleObject(event, 0);
     ::CloseHandle(event);
-    qputenv("MR_DATA_DIR", previous);
     QCOMPARE(signalled, static_cast<DWORD>(WAIT_OBJECT_0));
     QVERIFY(!collector.isRunning());
 #endif
@@ -1707,8 +1572,7 @@ void LifecycleTests::stopNeverAsksTheCollectorOfAnotherHolder()
 #else
     QTemporaryDir data;
     QVERIFY(data.isValid());
-    const QByteArray previous = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", QFile::encodeName(data.path()));
     QVERIFY(writeServePid(data.path(), 424242));
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -1730,7 +1594,6 @@ void LifecycleTests::stopNeverAsksTheCollectorOfAnotherHolder()
 
     const DWORD signalled = ::WaitForSingleObject(event, 0);
     ::CloseHandle(event);
-    qputenv("MR_DATA_DIR", previous);
     QCOMPARE(signalled, static_cast<DWORD>(WAIT_TIMEOUT));
     QVERIFY(!collector.isRunning());
 #endif
@@ -1744,37 +1607,6 @@ void LifecycleTests::theGracefulStopWaitCoversTheCollectorsOwnShutdown()
     QVERIFY(mr::CollectorProcess::gracefulStopMs() >= 10000);
 }
 
-namespace {
-
-#ifdef Q_OS_WIN
-/// One instance of a named pipe, standing in for the Collector's server end so
-/// the client's owner check runs on a real pipe handle. Created by this test
-/// process, so its owner is the current user.
-struct TestPipe {
-    QString serverName;
-    HANDLE handle = INVALID_HANDLE_VALUE;
-
-    TestPipe()
-        : serverName(QStringLiteral("\\\\.\\pipe\\MentorRecorderTest.owner.%1.%2")
-                         .arg(QCoreApplication::applicationPid())
-                         .arg(QDateTime::currentMSecsSinceEpoch()))
-    {
-        handle = ::CreateNamedPipeW(reinterpret_cast<const wchar_t *>(serverName.utf16()),
-                                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
-                                    4096, 4096, 0, nullptr);
-    }
-    ~TestPipe()
-    {
-        if (handle != INVALID_HANDLE_VALUE)
-            ::CloseHandle(handle);
-    }
-    bool isValid() const { return handle != INVALID_HANDLE_VALUE; }
-};
-#endif
-
-} // namespace
-
 /// The real owner check on a real pipe this user created: the Desktop must
 /// still connect to its own Collector after the check was added.
 void LifecycleTests::theClientConnectsToAPipeThisUserServes()
@@ -1782,7 +1614,7 @@ void LifecycleTests::theClientConnectsToAPipeThisUserServes()
 #ifndef Q_OS_WIN
     QSKIP("Named pipe ownership is a Windows check.");
 #else
-    TestPipe pipe;
+    mrtest::TestPipe pipe("owner");
     QVERIFY(pipe.isValid());
     QVERIFY(mr::IpcClient::pipeOwnedByCurrentUser(qintptr(pipe.handle)));
 
@@ -1804,7 +1636,7 @@ void LifecycleTests::theClientRefusesAPipeServedByAnotherAccount()
 #ifndef Q_OS_WIN
     QSKIP("Named pipe ownership is a Windows check.");
 #else
-    TestPipe pipe;
+    mrtest::TestPipe pipe("owner");
     QVERIFY(pipe.isValid());
 
     mr::IpcClient client;
@@ -1857,7 +1689,7 @@ void LifecycleTests::aRequestThatNeverLeftTheClientSaysSo()
     }
 #ifdef Q_OS_WIN
     // Written to a server that never answers, then the connection closes.
-    TestPipe pipe;
+    mrtest::TestPipe pipe("owner");
     QVERIFY(pipe.isValid());
     mr::IpcClient client;
     client.setServerName(pipe.serverName);

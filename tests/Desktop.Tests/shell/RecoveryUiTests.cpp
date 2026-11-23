@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -329,15 +330,7 @@ private Q_SLOTS:
 void RecoveryUiTests::initTestCase()
 {
     QVERIFY(QDir().mkpath(evidenceDirectory()));
-    const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
-                                  QStringLiteral("/dialogs"), QStringLiteral("/charts")})
-        for (const auto &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
+    QVERIFY(mrtest::registerShippingQml());
 }
 
 void RecoveryUiTests::hiddenMainReminderCanDeferAndReopen()

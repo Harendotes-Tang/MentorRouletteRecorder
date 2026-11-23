@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -13,7 +14,6 @@
 #include <QDir>
 #include <QFontDatabase>
 #include <QGuiApplication>
-#include <QJSValue>
 #include <QJsonArray>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -61,22 +61,8 @@ private:
     int serial = 0;
 };
 
-QVariantList list(const QVariant &value)
-{
-    return value.metaType() == QMetaType::fromType<QJSValue>()
-        ? value.value<QJSValue>().toVariant().toList() : value.toList();
-}
-
-QQuickItem *item(QQuickItem *root, const QString &name)
-{
-    if (root->objectName() == name)
-        return root;
-    for (QQuickItem *child : root->childItems()) {
-        if (auto *found = item(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
+using mrtest::qmlList;
 
 struct ChartScene {
     QTemporaryDir directory;
@@ -129,7 +115,7 @@ struct ChartScene {
         return root != nullptr;
     }
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    QQuickItem *find(const QString &name) const { return item(window()->contentItem(), name); }
+    QQuickItem *find(const QString &name) const { return findVisualItem(window()->contentItem(), name); }
     bool click(const QString &name, bool keyboard = false) const
     {
         // Expanding the panel and changing languages rebuild its layouts. Wait
@@ -287,14 +273,7 @@ private slots:
 
     void initTestCase()
     {
-        const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-        for (const QString &directory : {QStringLiteral("/components"), QStringLiteral("/charts"), QStringLiteral("/pages")}) {
-            for (const QString &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file), "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "charts", "pages"}));
     }
     void preferencesPersistAndResetOnlyMainPage()
     {
@@ -339,12 +318,12 @@ private slots:
         QVERIFY(scene.click(QStringLiteral("customizeDungeonCharts")));
         QVERIFY(scene.click(QStringLiteral("specialBucket:main-scenario"), true));
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 40.0);
-        const auto selected = list(chart->property("selectedBuckets"));
+        const auto selected = qmlList(chart->property("selectedBuckets"));
         QCOMPARE(selected.size(), 3);
         QCOMPARE(selected[0].toMap().value("share").toDouble(), 0.75);
         QCOMPARE(selected[1].toMap().value("share").toDouble(), 0.25);
         QCOMPARE(scene.controller.dungeons()->specialDutyBreakdown(), raw);
-        QCOMPARE(list(chart->property("buckets")), raw);
+        QCOMPARE(qmlList(chart->property("buckets")), raw);
         QCOMPARE(scene.find(QStringLiteral("dungeonCategoryPie"))->property("completedTotal").toDouble(), 100.0);
         QCOMPARE(chart->property("totalCaption").toString(), QString::fromUtf8("所选通关 40 次"));
         QVERIFY(scene.find(QStringLiteral("chartPage"))->setProperty("topLimit", 1));
@@ -391,7 +370,7 @@ private slots:
         auto *special = scene.find(QStringLiteral("dungeonSpecialPie"));
         QVERIFY(types && special);
         const auto swatch = [](QQuickItem *chart, int row) {
-            auto *found = item(chart, QStringLiteral("shareDonutSwatch%1").arg(row));
+            auto *found = findVisualItem(chart, QStringLiteral("shareDonutSwatch%1").arg(row));
             return found ? found->property("color").value<QColor>().name() : QString();
         };
         QString quietInDark;
@@ -431,7 +410,7 @@ private slots:
         auto *special = scene.find(QStringLiteral("dungeonSpecialPie"));
         QVERIFY(types && special);
         const auto text = [](QQuickItem *chart, const char *name) {
-            auto *found = item(chart, QString::fromLatin1(name));
+            auto *found = findVisualItem(chart, QString::fromLatin1(name));
             return found ? found->property("text").toString() : QStringLiteral("<missing>");
         };
         const auto centre = [](QQuickItem *control) {
@@ -444,23 +423,23 @@ private slots:
         QCOMPARE(text(types, "shareDonutCount0"), QString::fromUtf8("70 次"));
         QCOMPARE(text(types, "shareDonutShare0"), QStringLiteral("70.0%"));
         QCOMPARE(text(types, "shareDonutLabel1"), guildhests);
-        QVERIFY(!item(types, QStringLiteral("shareDonutRow2")));
+        QVERIFY(!findVisualItem(types, QStringLiteral("shareDonutRow2")));
         QCOMPARE(text(types, "shareDonutZeroLabel"), QString::fromUtf8("讨伐歼灭战 · 极神 · 大型任务 · 团队任务"));
         QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("100"));
         QCOMPARE(text(types, "shareDonutCaption"), QString::fromUtf8("通关次数"));
-        QVERIFY(!item(types, QStringLiteral("shareDonutShare"))->isVisible());
-        QVERIFY(item(types, QStringLiteral("compositionHint"))->isVisible());
-        QVERIFY(!item(types, QStringLiteral("shareDonutTrack"))->isVisible());
+        QVERIFY(!findVisualItem(types, QStringLiteral("shareDonutShare"))->isVisible());
+        QVERIFY(findVisualItem(types, QStringLiteral("compositionHint"))->isVisible());
+        QVERIFY(!findVisualItem(types, QStringLiteral("shareDonutTrack"))->isVisible());
 
         // The pointer on a legend row: that item in the middle, the other segment faded.
-        auto *first = item(types, QStringLiteral("shareDonutSegment0"));
-        auto *second = item(types, QStringLiteral("shareDonutSegment1"));
+        auto *first = findVisualItem(types, QStringLiteral("shareDonutSegment0"));
+        auto *second = findVisualItem(types, QStringLiteral("shareDonutSegment1"));
         QVERIFY(first && second);
-        QTest::mouseMove(scene.window(), centre(item(types, QStringLiteral("shareDonutRow1"))));
+        QTest::mouseMove(scene.window(), centre(findVisualItem(types, QStringLiteral("shareDonutRow1"))));
         QTRY_COMPARE(types->property("highlightedKey").toString(), QString::fromUtf8("category:行会令"));
         QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("30"));
         QCOMPARE(text(types, "shareDonutCaption"), guildhests);
-        QVERIFY(item(types, QStringLiteral("shareDonutShare"))->isVisible());
+        QVERIFY(findVisualItem(types, QStringLiteral("shareDonutShare"))->isVisible());
         QCOMPARE(text(types, "shareDonutShare"), QStringLiteral("30.0%"));
         QTRY_COMPARE(first->opacity(), 0.28);
         QCOMPARE(second->opacity(), 1.0);
@@ -477,8 +456,8 @@ private slots:
         // the type, 通关, and the statistics pages' region.
         scene.controller.setRecordRegion(QStringLiteral("CN"));
         QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 100);
-        QTRY_VERIFY(item(types, QStringLiteral("shareDonutRow0")));
-        item(types, QStringLiteral("shareDonutRow0"))->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(findVisualItem(types, QStringLiteral("shareDonutRow0")));
+        findVisualItem(types, QStringLiteral("shareDonutRow0"))->forceActiveFocus(Qt::TabFocusReason);
         QTRY_COMPARE(types->property("highlightedKey").toString(), QString::fromUtf8("category:四人迷宫"));
         QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("70"));
         QTest::keyClick(scene.window(), Qt::Key_Tab);
@@ -496,7 +475,7 @@ private slots:
         // On the ring itself: 主线副本 is the first 60 %, so 3 o'clock is inside it.
         // It is a list of duties, and that list is what the click opens.
         scene.controller.navigate(0);
-        auto *ring = item(special, QStringLiteral("shareDonutRing"));
+        auto *ring = findVisualItem(special, QStringLiteral("shareDonutRing"));
         QVERIFY(ring);
         const QPoint threeOClock = ring->mapToScene(QPointF(ring->width() / 2 + 65, ring->height() / 2)).toPoint();
         QTest::mouseMove(scene.window(), threeOClock);
@@ -520,17 +499,17 @@ private slots:
         // out like any item, never faded by another, and a click stays here.
         scene.controller.navigate(0);
         scene.controller.resetHistoryFilter();
-        auto *other = item(special, QStringLiteral("shareDonutRow2"));
+        auto *other = findVisualItem(special, QStringLiteral("shareDonutRow2"));
         QVERIFY(other);
         QCOMPARE(text(special, "shareDonutLabel2"), QString::fromUtf8("其他副本"));
         QTest::mouseMove(scene.window(), centre(other));
         QTRY_COMPARE(special->property("highlightedKey").toString(), QStringLiteral("other"));
-        QTRY_COMPARE(item(special, QStringLiteral("shareDonutSegment0"))->opacity(), 0.28);
+        QTRY_COMPARE(findVisualItem(special, QStringLiteral("shareDonutSegment0"))->opacity(), 0.28);
         QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre(other));
-        QTest::mouseMove(scene.window(), centre(item(special, QStringLiteral("shareDonutRow0"))));
+        QTest::mouseMove(scene.window(), centre(findVisualItem(special, QStringLiteral("shareDonutRow0"))));
         QTRY_COMPARE(special->property("highlightedKey").toString(), QStringLiteral("main-scenario"));
-        QTRY_COMPARE(item(special, QStringLiteral("shareDonutSegment1"))->opacity(), 0.28);
-        QCOMPARE(item(special, QStringLiteral("shareDonutSegment2"))->opacity(), 1.0);
+        QTRY_COMPARE(findVisualItem(special, QStringLiteral("shareDonutSegment1"))->opacity(), 0.28);
+        QCOMPARE(findVisualItem(special, QStringLiteral("shareDonutSegment2"))->opacity(), 1.0);
         QCOMPARE(scene.controller.currentPage(), 0);
         QVERIFY(!scene.controller.historyFilter().contains(QStringLiteral("result")));
         QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
@@ -565,20 +544,20 @@ private slots:
         auto *chart = scene.find(QStringLiteral("dungeonCategoryPie"));
         QVERIFY(chart);
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 0.0);
-        const auto zeroSelection = list(chart->property("selectedBuckets"));
+        const auto zeroSelection = qmlList(chart->property("selectedBuckets"));
         QVERIFY(!zeroSelection.isEmpty());
         for (const auto &value : zeroSelection)
             QVERIFY(value.toMap().value("share").isNull());
         // Nothing left to draw: no rows, the reason instead, and a 0 in the ring.
-        QTRY_VERIFY(!item(chart, QStringLiteral("shareDonutRow0")));
-        QVERIFY(item(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
-        QCOMPARE(item(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
+        QTRY_VERIFY(!findVisualItem(chart, QStringLiteral("shareDonutRow0")));
+        QVERIFY(findVisualItem(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
+        QCOMPARE(findVisualItem(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
         scene.backend.rows.append(QJsonObject{{"content_id", QJsonValue::Null},
             {"duty_category", QString::fromUtf8("新增分类")}, {"completed_count", 5}, {"attempt_count", 5}});
         scene.controller.dungeons()->reload();
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 5.0);
         QCOMPARE(scene.settings.dungeonCategoryHiddenBuckets().size(), hidden.size());
-        const auto selected = list(chart->property("selectedBuckets"));
+        const auto selected = qmlList(chart->property("selectedBuckets"));
         bool foundNewBucket = false;
         for (const auto &value : selected) {
             const auto bucket = value.toMap();
@@ -624,9 +603,9 @@ private slots:
             if (key != QLatin1String("main-scenario"))
                 QVERIFY(scene.click(QStringLiteral("specialBucket:") + key));
         }
-        QTRY_COMPARE(list(chart->property("selectedBuckets")).size(), 0);
+        QTRY_COMPARE(qmlList(chart->property("selectedBuckets")).size(), 0);
         QCOMPARE(chart->property("completedTotal").toDouble(), 0.0);
-        QVERIFY(item(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
+        QVERIFY(findVisualItem(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
         QVERIFY(scene.capture(QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral("-empty.png")));
         QVERIFY(scene.click(QStringLiteral("categoryChartVisibility")));
         QVERIFY(scene.click(QStringLiteral("customizeDungeonCharts")));

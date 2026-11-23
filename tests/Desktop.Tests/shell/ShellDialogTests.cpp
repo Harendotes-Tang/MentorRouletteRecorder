@@ -11,6 +11,8 @@
 // the 关于 tab's Oodle facts.
 
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -25,8 +27,6 @@
 #include <QDateTime>
 #include <QDir>
 #include <QGuiApplication>
-#include <QFontDatabase>
-#include <QJSValue>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QPointer>
@@ -126,18 +126,7 @@ public:
     bool connected = true;
 };
 
-QQuickItem *findItem(QQuickItem *from, const QString &name, bool visibleOnly = false)
-{
-    if (!from || (visibleOnly && !from->isVisible()))
-        return nullptr;
-    if (from->objectName() == name)
-        return from;
-    for (QQuickItem *child : from->childItems()) {
-        if (QQuickItem *match = findItem(child, name, visibleOnly))
-            return match;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 void collectVisibleText(QQuickItem *item, QStringList &texts)
 {
@@ -148,12 +137,6 @@ void collectVisibleText(QQuickItem *item, QStringList &texts)
         texts.append(text.toString());
     for (QQuickItem *child : item->childItems())
         collectVisibleText(child, texts);
-}
-
-QVariantMap asMap(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toMap()
-                                        : value.toMap();
 }
 
 QJsonObject dashboard(int goal, int baseline)
@@ -238,9 +221,9 @@ struct Shell {
     /// overlay is a child of the window's root item.
     QQuickItem *item(const QString &name) const
     {
-        if (auto *visible = findItem(window()->contentItem(), name, true))
+        if (auto *visible = mrtest::findShownVisualItem(window()->contentItem(), name))
             return visible;
-        return findItem(window()->contentItem(), name);
+        return findVisualItem(window()->contentItem(), name);
     }
     bool manualWorkspaceActive(QObject *editor) const
     {
@@ -467,19 +450,7 @@ class ShellDialogTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"),
-                                      QStringLiteral("/dialogs"), QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     void reflectionDetailsNavigationKeepsTheSameRunSelected()
@@ -725,7 +696,7 @@ private Q_SLOTS:
             auto *details = shell.item("releaseNotesDetails_" + id);
             QVERIFY(tag && title && details);
             QVERIFY(tag->isVisible());
-            auto *buttonText = findItem(details, QStringLiteral("buttonLabel"));
+            auto *buttonText = findVisualItem(details, QStringLiteral("buttonLabel"));
             QVERIFY(buttonText);
             QTRY_VERIFY(qAbs(baseline(tag) - baseline(title)) <= 0.5);
             QTRY_VERIFY(qAbs(baseline(buttonText) - baseline(title)) <= 0.5);
@@ -736,7 +707,7 @@ private Q_SLOTS:
         auto *tag = shell.item(QStringLiteral("releaseNotesTag_0"));
         auto *details = shell.item(QStringLiteral("releaseNotesDetails_0"));
         QVERIFY(title && tag && details);
-        auto *buttonText = findItem(details, QStringLiteral("buttonLabel"));
+        auto *buttonText = findVisualItem(details, QStringLiteral("buttonLabel"));
         QVERIFY(buttonText);
         title->setProperty("text", QString::fromUtf8("较长的更新标题换行后，标签与详细按钮仍应对齐首行文字。").repeated(3));
         QTRY_VERIFY(title->property("lineCount").toInt() > 1);
@@ -1963,7 +1934,7 @@ private Q_SLOTS:
         QVERIFY(donut);
         QTRY_VERIFY(donut->isVisible());
         const auto tone = [&](const char *name, const char *property) {
-            auto *found = findItem(donut, QString::fromLatin1(name));
+            auto *found = findVisualItem(donut, QString::fromLatin1(name));
             return found ? found->property(property).value<QColor>() : QColor();
         };
         QTRY_VERIFY(tone("shareDonutSwatch0", "color").isValid());
@@ -2159,17 +2130,8 @@ MR_DESKTOP_TEST_SUITE(ShellDialog)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
-#ifdef Q_OS_WIN
     // 离屏平台不枚举 Windows 字体；显式加载系统中文字体用于长正文截图验收。
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    const int fontId = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QStringLiteral("Fonts/msyh.ttc")));
-    const auto families = QFontDatabase::applicationFontFamilies(fontId);
-    if (!families.isEmpty()) {
-        QFont font;
-        font.setFamilies(families);
-        QGuiApplication::setFont(font);
-    }
-#endif
+    mrtest::useWindowsFonts({"Fonts/msyh.ttc"});
     ShellDialogTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

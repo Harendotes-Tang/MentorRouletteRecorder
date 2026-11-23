@@ -4,6 +4,8 @@
 // with synthetic mouse events and keep the offscreen window's frames under
 // artifacts/history-columns-20261021/ as evidence.
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -17,7 +19,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlComponent>
@@ -46,17 +47,7 @@ QStringList defaults()
     return mr::HistoryColumnsController::defaultOrder();
 }
 
-QQuickItem *findVisual(QQuickItem *item, const QString &name)
-{
-    if (!item)
-        return nullptr;
-    if (item->objectName() == name)
-        return item;
-    for (auto *child : item->childItems())
-        if (auto *found = findVisual(child, name))
-            return found;
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 QPoint centreOf(QQuickItem *item)
 {
@@ -150,7 +141,7 @@ ApplicationWindow {
             error = QStringLiteral("the root is not a window");
             return false;
         }
-        page = findVisual(window->contentItem(), QStringLiteral("historyUnderTest"));
+        page = findVisualItem(window->contentItem(), QStringLiteral("historyUnderTest"));
         if (!page) {
             error = QStringLiteral("no history page");
             return false;
@@ -159,7 +150,7 @@ ApplicationWindow {
     }
 
     mr::HistoryColumnsController *columns() const { return app->historyColumns(); }
-    QQuickItem *item(const QString &name) const { return findVisual(window->contentItem(), name); }
+    QQuickItem *item(const QString &name) const { return findVisualItem(window->contentItem(), name); }
     QQuickItem *title(const QString &key) const { return item(QStringLiteral("historyColumnHeader_") + key); }
     QQuickItem *cell(const QString &key) const { return item(QStringLiteral("historyCell_") + key); }
     QQuickItem *handle(const QString &key) const { return item(QStringLiteral("historyColumnResize_") + key); }
@@ -230,13 +221,9 @@ private:
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-        for (const QString &folder : {QStringLiteral("/components"), QStringLiteral("/dialogs")})
-            for (const QString &file : QDir(root + folder).entryList({QStringLiteral("*.qml")}, QDir::Files))
-                qmlRegisterType(QUrl::fromLocalFile(root + folder + QLatin1Char('/') + file), "MentorRecorder", 1, 0,
-                                file.chopped(4).toUtf8().constData());
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/pages/HistoryPage.qml")), "MentorRecorder", 1, 0, "HistoryPage");
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
+        qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/pages/HistoryPage.qml")),
+                        "MentorRecorder", 1, 0, "HistoryPage");
     }
 
     // ------------------------------------------------------- controller --
@@ -774,15 +761,7 @@ MR_DESKTOP_TEST_SUITE(HistoryColumns)
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
         qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
-    // Match main.cpp's screenshot font initialization; offscreen defaults may
-    // otherwise choose a condensed fallback and conceal real layout overflow.
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
-    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
-    QFont font;
-    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
-    QGuiApplication::setFont(font);
+    mrtest::useScreenshotFontStack();
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     HistoryColumnsTests tests;
     return QTest::qExec(&tests, argc, argv);

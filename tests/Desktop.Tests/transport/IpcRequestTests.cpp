@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "SharedCalibrationTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "HistoryController.h"
 #include "IpcBackend.h"
@@ -285,8 +286,7 @@ QJsonObject argsFor(const QString &messageType)
     } else if (messageType == QLatin1String("ImportCalibrationCode")) {
         // tests/Fixtures/shared-calibration/vectors.json valid[0].code: the
         // sample the Collector side wrote first (contracts/CHANGELOG.md).
-        args.insert(QStringLiteral("code"),
-                    QStringLiteral("MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18"));
+        args.insert(QStringLiteral("code"), QString::fromLatin1(mrtest::kVectorCode));
     }
 
     return args;

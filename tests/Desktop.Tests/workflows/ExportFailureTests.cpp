@@ -1,4 +1,6 @@
 #include "DesktopTestRunner.h"
+#include "ScopedEnvironmentVariable.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "ExportController.h"
 #include "Formatters.h"
@@ -145,18 +147,10 @@ private Q_SLOTS:
         QTemporaryDir root;
         QVERIFY(root.isValid());
         const QString dataDirectory = QDir(root.path()).filePath(QStringLiteral("collector-data"));
-        const QByteArray previous = qgetenv("MR_DATA_DIR");
-        const bool hadPrevious = qEnvironmentVariableIsSet("MR_DATA_DIR");
-        qputenv("MR_DATA_DIR", dataDirectory.toUtf8());
+        const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR", dataDirectory.toUtf8());
         OpenedFolders opened;
         QDesktopServices::setUrlHandler(QStringLiteral("file"), &opened, "open");
-        const auto restore = qScopeGuard([&] {
-            QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
-            if (hadPrevious)
-                qputenv("MR_DATA_DIR", previous);
-            else
-                qunsetenv("MR_DATA_DIR");
-        });
+        const auto restore = qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("file")); });
         mr::ExportController controller;
         QSignalSpy toast(&controller, &mr::ExportController::toastRequested);
 
@@ -240,11 +234,7 @@ private Q_SLOTS:
     void dataTabShowsTheBackupInProgressAndOnlyTheRealDatabasePath()
     {
         QQuickStyle::setStyle(QStringLiteral("Basic")); // The application's own controls style.
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-        for (const auto &file : QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files))
-            qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                            "MentorRecorder", 1, 0, file.chopped(4).toUtf8().constData());
+        QVERIFY(mrtest::registerSourceQmlComponents());
         QQmlEngine engine;
         QQmlComponent appComponent(&engine);
         appComponent.setData(kDataTabApp, QUrl());
@@ -261,7 +251,7 @@ private Q_SLOTS:
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
         // Theme is engine-owned; destroy it before its borrowed settings and app.
         const auto clearSingletons = qScopeGuard([&engine] { engine.clearSingletons(); });
-        QQmlComponent component(&engine, QUrl::fromLocalFile(root + QStringLiteral("/pages/SettingsDataTab.qml")));
+        QQmlComponent component(&engine, QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/pages/SettingsDataTab.qml")));
         QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
         std::unique_ptr<QObject> tab(component.create());
         QVERIFY2(tab, qPrintable(component.errorString()));

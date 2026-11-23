@@ -20,6 +20,9 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "SharedCalibrationTestSupport.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CalibrationController.h"
@@ -28,8 +31,6 @@
 #include "SharedCalibrationController.h"
 
 #include <QDir>
-#include <QFont>
-#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -49,8 +50,7 @@
 
 namespace {
 
-constexpr auto kVectorCode =
-    "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
+using mrtest::kVectorCode;
 
 const QStringList &kButtons()
 {
@@ -60,18 +60,7 @@ const QStringList &kButtons()
     return value;
 }
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 void collectVisibleText(QQuickItem *item, QStringList &texts)
 {
@@ -371,18 +360,7 @@ class SharedCalibrationCardTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "pages"}));
     }
 
     void eachStateShowsItsSentenceAndOnlyItsButtons_data()
@@ -1441,22 +1419,10 @@ MR_DESKTOP_TEST_SUITE(SharedCalibrationCard)
     QGuiApplication app(argc, argv);
 #ifdef Q_OS_WIN
     // Wrapping is measured in real glyphs; the offscreen platform finds no system fonts.
-    QStringList cjkFamilies;
-    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
-    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
-        const int id = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
-        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
-            if (!cjkFamilies.contains(family))
-                cjkFamilies.append(family);
-        }
-    }
-    if (cjkFamilies.isEmpty()) {
+    if (mrtest::useWindowsFonts({"Fonts/msyh.ttc", "Fonts/simhei.ttf"}).isEmpty()) {
         qCritical("SharedCalibrationCardTests requires a loadable Windows CJK font (msyh.ttc or simhei.ttf).");
         return 6;
     }
-    QFont testFont;
-    testFont.setFamilies(cjkFamilies);
-    QGuiApplication::setFont(testFont);
 #endif
     SharedCalibrationCardTests tests;
     return QTest::qExec(&tests, argc, argv);

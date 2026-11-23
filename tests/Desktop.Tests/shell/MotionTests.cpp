@@ -78,7 +78,7 @@ private Q_SLOTS:
 
 void MotionTests::initTestCase()
 {
-    QVERIFY(registerShippingQml());
+    QVERIFY(mrtest::registerShippingQml());
 }
 
 void MotionTests::reducedMotionZeroesEveryDuration()

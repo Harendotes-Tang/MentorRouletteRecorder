@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "SharedCalibrationTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
@@ -42,8 +43,7 @@
 
 namespace {
 
-constexpr auto kVectorCode =
-    "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
+using mrtest::kVectorCode;
 
 ///  provenance empty leaves the field out, as a Collector before 1.1.0 does.
 /// popGate adds the match criterion with the gate the Collector judges it by

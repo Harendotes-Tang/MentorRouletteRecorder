@@ -1,4 +1,7 @@
 #include "DesktopTestRunner.h"
+#include "FileTestSupport.h"
+#include "TestFonts.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "ExportController.h"
@@ -14,11 +17,8 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
-#include <QFontDatabase>
 #include <QJsonArray>
-#include <QJSValue>
 #include <QPointer>
-#include <QProcess>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -62,11 +62,7 @@ public:
 bool putFile(const QString &path) {
     QFile file(path); return file.open(QIODevice::WriteOnly) && file.write("fixture") == 7;
 }
-QQuickItem *findVisual(QQuickItem *item, const QString &name) {
-    if (item->objectName() == name) return item;
-    for (auto *child : item->childItems()) if (auto *found = findVisual(child, name)) return found;
-    return nullptr;
-}
+using mrtest::findVisualItem;
 void clickItem(QQuickWindow *window, QQuickItem *item) {
     const QPoint point = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
@@ -91,7 +87,7 @@ private:
         QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);
         QTRY_VERIFY(app.historyFilterConfirmationPending());
-        auto *keep = findVisual(window->contentItem(), QStringLiteral("historyKeepSelection"));
+        auto *keep = findVisualItem(window->contentItem(), QStringLiteral("historyKeepSelection"));
         QTRY_VERIFY(keep && keep->isVisible());
         QVERIFY(keep->hasActiveFocus());
         QTest::keyClick(window, Qt::Key_Escape);
@@ -103,7 +99,7 @@ private:
         QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);
         QTRY_VERIFY(app.historyFilterConfirmationPending());
-        auto *accept = findVisual(window->contentItem(), QStringLiteral("historyConfirmFilter"));
+        auto *accept = findVisualItem(window->contentItem(), QStringLiteral("historyConfirmFilter"));
         QVERIFY(accept);
         clickItem(window, accept);
         QTRY_COMPARE(app.checkedHistoryRunCount(), 0);
@@ -112,7 +108,7 @@ private:
         QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() > 0);
         app.setHistoryRunChecked(app.runs()->runAt(0), true);
         QVERIFY(QMetaObject::invokeMethod(page, "requestBatch", Q_ARG(QVariant, QStringLiteral("soft_delete"))));
-        auto *confirm = findVisual(window->contentItem(), QStringLiteral("historyConfirmBatch"));
+        auto *confirm = findVisualItem(window->contentItem(), QStringLiteral("historyConfirmBatch"));
         QTRY_VERIFY(confirm && confirm->isVisible());
         QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-confirm-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
         clickItem(window, confirm);
@@ -133,9 +129,9 @@ private:
         clickItem(window, checkbox);
         QTRY_COMPARE(app.checkedHistoryRunCount(), 1);
         const auto filterBeforeJump = app.historyFilter();
-        auto *jump = findVisual(window->contentItem(), QStringLiteral("historyPageJump"));
+        auto *jump = findVisualItem(window->contentItem(), QStringLiteral("historyPageJump"));
         QVERIFY(jump);
-        auto *number = findVisual(jump, QStringLiteral("pageNumberField"));
+        auto *number = findVisualItem(jump, QStringLiteral("pageNumberField"));
         QVERIFY(number);
         auto *viewport = jump->parentItem();
         while (viewport && viewport->metaObject()->indexOfProperty("contentY") < 0)
@@ -207,12 +203,8 @@ private Q_SLOTS:
     }
 
     void initTestCase() {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-        for (const QString &folder : {QStringLiteral("/components"), QStringLiteral("/dialogs")})
-            for (const QString &file : QDir(root + folder).entryList({QStringLiteral("*.qml")}, QDir::Files))
-                qmlRegisterType(QUrl::fromLocalFile(root + folder + QLatin1Char('/') + file), "MentorRecorder", 1, 0, file.chopped(4).toUtf8().constData());
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/pages/HistoryPage.qml")), "MentorRecorder", 1, 0, "HistoryPage");
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
+        qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/pages/HistoryPage.qml")), "MentorRecorder", 1, 0, "HistoryPage");
     }
     void crossPageSelectionKeepsOriginalRevisionsAndConflictKeepsSelection() {
         ControlledBackend backend;
@@ -484,9 +476,7 @@ private Q_SLOTS:
         QVERIFY(QDir().mkpath(store.rootDirectory()));
         QVERIFY(QDir().mkpath(outside));
         QVERIFY(putFile(outside + QStringLiteral("/keep.png")));
-        QProcess link;
-        link.start(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"), QDir::toNativeSeparators(store.runDirectory(firstId())), QDir::toNativeSeparators(outside)});
-        if (!link.waitForFinished(10000) || link.exitCode() != 0) QSKIP("mklink /J unavailable");
+        if (!mrtest::makeJunction(store.runDirectory(firstId()), outside)) QSKIP("mklink /J unavailable");
         auto unlink = qScopeGuard([&] { QDir(store.rootDirectory()).rmdir(firstId()); });
         QVERIFY(!store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
         QVERIFY(QFileInfo::exists(outside + QStringLiteral("/keep.png")));
@@ -568,9 +558,9 @@ ApplicationWindow {
         window->resize(narrow ? QSize(720, 760) : QSize(1140, 790));
         QVERIFY(QTest::qWaitForWindowExposed(window));
         QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() > 0);
-        auto *page = findVisual(window->contentItem(), QStringLiteral("historyUnderTest"));
+        auto *page = findVisualItem(window->contentItem(), QStringLiteral("historyUnderTest"));
         QVERIFY(page);
-        auto *detail = findVisual(window->contentItem(), QStringLiteral("detailFacts"));
+        auto *detail = findVisualItem(window->contentItem(), QStringLiteral("detailFacts"));
         QVERIFY(detail);
         for (const QString &source : {QStringLiteral("IMPORT"), QStringLiteral("AUTO_NETWORK")}) {
             const QVariantMap missing{{QStringLiteral("source"), source}, {QStringLiteral("result"), QStringLiteral("COMPLETED")}};
@@ -581,9 +571,7 @@ ApplicationWindow {
             detail->setProperty("runData", missing);
             QCOMPARE(detail->property("importIncomplete").toBool(), source == QLatin1String("IMPORT"));
             bool hasSupplement = false;
-            QVariant fields = detail->property("infoFields");
-            if (fields.metaType() == QMetaType::fromType<QJSValue>()) fields = fields.value<QJSValue>().toVariant();
-            for (const QVariant &field : fields.toList())
+            for (const QVariant &field : mrtest::qmlList(detail->property("infoFields")))
                 hasSupplement |= field.toMap().value(QStringLiteral("v")).toString() == QStringLiteral("待补充");
             QCOMPARE(hasSupplement, source == QLatin1String("IMPORT"));
         }
@@ -593,9 +581,8 @@ ApplicationWindow {
             const auto marksOf = [page](const QVariantMap &run) {
                 QVariant returned;
                 QMetaObject::invokeMethod(page, "runMarks", Q_RETURN_ARG(QVariant, returned), Q_ARG(QVariant, QVariant(run)));
-                if (returned.metaType() == QMetaType::fromType<QJSValue>()) returned = returned.value<QJSValue>().toVariant();
                 QStringList labels;
-                for (const QVariant &mark : returned.toList()) {
+                for (const QVariant &mark : mrtest::qmlList(returned)) {
                     const QVariantMap entry = mark.toMap();
                     if (entry.value(QStringLiteral("tip")).toString().size() < 6) return QStringList{QStringLiteral("(no tip)")};
                     labels.append(entry.value(QStringLiteral("label")).toString());
@@ -622,14 +609,14 @@ ApplicationWindow {
             QVERIFY(QMetaObject::invokeMethod(page, "dateLabel", Q_RETURN_ARG(QVariant, returned), Q_ARG(QVariant, input)));
             QCOMPARE(returned.toString(), QStringLiteral("原站\n2024-09-24"));
         }
-        auto *more = findVisual(window->contentItem(), QStringLiteral("historyMoreFiltersButton"));
+        auto *more = findVisualItem(window->contentItem(), QStringLiteral("historyMoreFiltersButton"));
         auto *pending = root->findChild<QQuickItem *>(QStringLiteral("pendingReviewChip"));
         QVERIFY(more && pending);
         QCOMPARE(more->isVisible(), narrow);
-        auto *mark = findVisual(window->contentItem(), QStringLiteral("historyMarkFilter"));
-        auto *selectAll = findVisual(window->contentItem(), QStringLiteral("selectCurrentHistoryPage"));
-        auto *count = findVisual(window->contentItem(), QStringLiteral("historyCheckedCount"));
-        auto *previous = findVisual(window->contentItem(), QStringLiteral("historyPreviousPage"));
+        auto *mark = findVisualItem(window->contentItem(), QStringLiteral("historyMarkFilter"));
+        auto *selectAll = findVisualItem(window->contentItem(), QStringLiteral("selectCurrentHistoryPage"));
+        auto *count = findVisualItem(window->contentItem(), QStringLiteral("historyCheckedCount"));
+        auto *previous = findVisualItem(window->contentItem(), QStringLiteral("historyPreviousPage"));
         QVERIFY(mark && selectAll && count && previous);
         QTRY_VERIFY(mark->isVisible() && selectAll->isVisible());
         auto *tableHeader = root->findChild<QQuickItem *>(QStringLiteral("historyTableHeader"));
@@ -640,7 +627,7 @@ ApplicationWindow {
         QVERIFY(count->x() < previous->x());
         QVERIFY(!pending->isVisible());
         const QVariantMap run = app.runs()->runAt(0);
-        auto *checkbox = findVisual(window->contentItem(), QStringLiteral("historyRunCheck_") + run.value(QStringLiteral("run_id")).toString());
+        auto *checkbox = findVisualItem(window->contentItem(), QStringLiteral("historyRunCheck_") + run.value(QStringLiteral("run_id")).toString());
         QVERIFY(checkbox);
         QCOMPARE(selectAll->mapToScene(QPointF()).x(), checkbox->mapToScene(QPointF()).x());
         exerciseSelectionAndFilterConfirmation(window, app, page, checkbox, selectAll, mark, pending, warnings);
@@ -653,15 +640,7 @@ MR_DESKTOP_TEST_SUITE(HistoryBatch) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
         qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
-    // Match main.cpp's screenshot font initialization; offscreen defaults may
-    // otherwise choose a condensed fallback and conceal real layout overflow.
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
-    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
-    QFont font;
-    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
-    QGuiApplication::setFont(font);
+    mrtest::useScreenshotFontStack();
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     HistoryBatchTests tests;
     return QTest::qExec(&tests, argc, argv);

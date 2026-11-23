@@ -1,8 +1,9 @@
 #include "DesktopTestRunner.h"
+#include "RecordingBackend.h"
+#include "QmlComponentTestSupport.h"
 #include "EvidenceSubmissionController.h"
 #include "CaptureValidationController.h"
 #include "AutomaticRecordingController.h"
-#include "IBackend.h"
 #include "AppController.h"
 #include "Formatters.h"
 #include "MockBackend.h"
@@ -35,20 +36,7 @@ public:
 } // namespace
 
 namespace {
-class EvidenceBackend final : public mr::IBackend {
-public:
-    struct Call { QString type; QJsonObject payload; QPointer<mr::BackendReply> reply; };
-    QList<Call> calls;
-    bool connected = true;
-    QString backendName() const override { return QStringLiteral("scripted"); }
-    bool isConnected() const override { return connected; }
-    void setConnected(bool value) { connected = value; Q_EMIT connectionChanged(); }
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
-        auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({.type=type, .payload=payload, .reply=reply});
-        return reply;
-    }
-};
+using EvidenceBackend = mrtest::RecordingBackend;
 
 QString jsonFor(const QString &kind = QStringLiteral("CODE_VERIFICATION"), const QString &hash = QString(64, 'a'))
 {
@@ -86,13 +74,7 @@ QJsonObject answer(const QString &json, const QString &kind = QStringLiteral("CO
             {QStringLiteral("evidence_in_url"), prefill}, {QStringLiteral("reason"), QJsonValue::Null}};
 }
 
-QQuickItem *visual(QQuickItem *root, const QString &name)
-{
-    if (!root) return nullptr;
-    if (root->objectName() == name) return root;
-    for (auto *child : root->childItems()) if (auto *found = visual(child, name)) return found;
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 class CaptureHost final : public mr::CaptureValidationController::Host {
 public:
@@ -116,14 +98,7 @@ class EvidenceSubmissionTests final : public QObject {
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + "/Theme.qml"), "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"), QStringLiteral("/pages")}) {
-            for (const auto &file : QDir(qmlRoot + directory).entryList({"*.qml"}, QDir::Files)) {
-                const auto name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + '/' + file), "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs", "pages"}));
     }
 
     void previewAndCancelHaveNoSideEffects()
@@ -419,8 +394,8 @@ ApplicationWindow {
         QVERIFY(window);
         QTRY_VERIFY(app.validationMarkerEnabled());
         QVERIFY(!app.maintainerToolsVisible());
-        auto *marker = visual(window->contentItem(), "templateObservationMarker_queued");
-        const auto *action = visual(window->contentItem(), "templateObservationActionButton");
+        auto *marker = findVisualItem(window->contentItem(), "templateObservationMarker_queued");
+        const auto *action = findVisualItem(window->contentItem(), "templateObservationActionButton");
         QVERIFY(marker && action);
         QVERIFY(marker->isEnabled());
         marker->forceActiveFocus(Qt::TabFocusReason);
@@ -462,8 +437,8 @@ ApplicationWindow {
         QVERIFY(window);
         controller.previewCalibration(QString(64, 'a'));
         backend.calls.last().reply->succeed(answer(jsonFor()));
-        auto *cancel = visual(window->contentItem(), "evidenceCancelButton");
-        auto *selector = visual(window->contentItem(), "evidenceCandidateSelector");
+        auto *cancel = findVisualItem(window->contentItem(), "evidenceCancelButton");
+        auto *selector = findVisualItem(window->contentItem(), "evidenceCandidateSelector");
         QVERIFY(cancel && selector);
         QTRY_VERIFY(cancel->hasActiveFocus());
         QTest::keyClick(window, Qt::Key_Tab);
@@ -514,10 +489,10 @@ ApplicationWindow {
         QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        auto *cancel = visual(window->contentItem(), "evidenceCancelButton");
-        auto *submit = visual(window->contentItem(), "evidenceCopyOpenButton");
-        auto *scroll = visual(window->contentItem(), "evidenceScroll");
-        auto *text = visual(window->contentItem(), "evidenceJsonText");
+        auto *cancel = findVisualItem(window->contentItem(), "evidenceCancelButton");
+        auto *submit = findVisualItem(window->contentItem(), "evidenceCopyOpenButton");
+        auto *scroll = findVisualItem(window->contentItem(), "evidenceScroll");
+        auto *text = findVisualItem(window->contentItem(), "evidenceJsonText");
         QVERIFY(cancel && submit && scroll && text);
         QTRY_VERIFY(cancel->hasActiveFocus());
         QTest::keyClick(window, Qt::Key_Tab);

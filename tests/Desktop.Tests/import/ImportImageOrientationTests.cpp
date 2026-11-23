@@ -1,5 +1,6 @@
 // Loads both real Image objects from ImportRecordsDialog and supplies synthetic EXIF JPEGs.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QBuffer>
 #include <QDir>
 #include <QFile>
@@ -24,11 +25,7 @@ class ImportImageOrientationTests final : public QObject
 private slots:
     void initTestCase()
     {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + "/Theme.qml"), "MentorRecorder", 1, 0, "Theme");
-        for (const QString &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")})
-            for (const QString &file : QDir(root + directory).entryList({"*.qml"}, QDir::Files))
-                qmlRegisterType(QUrl::fromLocalFile(root + directory + '/' + file), "MentorRecorder", 1, 0, file.chopped(4).toUtf8().constData());
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
     void sourceAndWholeImageUseTheSameOrientationAsOcr_data()
     {

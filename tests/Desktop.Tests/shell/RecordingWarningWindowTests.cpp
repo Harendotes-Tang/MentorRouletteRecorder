@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "BundledFonts.h"
@@ -141,17 +142,7 @@ class RecordingWarningWindowTests final : public QObject
 private slots:
     void initTestCase()
     {
-        const auto path = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(path + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto *directory : {"/charts", "/components", "/dialogs", "/pages"}) {
-            const auto folder = path + QString::fromLatin1(directory);
-            for (const auto &file : QDir(folder).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const auto name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(folder + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
     }
 
     void hiddenMainReceivesEarlyWarning()

@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -39,67 +40,14 @@
 
 namespace {
 
-struct Answer {
-    bool done = false;
-    bool ok = false;
-    QJsonObject payload;
-    QString code;
-    QString message;
-};
-
-/// One request, waited for.
-Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payload = {})
-{
-    Answer answer;
-    backend.request(type, payload)->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
-            answer.done = true;
-            answer.ok = ok;
-            answer.payload = QJsonObject::fromVariantMap(result);
-            answer.code = code;
-            answer.message = message;
-        });
-    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
-        answer.code = QStringLiteral("TEST_NO_REPLY");
-    return answer;
-}
-
-/// One request sent under \a requestId, the way a retried mutation is resent, waited for.
-/// The reply carries that id.
-Answer askWithId(mr::IBackend &backend, const QString &type, const QJsonObject &payload,
-                 const QString &requestId)
-{
-    Answer answer;
-    mr::BackendReply *reply = backend.requestWithId(type, payload, requestId);
-    if (reply->requestId() != requestId)
-        answer.code = QStringLiteral("TEST_WRONG_REQUEST_ID");
-    reply->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
-            answer.done = true;
-            answer.ok = ok;
-            answer.payload = QJsonObject::fromVariantMap(result);
-            if (answer.code != QLatin1String("TEST_WRONG_REQUEST_ID"))
-                answer.code = code;
-            answer.message = message;
-        });
-    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
-        answer.code = QStringLiteral("TEST_NO_REPLY");
-    return answer;
-}
-
-/// The Collector's Chinese for the catalogue sentence \a key.
-QString collectorChinese(const char *key, const QVariantMap &args = {})
-{
-    return mr::collector_text::chinese(mr::collector_text::textRef(key, args));
-}
-
-int runCount(mr::MockBackend &backend)
-{
-    return ask(backend, QStringLiteral("QueryRuns"),
-               {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("include_deleted"), true}}},
-                {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
-        .payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt();
-}
+using mrtest::Answer;
+using mrtest::ask;
+using mrtest::askWithId;
+using mrtest::autoRun;
+using mrtest::collectorChinese;
+using mrtest::importStatuses;
+using mrtest::previewImport;
+using mrtest::runCount;
 
 /// The Collector's two copies of one sentence agree: \a ref names a catalogue
 /// key this build knows, and renders exactly \a chinese (contracts/collector-texts.md).
@@ -109,28 +57,6 @@ bool sameSentence(const QJsonValue &chinese, const QJsonValue &ref)
     return chinese.isString() && !chinese.toString().isEmpty()
            && mr::collector_text::knows(map.value(QStringLiteral("key")).toString())
            && mr::collector_text::chinese(map) == chinese.toString();
-}
-
-QJsonObject autoRun(const QString &id, const QString &result, bool entered)
-{
-    return {{QStringLiteral("run_id"), id},
-            {QStringLiteral("revision"), 1},
-            {QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")},
-            {QStringLiteral("mentor_roulette_id"), 9},
-            {QStringLiteral("result"), result},
-            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-01T12:00:00.000Z")},
-            {QStringLiteral("entered_at_utc"),
-             entered ? QJsonValue(QStringLiteral("2026-09-01T12:01:00.000Z"))
-                     : QJsonValue(QJsonValue::Null)},
-            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-01T12:10:00.000Z")},
-            {QStringLiteral("duration_ms"), entered ? QJsonValue(540000.0) : QJsonValue(QJsonValue::Null)},
-            {QStringLiteral("contributes_to_goal"), true},
-            {QStringLiteral("manually_created"), false},
-            {QStringLiteral("manually_corrected"), false},
-            {QStringLiteral("soft_deleted"), false},
-            {QStringLiteral("pending_review"), false},
-            {QStringLiteral("created_at_utc"), QStringLiteral("2026-09-01T12:00:00.000Z")},
-            {QStringLiteral("updated_at_utc"), QStringLiteral("2026-09-01T12:10:00.000Z")}};
 }
 
 /// A hand-entered run the tests can correct: 20:00 matched, 20:01 entered,
@@ -163,30 +89,6 @@ Answer correct(mr::MockBackend &backend, const QString &runId, const QJsonObject
                 {QStringLiteral("expected_revision"), revision},
                 {QStringLiteral("changes"), changes},
                 {QStringLiteral("reason"), QString::fromUtf8("核对")}});
-}
-
-/// A whole (unpaged) import preview of \a rows: a JSON file's text, or the recognised
-/// rows of screenshots, read in UTC+8.
-Answer previewImport(mr::MockBackend &backend, const QString &kind, const QJsonArray &rows,
-                     const QString &sourceName)
-{
-    QJsonObject payload{{QStringLiteral("source_kind"), kind},
-                        {QStringLiteral("source_name"), sourceName},
-                        {QStringLiteral("time_zone"), QStringLiteral("+08:00")}};
-    if (kind == QLatin1String("JSON"))
-        payload.insert(QStringLiteral("text"), QString::fromUtf8(QJsonDocument(rows).toJson(QJsonDocument::Compact)));
-    else
-        payload.insert(QStringLiteral("rows"), rows);
-    return ask(backend, QStringLiteral("PreviewRunImport"), payload);
-}
-
-/// Each preview row's status, in row order.
-QStringList importStatuses(const Answer &preview)
-{
-    QStringList statuses;
-    for (const auto &row : preview.payload.value(QStringLiteral("rows")).toArray())
-        statuses.append(row.toObject().value(QStringLiteral("status")).toString());
-    return statuses;
 }
 
 /// Commits every row of \a preview.

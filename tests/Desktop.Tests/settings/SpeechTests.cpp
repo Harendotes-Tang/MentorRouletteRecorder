@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "FileTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppSettings.h"
 #include "IBackend.h"
@@ -30,7 +31,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
-#include <QProcess>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -74,12 +74,7 @@ QByteArray waveBytes(quint16 bits = 16, quint16 format = 1, quint32 dataBytes = 
     return bytes;
 }
 
-bool writeFile(const QString &path, const QByteArray &bytes)
-{
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(bytes) == bytes.size();
-}
+using mrtest::writeFile;
 
 QJsonObject azureSettings(bool configured = true)
 {
@@ -1047,13 +1042,11 @@ void SpeechTests::routing_refusesALinkedCacheFolder()
     const QString file = target.filePath(kHash64() + QStringLiteral(".wav"));
     QVERIFY(writeFile(file, waveBytes()));
     const QString link = QDir::toNativeSeparators(data.filePath(QStringLiteral("tts-cache")));
-    const int exit = QProcess::execute(QStringLiteral("cmd.exe"),
-                                       {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
-                                        link, QDir::toNativeSeparators(target.path())});
+    const bool made = mrtest::makeJunction(link, target.path());
     // Removed before the temporary directories, so their cleanup never
     // walks through the link.
     const auto unlink = qScopeGuard([link] { QDir().rmdir(link); });
-    if (exit != 0 || !QFileInfo(link).isJunction())
+    if (!made || !QFileInfo(link).isJunction())
         QSKIP("cannot create a junction on this machine");
     const QString viaLink = link + QLatin1Char('\\') + kHash64() + QStringLiteral(".wav");
     QVERIFY(QFileInfo::exists(viaLink));

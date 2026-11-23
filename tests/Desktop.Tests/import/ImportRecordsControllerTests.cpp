@@ -1,6 +1,8 @@
 #include "DesktopTestRunner.h"
+#include "RecordingBackend.h"
+#include "FileTestSupport.h"
+#include "QmlComponentTestSupport.h"
 #include "DisplayTimeZone.h"
-#include "IBackend.h"
 #include "ImportRecordsController.h"
 #include "IpcFraming.h"
 #include "JobCatalog.h"
@@ -24,7 +26,6 @@
 #include <QInputMethodEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QJSValue>
 #include <QPainter>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -92,32 +93,7 @@ public:
     }
 };
 
-class ImportBackend final : public mr::IBackend
-{
-public:
-    struct Call { QString type; QJsonObject payload; QString requestId; QPointer<mr::BackendReply> reply; };
-    QList<Call> calls;
-    bool connected = true;
-    bool synchronous = false;
-    QJsonObject synchronousAnswer;
-
-    QString backendName() const override { return QStringLiteral("import-test"); }
-    bool isConnected() const override { return connected; }
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
-    {
-        auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({.type=type, .payload=payload, .requestId={}, .reply=reply});
-        if (synchronous)
-            reply->succeed(synchronousAnswer);
-        return reply;
-    }
-    mr::BackendReply *requestWithId(const QString &type, const QJsonObject &payload, const QString &id) override
-    {
-        auto *reply = request(type, payload);
-        calls.last().requestId = id;
-        return reply;
-    }
-};
+using ImportBackend = mrtest::RecordingBackend;
 
 QJsonObject preview(const QString &id = QStringLiteral("test-preview"))
 {
@@ -927,15 +903,7 @@ private Q_SLOTS:
 
     void initTestCase()
     {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")})
-            for (const auto &file : QDir(root + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(root + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void embeddedTemplateSavesPreservePreviewAndFailures()
@@ -1971,9 +1939,7 @@ ApplicationWindow {
 
         // A junction in an ordinary folder that leads onto the "network drive".
         const QString link = local + QStringLiteral("/link");
-        const int made = QProcess::execute(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QStringLiteral("mklink"),
-            QStringLiteral("/J"), QDir::toNativeSeparators(link), QDir::toNativeSeparators(share)});
-        if (made == 0 && QFileInfo(link + QStringLiteral("/shared.png")).exists()) {
+        if (mrtest::makeJunction(link, share) && QFileInfo(link + QStringLiteral("/shared.png")).exists()) {
             controller.importFiles({link + QStringLiteral("/shared.png")});
             QVERIFY(!controller.busy());
             QCOMPARE(controller.errorText(), refusal);
@@ -3135,8 +3101,7 @@ ApplicationWindow {
         auto reply = backend.calls.last().reply;
         delete controller;
         reply->succeed(preview());
-        backend.synchronous = true;
-        backend.synchronousAnswer = preview();
+        backend.immediateAnswer = preview();
         mr::ImportRecordsController sync;
         sync.setBackend(&backend);
         sync.importText(QStringLiteral("副本\n合成副本"));
@@ -3594,9 +3559,7 @@ ApplicationWindow { width: 980; height: 760; visible: true
         QGuiApplication::clipboard()->setText(query);
         QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
         QTRY_VERIFY(popup->property("visible").toBool());
-        const QVariant suggestionsValue = field->property("suggestions");
-        const QVariantList suggestions = suggestionsValue.metaType() == QMetaType::fromType<QJSValue>()
-            ? suggestionsValue.value<QJSValue>().toVariant().toList() : suggestionsValue.toList();
+        const QVariantList suggestions = mrtest::qmlList(field->property("suggestions"));
         QVERIFY(suggestions.size() >= 11); // Eleven same-name modes, plus any longer matching name.
         QTest::keyClick(window, Qt::Key_Down);
         QCOMPARE(field->property("suggestionIndex").toInt(), 1);
@@ -3679,7 +3642,7 @@ ApplicationWindow { width: 980; height: 640; visible: true
                 if (!QMetaObject::invokeMethod(dialog, "catalogueDutyShownAs", Q_RETURN_ARG(QVariant, result),
                                                Q_ARG(QVariant, text)))
                     return QVariantMap();
-                return result.canConvert<QJSValue>() ? result.value<QJSValue>().toVariant().toMap() : result.toMap();
+                return mrtest::qmlMap(result);
             };
             const auto duty = mr::DutyCatalog::shared()->lookup(967);
             const QString recorded = duty.value("duty_name").toString();

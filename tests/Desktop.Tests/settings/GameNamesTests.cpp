@@ -7,6 +7,7 @@
 // record wizard shows translated names while sending Chinese ones.
 
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
@@ -19,11 +20,9 @@
 #include "ReflectionLibraryController.h"
 #include "RunFormValidator.h"
 
-#include <QDir>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -64,17 +63,8 @@ const QString &kDungeonsCn()
     return value;
 }
 
-QVariantMap asMap(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toMap()
-                                        : value.toMap();
-}
-
-QVariantList asList(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList()
-                                        : value.toList();
-}
+using mrtest::qmlList;
+using mrtest::qmlMap;
 
 QVariantMap catalogueDuty(int contentId, const QString &name, int level)
 {
@@ -215,19 +205,7 @@ private Q_SLOTS:
         QVERIFY(m_language->pinned());
         QVERIFY(!names()->dataVersion().isEmpty());
 
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                     QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs", "pages"}));
     }
 
     void cleanup()
@@ -563,18 +541,18 @@ QtObject {
         auto *box = page.page->findChild<QObject *>(history ? QStringLiteral("historyCategoryFilter")
                                                             : QStringLiteral("reflectionCategoryFilter"));
         QVERIFY(box);
-        const QVariantList model = asList(box->property("model"));
+        const QVariantList model = qmlList(box->property("model"));
         int alliance = -1;
         for (int index = 0; index < model.size(); ++index) {
-            if (asMap(model.at(index)).value(QStringLiteral("value")).toString() == QString::fromUtf8("团队任务"))
+            if (qmlMap(model.at(index)).value(QStringLiteral("value")).toString() == QString::fromUtf8("团队任务"))
                 alliance = index;
         }
         QVERIFY(alliance > 0);
-        QCOMPARE(asMap(model.at(alliance)).value(QStringLiteral("label")).toString(), QStringLiteral("Alliance Raids"));
+        QCOMPARE(qmlMap(model.at(alliance)).value(QStringLiteral("label")).toString(), QStringLiteral("Alliance Raids"));
         box->setProperty("currentIndex", alliance);
         QVERIFY(QMetaObject::invokeMethod(page.page.get(), "applyFilter"));
         const QVariantMap filter = history ? page.controller.historyFilter() : page.library.filter();
-        QCOMPARE(asList(filter.value(QStringLiteral("duty_category"))), QVariantList{QString::fromUtf8("团队任务")});
+        QCOMPARE(qmlList(filter.value(QStringLiteral("duty_category"))), QVariantList{QString::fromUtf8("团队任务")});
     }
 
     void anUntouchedSearchKeepsItsFilterAcrossALanguageSwitch_data()
@@ -596,7 +574,7 @@ QtObject {
         QVERIFY(page.page && page.search);
         const bool history = pageName == QLatin1String("HistoryPage");
         const QVariantMap applied = page.searchFor(QStringLiteral("Paladin"));
-        QVERIFY(asList(applied.value(QStringLiteral("name_exact"))).contains(kPaladinCn()));
+        QVERIFY(qmlList(applied.value(QStringLiteral("name_exact"))).contains(kPaladinCn()));
         if (history) {
             page.controller.setHistoryRunChecked(sastashaRun(), true);
             QCOMPARE(page.controller.checkedHistoryRunCount(), 1);
@@ -699,10 +677,10 @@ QtObject {
         QCOMPARE(probe->property("roulette").toString(), QStringLiteral("Mentor"));
         QCOMPARE(probe->property("unknownRole").toString(), QString::fromUtf8("未知"));
         // Options keep the Chinese value and carry the label.
-        const QVariantMap job = asMap(asList(probe->property("jobs")).value(0));
+        const QVariantMap job = qmlMap(qmlList(probe->property("jobs")).value(0));
         QCOMPARE(job.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(job.value(QStringLiteral("label")).toString(), QStringLiteral("Paladin"));
-        const QVariantMap category = asMap(asList(probe->property("categories")).value(0));
+        const QVariantMap category = qmlMap(qmlList(probe->property("categories")).value(0));
         QCOMPARE(category.value(QStringLiteral("value")).toString(), kDungeonsCn());
         QCOMPARE(category.value(QStringLiteral("label")).toString(), QStringLiteral("Dungeons"));
         // A search finds the duty by either name.
@@ -759,24 +737,24 @@ ApplicationWindow {
                                          QVariantMap{{QStringLiteral("job_id"), 24},
                                                      {QStringLiteral("job_name"), kWhiteMageCn()}}});
         // Every catalogue row survives the roulette-category filter in English too.
-        QCOMPARE(asList(dialog->property("visibleDuties")).size(), 2);
+        QCOMPARE(qmlList(dialog->property("visibleDuties")).size(), 2);
 
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(sastashaRun()))));
-        const QVariantList steps = asList(dialog->property("stepItems"));
-        QCOMPARE(asMap(steps.value(1)).value(QStringLiteral("value")).toString(),
+        const QVariantList steps = qmlList(dialog->property("stepItems"));
+        QCOMPARE(qmlMap(steps.value(1)).value(QStringLiteral("value")).toString(),
                  QStringLiteral("Sastasha · Paladin"));
-        const QVariantMap form = asMap(dialog->property("formState"));
+        const QVariantMap form = qmlMap(dialog->property("formState"));
         QCOMPARE(form.value(QStringLiteral("duty_name")).toString(), kSastashaCn());
         QCOMPARE(form.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(form.value(QStringLiteral("duty_label")).toString(), QStringLiteral("Sastasha"));
-        QVERIFY(asList(dialog->property("diffRows")).isEmpty());
+        QVERIFY(qmlList(dialog->property("diffRows")).isEmpty());
 
         // The duty search matches the name on screen and the recorded one.
         const auto visibleIds = [dialog](const QString &query) {
             dialog->setProperty("dutyQuery", query);
             QVariantList ids;
-            for (const QVariant &row : asList(dialog->property("visibleDuties")))
-                ids.append(asMap(row).value(QStringLiteral("content_id")).toInt());
+            for (const QVariant &row : qmlList(dialog->property("visibleDuties")))
+                ids.append(qmlMap(row).value(QStringLiteral("content_id")).toInt());
             return ids;
         };
         QCOMPARE(visibleIds(QStringLiteral("sasta")), QVariantList{4});
@@ -787,11 +765,11 @@ ApplicationWindow {
         visibleIds(QString());
 
         // The job pickers show the job in English and keep the Chinese name.
-        const QVariantList groups = asList(dialog->property("jobGroups"));
+        const QVariantList groups = qmlList(dialog->property("jobGroups"));
         QVERIFY(!groups.isEmpty());
-        const QVariantMap tank = asMap(groups.first());
+        const QVariantMap tank = qmlMap(groups.first());
         QCOMPARE(tank.value(QStringLiteral("role")).toString(), QString::fromUtf8("坦克"));
-        const QVariantMap paladin = asMap(asList(tank.value(QStringLiteral("jobs"))).value(0));
+        const QVariantMap paladin = qmlMap(qmlList(tank.value(QStringLiteral("jobs"))).value(0));
         QCOMPARE(paladin.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(paladin.value(QStringLiteral("label")).toString(), QStringLiteral("Paladin"));
 
@@ -800,7 +778,7 @@ ApplicationWindow {
         dialog->setProperty("noteText", QStringLiteral("only the note"));
         QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
         QCOMPARE(corrections.count(), 1);
-        const QVariantMap noteOnly = asMap(corrections.at(0).at(0));
+        const QVariantMap noteOnly = qmlMap(corrections.at(0).at(0));
         QCOMPARE(noteOnly.value(QStringLiteral("note")).toString(), QStringLiteral("only the note"));
         for (const auto *key : {"content_id", "duty_name", "duty_category", "job_id", "job_name"})
             QVERIFY2(!noteOnly.contains(QString::fromLatin1(key)), key);
@@ -808,14 +786,14 @@ ApplicationWindow {
         // Another duty: the diff reads in English, the correction carries Chinese.
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(sastashaRun()))));
         QVERIFY(QMetaObject::invokeMethod(dialog, "pickDuty", Q_ARG(QVariant, 2)));
-        const QVariantList diff = asList(dialog->property("diffRows"));
+        const QVariantList diff = qmlList(dialog->property("diffRows"));
         QCOMPARE(diff.size(), 1);
-        QCOMPARE(asMap(diff.first()).value(QStringLiteral("a")).toString(), QStringLiteral("Sastasha"));
-        QCOMPARE(asMap(diff.first()).value(QStringLiteral("b")).toString(),
+        QCOMPARE(qmlMap(diff.first()).value(QStringLiteral("a")).toString(), QStringLiteral("Sastasha"));
+        QCOMPARE(qmlMap(diff.first()).value(QStringLiteral("b")).toString(),
                  QStringLiteral("The Thousand Maws of Toto–Rak"));
         QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
         QCOMPARE(corrections.count(), 2);
-        const QVariantMap dutyChange = asMap(corrections.at(1).at(0));
+        const QVariantMap dutyChange = qmlMap(corrections.at(1).at(0));
         QCOMPARE(dutyChange.value(QStringLiteral("content_id")).toInt(), 1);
         QCOMPARE(dutyChange.value(QStringLiteral("duty_name")).toString(), kTotoRakCn());
         // Both are 四人迷宫, so the category is no change; the job never travels by name.

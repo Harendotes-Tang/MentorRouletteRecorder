@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "BundledFonts.h"
@@ -9,12 +10,10 @@
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 
-#include <QDir>
 #include <QFontDatabase>
 #include <QFontInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -153,17 +152,7 @@ class ManualRunReflectionTests final : public QObject
 private slots:
     void initTestCase()
     {
-        const auto path = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(path + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto *directory : {"/components", "/dialogs", "/pages"}) {
-            const auto folder = path + QString::fromLatin1(directory);
-            for (const auto &file : QDir(folder).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const auto name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(folder + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs", "pages"}));
     }
 
     // No Popup, TextArea or AppController: request identity and partial-save
@@ -193,11 +182,8 @@ ManualRunSubmission { sessionActive: true }
         QVERIFY(session->property("awaitingRetry").toBool());
         QVERIFY(QMetaObject::invokeMethod(session.get(), "resume"));
         QCOMPARE(creates.size(), 2);
-        const auto payload = [](const QVariant &value) {
-            return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toMap() : value.toMap();
-        };
-        QCOMPARE(payload(creates.at(0).at(0)), fields);
-        QCOMPARE(payload(creates.at(1).at(0)), fields);
+        QCOMPARE(mrtest::qmlMap(creates.at(0).at(0)), fields);
+        QCOMPARE(mrtest::qmlMap(creates.at(1).at(0)), fields);
         QCOMPARE(creates.at(0).at(1).toString(), creates.at(1).at(1).toString());
         QCOMPARE(session->property("submissionTicket").toString(), ticket);
         // A failed transport retry cannot erase uncertainty from the first send.

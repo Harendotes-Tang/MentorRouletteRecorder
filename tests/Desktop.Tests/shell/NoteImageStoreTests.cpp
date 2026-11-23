@@ -9,6 +9,8 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "FileTestSupport.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
@@ -27,9 +29,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJSValue>
 #include <QMimeData>
-#include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -60,17 +60,8 @@ bool writeImage(const QString &path, const QColor &color = Qt::red)
     return image.save(path);
 }
 
-QVariantList asList(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList()
-                                        : value.toList();
-}
-
-QVariantMap asMap(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toMap()
-                                        : value.toMap();
-}
+using mrtest::qmlList;
+using mrtest::qmlMap;
 
 QStringList names(const QVariantList &rows)
 {
@@ -185,7 +176,7 @@ ApplicationWindow {
 
     bool submit() const { return QMetaObject::invokeMethod(dialog(), "submit"); }
 
-    QVariantList rows() const { return asList(dialog()->property("noteImageRows")); }
+    QVariantList rows() const { return qmlList(dialog()->property("noteImageRows")); }
 
     /// The item the wizard puts on step 3; Repeater delegates are not children
     /// of the dialog, so the lookup walks the popup's visual tree.
@@ -215,18 +206,7 @@ class NoteImageStoreTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     // ------------------------------------------------------------ 位置 --
@@ -733,12 +713,7 @@ private Q_SLOTS:
         QTemporaryDir elsewhere;
         const QString victim = QDir(elsewhere.path()).absoluteFilePath(QStringLiteral("victim.png"));
         QVERIFY(writeImage(victim));
-        QProcess mklink;
-        mklink.start(QStringLiteral("cmd.exe"),
-                     {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
-                      QDir::toNativeSeparators(fixture.runDir()),
-                      QDir::toNativeSeparators(elsewhere.path())});
-        if (!mklink.waitForFinished(10000) || mklink.exitCode() != 0)
+        if (!mrtest::makeJunction(fixture.runDir(), elsewhere.path()))
             QSKIP("mklink /J is unavailable here");
         const QFileInfo planted(fixture.runDir());
         QVERIFY(planted.exists());
@@ -892,8 +867,8 @@ private Q_SLOTS:
         QVERIFY(fixture.stage(second));
         QVERIFY2(dialog->property("imagesDirty").toBool(),
                  qPrintable(QStringLiteral("pending=%1 existing=%2 rows=%3 savedRunId=%4 editMode=%5")
-                                .arg(asList(dialog->property("pendingImageAdds")).size())
-                                .arg(asList(dialog->property("existingImages")).size())
+                                .arg(qmlList(dialog->property("pendingImageAdds")).size())
+                                .arg(qmlList(dialog->property("existingImages")).size())
                                 .arg(fixture.rows().size())
                                 .arg(dialog->property("savedRunId").toString(),
                                      dialog->property("editMode").toString())));
@@ -904,7 +879,7 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("errorCode=%1 submitting=%2 pending=%3 stored=%4 dirty=%5")
                                 .arg(dialog->property("errorCode").toString(),
                                      dialog->property("submitting").toString())
-                                .arg(asList(dialog->property("pendingImageAdds")).size())
+                                .arg(qmlList(dialog->property("pendingImageAdds")).size())
                                 .arg(fixture.files.store.imagesFor(kRunId()).size())
                                 .arg(dialog->property("imagesDirty").toString())));
         QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 2);
@@ -971,7 +946,7 @@ private Q_SLOTS:
         // The correction carries the note and nothing about the image; the file
         // waits for the Collector's answer.
         QCOMPARE(corrections.count(), 1);
-        const QVariantMap changes = asMap(corrections.first().at(0));
+        const QVariantMap changes = qmlMap(corrections.first().at(0));
         QCOMPARE(changes.value(QStringLiteral("note")).toString(), QString::fromUtf8("第一次带新人"));
         QVERIFY(!changes.contains(QStringLiteral("note_images")));
         QVERIFY(!changes.contains(QStringLiteral("images")));

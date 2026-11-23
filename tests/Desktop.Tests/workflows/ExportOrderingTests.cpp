@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "ExportController.h"
@@ -18,30 +19,8 @@ public:
     }
 };
 
-struct Answer {
-    bool done = false;
-    bool ok = false;
-    QJsonObject payload;
-    QString code;
-    QString message;
-};
-
-/// One request, waited for.
-Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payload = {})
-{
-    Answer answer;
-    backend.request(type, payload)->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
-            answer.done = true;
-            answer.ok = ok;
-            answer.payload = QJsonObject::fromVariantMap(result);
-            answer.code = code;
-            answer.message = message;
-        });
-    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
-        answer.code = QStringLiteral("TEST_NO_REPLY");
-    return answer;
-}
+using mrtest::Answer;
+using mrtest::ask;
 
 class ExportOrderingTests final : public QObject {
     Q_OBJECT

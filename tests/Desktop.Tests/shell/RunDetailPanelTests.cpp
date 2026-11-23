@@ -16,6 +16,8 @@
 // of Domain/Events/SemanticEvent.cs.
 
 #include "DesktopTestRunner.h"
+#include "MoodWordTranslator.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
@@ -46,7 +48,6 @@
 #include <QStandardPaths>
 #include <QTest>
 #include <QTimer>
-#include <QTranslator>
 
 #include <memory>
 #include <atomic>
@@ -107,24 +108,6 @@ public:
     {
         return new ResourceRequestManager(parent, requests);
     }
-};
-
-/// An English interface for the three mood words only (Theme.moodLabel), without
-/// the build's .qm files.
-class MoodWordTranslator final : public QTranslator
-{
-public:
-    QString translate(const char *context, const char *sourceText, const char *, int) const override
-    {
-        if (QByteArrayView(context) != "Theme")
-            return {};
-        const QString source = QString::fromUtf8(sourceText);
-        if (source == QString::fromUtf8("顺利")) return QStringLiteral("Smooth");
-        if (source == QString::fromUtf8("一般")) return QStringLiteral("So-so");
-        if (source == QString::fromUtf8("糟心")) return QStringLiteral("Rough");
-        return {};
-    }
-    bool isEmpty() const override { return false; }
 };
 
 const QString &kRunId()
@@ -324,18 +307,7 @@ public:
     QString importErrorMessage;
 };
 
-QQuickItem *findItem(QQuickItem *from, const QString &name)
-{
-    if (!from)
-        return nullptr;
-    if (from->objectName() == name)
-        return from;
-    for (QQuickItem *child : from->childItems()) {
-        if (QQuickItem *match = findItem(child, name))
-            return match;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 QQuickItem *findTextItem(QQuickItem *from, const QString &text)
 {
@@ -407,7 +379,7 @@ ApplicationWindow {
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QObject *history() const { return root->findChild<QObject *>(QStringLiteral("history")); }
-    QQuickItem *item(const QString &name) const { return findItem(window()->contentItem(), name); }
+    QQuickItem *item(const QString &name) const { return findVisualItem(window()->contentItem(), name); }
     QQuickItem *panel() const { return item(QStringLiteral("runDetailPanel")); }
 
     /// The page's first row is selected and its revisions have arrived.
@@ -485,19 +457,7 @@ class RunDetailPanelTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                      QStringLiteral("/pages")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs", "pages"}));
     }
 
     void richTextResourceProbeIsInterceptedWithoutNetworking()
@@ -562,7 +522,7 @@ private Q_SLOTS:
         for (auto *button : buttons) {
             QVERIFY(button->x() >= 0 && button->x() + button->width() <= actions->width() + 0.5);
             QVERIFY(button->y() >= 0 && button->y() + button->height() <= actions->height() + 0.5);
-            auto *label = findItem(button, QStringLiteral("buttonLabel"));
+            auto *label = findVisualItem(button, QStringLiteral("buttonLabel"));
             QVERIFY(label);
             QVERIFY(!label->property("truncated").toBool());
         }
@@ -939,7 +899,7 @@ private Q_SLOTS:
     // and reads in the interface language.
     void aMoodWordNoteReadsInTheInterfaceLanguage()
     {
-        MoodWordTranslator english;
+        mrtest::MoodWordTranslator english(mrtest::MoodWordTranslator::Language::English);
         QCoreApplication::installTranslator(&english);
         const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&english); });
         HistoryScene scene;

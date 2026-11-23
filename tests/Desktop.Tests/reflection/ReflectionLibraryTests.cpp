@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "IBackend.h"
 #include "ReflectionLibraryController.h"
 #include "RunListModel.h"
@@ -137,12 +138,7 @@ public:
         return reply;
     }
 };
-QQuickItem *findVisual(QQuickItem *at, const QString &name) {
-    if (at->objectName() == name) return at;
-    for (auto *child : at->childItems())
-        if (auto *found = findVisual(child, name)) return found;
-    return nullptr;
-}
+using mrtest::findVisualItem;
 }
 
 namespace {
@@ -167,7 +163,7 @@ private:
     static void exerciseLibraryPaging(QQuickWindow *window, mr::ReflectionLibraryController &library,
                                       QQuickItem *select)
     {
-        auto *next = findVisual(window->contentItem(), QStringLiteral("reflectionNextPage"));
+        auto *next = findVisualItem(window->contentItem(), QStringLiteral("reflectionNextPage"));
         QVERIFY(next);
         next->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
@@ -177,10 +173,10 @@ private:
         select->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 2);
-        auto *jump = findVisual(window->contentItem(), QStringLiteral("reflectionPageJump"));
+        auto *jump = findVisualItem(window->contentItem(), QStringLiteral("reflectionPageJump"));
         QVERIFY(jump);
-        auto *number = findVisual(jump, QStringLiteral("pageNumberField"));
-        auto *jumpButton = findVisual(jump, QStringLiteral("pageNumberJumpButton"));
+        auto *number = findVisualItem(jump, QStringLiteral("pageNumberField"));
+        auto *jumpButton = findVisualItem(jump, QStringLiteral("pageNumberJumpButton"));
         QVERIFY(number && jumpButton);
         const auto filterBeforeJump = library.filter();
         number->forceActiveFocus();
@@ -206,7 +202,7 @@ private:
     {
         QSignalSpy share(page, SIGNAL(shareBatchRequested(QVariant)));
         QVERIFY(share.isValid());
-        auto *generate = findVisual(window->contentItem(), QStringLiteral("shareSelectedReflections"));
+        auto *generate = findVisualItem(window->contentItem(), QStringLiteral("shareSelectedReflections"));
         QVERIFY(generate && generate->isEnabled());
         generate->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
@@ -239,7 +235,7 @@ private:
         QTRY_VERIFY(!confirmation->property("visible").toBool());
         QTRY_COMPARE(search->property("text").toString(), QString());
         QCOMPARE(library.selectedCount(), 2);
-        auto *clear = findVisual(window->contentItem(), QStringLiteral("clearReflectionSelection"));
+        auto *clear = findVisualItem(window->contentItem(), QStringLiteral("clearReflectionSelection"));
         QVERIFY(clear);
         clear->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
@@ -249,16 +245,8 @@ private:
 
 private Q_SLOTS:
     void initTestCase() {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
+        QVERIFY(mrtest::registerSourceQml({"components", "pages"}));
         qmlRegisterUncreatableType<mr::RunListModel>("MentorRecorder", 1, 0, "RunListModel", "Provided by controller");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages")})
-            for (const auto &file : QDir(root + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(root + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
     }
     void independentFiltersAndPaging() {
         QueryBackend backend;
@@ -531,16 +519,16 @@ ApplicationWindow {
         QVERIFY(QTest::qWaitForWindowExposed(window));
         library.setActive(true);
         QTRY_VERIFY(!library.runs()->isLoading());
-        auto *select = findVisual(window->contentItem(), QStringLiteral("selectCurrentReflectionPage"));
+        auto *select = findVisualItem(window->contentItem(), QStringLiteral("selectCurrentReflectionPage"));
         QVERIFY(select);
-        auto *toolbar = findVisual(window->contentItem(), QStringLiteral("reflectionToolbar"));
+        auto *toolbar = findVisualItem(window->contentItem(), QStringLiteral("reflectionToolbar"));
         QVERIFY(toolbar);
-        auto *search = findVisual(window->contentItem(), QStringLiteral("reflectionSearchField"));
+        auto *search = findVisualItem(window->contentItem(), QStringLiteral("reflectionSearchField"));
         QVERIFY(search);
         QCOMPARE(select->parentItem(), toolbar);
         QCOMPARE(select->property("text").toString(), QString());
-        QVERIFY(!findVisual(window->contentItem(), QStringLiteral("reflectionSelectionHeader")));
-        QVERIFY(!findVisual(window->contentItem(), QStringLiteral("reflectionSelectionHint")));
+        QVERIFY(!findVisualItem(window->contentItem(), QStringLiteral("reflectionSelectionHeader")));
+        QVERIFY(!findVisualItem(window->contentItem(), QStringLiteral("reflectionSelectionHint")));
         QTRY_VERIFY(qAbs(select->mapToScene(QPointF(0, select->height() / 2)).y()
                           - search->mapToScene(QPointF(0, search->height() / 2)).y()) < 1);
         QCOMPARE(select->x(), qreal(0));

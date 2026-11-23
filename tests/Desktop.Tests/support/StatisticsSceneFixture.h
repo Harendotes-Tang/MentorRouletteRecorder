@@ -11,13 +11,12 @@
 #include "JobCatalog.h"
 #include "LanguageManager.h"
 #include "MockBackend.h"
+#include "QmlComponentTestSupport.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "StatisticsOverlayController.h"
 
 #include <QByteArray>
-#include <QDir>
-#include <QJSValue>
 #include <QJsonObject>
 #include <QList>
 #include <QPointer>
@@ -39,20 +38,11 @@
 
 namespace {
 
-/// Registers the shipping QML the way `import MentorRecorder` finds it in the application:
-/// Theme and every type under components/, pages/, dialogs/ and charts/, from the source tree.
+/// Registers the shipping QML the way `import MentorRecorder` finds it in the application
+/// (mrtest::registerShippingQml); the name the scene's suites call.
 void registerSceneQmlTypes()
 {
-    const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
-                                  QStringLiteral("/dialogs"), QStringLiteral("/charts")}) {
-        for (const auto &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
-    }
+    mrtest::registerShippingQml();
 }
 
 const QString &kEvidence()
@@ -67,11 +57,7 @@ const QString &kAttemptEvidence()
     return value;
 }
 
-QVariantList qmlList(const QVariant &value)
-{
-    return value.metaType() == QMetaType::fromType<QJSValue>()
-        ? value.value<QJSValue>().toVariant().toList() : value.toList();
-}
+using mrtest::qmlList;
 
 // Hold only dashboard reads explicitly armed after startup, so the actual
 // window can exercise pending/failure/retry/zero without mocking its bindings.

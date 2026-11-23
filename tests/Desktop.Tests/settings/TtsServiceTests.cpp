@@ -9,6 +9,8 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "ScopedEnvironmentVariable.h"
+#include "CollectorStubTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -240,73 +242,10 @@ private:
     bool m_connected = true;
 };
 
-/// A Collector stub that answers "another instance already holds the serve
-/// lease" and exits, written into \a directory. Returns its path, or an empty
-/// string when it could not be written.
-QString writeAlreadyRunningStub(const QString &directory)
-{
-    QString path =
-        QDir(directory).absoluteFilePath(QStringLiteral("already-running.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
-                 + QByteArray::number(mr::CollectorProcess::kAlreadyRunningExitCode)
-                 + QByteArrayLiteral("\r\n"));
-    script.close();
-    return path;
-}
-
-/// A Collector stub that refuses to start the way the Collector does when the
-/// database fails its integrity check: one line on standard error, exit code 3.
-/// Every launch appends a line to runs.txt beside it.
-QString writeRefusingStub(const QString &directory)
-{
-    QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
-    QFile script(path);
-    if (!script.open(QIODevice::WriteOnly))
-        return {};
-    script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n"
-                                   ">&2 echo ERR_DB_INTEGRITY: database check failed\r\nexit /b ")
-                 + QByteArray::number(mr::CollectorProcess::kCannotServeExitCode)
-                 + QByteArrayLiteral("\r\n"));
-    script.close();
-    return path;
-}
-
-/// How many times the stub in \a directory was launched.
-int launchesOf(const QString &directory)
-{
-    QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
-    if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
-        return 0;
-    return static_cast<int>(runs.readAll().count('\n'));
-}
-
-/// Record \a pid as the holder of the per-user serve lease, the way the
-/// Collector does, under the name this build's supervisor reads (review I5-2).
-bool writeServePid(const QString &directory, qint64 pid)
-{
-    QFile file(QDir(directory).absoluteFilePath(mr::CollectorProcess::servePidFileName()));
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
-        return false;
-    file.write(QByteArray::number(pid));
-    file.close();
-    return true;
-}
-
-/// Backdate serve.pid so the takeover stops reading it as "written seconds
-/// ago", which is the one state in which nothing may be ended.
-bool backdateServePid(const QString &directory, qint64 milliseconds)
-{
-    QFile file(QDir(directory).absoluteFilePath(mr::CollectorProcess::servePidFileName()));
-    if (!file.open(QIODevice::ReadWrite))
-        return false;
-    const bool ok = file.setFileTime(QDateTime::currentDateTime().addMSecs(-milliseconds),
-                                     QFileDevice::FileModificationTime);
-    file.close();
-    return ok;
-}
+using mrtest::alreadyRunningProgram;
+using mrtest::launchesIn;
+using mrtest::writeServePid;
+using mrtest::ageServePid;
 
 /// $defs/LiveEvent.sequence is monotonic per subscription, and the shell drops
 /// anything at or below the sequence it has already adopted. Reusing one number
@@ -1525,14 +1464,14 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
     QVERIFY(stubDirectory.isValid());
     QVERIFY(dataDirectory.isValid());
 
-    const QString stub = writeAlreadyRunningStub(stubDirectory.path());
+    const QString stub = alreadyRunningProgram(stubDirectory.path());
     QVERIFY(!stub.isEmpty());
-    const QByteArray previousData = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR",
+                                                            QFile::encodeName(dataDirectory.path()));
     // A serve.pid that names somebody else and was not written just now: the
     // only state in which four failed connects may take the lease at all.
     QVERIFY(writeServePid(dataDirectory.path(), 424242));
-    QVERIFY(backdateServePid(dataDirectory.path(), 60000));
+    QVERIFY(ageServePid(dataDirectory.path(), 60000));
 
     mr::AppSettings settings;
     EventOnlyBackend backend;
@@ -1571,8 +1510,6 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
     QTRY_VERIFY_WITH_TIMEOUT(
         controller.toastMessage().contains(QString::fromUtf8("采集服务")), 15000);
     QVERIFY(toolCalls > 0);
-
-    qputenv("MR_DATA_DIR", previousData);
 #endif
 }
 
@@ -1593,11 +1530,11 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
     QVERIFY(stubDirectory.isValid());
     QVERIFY(dataDirectory.isValid());
 
-    const QString stub = writeAlreadyRunningStub(stubDirectory.path());
+    const QString stub = alreadyRunningProgram(stubDirectory.path());
     QVERIFY(!stub.isEmpty());
-    const QByteArray previousData = qgetenv("MR_DATA_DIR");
     // No serve.pid: the holder took it with it when it quit.
-    qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR",
+                                                            QFile::encodeName(dataDirectory.path()));
 
     mr::AppSettings settings;
     EventOnlyBackend backend;
@@ -1625,8 +1562,6 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
              qPrintable(controller.toastMessage()));
     // It is a fresh launch, not the crash-restart backoff.
     QCOMPARE(supervisor.restartCount(), restartsBefore);
-
-    qputenv("MR_DATA_DIR", previousData);
 #endif
 }
 
@@ -1840,10 +1775,11 @@ void TtsServiceTests::appController_neverRelaunchesACollectorThatRefusedToStart(
     QTemporaryDir dataDirectory;
     QVERIFY(stubDirectory.isValid());
     QVERIFY(dataDirectory.isValid());
-    const QString stub = writeRefusingStub(stubDirectory.path());
+    const QString stub = mrtest::refusingProgram(stubDirectory.path(), mr::CollectorProcess::kCannotServeExitCode,
+                                                    QByteArrayLiteral("ERR_DB_INTEGRITY: database check failed"));
     QVERIFY(!stub.isEmpty());
-    const QByteArray previousData = qgetenv("MR_DATA_DIR");
-    qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
+    const mrtest::ScopedEnvironmentVariable dataEnvironment("MR_DATA_DIR",
+                                                            QFile::encodeName(dataDirectory.path()));
 
     mr::AppSettings settings;
     EventOnlyBackend backend;
@@ -1859,12 +1795,10 @@ void TtsServiceTests::appController_neverRelaunchesACollectorThatRefusedToStart(
         QTest::qWait(100);
     }
     QTest::qWait(mr::CollectorProcess::minBackoffMs() * 2);
-    QCOMPARE(launchesOf(stubDirectory.path()), 1);
+    QCOMPARE(launchesIn(stubDirectory.path()), 1);
     QVERIFY2(controller.collectorStatusText().contains(QStringLiteral("database check failed")),
              qPrintable(controller.collectorStatusText()));
     QVERIFY(!controller.collectorStatusText().contains(QLatin1String("ERR_")));
-
-    qputenv("MR_DATA_DIR", previousData);
 #endif
 }
 

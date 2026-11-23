@@ -15,6 +15,7 @@
 // is 未知. The step 2 filters never change those lists.
 
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
@@ -26,11 +27,9 @@
 #include "RunFormValidator.h"
 #include <algorithm>
 
-#include <QDir>
 #include <QDateTime>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJSValue>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QQmlComponent>
@@ -91,11 +90,7 @@ QVariantMap run(const QString &id, int contentId, int jobId, const QString &resu
     };
 }
 
-QVariantMap asMap(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toMap()
-                                        : value.toMap();
-}
+using mrtest::qmlMap;
 
 QVariantMap incompleteImportedRun(const QString &result = QStringLiteral("UNKNOWN"))
 {
@@ -111,11 +106,7 @@ QVariantMap incompleteImportedRun(const QString &result = QStringLiteral("UNKNOW
     return value;
 }
 
-QVariantList asList(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList()
-                                        : value.toList();
-}
+using mrtest::qmlList;
 
 QJsonObject runRow(const QJsonValue &contentId, bool softDeleted = false)
 {
@@ -274,8 +265,8 @@ ApplicationWindow {
     QVariantList visibleIds() const
     {
         QVariantList ids;
-        for (const QVariant &row : asList(dialog()->property("visibleDuties")))
-            ids.append(asMap(row).value(QStringLiteral("content_id")).toInt());
+        for (const QVariant &row : qmlList(dialog()->property("visibleDuties")))
+            ids.append(qmlMap(row).value(QStringLiteral("content_id")).toInt());
         return ids;
     }
 
@@ -330,18 +321,7 @@ class EditRunDialogBindingTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void everyPickerFollowsTheRunTheDialogWasReopenedFor()
@@ -476,7 +456,7 @@ private Q_SLOTS:
         QVERIFY(fixture.chosenRow(QStringLiteral("dutyRow_71")));
         QCOMPARE(fixture.dialog()->property("dutyIndex").toInt(), 2);
         QCOMPARE(fixture.selectedDutyName(), QStringLiteral("石卫塔"));
-        QCOMPARE(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("duty_name")).toString(),
+        QCOMPARE(qmlMap(fixture.dialog()->property("formState")).value(QStringLiteral("duty_name")).toString(),
                  QStringLiteral("石卫塔"));
         QVERIFY(fixture.item(QStringLiteral("selectedDutyTag"))->isVisible());
     }
@@ -492,7 +472,7 @@ private Q_SLOTS:
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
         QVERIFY(fixture.goToStep(1));
         QVERIFY(fixture.dialog()->property("joinedInProgress").isNull());
-        QVERIFY(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")).isNull());
+        QVERIFY(qmlMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")).isNull());
         QVERIFY(fixture.item(QStringLiteral("entryPick_unknown"))->property("checked").toBool());
         QVERIFY(!fixture.item(QStringLiteral("entryPick_joined"))->property("checked").toBool());
 
@@ -502,7 +482,7 @@ private Q_SLOTS:
         }, 2000));
         QVERIFY(fixture.item(QStringLiteral("entryPick_joined"))->property("checked").toBool());
         QVERIFY(!fixture.item(QStringLiteral("entryPick_unknown"))->property("checked").toBool());
-        QCOMPARE(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")), QVariant(true));
+        QCOMPARE(qmlMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")), QVariant(true));
 
         QVariantMap fresh = run(QStringLiteral("run-b"), 70, 19, QStringLiteral("COMPLETED"));
         fresh.insert(QStringLiteral("joined_in_progress"), false);
@@ -551,7 +531,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QCOMPARE(raw.value(QStringLiteral("duty_category")).toString(), category);
     }
@@ -569,17 +549,17 @@ private Q_SLOTS:
         value.insert("territory_id", oldDuty.value("territory_id"));
         value.insert("job_name", QStringLiteral("骑士"));
         QVERIFY(fixture.openForRun(value));
-        QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+        QVERIFY(qmlList(fixture.dialog()->property("diffRows")).isEmpty());
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 0);
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_NO_CHANGES"));
         QVERIFY(fixture.goToStep(2));
         QVERIFY(fixture.click(QStringLiteral("dutyRow_944")));
-        QCOMPARE(asList(fixture.dialog()->property("diffRows")).size(), 1);
+        QCOMPARE(qmlList(fixture.dialog()->property("diffRows")).size(), 1);
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.value("content_id").toInt(), 944);
         QVERIFY(!changes.contains("duty_name"));
     }
@@ -605,7 +585,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         for (const auto *key : {"content_id", "territory_id", "duty_name", "duty_category"})
             QVERIFY2(!changes.contains(QString::fromLatin1(key)), key);
@@ -622,7 +602,7 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("dutyIndex").toInt(), 3);
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 2);
-        const auto replacement = asMap(corrections.at(1).at(0));
+        const auto replacement = qmlMap(corrections.at(1).at(0));
         QCOMPARE(replacement.value(QStringLiteral("content_id")).toInt(), 71);
         QCOMPARE(replacement.value(QStringLiteral("duty_name")).toString(), QStringLiteral("石卫塔"));
     }
@@ -700,7 +680,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
         QVERIFY(fixture.dialog()->property("errorCode").toString().isEmpty());
-        const auto bare = asMap(corrections.at(0).at(0));
+        const auto bare = qmlMap(corrections.at(0).at(0));
         QCOMPARE(bare.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QVERIFY(bare.value(QStringLiteral("entered_at_utc")).isNull());
         QVERIFY(bare.value(QStringLiteral("duration_ms")).isNull());
@@ -715,7 +695,7 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 2);
-        const auto changes = asMap(corrections.at(1).at(0));
+        const auto changes = qmlMap(corrections.at(1).at(0));
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QCOMPARE(changes.value(QStringLiteral("entered_at_utc")).toString(),
                  value.value(QStringLiteral("matched_at_utc")).toString());
@@ -760,12 +740,12 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QCOMPARE(changes.value(QStringLiteral("note")).toString(), QStringLiteral("仅补充备注，时间仍不详"));
         QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
-        QCOMPARE(asMap(fixture.dialog()->property("runData")), value);
+        QCOMPARE(qmlMap(fixture.dialog()->property("runData")), value);
     }
 
     void anIncompleteImportCanSaveAnImageWithoutCreatingACorrection()
@@ -791,7 +771,7 @@ private Q_SLOTS:
         QCOMPARE(images.imagesFor(value.value(QStringLiteral("run_id")).toString()).size(), 1);
         QVERIFY(!fixture.dialog()->property("imagesDirty").toBool());
         QVERIFY(!fixture.dialog()->property("visible").toBool());
-        QCOMPARE(asMap(fixture.dialog()->property("runData")), value);
+        QCOMPARE(qmlMap(fixture.dialog()->property("runData")), value);
     }
 
     void importedProgressPreviewUsesMentorQualification_data()
@@ -848,7 +828,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QVERIFY(!changes.contains(QStringLiteral("import_metadata")));
     }
@@ -926,7 +906,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
     }
@@ -942,7 +922,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("result")});
         QVERIFY(fixture.dialog()->property("countsAfterSave").toBool());
     }
@@ -992,7 +972,7 @@ private Q_SLOTS:
         }
         QCOMPARE(corrections.count(), selectResult ? 1 : 0);
         if (selectResult) {
-            const auto changes = asMap(corrections.at(0).at(0));
+            const auto changes = qmlMap(corrections.at(0).at(0));
             QCOMPARE(changes.size(), 1);
             QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
             QVERIFY(fixture.dialog()->property("errorCode").toString().isEmpty());
@@ -1029,7 +1009,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QCOMPARE(changes.value(QStringLiteral("entered_at_utc")), value.value(QStringLiteral("matched_at_utc")));
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
@@ -1093,7 +1073,7 @@ private Q_SLOTS:
         QVERIFY(corrections.isValid());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.contains(QStringLiteral("result")), confirmResult);
         if (confirmResult)
             QCOMPARE(changes.value(QStringLiteral("result")).toString(), value.value(QStringLiteral("result")).toString());
@@ -1119,7 +1099,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QVERIFY(!changes.contains(QStringLiteral("result")));
         QVERIFY(changes.value(QStringLiteral("duration_ms")).isNull());
     }
@@ -1138,7 +1118,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(creations.count(), 1);
-        const auto fields = asMap(creations.at(0).at(0));
+        const auto fields = qmlMap(creations.at(0).at(0));
         QVERIFY(fields.contains(QStringLiteral("duration_ms")));
         QVERIFY(fields.value(QStringLiteral("duration_ms")).isNull());
         QCOMPARE(fields.value(QStringLiteral("entered_at_utc")), fields.value(QStringLiteral("matched_at_utc")));
@@ -1168,7 +1148,7 @@ private Q_SLOTS:
 
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(creations.count(), 1);
-        const auto fields = asMap(creations.at(0).at(0));
+        const auto fields = qmlMap(creations.at(0).at(0));
         QVERIFY(fields.contains(QStringLiteral("duration_ms")));
         QVERIFY(fields.value(QStringLiteral("duration_ms")).isNull());
         QCOMPARE(fields.value(QStringLiteral("entered_at_utc")), fields.value(QStringLiteral("matched_at_utc")));
@@ -1195,7 +1175,7 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNote());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(creations.count(), 1);
-        QCOMPARE(asMap(creations.at(0).at(0)).value(QStringLiteral("note")).toString(), kEstimateNote());
+        QCOMPARE(qmlMap(creations.at(0).at(0)).value(QStringLiteral("note")).toString(), kEstimateNote());
 
         auto legacy = run(QStringLiteral("legacy-estimate"), 70, 19, QStringLiteral("COMPLETED"));
         legacy.insert(QStringLiteral("entered_at_utc"), legacy.value(QStringLiteral("matched_at_utc")));
@@ -1254,7 +1234,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
         QVERIFY(!changes.value(QStringLiteral("duration_ms")).isNull());
         QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), entered.msecsTo(end));
@@ -1291,7 +1271,7 @@ private Q_SLOTS:
         QVERIFY(corrections.isValid());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
         if (replaceEntry)
             QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), actualEntry.msecsTo(end));
@@ -1333,7 +1313,7 @@ private Q_SLOTS:
 
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         const QDateTime enteredAt = QDateTime::fromString(
             entered.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")), QStringLiteral("yyyy-MM-dd HH:mm:ss"));
         const QDateTime ended = QDateTime::fromString(
@@ -1363,7 +1343,7 @@ private Q_SLOTS:
         QVERIFY(fixture.click(QStringLiteral("enteredTimeField")));
         QVERIFY(fixture.click(QStringLiteral("endedTimeField")));
         QVERIFY(fixture.click(QStringLiteral("reasonField")));
-        QVERIFY2(asList(fixture.dialog()->property("diffRows")).isEmpty(),
+        QVERIFY2(qmlList(fixture.dialog()->property("diffRows")).isEmpty(),
                  qPrintable(QStringLiteral("%1 / %2").arg(fixture.dialog()->property("enteredTime").toString(),
                                                           fixture.dialog()->property("endedTime").toString())));
 
@@ -1376,7 +1356,7 @@ private Q_SLOTS:
         fixture.dialog()->setProperty("noteText", QString::fromUtf8("讲了三次分摊"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        QCOMPARE(asMap(corrections.at(0).at(0)).keys(), QStringList{QStringLiteral("note")});
+        QCOMPARE(qmlMap(corrections.at(0).at(0)).keys(), QStringList{QStringLiteral("note")});
     }
 
     // B3-2（用户要求）：原因与备注的提示是示例。框空着时按 Tab，填入（第一个）示例，
@@ -1416,9 +1396,9 @@ private Q_SLOTS:
         QCOMPARE(note->property("placeholderText").toString(),
                  QString::fromUtf8("例如：程序未运行时手动补录") + hint);
         const auto noteChange = [&fixture]() -> QVariantMap {
-            for (const QVariant &row : asList(fixture.dialog()->property("diffRows"))) {
-                if (asMap(row).value(QStringLiteral("k")).toString() == QString::fromUtf8("备注"))
-                    return asMap(row);
+            for (const QVariant &row : qmlList(fixture.dialog()->property("diffRows"))) {
+                if (qmlMap(row).value(QStringLiteral("k")).toString() == QString::fromUtf8("备注"))
+                    return qmlMap(row);
             }
             return {};
         };
@@ -1469,7 +1449,7 @@ private Q_SLOTS:
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QVERIFY(changes.contains(QStringLiteral("content_id")));
         QVERIFY(changes.value(QStringLiteral("content_id")).isNull());
         QVERIFY(changes.value(QStringLiteral("duty_name")).isNull());
@@ -1618,7 +1598,7 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("enteredDate").toString(), day);
         QCOMPARE(fixture.dialog()->property("endedDate").toString(), day);
         QVERIFY(!fixture.dialog()->property("dayFieldsVisible").toBool());
-        QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+        QVERIFY(qmlList(fixture.dialog()->property("diffRows")).isEmpty());
     }
 
     void timeFieldsFollowTheRunTheDialogWasReopenedFor()
@@ -1646,7 +1626,7 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("enteredTime").toString(), QString());
         QCOMPARE(fixture.item(QStringLiteral("enteredTimeField"))->property("text").toString(), QString());
         QCOMPARE(fixture.item(QStringLiteral("endedTimeField"))->property("text").toString(), QString());
-        QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+        QVERIFY(qmlList(fixture.dialog()->property("diffRows")).isEmpty());
     }
 
     void aClickInsideTheDialogNeverReachesTheRowBeneathIt()
@@ -1792,25 +1772,25 @@ private Q_SLOTS:
         value.insert(QStringLiteral("role"), QStringLiteral("DPS"));
         QVERIFY(fixture.openForRun(value));
 
-        const auto options = asList(fixture.dialog()->property("jobOptionList"));
-        const auto retained = asMap(options.at(fixture.dialog()->property("jobIndex").toInt()));
+        const auto options = qmlList(fixture.dialog()->property("jobOptionList"));
+        const auto retained = qmlMap(options.at(fixture.dialog()->property("jobIndex").toInt()));
         QCOMPARE(retained.value(QStringLiteral("job_id")).toInt(), retiredJobId);
         QVERIFY(retained.value(QStringLiteral("preservesRunJob")).toBool());
-        QCOMPARE(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("job_name")).toString(),
+        QCOMPARE(qmlMap(fixture.dialog()->property("formState")).value(QStringLiteral("job_name")).toString(),
                  retiredJobName);
         // The old value is labelled separately, not added back to an eligible role group.
-        const auto groups = asList(fixture.dialog()->property("jobGroups"));
-        QCOMPARE(asMap(groups.first()).value(QStringLiteral("role")).toString(), QStringLiteral("原记录"));
+        const auto groups = qmlList(fixture.dialog()->property("jobGroups"));
+        QCOMPARE(qmlMap(groups.first()).value(QStringLiteral("role")).toString(), QStringLiteral("原记录"));
         for (qsizetype i = 1; i < groups.size(); ++i) {
-            for (const auto &row : asList(asMap(groups.at(i)).value(QStringLiteral("jobs"))))
-                QVERIFY(asMap(row).value(QStringLiteral("job_id")).toInt() != retiredJobId);
+            for (const auto &row : qmlList(qmlMap(groups.at(i)).value(QStringLiteral("jobs"))))
+                QVERIFY(qmlMap(row).value(QStringLiteral("job_id")).toInt() != retiredJobId);
         }
 
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         fixture.dialog()->setProperty("noteText", QStringLiteral("只修改备注"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto noteChanges = asMap(corrections.at(0).at(0));
+        const auto noteChanges = qmlMap(corrections.at(0).at(0));
         QCOMPARE(noteChanges.value(QStringLiteral("note")).toString(), QStringLiteral("只修改备注"));
         for (const auto *key : {"job_id", "job_name", "role"})
             QVERIFY2(!noteChanges.contains(QString::fromLatin1(key)), key);
@@ -1821,7 +1801,7 @@ private Q_SLOTS:
         QVERIFY(fixture.click(QStringLiteral("jobPick_19")));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 2);
-        const auto jobChanges = asMap(corrections.at(1).at(0));
+        const auto jobChanges = qmlMap(corrections.at(1).at(0));
         QCOMPARE(jobChanges.value(QStringLiteral("job_id")).toInt(), 19);
         // The name is the Collector's to derive from the id; the contract carries no job_name.
         QVERIFY(!jobChanges.contains(QStringLiteral("job_name")));
@@ -1832,15 +1812,15 @@ private Q_SLOTS:
         QVERIFY(fixture.click(QStringLiteral("jobUnknownChip")));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 3);
-        const auto clearedJob = asMap(corrections.at(2).at(0));
+        const auto clearedJob = qmlMap(corrections.at(2).at(0));
         QVERIFY(clearedJob.contains(QStringLiteral("job_id")));
         QVERIFY(clearedJob.value(QStringLiteral("job_id")).isNull());
 
         // A reused dialog must not leak the old job into a newly created record.
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         QCOMPARE(fixture.dialog()->property("jobIndex").toInt(), 0);
-        for (const auto &row : asList(fixture.dialog()->property("jobOptionList"))) {
-            const auto option = asMap(row);
+        for (const auto &row : qmlList(fixture.dialog()->property("jobOptionList"))) {
+            const auto option = qmlMap(row);
             QVERIFY(!option.value(QStringLiteral("preservesRunJob")).toBool());
             QVERIFY(option.value(QStringLiteral("job_id")).toInt() != retiredJobId);
         }
@@ -1857,14 +1837,14 @@ private Q_SLOTS:
         value.insert(QStringLiteral("role"), QStringLiteral("UNKNOWN"));
         QVERIFY(fixture.openForRun(value));
         QCOMPARE(fixture.dialog()->property("jobIndex").toInt(), 0);
-        QCOMPARE(asList(fixture.dialog()->property("jobOptionList")).size(), 4);
+        QCOMPARE(qmlList(fixture.dialog()->property("jobOptionList")).size(), 4);
         QVERIFY(fixture.goToStep(2));
         QVERIFY(fixture.item(QStringLiteral("jobUnknownChip"))->property("checked").toBool());
         QVERIFY(fixture.click(QStringLiteral("jobPick_24")));
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.value(QStringLiteral("job_id")).toInt(), 24);
         QVERIFY(!changes.contains(QStringLiteral("job_name")));
     }
@@ -1879,18 +1859,18 @@ private Q_SLOTS:
         fixture.dialog()->setProperty("jobOptions", QVariantList{
             job(24, QStringLiteral("白魔法师")), job(19, QStringLiteral("骑士")), scholar,
             job(99999, QStringLiteral("没有职能的职业"))});
-        const auto groups = asList(fixture.dialog()->property("jobGroups"));
+        const auto groups = qmlList(fixture.dialog()->property("jobGroups"));
         QStringList roles;
         for (const QVariant &group : groups)
-            roles.append(asMap(group).value(QStringLiteral("role")).toString());
+            roles.append(qmlMap(group).value(QStringLiteral("role")).toString());
         QCOMPARE(roles, QStringList({QStringLiteral("坦克"), QStringLiteral("治疗"),
                                      QStringLiteral("其他")}));
-        const auto healers = asList(asMap(groups.at(1)).value(QStringLiteral("jobs")));
+        const auto healers = qmlList(qmlMap(groups.at(1)).value(QStringLiteral("jobs")));
         QCOMPARE(healers.size(), 2);
-        QCOMPARE(asMap(healers.at(0)).value(QStringLiteral("option_index")).toInt(), 1);
-        QCOMPARE(asMap(healers.at(1)).value(QStringLiteral("abbreviation")).toString(),
+        QCOMPARE(qmlMap(healers.at(0)).value(QStringLiteral("option_index")).toInt(), 1);
+        QCOMPARE(qmlMap(healers.at(1)).value(QStringLiteral("abbreviation")).toString(),
                  QStringLiteral("SCH"));
-        QCOMPARE(asMap(groups.at(0)).value(QStringLiteral("token")).toString(),
+        QCOMPARE(qmlMap(groups.at(0)).value(QStringLiteral("token")).toString(),
                  mr::JobCatalog::tokenForRoleGroup(QStringLiteral("坦克")));
 
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
@@ -1948,9 +1928,9 @@ private Q_SLOTS:
         // L1-1), so its CN history is offered at once; 未知区服 offers none.
         QCOMPARE(fixture.dialog()->property("recordRegion").toString(), QStringLiteral("CN"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("UNKNOWN")))));
-        QVERIFY(asList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
+        QVERIFY(qmlList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("CN")))));
-        const auto chips = asList(fixture.dialog()->property("recentDutyOptions"));
+        const auto chips = qmlList(fixture.dialog()->property("recentDutyOptions"));
         QCOMPARE(chips.size(), 5);
         QVERIFY(fixture.goToStep(2));
         QVERIFY(fixture.click(QStringLiteral("recentDuty_1015")));
@@ -1966,7 +1946,7 @@ private Q_SLOTS:
         QTest::qWait(300);
         QCOMPARE(changed.count(), 1);
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("TC")))));
-        QVERIFY(asList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
+        QVERIFY(qmlList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
     }
 
     void dutyCatalogDerivesPartySizeDifficultyAndVersion()
@@ -2112,7 +2092,7 @@ private Q_SLOTS:
         const auto collected = [&] {
             QVariant fields;
             QMetaObject::invokeMethod(dialog, "collectFields", Q_RETURN_ARG(QVariant, fields));
-            return asMap(fields);
+            return qmlMap(fields);
         };
 
         // 全部区服 on the dashboard: 国服.

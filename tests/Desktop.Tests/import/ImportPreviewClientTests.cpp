@@ -1,6 +1,6 @@
 #include "DesktopTestRunner.h"
+#include "RecordingBackend.h"
 #include "ImportPreviewClient.h"
-#include "IBackend.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -10,24 +10,7 @@
 
 namespace {
 
-class PreviewBackend final : public mr::IBackend
-{
-public:
-    struct Call { QJsonObject payload; QPointer<mr::BackendReply> reply; };
-    QList<Call> calls;
-    bool connected = true;
-    QJsonObject immediateAnswer;
-    QString backendName() const override { return QStringLiteral("preview-client-test"); }
-    bool isConnected() const override { return connected; }
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
-    {
-        auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({.payload = payload, .reply = reply});
-        if (!immediateAnswer.isEmpty())
-            reply->succeed(immediateAnswer);
-        return reply;
-    }
-};
+using PreviewBackend = mrtest::RecordingBackend;
 
 QJsonObject previewPage(int page, const QString &id = QStringLiteral("snapshot"))
 {

@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -38,7 +39,6 @@
 #include "TtsService.h"
 #include "workflows/DisplayTimeZoneSync.h"
 
-#include <QDir>
 #include <QGuiApplication>
 #include <QHash>
 #include <QJsonObject>
@@ -66,18 +66,7 @@ namespace {
 
 constexpr auto kInstant = "2026-11-20T16:30:00.000Z";
 
-QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (auto *child : root->childItems()) {
-        if (auto *found = findVisualItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 QString systemWallClock(const char *utc)
 {
@@ -209,19 +198,7 @@ class DisplayTimeZoneTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &folder : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                   QStringLiteral("/pages"), QStringLiteral("/charts")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + folder).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + folder + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerShippingQml());
         for (const char *zone : {"Asia/Taipei", "Asia/Tokyo", "America/New_York"})
             QVERIFY2(QTimeZone(zone).isValid(), zone);
     }

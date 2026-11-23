@@ -13,6 +13,7 @@
 // the rest of the session.
 
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "ReflectionDialogFixture.h"
 #include "AppController.h"
@@ -24,11 +25,9 @@
 #include <QDateTime>
 #include <QClipboard>
 #include <QColor>
-#include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJSValue>
 #include <QMimeData>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -50,10 +49,7 @@ namespace {
 
 using namespace mrtest::reflectiondialog;
 
-QVariantList asList(const QVariant &value)
-{
-    return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList() : value.toList();
-}
+using mrtest::qmlList;
 
 const QString &kImageRunId()
 {
@@ -137,18 +133,7 @@ class ReflectionDialogBindingTests : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        QVERIFY(QDir(qmlRoot).exists());
-        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
-                                 "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs")}) {
-            for (const auto &file :
-                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-                const QByteArray name = file.chopped(4).toUtf8();
-                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
-                                "MentorRecorder", 1, 0, name.constData());
-            }
-        }
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void cleanup()
@@ -362,10 +347,10 @@ private Q_SLOTS:
         }
         QVERIFY(fixture.click(standalone ? QStringLiteral("pasteReflectionImageButtonCompact")
                                         : QStringLiteral("pasteReflectionImageButton")));
-        QTRY_COMPARE(asList(fixture.dialog()->property("noteImages")).size(), 1);
+        QTRY_COMPARE(qmlList(fixture.dialog()->property("noteImages")).size(), 1);
         QCOMPARE(fixture.note(), QStringLiteral("先保留正在写的心得。"));
         fixture.pasteShortcut();
-        QTRY_COMPARE(asList(fixture.dialog()->property("noteImages")).size(), 2);
+        QTRY_COMPARE(qmlList(fixture.dialog()->property("noteImages")).size(), 2);
         QCOMPARE(fixture.note(), QStringLiteral("先保留正在写的心得。"));
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);

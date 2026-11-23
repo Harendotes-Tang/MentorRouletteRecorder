@@ -4,11 +4,11 @@
 // Real QML from src/Desktop/qml, loaded from source the way IconTests does; the
 // popup needs a Window, so the scene is one.
 #include "DesktopTestRunner.h"
+#include "TestFonts.h"
 #include "QmlComponentTestSupport.h"
 #include <QDate>
 #include <QDir>
 #include <QGuiApplication>
-#include <QFontDatabase>
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QWheelEvent>
@@ -60,25 +60,14 @@ Window {
     return value;
 }
 
-/// Repeater delegates (the month grid's day cells) hang off the visual tree
-/// only, so findChild() over QObject children cannot see them.
-QQuickItem *findItem(QQuickItem *root, const QString &name)
-{
-    if (!root)
-        return nullptr;
-    if (root->objectName() == name)
-        return root;
-    for (QQuickItem *child : root->childItems()) {
-        if (QQuickItem *found = findItem(child, name))
-            return found;
-    }
-    return nullptr;
-}
+// Repeater delegates (the month grid's day cells) hang off the visual tree
+// only, so findChild() over QObject children cannot see them.
+using mrtest::findVisualItem;
 
 QQuickItem *dayCell(QQuickItem *field, int day)
 {
     QQuickItem *grid = field->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
-    return grid ? findItem(grid, QStringLiteral("calendarDay") + QString::number(day)) : nullptr;
+    return grid ? findVisualItem(grid, QStringLiteral("calendarDay") + QString::number(day)) : nullptr;
 }
 
 void clickItem(QQuickWindow *window, QQuickItem *item)
@@ -271,7 +260,7 @@ void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
 
     // The title now opens month selection; choosing September returns to days.
     QVERIFY(field->property("monthView").toBool());
-    auto *september = findItem(window->contentItem(), QStringLiteral("calendarMonth9"));
+    auto *september = findVisualItem(window->contentItem(), QStringLiteral("calendarMonth9"));
     QVERIFY(september);
     clickItem(window, september);
     QTRY_VERIFY(!field->property("monthView").toBool());
@@ -423,7 +412,7 @@ void DateFieldTests::monthYearWheelAndKeyboard()
     QTest::keyClick(window, Qt::Key_Return);
     auto *grid = field->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
     QTRY_COMPARE(grid->property("year").toInt(), 2025);
-    auto *month = findItem(window->contentItem(), QStringLiteral("calendarMonth12"));
+    auto *month = findVisualItem(window->contentItem(), QStringLiteral("calendarMonth12"));
     QVERIFY(month);
     const QPointF monthPos = month->mapToScene(QPointF(month->width()/2, month->height()/2));
     QWheelEvent yearWheel(monthPos, window->mapToGlobal(monthPos.toPoint()), QPoint(), QPoint(0, -120),
@@ -497,15 +486,7 @@ MR_DESKTOP_TEST_SUITE(DateField)
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
-    // Match main.cpp's screenshot font initialization; offscreen defaults may
-    // otherwise choose a condensed fallback and conceal real layout overflow.
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
-    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
-    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
-    QFont font;
-    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
-    QGuiApplication::setFont(font);
+    mrtest::useScreenshotFontStack();
     DateFieldTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

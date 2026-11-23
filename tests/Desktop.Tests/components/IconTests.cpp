@@ -35,17 +35,7 @@ QQuickItem *childNamed(QObject *root, const QString &name)
     return root->findChild<QQuickItem *>(name);
 }
 
-QQuickItem *visualChildNamed(QQuickItem *root, const QString &name)
-{
-    if (root->objectName() == name)
-        return root;
-    // Repeater delegates belong to the visual parent, not necessarily its QObject tree.
-    for (auto *child : root->childItems()) {
-        if (auto *found = visualChildNamed(child, name))
-            return found;
-    }
-    return nullptr;
-}
+using mrtest::findVisualItem;
 
 } // namespace
 
@@ -336,8 +326,8 @@ ApplicationWindow {
     QVERIFY(QTest::qWaitForWindowActive(window));
     auto *before = childNamed(scene.root.get(), QStringLiteral("beforeImages"));
     auto *after = childNamed(scene.root.get(), QStringLiteral("afterImages"));
-    auto *thumb = visualChildNamed(window->contentItem(), QStringLiteral("noteImageThumb"));
-    auto *remove = visualChildNamed(window->contentItem(), QStringLiteral("noteImageRemove"));
+    auto *thumb = findVisualItem(window->contentItem(), QStringLiteral("noteImageThumb"));
+    auto *remove = findVisualItem(window->contentItem(), QStringLiteral("noteImageRemove"));
     auto *add = childNamed(scene.root.get(), QStringLiteral("noteImageAdd"));
     auto *viewer = scene.root->findChild<QObject *>(QStringLiteral("noteImageViewer"));
     QVERIFY(before);

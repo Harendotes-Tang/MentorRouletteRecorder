@@ -1,18 +1,21 @@
+#include "AppController.h"
 #include "AppSettings.h"
 #include "DesktopTestRunner.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "MockBackend.h"
-#include "MotionSceneFixture.h"
+#include "QmlComponentTestSupport.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "TestCollectorGuard.h"
 #include "UpdateController.h"
 
 #include <QPointer>
+#include <QQmlContext>
 #include <QQuickStyle>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTimer>
 
 namespace {
 
@@ -76,7 +79,7 @@ struct MirrorScene
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QObject *named(const QString &name) const { return root->findChild<QObject *>(name); }
-    QQuickItem *item(const QString &name) const { return Scene::find(window()->contentItem(), name); }
+    QQuickItem *item(const QString &name) const { return mrtest::findVisualItem(window()->contentItem(), name); }
 
     bool click(const QString &name) const
     {
@@ -94,7 +97,7 @@ class UpdateMirrorDialogTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    void initTestCase() { QVERIFY(registerShippingQml()); }
+    void initTestCase() { QVERIFY(mrtest::registerShippingQml()); }
 
     void mockResolvesOnlyValidMirrorChoices_data()
     {

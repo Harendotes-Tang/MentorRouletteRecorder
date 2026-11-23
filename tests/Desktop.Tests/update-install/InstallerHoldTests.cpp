@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "FileTestSupport.h"
 #include "InstallerVerifier.h"
 
 #include <QByteArray>
@@ -39,21 +40,8 @@ namespace {
 
 constexpr auto kInstallerName = "MentorRecorder-9.9.9-setup.exe";
 
-bool writeFile(const QString &path, const QByteArray &bytes)
-{
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(bytes) == bytes.size();
-}
-
-/// A directory junction at \a link to \a target; needs no privilege.
-bool makeJunction(const QString &link, const QString &target)
-{
-    return QProcess::execute(QStringLiteral("cmd.exe"),
-                             {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
-                              QDir::toNativeSeparators(link), QDir::toNativeSeparators(target)})
-           == 0;
-}
+using mrtest::makeJunction;
+using mrtest::writeFile;
 
 } // namespace
 
