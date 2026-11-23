@@ -5,14 +5,9 @@
 #include "AppSettings.h"
 #include "BundledFonts.h"
 #include "DutyCatalog.h"
-#include "Formatters.h"
 #include "GameNames.h"
-#include "JobCatalog.h"
-#include "LanguageManager.h"
 #include "MockBackend.h"
 #include "RecoveryController.h"
-#include "RoleCatalog.h"
-#include "RunFormValidator.h"
 #include "StatsModels.h"
 #include "StatisticsOverlayController.h"
 #include "TrayController.h"
@@ -31,10 +26,7 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QJSEngine>
-#include <QJSValue>
 #include <QMenu>
 #include <QMutex>
 #include <QMutexLocker>
@@ -56,7 +48,6 @@
 #include <QTimer>
 #include <QTimeZone>
 #include <QVariantAnimation>
-#include <QtTest/qtestwheel.h>
 #include <QSystemTrayIcon>
 #include <algorithm>
 #include <bit>
@@ -451,16 +442,7 @@ void StatisticsOverlayTests::initTestCase()
 {
     QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence()));
     QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kAttemptEvidence()));
-    const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
-                                  QStringLiteral("/dialogs"), QStringLiteral("/charts")}) {
-        for (const auto &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
-    }
+    registerSceneQmlTypes();
 }
 
 void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()

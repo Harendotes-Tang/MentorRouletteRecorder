@@ -18,7 +18,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -46,16 +45,7 @@ private Q_SLOTS:
 void DutyCommunityTests::initTestCase()
 {
     QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence()));
-    const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
-                                  QStringLiteral("/dialogs"), QStringLiteral("/charts")}) {
-        for (const auto &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
-            const QByteArray name = file.chopped(4).toUtf8();
-            qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file),
-                            "MentorRecorder", 1, 0, name.constData());
-        }
-    }
+    registerSceneQmlTypes();
 }
 
 void DutyCommunityTests::dashboardOpensTheCommunityLibrary()

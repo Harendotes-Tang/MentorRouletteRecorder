@@ -16,6 +16,7 @@
 #include "StatisticsOverlayController.h"
 
 #include <QByteArray>
+#include <QDir>
 #include <QJSValue>
 #include <QJsonObject>
 #include <QList>
@@ -29,6 +30,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QUrl>
 #include <QVariant>
 #include <QtTest/qtestwheel.h>
 
@@ -36,6 +38,22 @@
 #include <memory>
 
 namespace {
+
+/// Registers the shipping QML the way `import MentorRecorder` finds it in the application:
+/// Theme and every type under components/, pages/, dialogs/ and charts/, from the source tree.
+void registerSceneQmlTypes()
+{
+    const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
+    qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
+    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
+                                  QStringLiteral("/dialogs"), QStringLiteral("/charts")}) {
+        for (const auto &file : QDir(base + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
+            const QByteArray name = file.chopped(4).toUtf8();
+            qmlRegisterType(QUrl::fromLocalFile(base + directory + QLatin1Char('/') + file),
+                            "MentorRecorder", 1, 0, name.constData());
+        }
+    }
+}
 
 const QString &kEvidence()
 {
