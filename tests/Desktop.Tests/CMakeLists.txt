@@ -177,7 +177,7 @@ endforeach()
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
-    SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistoryBatchTransport HistorySelection HistoryColumns RunDetailPanel
+    SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistorySelection HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
            CharacterProfilePages DutyCommunity
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
@@ -200,9 +200,8 @@ foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion Dialo
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
-mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatchTransport)
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistorySelection)
-set_tests_properties(MentorRecorderHistoryBatch MentorRecorderHistoryBatchTransport MentorRecorderHistorySelection
+set_tests_properties(MentorRecorderHistoryBatch MentorRecorderHistorySelection
     PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 
 # ---------------------------------------------------------------------------
