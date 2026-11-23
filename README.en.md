@@ -58,7 +58,7 @@ The Traditional Chinese server currently supports manually managed records only.
 - **Languages, speech and tray**. Supports 简体中文, 繁體中文, English and 日本語. You can switch the interface language and the system voice, and turn on optional online speech.
   With "Launch at startup" enabled, the app starts in the system tray; open the main window to read the update notes.
 - **Capture diagnostics and evidence collection**. Automatically finds the network adapter that carries game traffic; you can run detection again or view the diagnostic report. Evidence collection for new regions and for character identification each have their own wizard.
-  After a Chinese client update, recording can be restored through local or shared calibration.
+  After a Chinese or Global client update, recording can be restored through local or shared calibration. Local calibration on the Global server has not yet been through a real game update.
 
 <details>
 <summary>History and import pages</summary>
@@ -74,7 +74,7 @@ The Traditional Chinese server currently supports manually managed records only.
 |---|---|---|
 | Chinese server `CN` | Ships with the verified `2026.08.05` protocol profile. Later versions require local or shared calibration | Manual entries, import and export, and per-character statistics. Login character identification can be turned off in Settings |
 | Traditional Chinese server `TC` | Awaiting a verified protocol profile | Has its own Traditional Chinese duty and roulette catalogs; supports manual entries, import and export, and manual character switching |
-| Global server `GLOBAL` | Ships with the verified `2026.11.03` protocol profile. Later versions need a new profile released with an app update | Manual entries, import and export, and per-character statistics. Login character identification can be turned off in Settings |
+| Global server `GLOBAL` | Ships with the verified `2026.11.03` protocol profile. Later versions require local or shared calibration, not yet tried on a real game update | Manual entries, import and export, and per-character statistics. Login character identification can be turned off in Settings |
 
 The game region determines which records a run belongs to; the interface language can be switched independently. To help verify automatic recording, collect evidence by following the guide for your region.
 See the [Traditional Chinese server testing guide](docs/traditional-chinese-server-testing.md) (Traditional Chinese), the [Global server testing guide](docs/global-server-testing.md) and the [protocol profiles](protocol-profiles/README.md) (Chinese).
