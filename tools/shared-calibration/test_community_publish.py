@@ -160,7 +160,7 @@ class CommunityRepeatTests(unittest.TestCase):
         return first["id"], entries
 
     def test_texts_compare_as_the_game_and_a_reader_see_them(self):
-        # The app runs the same vectors through DutyCommunityMatch.js (StatisticsOverlayTests::
+        # The app runs the same vectors through DutyCommunityMatch.js (DutyCommunityTests::
         # communityTextRulesMatchThePublisher), so the two sides decide alike.
         vectors = json.loads((testsupport.REPO / "tests/Fixtures/shared-calibration/community-text-vectors.json")
                              .read_text(encoding="utf-8"))
