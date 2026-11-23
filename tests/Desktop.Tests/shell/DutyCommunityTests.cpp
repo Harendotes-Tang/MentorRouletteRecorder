@@ -403,10 +403,19 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QVERIFY(visibleText(field("dutyCommunityEditorVersionByHand"), s("原来写的是「7.x 以后」")));
     QTRY_COMPARE(field("dutyCommunityEditorVersionFrom")->property("currentValue").toString(), QString());
     for (const char *byHand : {"dutyCommunityEditorVersionByHand", "dutyCommunityEditorRoleByHand"}) {
-        QQuickItem *clear = visibleText(field(byHand), s("清除"));
-        QVERIFY2(clear, byHand);
-        QTest::mouseClick(scene.mainWindow(), Qt::LeftButton, {},
-                          clear->mapToScene(QPointF(clear->width() / 2, clear->height() / 2)).toPoint());
+        // Clearing the first row moves the second up. Under load the layout can still be settling
+        // when the click is aimed (the 1.10.0-beta.2 package run missed it), so wait until 清除
+        // stays put between two polls before clicking where it is.
+        QPointF aim(-1, -1);
+        QVERIFY2(QTest::qWaitFor([&] {
+            QQuickItem *clear = visibleText(field(byHand), s("清除"));
+            if (!clear) return false;
+            const QPointF now = clear->mapToScene(QPointF(clear->width() / 2, clear->height() / 2));
+            const bool settled = now == aim;
+            aim = now;
+            return settled;
+        }), byHand);
+        QTest::mouseClick(scene.mainWindow(), Qt::LeftButton, {}, aim.toPoint());
         QTRY_VERIFY2(!field(byHand), byHand);
     }
     QQuickItem *stage = field("dutyCommunityEditorStage");
