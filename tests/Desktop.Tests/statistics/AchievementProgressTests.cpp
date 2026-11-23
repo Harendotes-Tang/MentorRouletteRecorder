@@ -61,6 +61,13 @@ public:
                 {QStringLiteral("baseline_completed_count"), baseline},
                 {QStringLiteral("remaining"), qMax(0, goal - progress)}};
     }
+    /// One entry of a dashboard's achievements list: \a region's own figures.
+    static QJsonObject regionSnapshot(const QString &region, int progress, int goal = 2000, int baseline = 0)
+    {
+        QJsonObject entry = snapshot(progress, goal, baseline);
+        entry.insert(QStringLiteral("region"), region);
+        return entry;
+    }
     void read(mr::StatisticsController &stats, int progress, int goal = 2000, int baseline = 0)
     {
         stats.refreshDashboard();
@@ -466,11 +473,9 @@ namespace {
 QJsonObject regionalSnapshot(int cn, int tc)
 {
     QJsonObject snapshot = ProgressBackend::snapshot(cn);
-    QJsonObject cnEntry = ProgressBackend::snapshot(cn);
-    cnEntry.insert(QStringLiteral("region"), QStringLiteral("CN"));
-    QJsonObject tcEntry = ProgressBackend::snapshot(tc, 100, 0);
-    tcEntry.insert(QStringLiteral("region"), QStringLiteral("TC"));
-    snapshot.insert(QStringLiteral("achievements"), QJsonArray{cnEntry, tcEntry});
+    snapshot.insert(QStringLiteral("achievements"),
+                    QJsonArray{ProgressBackend::regionSnapshot(QStringLiteral("CN"), cn),
+                               ProgressBackend::regionSnapshot(QStringLiteral("TC"), tc, 100, 0)});
     return snapshot;
 }
 }
@@ -563,8 +568,7 @@ void AchievementProgressTests::regionalReadsProtectSettingsAndListingScope()
     stats.setBaselineRegion(QStringLiteral("TC"));
     stats.updateAchievementBaseline(200, 12, QStringLiteral("TC baseline"));
     backend.settingsReply->succeed({{"region", "TC"}, {"goal_count", 200}, {"baseline_completed_count", 12}});
-    QJsonObject fresh = ProgressBackend::snapshot(19, 200, 12);
-    fresh.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    const QJsonObject fresh = ProgressBackend::regionSnapshot(QStringLiteral("TC"), 19, 200, 12);
     backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{fresh}}});
     oldRead->succeed(regionalSnapshot(1500, 7));
     QCOMPARE(stats.goalCount(), 200);
@@ -600,8 +604,7 @@ void AchievementProgressTests::regionalGoalReadUsesTheRunsRegion()
     app.readGoalProgress(QStringLiteral("tc-run"), QStringLiteral("TC"));
     QCOMPARE(backend.lastDashboardPayload.value(QStringLiteral("filter")).toObject()
         .value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
-    QJsonObject tc = ProgressBackend::snapshot(8, 100, 0);
-    tc.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    const QJsonObject tc = ProgressBackend::regionSnapshot(QStringLiteral("TC"), 8, 100, 0);
     backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{tc}}});
     QCOMPARE(read.size(), 1);
     QVERIFY(read.first().at(1).toBool());
@@ -619,8 +622,7 @@ void AchievementProgressTests::targetedReadsRejectOlderDashboardMilestones()
     stats.refreshDashboard();
     const auto oldRead = backend.dashboards.takeLast();
     stats.requestRegionalAchievement(QStringLiteral("CN"));
-    QJsonObject current = ProgressBackend::snapshot(1900);
-    current.insert(QStringLiteral("region"), QStringLiteral("CN"));
+    const QJsonObject current = ProgressBackend::regionSnapshot(QStringLiteral("CN"), 1900);
     backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{current}}});
     oldRead->succeed(ProgressBackend::snapshot(2000));
     QCOMPARE(reached.size(), 0);
@@ -637,11 +639,8 @@ void AchievementProgressTests::unusedRegionsReadTheirOwnAuthoritativeDefaults()
     QCOMPARE(stats.allAchievements().size(), 2);
     QVERIFY(stats.achievementForRegion(QStringLiteral("UNKNOWN")).isEmpty());
     QCOMPARE(backend.dashboards.size(), 2);
-    for (const QString &region : {QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
-        QJsonObject empty = ProgressBackend::snapshot(0);
-        empty.insert(QStringLiteral("region"), region);
-        backend.dashboards.takeFirst()->succeed({{"achievements", QJsonArray{empty}}});
-    }
+    for (const QString &region : {QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")})
+        backend.dashboards.takeFirst()->succeed({{"achievements", QJsonArray{ProgressBackend::regionSnapshot(region, 0)}}});
     QCOMPARE(stats.allAchievements().size(), 4);
     QCOMPARE(stats.achievementForRegion(QStringLiteral("UNKNOWN")).value(QStringLiteral("baseline_completed_count")).toInt(), 0);
     stats.forgetAchievementSettings();
@@ -670,9 +669,7 @@ void AchievementProgressTests::reconnectReadsEveryRegionTheScopeReadLeftOut()
                                       QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
             if (asked.isEmpty() ? region == QLatin1String("CN") || region == QLatin1String("TC") : region == asked) {
                 const int figure = region == QLatin1String("TC") ? 70 : 640;
-                QJsonObject entry = ProgressBackend::snapshot(figure, 2000, figure);
-                entry.insert(QStringLiteral("region"), region);
-                entries.append(entry);
+                entries.append(ProgressBackend::regionSnapshot(region, figure, 2000, figure));
             }
         }
         reply->succeed({{QStringLiteral("achievements"), entries}});

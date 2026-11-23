@@ -3,9 +3,9 @@
 //
 // Covers the whole Desktop side of the feature without a Collector: the two new
 // persisted settings, the mock backend's SetRunReflection / GetReflectionSummary
-// and its 有心得 filter, the controller's save / clear / summary refresh, the
-// 通关后弹出 prompt (including the two cases where it must stay silent) and the
-// request builders the committed IPC fixtures are generated from.
+// and its 有心得 filter, the controller's save / clear / summary refresh and the
+// 通关后弹出 prompt (including the two cases where it must stay silent). The two
+// request builders are pinned by IpcRequestTests.
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
@@ -13,7 +13,6 @@
 #include "AppController.h"
 #include "AppSettings.h"
 #include "IBackend.h"
-#include "IpcBackend.h"
 #include "MockBackend.h"
 #include "RunListModel.h"
 
@@ -175,18 +174,6 @@ QVariantMap nextPendingRun(const mr::MockBackend &backend)
         .toVariantMap();
 }
 
-QVariantMap firstRecentRun(const mr::MockBackend &backend)
-{
-    return backend.reflectionSummary(3)
-        .value(QStringLiteral("recent"))
-        .toArray()
-        .first()
-        .toObject()
-        .value(QStringLiteral("run"))
-        .toObject()
-        .toVariantMap();
-}
-
 int summaryCount(const mr::AppController &controller, const char *key)
 {
     return controller.reflectionSummary().value(QLatin1String(key)).toInt();
@@ -200,6 +187,8 @@ class ReflectionTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void init();
+    void cleanup();
     void settings_roundTripReflectPromptAndUiStyle();
     void mockBackend_summarisesTheSeededReflections();
     void mockBackend_filtersRunsThatHaveAReflection();
@@ -210,9 +199,19 @@ private Q_SLOTS:
     void appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted();
     void appController_keepsNewResultPromptWhileIdentityAndDashboardArePending_data();
     void appController_keepsNewResultPromptWhileIdentityAndDashboardArePending();
-    void ipcBackend_buildsBothReflectionRequests();
 };
 } // namespace
+
+/// Every slot starts and ends without the shared settings file, also after a failure.
+void ReflectionTests::init()
+{
+    QFile::remove(settingsPath());
+}
+
+void ReflectionTests::cleanup()
+{
+    QFile::remove(settingsPath());
+}
 
 void ReflectionTests::appController_keepsNewResultPromptWhileIdentityAndDashboardArePending_data()
 {
@@ -275,7 +274,6 @@ void ReflectionTests::appController_keepsNewResultPromptWhileIdentityAndDashboar
 /// OH-6) - unless the player switched 通关后弹出心得窗口 off in the meantime.
 void ReflectionTests::appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted()
 {
-    QFile::remove(settingsPath());
     for (const bool stillWanted : {true, false}) {
         mr::AppSettings settings(settingsPath(), nullptr);
         settings.setReflectPrompt(true);
@@ -297,13 +295,10 @@ void ReflectionTests::appController_offersAPromptDroppedWhileBusyOnlyWhileStillW
                      QStringLiteral("run-waiting"));
         }
     }
-    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
 {
-    QFile::remove(settingsPath());
-
     {
         mr::AppSettings settings(settingsPath(), nullptr);
         // Defaults: the prompt is on and the workbench (classic) skin is the one
@@ -343,8 +338,6 @@ void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
         QCOMPARE(reopened.reflectPrompt(), false);
         QCOMPARE(reopened.uiStyle(), QStringLiteral("eorzea"));
     }
-
-    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::mockBackend_summarisesTheSeededReflections()
@@ -414,7 +407,6 @@ void ReflectionTests::mockBackend_filtersRunsThatHaveAReflection()
 
 void ReflectionTests::appController_savesAndClearsTheSelectedRunsReflection()
 {
-    QFile::remove(settingsPath());
     mr::AppSettings settings(settingsPath(), nullptr);
     mr::MockBackend backend;
     mr::AppController controller(&backend, &settings);
@@ -465,12 +457,10 @@ void ReflectionTests::appController_savesAndClearsTheSelectedRunsReflection()
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 3000);
     QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("ERR_NOT_FOUND"));
     QCOMPARE(saved.count(), 2);
-    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_promptsOncePerCompletedRun()
 {
-    QFile::remove(settingsPath());
     mr::AppSettings settings(settingsPath(), nullptr);
     settings.setReflectPrompt(true);
 
@@ -496,13 +486,10 @@ void ReflectionTests::appController_promptsOncePerCompletedRun()
     // The dashboard's 补录 target is a stored run, never the live one.
     QVERIFY(run.value(QStringLiteral("run_id")).toString()
             != nextPendingRun(backend).value(QStringLiteral("run_id")).toString());
-    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_staysSilentWhenDisabledOrAlreadyWritten()
 {
-    QFile::remove(settingsPath());
-
     // 1. 通关后弹出心得窗口 off: no prompt, whatever arrives.
     {
         mr::AppSettings settings(settingsPath(), nullptr);
@@ -546,8 +533,6 @@ void ReflectionTests::appController_staysSilentWhenDisabledOrAlreadyWritten()
         backend.emitEvent(runUpdatedEvent(running));
         QCOMPARE(prompts.count(), 1);
     }
-
-    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession()
@@ -555,7 +540,6 @@ void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession
     // The Collector replays its last events to every client that connects, so
     // a run that finished hours ago - or one a test harness wrote - reaches a
     // freshly started Desktop as a live run_finished. It is history, not 刚刚完成.
-    QFile::remove(settingsPath());
     mr::AppSettings settings(settingsPath(), nullptr);
     settings.setReflectPrompt(true);
     EventBackend backend;
@@ -598,52 +582,6 @@ void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession
         backend.emitEvent(runUpdatedEvent(completedRun(QStringLiteral("run-replayed"))));
         QCOMPARE(prompts.count(), 1);
     }
-    QFile::remove(settingsPath());
-}
-
-void ReflectionTests::ipcBackend_buildsBothReflectionRequests()
-{
-    QJsonObject args;
-    args.insert(QStringLiteral("run_id"),
-                QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c"));
-    args.insert(QStringLiteral("mood"), QStringLiteral("good"));
-    args.insert(QStringLiteral("text"), QString::fromUtf8("一次过。"));
-
-    const QJsonObject set =
-        mr::IpcBackend::buildRequestForTest(QStringLiteral("SetRunReflection"), args);
-    QCOMPARE(set.value(QStringLiteral("message_type")).toString(),
-             QStringLiteral("SetRunReflection"));
-    const QJsonObject setPayload = set.value(QStringLiteral("payload")).toObject();
-    QCOMPARE(setPayload.keys(),
-             QStringList({QStringLiteral("mood"), QStringLiteral("run_id"),
-                          QStringLiteral("text")}));
-    QCOMPARE(setPayload.value(QStringLiteral("run_id")).toString(),
-             args.value(QStringLiteral("run_id")).toString());
-
-    // An empty text is a deletion and must survive into the payload.
-    args.insert(QStringLiteral("text"), QString());
-    const QJsonObject cleared =
-        mr::IpcBackend::buildRequestForTest(QStringLiteral("SetRunReflection"), args);
-    QVERIFY(cleared.value(QStringLiteral("payload")).toObject().contains(QStringLiteral("text")));
-
-    QJsonObject summaryArgs;
-    summaryArgs.insert(QStringLiteral("recent_limit"), 3);
-    const QJsonObject summary =
-        mr::IpcBackend::buildRequestForTest(QStringLiteral("GetReflectionSummary"),
-                                            summaryArgs);
-    const QJsonObject summaryPayload = summary.value(QStringLiteral("payload")).toObject();
-    QCOMPARE(summaryPayload.keys(), QStringList({QStringLiteral("recent_limit")}));
-    QCOMPARE(summaryPayload.value(QStringLiteral("recent_limit")).toInt(), 3);
-
-    // Out-of-range values are clamped to $defs/GetReflectionSummaryRequest.
-    summaryArgs.insert(QStringLiteral("recent_limit"), 99);
-    QCOMPARE(mr::IpcBackend::buildRequestForTest(QStringLiteral("GetReflectionSummary"),
-                                                 summaryArgs)
-                 .value(QStringLiteral("payload"))
-                 .toObject()
-                 .value(QStringLiteral("recent_limit"))
-                 .toInt(),
-             20);
 }
 
 MR_DESKTOP_TEST_SUITE(Reflection)

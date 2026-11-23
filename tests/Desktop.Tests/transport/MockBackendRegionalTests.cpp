@@ -23,6 +23,16 @@ using mrtest::importStatuses;
 using mrtest::previewImport;
 using mrtest::runCount;
 
+/// The id of \a region's first character profile, or 0 when the region has none.
+int regionProfileId(const mr::MockBackend &backend, const QString &region)
+{
+    for (const auto &value : backend.characterProfiles()) {
+        if (value.toObject().value("region").toString() == region)
+            return value.toObject().value("profile_id").toInt();
+    }
+    return 0;
+}
+
 class MockBackendRegionalTests : public QObject
 {
     Q_OBJECT
@@ -517,18 +527,11 @@ private Q_SLOTS:
             run.insert(QStringLiteral("content_id"), 5);
             return run;
         };
-        const auto profileOf = [](const mr::MockBackend &backend, const QString &region) {
-            for (const auto &value : backend.characterProfiles()) {
-                if (value.toObject().value("region").toString() == region)
-                    return value.toObject().value("profile_id").toInt();
-            }
-            return 0;
-        };
         const QJsonArray runs{QJsonObject{{"run_id", first}, {"expected_revision", 1}}};
 
         mr::MockBackend crowded;
         crowded.resetRuns({manual(first, QStringLiteral("CN")), manual(twin, QStringLiteral("TC"))});
-        const int crowdedTarget = profileOf(crowded, QStringLiteral("TC"));
+        const int crowdedTarget = regionProfileId(crowded, QStringLiteral("TC"));
         QVERIFY(crowdedTarget > 0);
         QCOMPARE(ask(crowded, QStringLiteral("PreviewRunRegionMigration"),
                      {{"runs", runs}, {"region", "TC"}, {"profile_id", 999}}).code, QStringLiteral("ERR_NOT_FOUND"));
@@ -539,7 +542,7 @@ private Q_SLOTS:
 
         mr::MockBackend backend;
         backend.resetRuns({manual(first, QStringLiteral("CN"))});
-        const int target = profileOf(backend, QStringLiteral("TC"));
+        const int target = regionProfileId(backend, QStringLiteral("TC"));
         const Answer preview = ask(backend, QStringLiteral("PreviewRunRegionMigration"),
                                    {{"runs", runs}, {"region", "TC"}, {"profile_id", target}});
         QVERIFY2(preview.ok, qPrintable(preview.message));
@@ -570,13 +573,8 @@ private Q_SLOTS:
         const QJsonArray both{QJsonObject{{"run_id", first}, {"expected_revision", 1}},
                               QJsonObject{{"run_id", second}, {"expected_revision", 1}}};
         const auto previewMove = [&both](mr::MockBackend &backend) {
-            int target = 0;
-            for (const auto &value : backend.characterProfiles()) {
-                if (value.toObject().value("region").toString() == QLatin1String("TC"))
-                    target = value.toObject().value("profile_id").toInt();
-            }
             return ask(backend, QStringLiteral("PreviewRunRegionMigration"),
-                       {{"runs", both}, {"region", "TC"}, {"profile_id", target}});
+                       {{"runs", both}, {"region", "TC"}, {"profile_id", regionProfileId(backend, QStringLiteral("TC"))}});
         };
 
         // Two copies of one imported record that know only the source's time.
@@ -610,11 +608,7 @@ private Q_SLOTS:
     {
         mr::MockBackend backend;
         const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0, true);
-        int profile = 0;
-        for (const auto &value : backend.characterProfiles()) {
-            if (value.toObject().value("region").toString() == QLatin1String("CN") && profile == 0)
-                profile = value.toObject().value("profile_id").toInt();
-        }
+        const int profile = regionProfileId(backend, QStringLiteral("CN"));
         QVERIFY(profile > 0);
         QVERIFY(ask(backend, QStringLiteral("ResolveCharacterIdentity"),
                     {{"identity_id", identity}, {"action", "IGNORE"}}).ok);
@@ -648,6 +642,35 @@ private Q_SLOTS:
         QCOMPARE(adjustments.at(0).toObject().value("baseline_completed_count").toInt(), 4);
         QCOMPARE(backend.dashboardStats({}).value("baseline_completed_count").toInt(), 10); // CN's current is untouched
         QCOMPARE(backend.characterProfiles().at(1).toObject().value("achievement_progress").toInt(), 5);
+    }
+
+    void thePendingIdentityFixtureWorksWithAndWithoutProfiles()
+    {
+        // --mock-pending-identity alone: the region keeps its single unnamed profile.
+        mr::MockBackend plain;
+        plain.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QCOMPARE(plain.characterProfiles().size(), 2); // CN and TC, one each
+        QCOMPARE(plain.characterIdentities().size(), 1);
+        QCOMPARE(plain.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
+        const QJsonObject stats = plain.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}});
+        const QJsonObject cn = stats.value(QStringLiteral("achievements")).toArray().first().toObject();
+        QCOMPARE(cn.value(QStringLiteral("unassigned_run_count")).toInt(), 2);
+        QCOMPARE(cn.value(QStringLiteral("identification")).toString(), QStringLiteral("AUTOMATIC"));
+        QCOMPARE(stats.value(QStringLiteral("identities")).toArray().size(), 1);
+
+        // After --mock-profiles: it claims two of the three runs that fixture left to nobody.
+        mr::MockBackend profiles;
+        profiles.setCharacterProfilesFixture();
+        const auto unassigned = [](const mr::MockBackend &backend) {
+            return backend.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}})
+                .value(QStringLiteral("achievements")).toArray().first().toObject()
+                .value(QStringLiteral("unassigned_run_count")).toInt();
+        };
+        const int before = unassigned(profiles);
+        QCOMPARE(before, 3);
+        profiles.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QCOMPARE(profiles.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
+        QCOMPARE(unassigned(profiles), before);
     }
 };
 } // namespace

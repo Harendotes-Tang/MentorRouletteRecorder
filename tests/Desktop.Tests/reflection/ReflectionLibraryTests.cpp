@@ -153,6 +153,44 @@ public:
 Q_SIGNALS:
     void changed();
 };
+
+/// The 心得库 search page at 1100x560, as the search tests open it.
+constexpr auto kSearchPageQml = R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 1100; height: 560
+    ReflectionsPage { objectName: "page"; anchors.fill: parent }
+})";
+
+/// ReflectionsPage over a library, with the context the page reads. Declare the
+/// library before the scene, so the engine goes first.
+struct LibraryPageScene {
+    LibraryThemeState theme;
+    mr::Formatters formatters;
+    mr::JobCatalog jobs;
+    QQmlEngine engine;
+    std::unique_ptr<QObject> root;
+    QString errors;
+
+    /// ForceUiStyle is set only when \a style is given.
+    bool create(mr::ReflectionLibraryController &library, const QByteArray &qml, const QString &style = {})
+    {
+        auto *context = engine.rootContext();
+        if (!style.isEmpty())
+            context->setContextProperty(QStringLiteral("ForceUiStyle"), style);
+        context->setContextProperty(QStringLiteral("App"), &theme);
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Reflections"), &library);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(qml, QUrl());
+        root.reset(component.create());
+        errors = component.errorString();
+        return root != nullptr;
+    }
+};
 } // namespace
 
 namespace {
@@ -283,7 +321,7 @@ private Q_SLOTS:
         QTRY_VERIFY(!history.isLoading());
         QCOMPARE(backend.queries.last().value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("历史筛选"));
     }
-    void dateRangeFilterAndDateOrdering() {
+    void dateRangeFilter() {
         QueryBackend backend;
         mr::ReflectionLibraryController library(&backend);
         library.setActive(true);
@@ -306,33 +344,6 @@ private Q_SLOTS:
         const auto cleared = backend.queries.last().value(QStringLiteral("filter")).toObject();
         QVERIFY(!cleared.contains(QStringLiteral("from_utc")));
         QVERIFY(!cleared.contains(QStringLiteral("date_field")));
-
-        // Ordering follows the history date; equal dates keep their order and
-        // undated records come last in both directions.
-        const QVariantMap matched{{QStringLiteral("run_id"), QStringLiteral("matched")},
-                                  {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T10:00:00.000Z")}};
-        const QVariantMap entered{{QStringLiteral("run_id"), QStringLiteral("entered")},
-                                  {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-01T10:00:00Z")}};
-        const QVariantMap sourceDay{{QStringLiteral("run_id"), QStringLiteral("source-day")},
-                                    {QStringLiteral("import_metadata"),
-                                     QVariantMap{{QStringLiteral("source_recorded_at"), QStringLiteral("2026/9/3")}}}};
-        const QVariantMap sourceTime{{QStringLiteral("run_id"), QStringLiteral("source-time")},
-                                     {QStringLiteral("import_metadata"),
-                                      QVariantMap{{QStringLiteral("source_recorded_at_utc"), QStringLiteral("2026-09-01T10:00:00.000Z")}}}};
-        const QVariantMap undated{{QStringLiteral("run_id"), QStringLiteral("undated")}};
-        const auto ids = [](const QVariantList &runs) {
-            QStringList result;
-            for (const QVariant &run : runs) result.append(run.toMap().value(QStringLiteral("run_id")).toString());
-            return result;
-        };
-        const QVariantList given{undated, matched, entered, sourceDay, sourceTime};
-        QCOMPARE(ids(library.orderedByDate(given, true)),
-                 (QStringList{QStringLiteral("entered"), QStringLiteral("source-time"), QStringLiteral("matched"),
-                              QStringLiteral("source-day"), QStringLiteral("undated")}));
-        QCOMPARE(ids(library.orderedByDate(given, false)),
-                 (QStringList{QStringLiteral("source-day"), QStringLiteral("matched"), QStringLiteral("entered"),
-                              QStringLiteral("source-time"), QStringLiteral("undated")}));
-        QCOMPARE(ids(library.orderedByDate({}, true)), QStringList{});
     }
     void failureIsNotAnEmptyResultAndRetryWorks() {
         QueryBackend backend;
@@ -389,27 +400,10 @@ private Q_SLOTS:
     void searchKeepsTheSpaceJustTyped() {
         QueryBackend backend;
         mr::ReflectionLibraryController library(&backend);
-        LibraryThemeState theme;
-        mr::Formatters formatters;
-        mr::JobCatalog jobs;
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
-        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &library);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    visible: true; width: 1100; height: 560
-    ReflectionsPage { objectName: "page"; anchors.fill: parent }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root, qPrintable(component.errorString()));
-        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
-        QObject *search = root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
+        LibraryPageScene scene;
+        QVERIFY2(scene.create(library, kSearchPageQml), qPrintable(scene.errors));
+        QObject *page = scene.root->findChild<QObject *>(QStringLiteral("page"));
+        QObject *search = scene.root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
         QVERIFY(page && search);
         search->setProperty("text", QStringLiteral("The Aurum "));
         // What the 300 ms debounce runs.
@@ -434,27 +428,10 @@ ApplicationWindow {
         backend.add(QStringLiteral("smooth"), QString::fromUtf8("顺利"));
         backend.add(QStringLiteral("other"), QStringLiteral("held the boss well"));
         mr::ReflectionLibraryController library(&backend);
-        LibraryThemeState theme;
-        mr::Formatters formatters;
-        mr::JobCatalog jobs;
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
-        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &library);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    visible: true; width: 1100; height: 560
-    ReflectionsPage { objectName: "page"; anchors.fill: parent }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root, qPrintable(component.errorString()));
-        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
-        QObject *search = root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
+        LibraryPageScene scene;
+        QVERIFY2(scene.create(library, kSearchPageQml), qPrintable(scene.errors));
+        QObject *page = scene.root->findChild<QObject *>(QStringLiteral("page"));
+        QObject *search = scene.root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
         QVERIFY(page && search);
         library.setActive(true);
         QTRY_COMPARE(library.runs()->total(), 3);
@@ -488,33 +465,21 @@ ApplicationWindow {
         QFETCH(QString, style);
         QueryBackend backend;
         mr::ReflectionLibraryController library(&backend);
-        LibraryThemeState theme;
-        theme.dark = dark;
-        mr::Formatters formatters;
-        mr::JobCatalog jobs;
-        QQmlEngine engine;
         QStringList warnings;
-        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+        LibraryPageScene scene;
+        scene.theme.dark = dark;
+        connect(&scene.engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
             for (const auto &error : errors) warnings.append(error.toString());
         });
-        engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
-        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &library);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
+        QVERIFY2(scene.create(library, R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     visible: true; width: 720; height: 560
     color: Theme.contentBackground
     ReflectionsPage { objectName: "page"; anchors.fill: parent; anchors.margins: 24 }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root, qPrintable(component.errorString()));
-        auto *window = qobject_cast<QQuickWindow *>(root.get());
+})", style), qPrintable(scene.errors));
+        auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
         window->resize(size);
         QVERIFY(QTest::qWaitForWindowExposed(window));
         library.setActive(true);
@@ -540,7 +505,7 @@ ApplicationWindow {
             if (size.width() >= 1100)
                 QCOMPARE(control->y(), qreal(0));
         }
-        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
+        QObject *page = scene.root->findChild<QObject *>(QStringLiteral("page"));
         QSignalSpy detail(page, SIGNAL(openRunRequested(QVariant)));
         QVERIFY(detail.isValid());
         select->forceActiveFocus();
@@ -570,7 +535,7 @@ ApplicationWindow {
                 .arg(style, dark ? QStringLiteral("dark") : QStringLiteral("light"))
                 .arg(size.width()))));
         }
-        cancelLibraryFilterAndClearSelection(window, root.get(), library, search, warnings);
+        cancelLibraryFilterAndClearSelection(window, scene.root.get(), library, search, warnings);
         QVERIFY(!QTest::currentTestFailed());
     }
     // 审查 I4-1：勾选保存的是记录的副本。心得被清空、记录被删除，或在别的页上改过

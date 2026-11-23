@@ -20,7 +20,6 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -235,6 +234,13 @@ ApplicationWindow {
         QTest::qWait(80);
         return QDir().mkpath(evidence) && window()->grabWindow().save(QDir(evidence).filePath(name));
     }
+
+    /// The count of the Repeater named \a name, or -1 when there is none.
+    int repeaterCount(const char *name) const
+    {
+        auto *repeater = root->findChild<QObject *>(QString::fromLatin1(name));
+        return repeater ? repeater->property("count").toInt() : -1;
+    }
 };
 
 } // namespace
@@ -247,13 +253,9 @@ class DungeonCompositionTests : public QObject
 private:
     static void verifyJobPlaceholderProjection(Scene &scene, const mr::LanguageManager &language, QQuickItem *page, int unknown)
     {
-        const auto repeaterCount = [&](const char *name) {
-            auto *repeater = scene.root->findChild<QObject *>(QString::fromLatin1(name));
-            return repeater ? repeater->property("count").toInt() : -1;
-        };
         QTRY_COMPARE(scene.controller.jobs()->totalAttemptCount(), 6 + unknown);
         QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), unknown ? 6 : 5);
-        QTRY_COMPARE(repeaterCount("jobsTableRows"), unknown ? 6 : 5);
+        QTRY_COMPARE(scene.repeaterCount("jobsTableRows"), unknown ? 6 : 5);
         QTRY_COMPARE(qmlList(page->property("rolesCache")).size(), unknown ? 7 : 6);
         // The ring's legend: a row for 坦克, 治疗, 其他 and, when it counts
         // something, 未知; the three roles nobody played share the folded row.
@@ -766,19 +768,13 @@ private Q_SLOTS:
         QCOMPARE(scene.controller.dungeons()->topRows(0).size(), 6);
         QCOMPARE(scene.controller.dungeons()->totalAttemptCount(), 1);
 
-        const QString evidence = qEnvironmentVariable("MR_COMPOSITION_SCREENSHOT_DIR");
-        const auto capture = [&](const QString &name) {
-            if (evidence.isEmpty()) return true;
-            QTest::qWait(80);
-            return QDir().mkpath(evidence) && scene.window()->grabWindow().save(QDir(evidence).filePath(name));
-        };
-        QVERIFY(capture(QStringLiteral("unknown-zero-hidden.png")));
+        QVERIFY(scene.capture(QStringLiteral("unknown-zero-hidden.png")));
 
         scene.backend.rows[2] = duty(QJsonValue::Null, QJsonValue::Null, 0, 2, QString::fromUtf8("未知副本"));
         scene.controller.dungeons()->reload();
         QTRY_COMPARE(scene.controller.dungeons()->totalAttemptCount(), 3);
         QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), 4);
-        QVERIFY(capture(QStringLiteral("unknown-nonzero-shown.png")));
+        QVERIFY(scene.capture(QStringLiteral("unknown-nonzero-shown.png")));
 
         scene.backend.rows[2] = duty(QJsonValue::Null, QJsonValue::Null, 0, 0, QString::fromUtf8("未知副本"));
         scene.controller.dungeons()->reload();
@@ -957,10 +953,6 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         auto *page = scene.item(QStringLiteral("dungeonsPage"));
         QVERIFY(page);
-        const auto repeaterCount = [&](const char *name) {
-            auto *repeater = scene.root->findChild<QObject *>(QString::fromLatin1(name));
-            return repeater ? repeater->property("count").toInt() : -1;
-        };
         int phase = 0;
         for (const int unknown : {0, 2, 0}) {
             // Check the same fixture before and after translation without another read.
@@ -1012,8 +1004,8 @@ private Q_SLOTS:
                         scene.controller.refreshDashboard();
                     }
                     QTRY_COMPARE(page->property("resultTotal").toInt(), 1 + unknown);
-                    QTRY_COMPARE(repeaterCount("dashboardResultLegend"), unknown ? 6 : 5);
-                    QTRY_COMPARE(repeaterCount("dashboardStatCards"), unknown ? 8 : 7);
+                    QTRY_COMPARE(scene.repeaterCount("dashboardResultLegend"), unknown ? 6 : 5);
+                    QTRY_COMPARE(scene.repeaterCount("dashboardStatCards"), unknown ? 8 : 7);
                     const auto raw = scene.controller.resultBuckets();
                     QCOMPARE(raw.size(), 6);
                     QCOMPARE(raw.last().toMap().value("result").toString(), QStringLiteral("UNKNOWN"));

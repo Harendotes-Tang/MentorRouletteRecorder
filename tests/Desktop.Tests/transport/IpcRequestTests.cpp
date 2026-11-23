@@ -515,6 +515,30 @@ QJsonObject readSample(const QString &path)
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 
+/// Writes \a envelope where a maintainer copies regenerated samples from.
+bool writeEnvelope(const QString &path, const QJsonObject &envelope)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return file.write(QJsonDocument(envelope).toJson(QJsonDocument::Indented)) >= 0;
+}
+
+/// Compares \a envelope with the committed sample at \a path field by field rather
+/// than as whole documents: the payload and the two envelope fields this client
+/// decides are what the contract pins. request_id is not one of them - a sample
+/// written on the Collector side carries its own id, and this client's constant is
+/// already asserted by buildsOneSamplePerMessageType. Callers stop on
+/// QTest::currentTestFailed().
+void compareWithSample(const QJsonObject &envelope, const QString &path, const QString &drift)
+{
+    const QJsonObject sample = readSample(path);
+    QVERIFY2(!sample.isEmpty(), qPrintable(path));
+    QCOMPARE(sample.value(QStringLiteral("message_type")), envelope.value(QStringLiteral("message_type")));
+    QCOMPARE(sample.value(QStringLiteral("protocol_version")), envelope.value(QStringLiteral("protocol_version")));
+    QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")), qPrintable(drift));
+}
+
 } // namespace
 
 namespace {
@@ -526,6 +550,7 @@ private Q_SLOTS:
     void buildsOneSamplePerMessageType();
     void samplesMatchTheCommittedFixtures();
     void variantsMatchTheCommittedFixtures();
+    void reflectionRequestsKeepAnEmptyTextAndClampTheRecentLimit();
     void exportRequestsReplaceOnlyAConfirmedTarget();
     void characterIdentityRequestsCarryOnlyTheirFields();
     void candidateEvidenceRequestsCarryAnswersOnlyWhenWritten();
@@ -546,52 +571,28 @@ void IpcRequestTests::buildsOneSamplePerMessageType()
                  QString::fromLatin1(mr::IpcBackend::testRequestId()));
         QVERIFY(envelope.value(QStringLiteral("payload")).isObject());
 
-        QFile file(QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR) + QLatin1Char('/') + type +
-                   QStringLiteral(".json"));
-        QVERIFY2(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
-                 qPrintable(file.errorString()));
-        file.write(QJsonDocument(envelope).toJson(QJsonDocument::Indented));
-        file.close();
+        const QString path = QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR) + QLatin1Char('/') + type + QStringLiteral(".json");
+        QVERIFY2(writeEnvelope(path, envelope), qPrintable(path));
     }
     const QString variants = QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR) + QStringLiteral("/variants");
     QVERIFY(QDir().mkpath(variants));
     for (const RequestVariant &variant : requestVariants()) {
         const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(variant.messageType, variant.args);
         QCOMPARE(envelope.value(QStringLiteral("message_type")).toString(), variant.messageType);
-        QFile file(variants + QLatin1Char('/') + variant.file + QStringLiteral(".json"));
-        QVERIFY2(file.open(QIODevice::WriteOnly | QIODevice::Truncate), qPrintable(file.errorString()));
-        file.write(QJsonDocument(envelope).toJson(QJsonDocument::Indented));
+        const QString path = variants + QLatin1Char('/') + variant.file + QStringLiteral(".json");
+        QVERIFY2(writeEnvelope(path, envelope), qPrintable(path));
     }
 }
 
 void IpcRequestTests::samplesMatchTheCommittedFixtures()
 {
     for (const QString &type : allMessageTypes()) {
-        const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(type, argsFor(type));
-
-        QFile file(QStringLiteral(MR_IPC_REQUEST_FIXTURE_DIR) + QLatin1Char('/') + type +
-                   QStringLiteral(".json"));
-        QVERIFY2(file.open(QIODevice::ReadOnly),
-                 qPrintable(file.fileName() + QStringLiteral(": ") + file.errorString()));
-        QJsonParseError error{};
-        const QJsonDocument committed = QJsonDocument::fromJson(file.readAll(), &error);
-        file.close();
-        QCOMPARE(error.error, QJsonParseError::NoError);
-
-        // Compared field by field rather than as whole documents: the payload
-        // and the two envelope fields this client decides are what the contract
-        // pins. request_id is not one of them - a sample written on the
-        // Collector side carries its own id, and this client's constant is
-        // already asserted by buildsOneSamplePerMessageType above.
-        const QJsonObject sample = committed.object();
-        QCOMPARE(sample.value(QStringLiteral("message_type")),
-                 envelope.value(QStringLiteral("message_type")));
-        QCOMPARE(sample.value(QStringLiteral("protocol_version")),
-                 envelope.value(QStringLiteral("protocol_version")));
-        QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")),
-                 qPrintable(type + QStringLiteral(" drifted from its committed sample; ") +
-                            QStringLiteral("regenerate from ") +
-                            QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR)));
+        compareWithSample(mr::IpcBackend::buildRequestForTest(type, argsFor(type)),
+                          QStringLiteral(MR_IPC_REQUEST_FIXTURE_DIR) + QLatin1Char('/') + type + QStringLiteral(".json"),
+                          type + QStringLiteral(" drifted from its committed sample; regenerate from ")
+                              + QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR));
+        if (QTest::currentTestFailed())
+            return;
     }
 }
 
@@ -599,16 +600,28 @@ void IpcRequestTests::samplesMatchTheCommittedFixtures()
 void IpcRequestTests::variantsMatchTheCommittedFixtures()
 {
     for (const RequestVariant &variant : requestVariants()) {
-        const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(variant.messageType, variant.args);
-        const QString path = QStringLiteral(MR_IPC_REQUEST_FIXTURE_DIR) + QStringLiteral("/variants/")
-            + variant.file + QStringLiteral(".json");
-        const QJsonObject sample = readSample(path);
-        QVERIFY2(!sample.isEmpty(), qPrintable(path));
-        QCOMPARE(sample.value(QStringLiteral("message_type")), envelope.value(QStringLiteral("message_type")));
-        QCOMPARE(sample.value(QStringLiteral("protocol_version")), envelope.value(QStringLiteral("protocol_version")));
-        QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")),
-                 qPrintable(variant.file + QStringLiteral(" drifted from its committed sample")));
+        compareWithSample(mr::IpcBackend::buildRequestForTest(variant.messageType, variant.args),
+                          QStringLiteral(MR_IPC_REQUEST_FIXTURE_DIR) + QStringLiteral("/variants/")
+                              + variant.file + QStringLiteral(".json"),
+                          variant.file + QStringLiteral(" drifted from its committed sample"));
+        if (QTest::currentTestFailed())
+            return;
     }
+}
+
+// An empty text is a deletion and must survive into SetRunReflection's payload, and a
+// recent_limit out of range is clamped to $defs/GetReflectionSummaryRequest. The other
+// fields of both requests are pinned by the committed samples above.
+void IpcRequestTests::reflectionRequestsKeepAnEmptyTextAndClampTheRecentLimit()
+{
+    QJsonObject args = argsFor(QStringLiteral("SetRunReflection"));
+    args.insert(QStringLiteral("text"), QString());
+    QVERIFY(mr::IpcBackend::buildRequestForTest(QStringLiteral("SetRunReflection"), args)
+                .value(QStringLiteral("payload")).toObject().contains(QStringLiteral("text")));
+    QCOMPARE(mr::IpcBackend::buildRequestForTest(QStringLiteral("GetReflectionSummary"),
+                                                 {{QStringLiteral("recent_limit"), 99}})
+                 .value(QStringLiteral("payload")).toObject().value(QStringLiteral("recent_limit")).toInt(),
+             20);
 }
 
 // Audit 2026-11-03 G-2: a target the save dialog already confirmed replacing travels with

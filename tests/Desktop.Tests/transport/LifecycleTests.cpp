@@ -42,7 +42,6 @@
 #include <QTemporaryDir>
 #include <QMetaEnum>
 #include <QTest>
-#include <QTextStream>
 #include <QTimer>
 #include <QVariant>
 
@@ -145,6 +144,16 @@ struct ToolCall {
 
     bool forced() const { return arguments.contains(QStringLiteral("/F")); }
 };
+
+/// Lets \a collector run no tool at all: each tasklist/taskkill call is recorded
+/// in \a calls and answered with exit code 0 and no output.
+void recordToolCalls(mr::CollectorProcess &collector, QList<ToolCall> &calls)
+{
+    collector.setToolRunnerForTest([&calls](const QString &tool, const QStringList &arguments) {
+        calls.append(ToolCall{.tool=tool, .arguments=arguments});
+        return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
+    });
+}
 
 /// A stop-event name no Collector is waiting on.
 ///
@@ -672,11 +681,7 @@ void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
     collector.setStopEventNameForTest(isolatedStopEventName());
     collector.setTakeoverTimingsForTest(120, 60);
     QList<ToolCall> calls;
-    collector.setToolRunnerForTest(
-        [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{.tool=tool, .arguments=arguments});
-            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
-        });
+    recordToolCalls(collector, calls);
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
     // The owner's failed-connect counter has tripped. It still may not kill.
@@ -724,11 +729,7 @@ void LifecycleTests::aHolderThatLeavesOnItsOwnIsNeverEnded()
     // A long grace: the point is that the holder leaves inside it.
     collector.setTakeoverTimingsForTest(4000, 60);
     QList<ToolCall> calls;
-    collector.setToolRunnerForTest(
-        [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{.tool=tool, .arguments=arguments});
-            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
-        });
+    recordToolCalls(collector, calls);
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
     collector.requestServeLeaseTakeover();
@@ -1043,11 +1044,7 @@ void LifecycleTests::anUnresponsiveHolderExitAsksBeforeItEndsAnything()
     collector.setStopEventNameForTest(isolatedStopEventName());
     collector.setTakeoverTimingsForTest(200, 80);
     QList<ToolCall> calls;
-    collector.setToolRunnerForTest(
-        [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{.tool=tool, .arguments=arguments});
-            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
-        });
+    recordToolCalls(collector, calls);
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
     collector.start();
 
@@ -1713,9 +1710,6 @@ void LifecycleTests::aRequestThatNeverLeftTheClientSaysSo()
 #endif
 }
 
-/// A backup or an export walks the whole database. Sharing a status poll's
-/// deadline makes the Desktop report a failure while the Collector is still
-/// working, then discard the eventual success as an unknown request_id.
 /// Which runs keep away from the player's desktop.ini, backup date and note
 /// images (review OH-7 / OJ-1). A mock run without --screenshot used to share
 /// them: its fake backup stamped today's date, so the real daily backup was
@@ -1730,6 +1724,9 @@ void LifecycleTests::aMockRunNeverTouchesThePlayersSettings()
     QVERIFY(!mr::AppSettings::isHarnessRun(false, QStringLiteral("ipc")));
 }
 
+/// A backup or an export walks the whole database. Sharing a status poll's
+/// deadline makes the Desktop report a failure while the Collector is still
+/// working, then discard the eventual success as an unknown request_id.
 void LifecycleTests::exportsAndBackupsGetTheirOwnDeadline()
 {
     const int ordinary = mr::IpcClient::kDefaultRequestTimeoutMs;

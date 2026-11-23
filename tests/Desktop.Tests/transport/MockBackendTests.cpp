@@ -27,7 +27,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMap>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QSet>
@@ -59,6 +58,64 @@ bool sameSentence(const QJsonValue &chinese, const QJsonValue &ref)
            && mr::collector_text::chinese(map) == chinese.toString();
 }
 
+/// Page 1 of QueryRuns at the largest page size, so every run the filter finds is on it.
+Answer queryRuns(mr::MockBackend &backend, const QJsonObject &filter = {})
+{
+    return ask(backend, QStringLiteral("QueryRuns"),
+               {{QStringLiteral("filter"), filter}, {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+}
+
+/// The ids of the runs \a filter finds, sorted.
+QStringList foundRunIds(mr::MockBackend &backend, const QJsonObject &filter)
+{
+    QStringList ids;
+    for (const auto &item : queryRuns(backend, filter).payload.value(QStringLiteral("items")).toArray())
+        ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
+    ids.sort();
+    return ids;
+}
+
+/// The attempts of every row of a statistics table, added up.
+int totalAttempts(const QJsonArray &rows)
+{
+    int total = 0;
+    for (const auto &row : rows)
+        total += row.toObject().value(QStringLiteral("attempt_count")).toInt();
+    return total;
+}
+
+Answer saveBaseline(mr::MockBackend &backend, int goal, int baseline, const QString &effectiveAt)
+{
+    return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+               {{QStringLiteral("goal_count"), goal},
+                {QStringLiteral("baseline_completed_count"), baseline},
+                {QStringLiteral("baseline_effective_at"), effectiveAt},
+                {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+}
+
+/// Whether the run a reply carries is marked 已修正.
+bool markedCorrected(const Answer &answer)
+{
+    return answer.payload.value(QStringLiteral("run")).toObject()
+        .value(QStringLiteral("manually_corrected")).toBool();
+}
+
+/// The latest revision in \a runId's chain.
+QJsonObject lastRevision(mr::MockBackend &backend, const QString &runId)
+{
+    return ask(backend, QStringLiteral("GetRunRevisions"), {{QStringLiteral("run_id"), runId}})
+        .payload.value(QStringLiteral("items")).toArray().last().toObject();
+}
+
+/// The changes a revision records, by field name.
+QHash<QString, QJsonObject> changesByField(const QJsonObject &revision)
+{
+    QHash<QString, QJsonObject> changes;
+    for (const auto &value : revision.value(QStringLiteral("changes")).toArray())
+        changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
+    return changes;
+}
+
 /// A hand-entered run the tests can correct: 20:00 matched, 20:01 entered,
 /// 20:20 ended, so every time-order rule has room on both sides.
 QString createManualRun(mr::MockBackend &backend)
@@ -76,9 +133,7 @@ QString createManualRun(mr::MockBackend &backend)
 
 Answer correct(mr::MockBackend &backend, const QString &runId, const QJsonObject &changes)
 {
-    const Answer page = ask(backend, QStringLiteral("QueryRuns"),
-                            {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("text"), QString()}}},
-                             {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+    const Answer page = queryRuns(backend, {{QStringLiteral("text"), QString()}});
     int revision = 0;
     for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
         if (item.toObject().value(QStringLiteral("run_id")).toString() == runId)
@@ -189,10 +244,7 @@ private Q_SLOTS:
         }
         QVERIFY(!expected.isEmpty());
         const auto query = [&backend](const char *category) {
-            return ask(backend, QStringLiteral("QueryRuns"),
-                       {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("duty_category"),
-                                                              QJsonArray{QString::fromUtf8(category)}}}},
-                        {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+            return queryRuns(backend, {{QStringLiteral("duty_category"), QJsonArray{QString::fromUtf8(category)}}});
         };
         const Answer team = query("团队任务");
         QVERIFY(team.ok);
@@ -227,24 +279,16 @@ private Q_SLOTS:
             row(QStringLiteral("note"), QString::fromUtf8("备注提到灯塔"), QString()),
             row(QStringLiteral("other"), QStringLiteral("unrelated"), QStringLiteral("nothing in common")),
             row(QStringLiteral("none"), QStringLiteral("unrelated"), QString())});
-        const auto found = [&backend](const QJsonObject &filter) {
-            const Answer answer = ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
-            QStringList ids;
-            for (const auto &value : answer.payload.value(QStringLiteral("items")).toArray())
-                ids.append(value.toObject().value(QStringLiteral("run_id")).toString());
-            ids.sort();
-            return ids;
-        };
-        QCOMPARE(found({{QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
                  QStringList{QStringLiteral("reflected")});
-        QCOMPARE(found({{QStringLiteral("text"), QString::fromUtf8("灯塔")},
-                        {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("text"), QString::fromUtf8("灯塔")},
+                                       {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
                  (QStringList{QStringLiteral("note"), QStringLiteral("reflected")}));
-        QCOMPARE(found({{QStringLiteral("text"), QString::fromUtf8("灯塔")},
-                        {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")},
-                        {QStringLiteral("with_reflection"), true}}),
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("text"), QString::fromUtf8("灯塔")},
+                                       {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")},
+                                       {QStringLiteral("with_reflection"), true}}),
                  QStringList{QStringLiteral("reflected")});
-        QCOMPARE(found({{QStringLiteral("reflection_text"), QStringLiteral("  ")}}).size(), 4);
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("reflection_text"), QStringLiteral("  ")}}).size(), 4);
         const Answer calendar = ask(backend, QStringLiteral("QueryRunCalendarDays"),
             {{QStringLiteral("month"), QStringLiteral("2026-09")},
              {QStringLiteral("filter"), QJsonObject{{QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}}});
@@ -300,12 +344,8 @@ private Q_SLOTS:
             lighthouse, nameOnly,
             row(QStringLiteral("english"), 24, QStringLiteral("White Mage"), QStringLiteral("unrelated")),
             row(QStringLiteral("paladin"), 19, QString::fromUtf8("骑士"), QStringLiteral("unrelated"))});
-        const auto found = [&query](const QString &text) {
-            QStringList ids;
-            for (const auto &item : query({{QStringLiteral("text"), text}}).payload.value(QStringLiteral("items")).toArray())
-                ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
-            ids.sort();
-            return ids;
+        const auto found = [&backend](const QString &text) {
+            return foundRunIds(backend, {{QStringLiteral("text"), text}});
         };
         QCOMPARE(found(QString::fromUtf8("灯塔白")), QStringList{});
         const QStringList whiteMages{QStringLiteral("boundary"), QStringLiteral("english"), QStringLiteral("name-only")};
@@ -335,22 +375,15 @@ private Q_SLOTS:
             row(QStringLiteral("alias-in-note"), whiteMage, sastasha, QString::fromUtf8("骑士")),
             row(QStringLiteral("normal"), whiteMage, QString::fromUtf8("万魔殿 边境之狱4")),
             row(QStringLiteral("savage"), whiteMage, QString::fromUtf8("零式万魔殿 边境之狱4"))});
-        const auto found = [&backend](const QJsonObject &filter) {
-            const Answer page = ask(backend, QStringLiteral("QueryRuns"),
-                                    {{QStringLiteral("filter"), filter}, {QStringLiteral("page_size"), 50}});
-            QStringList ids;
-            for (const auto &item : page.payload.value(QStringLiteral("items")).toArray())
-                ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
-            ids.sort();
-            return ids;
-        };
         const QJsonArray names{QString::fromUtf8("骑士"), QString::fromUtf8("万魔殿 边境之狱4")};
-        QCOMPARE(found({{QStringLiteral("name_exact"), names}}),
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("name_exact"), names}}),
                  (QStringList{QStringLiteral("normal"), QStringLiteral("paladin")}));
-        QCOMPARE(found({{QStringLiteral("text"), QStringLiteral("Paladin")}, {QStringLiteral("name_exact"), names}}),
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("text"), QStringLiteral("Paladin")},
+                                       {QStringLiteral("name_exact"), names}}),
                  (QStringList{QStringLiteral("normal"), QStringLiteral("note"), QStringLiteral("paladin")}));
-        QCOMPARE(found({{QStringLiteral("name_exact"), QJsonArray{QString::fromUtf8("骑")}}}), QStringList{});
-        QCOMPARE(found({{QStringLiteral("name_exact"), QJsonArray{}}}).size(), 6);
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("name_exact"), QJsonArray{QString::fromUtf8("骑")}}}),
+                 QStringList{});
+        QCOMPARE(foundRunIds(backend, {{QStringLiteral("name_exact"), QJsonArray{}}}).size(), 6);
 
         const Answer calendar = ask(backend, QStringLiteral("QueryRunCalendarDays"),
             {{QStringLiteral("month"), QStringLiteral("2026-09")},
@@ -546,9 +579,7 @@ private Q_SLOTS:
     void runEventsUseTheCollectorsEventTypes()
     {
         mr::MockBackend backend;
-        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
-                                {{QStringLiteral("filter"), QJsonObject()},
-                                 {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer page = queryRuns(backend);
         QSet<QString> seen;
         for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
             const QJsonObject run = item.toObject();
@@ -607,15 +638,10 @@ private Q_SLOTS:
     void pendingReviewFalseKeepsOnlyRunsThatAreNotFlagged()
     {
         mr::MockBackend backend;
-        const auto query = [&backend](const QJsonObject &filter) {
-            return ask(backend, QStringLiteral("QueryRuns"),
-                       {{QStringLiteral("filter"), filter},
-                        {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
-        };
-        const int all = query({}).payload.value(QStringLiteral("page_info")).toObject()
+        const int all = queryRuns(backend).payload.value(QStringLiteral("page_info")).toObject()
                             .value(QStringLiteral("total")).toInt();
-        const Answer flagged = query({{QStringLiteral("pending_review"), true}});
-        const Answer clear = query({{QStringLiteral("pending_review"), false}});
+        const Answer flagged = queryRuns(backend, {{QStringLiteral("pending_review"), true}});
+        const Answer clear = queryRuns(backend, {{QStringLiteral("pending_review"), false}});
         const int flaggedTotal = flagged.payload.value(QStringLiteral("page_info")).toObject()
                                      .value(QStringLiteral("total")).toInt();
         QVERIFY(flaggedTotal > 0);
@@ -802,14 +828,8 @@ private Q_SLOTS:
         QCOMPARE(stats.value(QStringLiteral("completion_rate")).toDouble(), 2.0 / 3.0);
         QCOMPARE(stats.value(QStringLiteral("leave_rate")).toDouble(), 1.0 / 3.0);
         QCOMPARE(backend.resultStats({}).value(QStringLiteral("attempt_count")).toInt(), 3);
-        const auto attempts = [](const QJsonArray &rows) {
-            int total = 0;
-            for (const auto &row : rows)
-                total += row.toObject().value(QStringLiteral("attempt_count")).toInt();
-            return total;
-        };
-        QCOMPARE(attempts(backend.dungeonStats({})), 3);
-        QCOMPARE(attempts(backend.jobStats({})), 3);
+        QCOMPARE(totalAttempts(backend.dungeonStats({})), 3);
+        QCOMPARE(totalAttempts(backend.jobStats({})), 3);
     }
 
     // DT4-X4: RunFilterSql.Build(forStatistics) - an automatic run still in flight
@@ -844,33 +864,19 @@ private Q_SLOTS:
                 unknown = bucket.toObject().value(QStringLiteral("count")).toInt();
         }
         QCOMPARE(unknown, 2);
-        const auto attempts = [](const QJsonArray &rows) {
-            int total = 0;
-            for (const auto &row : rows)
-                total += row.toObject().value(QStringLiteral("attempt_count")).toInt();
-            return total;
-        };
-        QCOMPARE(attempts(backend.dungeonStats({})), 3);
-        QCOMPARE(attempts(backend.jobStats({})), 3);
+        QCOMPARE(totalAttempts(backend.dungeonStats({})), 3);
+        QCOMPARE(totalAttempts(backend.jobStats({})), 3);
 
-        const Answer listed = ask(backend, QStringLiteral("QueryRuns"),
-                                  {{QStringLiteral("filter"), QJsonObject()},
-                                   {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer listed = queryRuns(backend);
         QCOMPARE(listed.payload.value(QStringLiteral("page_info")).toObject()
                      .value(QStringLiteral("total")).toInt(), 4);
     }
 
-    // DT4-X4: SemanticEventProcessor.CreateRun / AppendPendingRevisions - a run capture
-    // recorded opens its chain with a SYSTEM CREATE_AUTO revision describing the row as
-    // it was created at the match (DescribeCreation): no job, no entry, no end, result
-    // UNKNOWN; whatever was learned or corrected later is not in it. A hand-entered run
-    // opens with the player's CREATE_MANUAL instead. The chain ends at the run's revision.
     void deletedOnlyFiltersBeforePaginationAndDoesNotAffectStatistics()
     {
         mr::MockBackend backend;
         const QJsonObject filter{{QStringLiteral("deleted_only"), true}, {QStringLiteral("include_deleted"), true}};
-        const Answer all = ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter},
-            {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer all = queryRuns(backend, filter);
         QVERIFY(all.ok);
         const QJsonArray items = all.payload.value(QStringLiteral("items")).toArray();
         QVERIFY(!items.isEmpty());
@@ -884,13 +890,16 @@ private Q_SLOTS:
         const Answer normalStats = ask(backend, QStringLiteral("GetResultStats"));
         QCOMPARE(stats.payload, normalStats.payload);
     }
+
+    // DT4-X4: SemanticEventProcessor.CreateRun / AppendPendingRevisions - a run capture
+    // recorded opens its chain with a SYSTEM CREATE_AUTO revision describing the row as
+    // it was created at the match (DescribeCreation): no job, no entry, no end, result
+    // UNKNOWN; whatever was learned or corrected later is not in it. A hand-entered run
+    // opens with the player's CREATE_MANUAL instead. The chain ends at the run's revision.
     void everyRunOpensItsRevisionChainWithItsCreation()
     {
         mr::MockBackend backend;
-        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
-                                {{QStringLiteral("filter"),
-                                  QJsonObject{{QStringLiteral("include_deleted"), true}}},
-                                 {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer page = queryRuns(backend, {{QStringLiteral("include_deleted"), true}});
         const QJsonArray runs = page.payload.value(QStringLiteral("items")).toArray();
         QVERIFY(runs.size() > 50);
         int automatic = 0;
@@ -1030,28 +1039,21 @@ private Q_SLOTS:
     {
         mr::MockBackend backend;
         backend.setAchievement(2000, 1374);
-        const auto save = [&backend](int goal, int baseline, const QString &at) {
-            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                       {{QStringLiteral("goal_count"), goal},
-                        {QStringLiteral("baseline_completed_count"), baseline},
-                        {QStringLiteral("baseline_effective_at"), at},
-                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
-        };
         const QString first = QStringLiteral("2026-10-01T08:00:00.000Z");
         const QString second = QStringLiteral("2026-10-02T09:30:00.000Z");
 
-        const Answer goalOnly = save(1800, 1374, first);
+        const Answer goalOnly = saveBaseline(backend, 1800, 1374, first);
         QVERIFY(goalOnly.ok);
         QCOMPARE(goalOnly.payload.value(QStringLiteral("goal_count")).toInt(), 1800);
         const QString kept = goalOnly.payload.value(QStringLiteral("baseline_effective_at")).toString();
         QVERIFY(!kept.isEmpty());
         QVERIFY2(kept != first, qPrintable(kept));
 
-        const Answer changed = save(1800, 1400, first);
+        const Answer changed = saveBaseline(backend, 1800, 1400, first);
         QVERIFY(changed.ok);
         QCOMPARE(changed.payload.value(QStringLiteral("baseline_effective_at")).toString(), first);
 
-        const Answer sameAgain = save(2000, 1400, second);
+        const Answer sameAgain = saveBaseline(backend, 2000, 1400, second);
         QVERIFY(sameAgain.ok);
         QCOMPARE(sameAgain.payload.value(QStringLiteral("baseline_effective_at")).toString(), first);
         QCOMPARE(sameAgain.payload.value(QStringLiteral("goal_count")).toInt(), 2000);
@@ -1067,36 +1069,29 @@ private Q_SLOTS:
     {
         mr::MockBackend backend;
         QSignalSpy events(&backend, &mr::IBackend::liveEvent);
-        const auto save = [&backend](int goal, int baseline, const QString &at) {
-            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                       {{QStringLiteral("goal_count"), goal},
-                        {QStringLiteral("baseline_completed_count"), baseline},
-                        {QStringLiteral("baseline_effective_at"), at},
-                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
-        };
         const auto field = [](const Answer &answer, const char *key) {
             return answer.payload.value(QLatin1String(key)).toString();
         };
 
         // The sample player's settings, saved again unchanged: stored long before today.
-        const Answer unchanged = save(2000, 1374, QStringLiteral("2026-10-01T08:00:00.000Z"));
+        const Answer unchanged = saveBaseline(backend, 2000, 1374, QStringLiteral("2026-10-01T08:00:00.000Z"));
         QVERIFY(unchanged.ok);
         QVERIFY(!unchanged.payload.value(QStringLiteral("idempotent_replay")).toBool());
         const QDateTime storedAt = QDateTime::fromString(field(unchanged, "updated_at_utc"), Qt::ISODateWithMs);
         QVERIFY2(storedAt.isValid() && storedAt < QDateTime::currentDateTimeUtc().addDays(-1),
                  qPrintable(field(unchanged, "updated_at_utc")));
         QVERIFY(!field(unchanged, "audit_event_id").isEmpty());
-        const Answer again = save(2000, 1374, QStringLiteral("2026-10-02T09:30:00.000Z"));
+        const Answer again = saveBaseline(backend, 2000, 1374, QStringLiteral("2026-10-02T09:30:00.000Z"));
         QCOMPARE(field(again, "audit_event_id"), field(unchanged, "audit_event_id"));
         QCOMPARE(field(again, "updated_at_utc"), field(unchanged, "updated_at_utc"));
         QCOMPARE(field(again, "baseline_effective_at"), field(unchanged, "baseline_effective_at"));
 
         // A changed goal is stored under an entry of its own, and saved again it answers that.
-        const Answer changed = save(1800, 1374, QStringLiteral("2026-10-03T10:00:00.000Z"));
+        const Answer changed = saveBaseline(backend, 1800, 1374, QStringLiteral("2026-10-03T10:00:00.000Z"));
         QVERIFY(changed.ok);
         QVERIFY(field(changed, "audit_event_id") != field(unchanged, "audit_event_id"));
         QVERIFY(QDateTime::fromString(field(changed, "updated_at_utc"), Qt::ISODateWithMs) > storedAt);
-        const Answer repeated = save(1800, 1374, QStringLiteral("2026-10-04T10:00:00.000Z"));
+        const Answer repeated = saveBaseline(backend, 1800, 1374, QStringLiteral("2026-10-04T10:00:00.000Z"));
         QCOMPARE(field(repeated, "audit_event_id"), field(changed, "audit_event_id"));
         QCOMPARE(field(repeated, "updated_at_utc"), field(changed, "updated_at_utc"));
         QCOMPARE(field(repeated, "baseline_effective_at"), field(changed, "baseline_effective_at"));
@@ -1149,14 +1144,7 @@ private Q_SLOTS:
             // Taken off the goal: not part of the progress (review OK-1).
             offGoal});
 
-        const auto save = [&backend](int baseline, const QString &at) {
-            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                       {{QStringLiteral("goal_count"), 2000},
-                        {QStringLiteral("baseline_completed_count"), baseline},
-                        {QStringLiteral("baseline_effective_at"), at},
-                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
-        };
-        const Answer set = save(227, effective);
+        const Answer set = saveBaseline(backend, 2000, 227, effective);
         QVERIFY(set.ok);
         QCOMPARE(set.payload.value(QStringLiteral("baseline_effective_at")).toString(), effective);
         QJsonObject stats = backend.dashboardStats({});
@@ -1165,7 +1153,7 @@ private Q_SLOTS:
 
         // The owner's change: a new baseline, effective now - every record still counts.
         const QString now = QStringLiteral("2026-10-04T08:00:00.000Z");
-        const Answer changed = save(229, now);
+        const Answer changed = saveBaseline(backend, 2000, 229, now);
         QVERIFY(changed.ok);
         QCOMPARE(changed.payload.value(QStringLiteral("baseline_effective_at")).toString(), now);
         stats = backend.dashboardStats({});
@@ -1173,7 +1161,7 @@ private Q_SLOTS:
         QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 234);
         QCOMPARE(stats.value(QStringLiteral("remaining")).toInt(), 1766);
 
-        const Answer zero = save(0, QStringLiteral("2026-10-04T09:00:00.000Z"));
+        const Answer zero = saveBaseline(backend, 2000, 0, QStringLiteral("2026-10-04T09:00:00.000Z"));
         QVERIFY(zero.ok);
         stats = backend.dashboardStats({});
         QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 5);
@@ -1195,10 +1183,7 @@ private Q_SLOTS:
             {QStringLiteral("result"), QStringLiteral("COMPLETED")},
             {QStringLiteral("reason"), QString::fromUtf8("补录")}});
         QVERIFY(created.ok);
-        const Answer samples = ask(backend, QStringLiteral("QueryRuns"),
-                                   {{QStringLiteral("filter"),
-                                     QJsonObject{{QStringLiteral("source"), QJsonArray{QStringLiteral("MANUAL")}}}},
-                                    {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer samples = queryRuns(backend, {{QStringLiteral("source"), QJsonArray{QStringLiteral("MANUAL")}}});
         QJsonArray manual = samples.payload.value(QStringLiteral("items")).toArray();
         QCOMPARE(manual.size(), 2);
 
@@ -1267,11 +1252,7 @@ private Q_SLOTS:
         const auto found = [&backend](int contentId) {
             const QJsonObject filter{{QStringLiteral("content_id"), QJsonArray{contentId}}};
             QStringList ids;
-            for (const auto &item : ask(backend, QStringLiteral("QueryRuns"),
-                                              {{QStringLiteral("filter"), filter},
-                                               {QStringLiteral("page"), 1},
-                                               {QStringLiteral("page_size"), 200}})
-                                              .payload.value(QStringLiteral("items")).toArray())
+            for (const auto &item : queryRuns(backend, filter).payload.value(QStringLiteral("items")).toArray())
                 ids.append(item.toObject().value(QStringLiteral("run_id")).toString().left(1));
             ids.sort();
             return ids;
@@ -1292,10 +1273,7 @@ private Q_SLOTS:
     void theSampleDeletionAndRecoveriesAreInTheirRevisionChains()
     {
         mr::MockBackend backend;
-        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
-                                {{QStringLiteral("filter"),
-                                  QJsonObject{{QStringLiteral("include_deleted"), true}}},
-                                 {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer page = queryRuns(backend, {{QStringLiteral("include_deleted"), true}});
         int deleted = 0;
         int recovered = 0;
         for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
@@ -1304,15 +1282,10 @@ private Q_SLOTS:
             const bool isPending = run.value(QStringLiteral("pending_review")).toBool();
             if (!isDeleted && !isPending)
                 continue;
-            const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
-                                         {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))}})
-                                         .payload.value(QStringLiteral("items")).toArray();
-            const QJsonObject last = chain.last().toObject();
+            const QJsonObject last = lastRevision(backend, run.value(QStringLiteral("run_id")).toString());
             QCOMPARE(last.value(QStringLiteral("revision")).toInt(), run.value(QStringLiteral("revision")).toInt());
             QCOMPARE(run.value(QStringLiteral("revision")).toInt(), 2);
-            QHash<QString, QJsonObject> changes;
-            for (const auto &value : last.value(QStringLiteral("changes")).toArray())
-                changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
+            const QHash<QString, QJsonObject> changes = changesByField(last);
             if (isDeleted) {
                 ++deleted;
                 QCOMPARE(last.value(QStringLiteral("change_kind")).toString(), QStringLiteral("SOFT_DELETE"));
@@ -1378,10 +1351,7 @@ private Q_SLOTS:
         QCOMPARE(creation.message,
                  QString::fromUtf8("第 1 条修订是创建记录本身，无法撤销；如需移除请使用软删除。"));
 
-        const Answer pending = ask(backend, QStringLiteral("QueryRuns"),
-                                   {{QStringLiteral("filter"),
-                                     QJsonObject{{QStringLiteral("pending_review"), true}}},
-                                    {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const Answer pending = queryRuns(backend, {{QStringLiteral("pending_review"), true}});
         const QJsonArray recovered = pending.payload.value(QStringLiteral("items")).toArray();
         QVERIFY(!recovered.isEmpty());
         for (const auto &item : recovered) {
@@ -1432,10 +1402,7 @@ private Q_SLOTS:
     void aSoftDeleteClearsThePendingReviewFlag()
     {
         mr::MockBackend backend;
-        const QJsonArray pending = ask(backend, QStringLiteral("QueryRuns"),
-                                       {{QStringLiteral("filter"),
-                                         QJsonObject{{QStringLiteral("pending_review"), true}}},
-                                        {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
+        const QJsonArray pending = queryRuns(backend, {{QStringLiteral("pending_review"), true}})
                                        .payload.value(QStringLiteral("items")).toArray();
         QVERIFY(!pending.isEmpty());
         const QJsonObject before = pending.first().toObject();
@@ -1450,12 +1417,7 @@ private Q_SLOTS:
         const QJsonObject run = deleted.payload.value(QStringLiteral("run")).toObject();
         QVERIFY(run.value(QStringLiteral("soft_deleted")).toBool());
         QVERIFY(!run.value(QStringLiteral("pending_review")).toBool(true));
-        const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
-                                     {{QStringLiteral("run_id"), runId}})
-                                     .payload.value(QStringLiteral("items")).toArray();
-        QHash<QString, QJsonObject> changes;
-        for (const auto &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
-            changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
+        const QHash<QString, QJsonObject> changes = changesByField(lastRevision(backend, runId));
         QCOMPARE(changes.size(), 2);
         QCOMPARE(changes.value(QStringLiteral("soft_deleted")).value(QStringLiteral("new_value")), QJsonValue(true));
         QCOMPARE(changes.value(QStringLiteral("pending_review")).value(QStringLiteral("old_value")), QJsonValue(true));
@@ -1492,18 +1454,8 @@ private Q_SLOTS:
         mr::MockBackend backend;
         backend.resetRuns(QJsonArray{pending, blank, settled});
 
-        const auto marked = [](const Answer &answer) {
-            return answer.payload.value(QStringLiteral("run")).toObject()
-                .value(QStringLiteral("manually_corrected")).toBool();
-        };
         const auto lastChanges = [&backend](const QString &runId) {
-            QStringList fields;
-            const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
-                                         {{QStringLiteral("run_id"), runId}})
-                                         .payload.value(QStringLiteral("items")).toArray();
-            for (const auto &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
-                fields.append(value.toObject().value(QStringLiteral("field")).toString());
-            return fields;
+            return changesByField(lastRevision(backend, runId));
         };
         const QString pendingId = pending.value(QStringLiteral("run_id")).toString();
         const QString blankId = blank.value(QStringLiteral("run_id")).toString();
@@ -1512,28 +1464,28 @@ private Q_SLOTS:
         // How a run pending review went: an answer, not a correction.
         Answer answer = correct(backend, pendingId, {{QStringLiteral("result"), QStringLiteral("COMPLETED")}});
         QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
-        QVERIFY(!marked(answer));
+        QVERIFY(!markedCorrected(answer));
         QVERIFY(!lastChanges(pendingId).contains(QStringLiteral("manually_corrected")));
 
         // A job and a duty the software left blank, filled in; then a note.
         answer = correct(backend, blankId, {{QStringLiteral("job_id"), 24}, {QStringLiteral("content_id"), 17}});
         QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
-        QVERIFY(!marked(answer));
+        QVERIFY(!markedCorrected(answer));
         answer = correct(backend, blankId, {{QStringLiteral("note"), QString::fromUtf8("补上职业")}});
         QVERIFY(answer.ok);
-        QVERIFY(!marked(answer));
+        QVERIFY(!markedCorrected(answer));
 
         // A recorded time changed: a correction, and its revision says so.
         answer = correct(backend, blankId, {{QStringLiteral("ended_at_utc"),
                                             QStringLiteral("2026-09-01T12:12:00.000Z")}});
         QVERIFY(answer.ok);
-        QVERIFY(marked(answer));
+        QVERIFY(markedCorrected(answer));
         QVERIFY(lastChanges(blankId).contains(QStringLiteral("manually_corrected")));
 
         // A settled outcome changed: a correction too.
         answer = correct(backend, settledId, {{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")}});
         QVERIFY(answer.ok);
-        QVERIFY(marked(answer));
+        QVERIFY(markedCorrected(answer));
         QVERIFY(lastChanges(settledId).contains(QStringLiteral("manually_corrected")));
 
         // Undoing it puts the values back, never the provenance (RunMutationService.Commit):
@@ -1546,11 +1498,11 @@ private Q_SLOTS:
         QVERIFY2(undone.ok, qPrintable(undone.code + QLatin1Char(' ') + undone.message));
         QCOMPARE(undone.payload.value(QStringLiteral("run")).toObject()
                      .value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
-        QVERIFY(marked(undone));
+        QVERIFY(markedCorrected(undone));
         QVERIFY(!lastChanges(settledId).contains(QStringLiteral("manually_corrected")));
         answer = correct(backend, settledId, {{QStringLiteral("note"), QString::fromUtf8("队伍解散")}});
         QVERIFY(answer.ok);
-        QVERIFY(marked(answer));
+        QVERIFY(markedCorrected(answer));
     }
 
     // Joined in progress, mirrored from the Collector: the dashboard counts it over the attempts
@@ -1586,17 +1538,13 @@ private Q_SLOTS:
         QCOMPARE(items.first().toObject().value(QStringLiteral("run_id")).toString(),
                  joined.value(QStringLiteral("run_id")).toString());
 
-        const auto marked = [](const Answer &answer) {
-            return answer.payload.value(QStringLiteral("run")).toObject()
-                .value(QStringLiteral("manually_corrected")).toBool();
-        };
         const QString unseenId = unseen.value(QStringLiteral("run_id")).toString();
         Answer answer = correct(backend, unseenId, {{QStringLiteral("joined_in_progress"), true}});
         QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
-        QVERIFY(!marked(answer));
+        QVERIFY(!markedCorrected(answer));
         answer = correct(backend, unseenId, {{QStringLiteral("joined_in_progress"), false}});
         QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
-        QVERIFY(marked(answer));
+        QVERIFY(markedCorrected(answer));
     }
 
     // DT-10: RunMutationService.UndoRevision checks the restored run as a whole
@@ -1636,23 +1584,17 @@ private Q_SLOTS:
     {
         mr::MockBackend backend;
         backend.setAchievement(2000, 1374);
-        const auto save = [&backend](int goal, int baseline) {
-            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                       {{QStringLiteral("goal_count"), goal},
-                        {QStringLiteral("baseline_completed_count"), baseline},
-                        {QStringLiteral("baseline_effective_at"), QStringLiteral("2026-10-01T08:00:00.000Z")},
-                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
-        };
-        const Answer noGoal = save(0, 1374);
+        const QString effectiveAt = QStringLiteral("2026-10-01T08:00:00.000Z");
+        const Answer noGoal = saveBaseline(backend, 0, 1374, effectiveAt);
         QCOMPARE(noGoal.code, QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(noGoal.message, QString::fromUtf8("目标值必须大于等于 1。"));
-        const Answer negative = save(2000, -1);
+        const Answer negative = saveBaseline(backend, 2000, -1, effectiveAt);
         QCOMPARE(negative.code, QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(negative.message, QString::fromUtf8("已完成次数不能为负数。"));
         const QJsonObject stats = backend.dashboardStats({});
         QCOMPARE(stats.value(QStringLiteral("goal_count")).toInt(), 2000);
         QCOMPARE(stats.value(QStringLiteral("baseline_completed_count")).toInt(), 1374);
-        QVERIFY(save(1, 0).ok);
+        QVERIFY(saveBaseline(backend, 1, 0, effectiveAt).ok);
     }
 
     // DT-10: a run capture recorded and let go is closed - the state machine ends it, or the
@@ -1663,10 +1605,7 @@ private Q_SLOTS:
     void noSampleRunReadsAsStillInFlight()
     {
         mr::MockBackend backend;
-        const QJsonArray runs = ask(backend, QStringLiteral("QueryRuns"),
-                                    {{QStringLiteral("filter"),
-                                      QJsonObject{{QStringLiteral("include_deleted"), true}}},
-                                     {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
+        const QJsonArray runs = queryRuns(backend, {{QStringLiteral("include_deleted"), true}})
                                     .payload.value(QStringLiteral("items")).toArray();
         QVERIFY(runs.size() > 50);
         int unknown = 0;
@@ -1683,8 +1622,6 @@ private Q_SLOTS:
         QVERIFY(unknown > 0);
     }
 
-    // OJ-6: a reply can be held back, so a test can let a later request
-    // overtake an earlier one the way a slow Collector answer does.
     // Wherever the mock imitates a Collector sentence it sends the catalogue key
     // beside the Chinese, exactly as the Collector does (contracts/collector-texts.md
     // §2.1), so screenshots in other languages show what a player would see.
@@ -1779,6 +1716,8 @@ private Q_SLOTS:
         QVERIFY(!unknown.ok);
     }
 
+    // OJ-6: a reply can be held back, so a test can let a later request
+    // overtake an earlier one the way a slow Collector answer does.
     void aDelayedReplyCanArriveAfterALaterOne()
     {
         mr::MockBackend backend;
@@ -2208,9 +2147,6 @@ private Q_SLOTS:
         QCOMPARE(runCount(backend), 3);
     }
 
-    // J-4: the offline backend answers every message of the contract, or refuses it on
-    // purpose - never with 「模拟后端不支持该消息」, the answer to a message it forgot.
-    // Event and Error are what the Collector sends; nobody requests them.
     void nativeImportPreservesNestedProvenanceAndHonorsClearing()
     {
         mr::MockBackend backend;
@@ -2241,6 +2177,9 @@ private Q_SLOTS:
         QVERIFY(clearedRow.value("candidate").toObject().value("source_recorded_at_utc").isNull());
     }
 
+    // J-4: the offline backend answers every message of the contract, or refuses it on
+    // purpose - never with 「模拟后端不支持该消息」, the answer to a message it forgot.
+    // Event and Error are what the Collector sends; nobody requests them.
     void everyContractMessageIsAnsweredOrDeliberatelyRefused()
     {
         QFile schema(QStringLiteral(MR_SOURCE_DIR "/contracts/ipc-v1.schema.json"));
@@ -2616,10 +2555,6 @@ private Q_SLOTS:
                  QStringList{QStringLiteral("new")});
     }
 
-    // RV2-5 (audit 2026-10-20 I3-1): RunImportService.Render - the same card read twice in one
-    // batch (overlapping screenshots, one picture added twice) differs only in what the reading
-    // added; the later copy is a possible duplicate of the first. The twin key is the duty, the
-    // clock time and the reflection text, so date-only rows of one day are never twins.
     void nameOnlyImportUsesTheCatalogPreferenceWithoutChangingExplicitIds()
     {
         mr::MockBackend backend;
@@ -2689,6 +2624,10 @@ private Q_SLOTS:
         QCOMPARE(runCount(backend), 0);
     }
 
+    // RV2-5 (audit 2026-10-20 I3-1): RunImportService.Render - the same card read twice in one
+    // batch (overlapping screenshots, one picture added twice) differs only in what the reading
+    // added; the later copy is a possible duplicate of the first. The twin key is the duty, the
+    // clock time and the reflection text, so date-only rows of one day are never twins.
     void theSameCardTwiceInOneBatchIsOfferedOnceAsNew()
     {
         const mr::JobCatalog jobs;

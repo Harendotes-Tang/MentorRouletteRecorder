@@ -17,18 +17,12 @@
 #include "TestCollectorGuard.h"
 #include "ReflectionDialogFixture.h"
 #include "AppController.h"
-#include "Formatters.h"
-#include "JobCatalog.h"
-#include "MockBackend.h"
 #include "NoteImageStore.h"
 
-#include <QDateTime>
 #include <QClipboard>
 #include <QColor>
-#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QMimeData>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -39,8 +33,6 @@
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
-#include <QTemporaryDir>
-#include <QTimer>
 #include <QVariantMap>
 
 #include <memory>
@@ -55,6 +47,35 @@ const QString &kImageRunId()
 {
     static const QString value = QStringLiteral("c32d8f24-e263-4245-9428-c8e66c538e21");
     return value;
+}
+
+/// A finished run that was cleared and waits for no review.
+QVariantMap completedRun(const QString &id, const QString &dutyName, int revision)
+{
+    QVariantMap run = finishedRun(id, dutyName, revision);
+    run.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    run.insert(QStringLiteral("pending_review"), false);
+    return run;
+}
+
+/// The run_finished event that announces \a run as cleared.
+QVariantMap completedEvent(const QVariantMap &run)
+{
+    QVariantMap event = runFinishedEvent(run);
+    event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
+    return event;
+}
+
+/// The requests among \a backend's commands that write a record, in the order sent.
+QStringList recordWrites(const ObservedBackend &backend)
+{
+    QStringList writes;
+    for (const QString &command : backend.commands) {
+        if (command == QLatin1String("SetRunReflection") || command == QLatin1String("CreateManualRun")
+            || command == QLatin1String("CorrectRun"))
+            writes.append(command);
+    }
+    return writes;
 }
 
 /// The text of the first item under \a from, visible or not, that starts with
@@ -303,17 +324,13 @@ private Q_SLOTS:
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         fixture.controller.setThemeMode(dark ? QStringLiteral("dark") : QStringLiteral("light"));
         fixture.dialog()->setProperty("standalone", standalone);
-        auto completed = finishedRun(kImageRunId(), QStringLiteral("伊库拉尔堡垒"), 1);
+        auto completed = completedRun(kImageRunId(), QStringLiteral("伊库拉尔堡垒"), 1);
         completed.insert(QStringLiteral("job_id"), 24);
-        completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-        completed.insert(QStringLiteral("pending_review"), false);
         completed.insert(QStringLiteral("duty_category"), QStringLiteral("四人迷宫"));
-        auto event = runFinishedEvent(completed);
-        event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
         if (askingResult)
             QVERIFY(fixture.openForResult(completed));
         else
-            Q_EMIT fixture.backend.liveEvent(event);
+            Q_EMIT fixture.backend.liveEvent(completedEvent(completed));
         QTRY_VERIFY(fixture.dialog()->property("visible").toBool());
         QCOMPARE(fixture.dialog()->property("runId").toString(), kImageRunId());
         if (!askingResult)
@@ -352,9 +369,7 @@ private Q_SLOTS:
         fixture.pasteShortcut();
         QTRY_COMPARE(qmlList(fixture.dialog()->property("noteImages")).size(), 2);
         QCOMPARE(fixture.note(), QStringLiteral("先保留正在写的心得。"));
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CorrectRun")), 0);
+        QCOMPARE(recordWrites(fixture.backend), QStringList{});
         const auto rows = fixture.images.imagesFor(kImageRunId());
         QCOMPARE(rows.size(), 2);
         QCOMPARE(QImage(rows.first().toMap().value(QStringLiteral("path")).toString()).pixelColor(0, 0),
@@ -392,9 +407,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
         QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
         QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), standalone ? mr::NoteImageStore::kMaxImagesPerRun : 2);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CorrectRun")), 0);
+        QCOMPARE(recordWrites(fixture.backend), QStringList{});
     }
 
     void clipboardFailureAndNoteSaveRetryKeepOneAttachmentAndNeverCreateRecords_data()
@@ -434,9 +447,7 @@ private Q_SLOTS:
         QVERIFY(fixture.click(pasteButton));
         QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 1);
         QVERIFY(fixture.dialog()->property("noteImageError").toString().isEmpty());
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CorrectRun")), 0);
+        QCOMPARE(recordWrites(fixture.backend), QStringList{});
 
         fixture.backend.syntheticReflection = true;
         fixture.backend.refuseReflectionOnce = true;
@@ -449,9 +460,7 @@ private Q_SLOTS:
         QVERIFY(fixture.click(QStringLiteral("saveReflectionButton")));
         QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
         QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 1);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 2);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
-        QCOMPARE(fixture.backend.commands.count(QStringLiteral("CorrectRun")), 0);
+        QCOMPARE(recordWrites(fixture.backend), QStringList(2, QStringLiteral("SetRunReflection")));
     }
 
     void aReAskedRunKeepsTheNoteTheUserIsTyping()
@@ -572,14 +581,10 @@ private Q_SLOTS:
                                                QStringLiteral("邪龙坠巢"), 2),
                                    QStringLiteral("补录笔记")));
         fixture.type(QStringLiteral("这段笔记还没有保存。"));
-        auto completed = finishedRun(sameRun ? QStringLiteral("run-old") : QStringLiteral("run-new"),
-                                     QStringLiteral("水晶塔"), 3);
-        completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-        completed.insert(QStringLiteral("pending_review"), false);
-        auto event = runFinishedEvent(completed);
-        event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
+        const auto completed = completedRun(sameRun ? QStringLiteral("run-old") : QStringLiteral("run-new"),
+                                            QStringLiteral("水晶塔"), 3);
         QSignalSpy prompts(&fixture.controller, &mr::AppController::reflectionPromptRequested);
-        Q_EMIT fixture.backend.liveEvent(event);
+        Q_EMIT fixture.backend.liveEvent(completedEvent(completed));
         QTRY_COMPARE(prompts.count(), 1);
         QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
         QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 2);
@@ -603,12 +608,7 @@ private Q_SLOTS:
         fixture.type(QStringLiteral("路上讲了机制。"));
 
         // Another run is cleared meanwhile.
-        auto completed = finishedRun(QStringLiteral("run-b"), QStringLiteral("水晶塔"), 3);
-        completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-        completed.insert(QStringLiteral("pending_review"), false);
-        auto event = runFinishedEvent(completed);
-        event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
-        Q_EMIT fixture.backend.liveEvent(event);
+        Q_EMIT fixture.backend.liveEvent(completedEvent(completedRun(QStringLiteral("run-b"), QStringLiteral("水晶塔"), 3)));
         QTRY_COMPARE(prompts.count(), 1);
         QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
 

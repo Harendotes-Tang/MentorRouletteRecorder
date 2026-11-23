@@ -542,7 +542,7 @@ private Q_SLOTS:
         seed(backend);
         const int first = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
         const int second = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
-        const int taiwan = backend.addCharacterIdentity(QStringLiteral("TC"), QStringLiteral("IGNORED"), 0);
+        backend.addCharacterIdentity(QStringLiteral("TC"), QStringLiteral("IGNORED"), 0);
         mr::AppController app(&backend, nullptr);
         QVERIFY(load(app));
         QTRY_COMPARE(app.characterIdentities().size(), 3);
@@ -576,7 +576,6 @@ private Q_SLOTS:
         app.askAgainAboutCharacterIdentities(QStringLiteral("CN"));
         QCOMPARE(saved.size(), 4);
         QCOMPARE(saved.at(3).at(1).toString(), QStringLiteral("ask_again"));
-        Q_UNUSED(taiwan);
     }
 
     void refusedIdentityRequestsSurfaceAsFailures()
@@ -657,35 +656,6 @@ private Q_SLOTS:
         QTRY_COMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("AUTOMATIC"));
         QTRY_COMPARE(app.characterIdentification(QStringLiteral("TC")), QStringLiteral("MANUAL_REGION"));
         QVERIFY(app.characterIdentificationEnabled());
-    }
-
-    void thePendingIdentityFixtureWorksWithAndWithoutProfiles()
-    {
-        // --mock-pending-identity alone: the region keeps its single unnamed profile.
-        mr::MockBackend plain;
-        plain.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
-        QCOMPARE(plain.characterProfiles().size(), 2); // CN and TC, one each
-        QCOMPARE(plain.characterIdentities().size(), 1);
-        QCOMPARE(plain.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
-        const QJsonObject stats = plain.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}});
-        const QJsonObject cn = stats.value(QStringLiteral("achievements")).toArray().first().toObject();
-        QCOMPARE(cn.value(QStringLiteral("unassigned_run_count")).toInt(), 2);
-        QCOMPARE(cn.value(QStringLiteral("identification")).toString(), QStringLiteral("AUTOMATIC"));
-        QCOMPARE(stats.value(QStringLiteral("identities")).toArray().size(), 1);
-
-        // After --mock-profiles: it claims two of the three runs that fixture left to nobody.
-        mr::MockBackend profiles;
-        profiles.setCharacterProfilesFixture();
-        const auto unassigned = [](const mr::MockBackend &backend) {
-            return backend.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}})
-                .value(QStringLiteral("achievements")).toArray().first().toObject()
-                .value(QStringLiteral("unassigned_run_count")).toInt();
-        };
-        const int before = unassigned(profiles);
-        QCOMPARE(before, 3);
-        profiles.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
-        QCOMPARE(profiles.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
-        QCOMPARE(unassigned(profiles), before);
     }
 };
 

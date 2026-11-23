@@ -72,6 +72,15 @@ int textInk(const QImage &image, const QRect &region)
     return ink;
 }
 
+/// The share dialog alone in an 820x940 window, where its rows are reordered.
+constexpr auto kOrderDialogQml = R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 820; height: 940
+    ReflectionShareDialog { objectName: "dialog"; anchors.centerIn: Overlay.overlay }
+})";
+
 /// The objects the share dialog reads from its context, and the scene it is created in.
 struct ShareScene
 {
@@ -197,13 +206,7 @@ ApplicationWindow {
         ShareScene share;
         auto &controller = share.controller;
         auto &scene = share.scene;
-        QVERIFY2(scene.create(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    visible: true; width: 820; height: 940
-    ReflectionShareDialog { objectName: "dialog"; anchors.centerIn: Overlay.overlay }
-})", QStringLiteral("/ReflectionShareOrderTest.qml")), qPrintable(scene.errors));
+        QVERIFY2(scene.create(kOrderDialogQml, QStringLiteral("/ReflectionShareOrderTest.qml")), qPrintable(scene.errors));
 
         auto *window = scene.window();
         QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -458,13 +461,7 @@ ApplicationWindow {
     {
         ShareScene share;
         auto &scene = share.scene;
-        QVERIFY2(scene.create(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    visible: true; width: 820; height: 940
-    ReflectionShareDialog { objectName: "dialog"; anchors.centerIn: Overlay.overlay }
-})", QStringLiteral("/ReflectionShareOrderTest.qml")), qPrintable(scene.errors));
+        QVERIFY2(scene.create(kOrderDialogQml, QStringLiteral("/ReflectionShareOrderTest.qml")), qPrintable(scene.errors));
         auto *window = scene.window();
         QVERIFY(QTest::qWaitForWindowExposed(window));
         auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dialog"));

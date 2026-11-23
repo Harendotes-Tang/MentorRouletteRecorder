@@ -48,7 +48,6 @@
 #include <QTimer>
 #include <QTimeZone>
 #include <QVariantAnimation>
-#include <QSystemTrayIcon>
 #include <algorithm>
 #include <bit>
 #include <limits>
@@ -167,6 +166,13 @@ QJsonArray datedAttemptRuns()
         runs.append(QJsonObject::fromVariantMap(run));
     }
     return runs;
+}
+
+/// Shows the float and waits until its window is exposed.
+bool showFloating(const Scene &scene)
+{
+    scene.overlay()->show();
+    return QTest::qWaitForWindowExposed(scene.floating());
 }
 }
 
@@ -595,8 +601,7 @@ void StatisticsOverlayTests::nativeCloseSavesGeometryBeforeTheDebounce() const
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     const QRect previous = scene.overlay()->geometry();
     const QRect moved = mr::StatisticsOverlayController::fitGeometry(
@@ -612,8 +617,7 @@ void StatisticsOverlayTests::nativeCloseSavesGeometryBeforeTheDebounce() const
     QCOMPARE(scene.overlay()->geometry(), moved);
     QCOMPARE(scene.settings.statisticsOverlayGeometry(), moved);
     QVERIFY(!scene.floating()->isVisible());
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QCOMPARE(scene.floating()->geometry(), moved);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -626,8 +630,7 @@ void StatisticsOverlayTests::realWindowCanCustomizeAndRecoverEmptyContent()
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QVERIFY(scene.floating());
     QVERIFY(!scene.floating()->isVisible());
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QVERIFY(!scene.floating()->transientParent());
     QVERIFY(scene.floating()->flags().testFlag(Qt::WindowStaysOnTopHint));
@@ -669,8 +672,7 @@ void StatisticsOverlayTests::customizePanelTogglesFromTheTitleBar()
     QFETCH(bool, reduceMotion);
     Scene scene;
     QVERIFY2(scene.create(QStringLiteral("harendotes"), true, false, reduceMotion), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     const auto panelOpen = [&] { return scene.floating()->property("customizing").toBool(); };
     for (int cycle = 0; cycle < 3; ++cycle) {
         QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
@@ -717,8 +719,7 @@ void StatisticsOverlayTests::customizationFooterRemainsReachableWithSevenModules
     scene.overlay()->setGeometry(QRect(80, 80, 240, 560));
     scene.overlay()->setAttemptPeriod(QStringLiteral("last7"));
     scene.overlay()->setLabels(true);
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
     QTRY_VERIFY(scene.item(QStringLiteral("floatingCustomizePanel"), true));
     QCOMPARE(scene.overlay()->moduleRows().size(), 7);
@@ -753,8 +754,7 @@ void StatisticsOverlayTests::miniBarSharesThePositionAndKeepsTheSize()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->setGeometry(QRect(140, 120, 340, 520));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QCOMPARE(scene.floating()->size(), QSize(340, 520));
     QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
@@ -805,8 +805,7 @@ void StatisticsOverlayTests::formControlsLeadRightActionGroup()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(QStringLiteral("harendotes"), dark), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QObject *data = scene.overlayData();
@@ -884,8 +883,7 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(QStringLiteral("harendotes"), false, false, false), qPrintable(scene.errors));
     scene.overlay()->setGeometry(QRect(100, 100, 340, 520));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     const QSize fullSize(340, 520);
     const QString output = qEnvironmentVariable("MR_OVERLAY_FORM_EVIDENCE", QString::fromUtf8(MR_SOURCE_DIR)
@@ -1097,8 +1095,7 @@ void StatisticsOverlayTests::miniBarStaysWhereItWasDocked()
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->setGeometry(QRect(140, 120, 340, 520));
     scene.overlay()->setForm(QStringLiteral("mini"));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QTRY_COMPARE(scene.floating()->width(), 340);
     const int barHeight = scene.floating()->height();
@@ -1117,8 +1114,7 @@ void StatisticsOverlayTests::miniBarStaysWhereItWasDocked()
         restarted.show();
         QCOMPARE(restarted.geometry().topLeft(), QPoint(160, dockedY));
     }
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     QCOMPARE(scene.overlay()->geometry().topLeft(), QPoint(160, dockedY));
     QTRY_COMPARE(scene.floating()->position(), QPoint(160, dockedY));
@@ -1152,8 +1148,7 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->setGeometry(QRect(200, 300, 340, 520));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     // The title bar and the mini bar each have a lock button, so each has a tip of
     // that name; the one that counts belongs to the form on screen.
@@ -1225,8 +1220,7 @@ void StatisticsOverlayTests::pendingRowOpensTheFirstRecord()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QVERIFY(!scene.item(QStringLiteral("floatingModule_pending_work"), true));
     QTRY_VERIFY(scene.app->recovery()->identityVerified());
     const auto run = unknownResultRun();
@@ -1295,8 +1289,7 @@ void StatisticsOverlayTests::hiddenFloatKeepsItsEndlessAnimationsStill()
         QVERIFY(!scene.endlessAnimations().isEmpty());
         QTest::qWait(60);
         QVERIFY2(scene.runningEndlessAnimations() == 0, run.state);
-        scene.overlay()->show();
-        QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+        QVERIFY(showFloating(scene));
         QTRY_VERIFY2(scene.runningEndlessAnimations() > 0, run.state);
         scene.overlay()->hide();
         QTRY_VERIFY(!scene.floating()->isVisible());
@@ -1373,8 +1366,7 @@ void StatisticsOverlayTests::dutyGuideFollowsTheActiveRunAndOverlayLock()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->toggleModule(QStringLiteral("current_duty"));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
 
     const auto guide = QStringLiteral("floatingDutyGuide");
     const auto https = QStringLiteral("https");
@@ -1462,8 +1454,7 @@ void StatisticsOverlayTests::paceBarScalesByTheDutyThenItsCategory()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns({QJsonObject::fromVariantMap(history)});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     auto *dungeons = scene.app->property("dungeons").value<QObject *>();
     QVERIFY(dungeons);
     QTRY_VERIFY(dungeons->property("count").toInt() > 0);
@@ -1507,8 +1498,7 @@ void StatisticsOverlayTests::stateMarksStayInsideTheFloat()
     QVERIFY2(scene.create(QStringLiteral("classic"), true, false, false), qPrintable(scene.errors));
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Matched);
     QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     // The full form's items (the mini bar's row holds a mark too, never
     // shown), found once shown: showing the float builds its modules anew.
     QTRY_VERIFY(scene.item(QStringLiteral("floatingMatchedBell"), true));
@@ -1564,8 +1554,7 @@ void StatisticsOverlayTests::stateMarksStayInsideTheFloat()
     QCOMPARE(hourglass->property("turn").toDouble(), 0.0);
     QTRY_COMPARE(bell->rotation(), 0.0);
 
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.item(QStringLiteral("floatingMatchedBell"), true));
     bell = scene.item(QStringLiteral("floatingMatchedBell"), true);
     mark = bell->parentItem()->parentItem();
@@ -1590,8 +1579,7 @@ void StatisticsOverlayTests::runRowsShowTheCategoryIcon()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QVERIFY2(scene.create(QStringLiteral("classic"), true, false, false), qPrintable(scene.errors));
     QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     // Empty when the row shows the icon and no badge; otherwise what is wrong.
     const auto categoryOf = [&](const QString &rowName) {
         QQuickItem *row = scene.item(rowName, true);
@@ -1625,8 +1613,7 @@ void StatisticsOverlayTests::miniBarDrawsNothingBelowTheRunRow()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns({QJsonObject::fromVariantMap(history)});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     scene.overlay()->setForm(QStringLiteral("mini"));
     QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
     QQuickItem *bar = scene.item(QStringLiteral("floatingMiniContent"), true);
@@ -1674,8 +1661,7 @@ void StatisticsOverlayTests::importedTextIsShownAsWritten()
     scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->setLabels(true);
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     // 文字标签 puts the category's name in the legend.
     QTRY_VERIFY(!scene.textItemsContaining(markup).isEmpty());
     for (auto *text : scene.textItemsContaining(markup))
@@ -1719,8 +1705,7 @@ void StatisticsOverlayTests::plusPillCountsCompletionsNotBaselineEdits()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns({});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QObject *data = scene.overlayData();
     QVERIFY(data);
@@ -1757,8 +1742,7 @@ void StatisticsOverlayTests::progressRowsShowTheirOwnFiguresWhileAnotherRegionIs
     scene.backend.resetRuns({});
     scene.backend.holdRegion = QStringLiteral("GLOBAL");
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QTRY_VERIFY(scene.item(QStringLiteral("floatingAchievementProgress"), true));
     const QString figure = QString::number(scene.app->achievementForRegion(QStringLiteral("CN"))
@@ -1799,8 +1783,7 @@ void StatisticsOverlayTests::plusPillIgnoresASwitchOfCurrentCharacter()
     }
     scene.backend.resetRuns(runs);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QObject *data = scene.overlayData();
     QVERIFY(data);
@@ -1834,8 +1817,7 @@ void StatisticsOverlayTests::plusPillIgnoresRunsMovedOntoTheCurrentCharacter()
     const int identity = scene.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
     QVERIFY(identity > 0);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QObject *data = scene.overlayData();
     QVERIFY(data);
@@ -1874,8 +1856,7 @@ void StatisticsOverlayTests::plusPillCountsACompletionAfterARefusedMove()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns({QJsonObject::fromVariantMap(completedRun(1))});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     QObject *data = scene.overlayData();
     QVERIFY(data);
@@ -1908,8 +1889,7 @@ void StatisticsOverlayTests::pendingPillCountsEveryNewRecord()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->recovery()->identityVerified());
     QCOMPARE(scene.app->recovery()->count(), 0);
     // The pill is hidden again 3.2 s after the last arrival, so every read tolerates a
@@ -1939,8 +1919,7 @@ void StatisticsOverlayTests::emptyStateSaysWhenTheHiddenModulesAppear()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->recovery()->identityVerified());
     QCOMPARE(scene.app->recovery()->count(), 0);
     const struct { QStringList modules; const char *text; } cases[] = {
@@ -1991,8 +1970,7 @@ void StatisticsOverlayTests::categoryBarKeepsSmallCategories()
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->setModules({QStringLiteral("dungeons")});
     scene.overlay()->setGeometry(QRect(80, 80, 300, 560));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     const auto segments = [&] {
         QList<QQuickItem *> result;
         const auto collect = [&](auto &&self, QQuickItem *parent) -> void {
@@ -2125,8 +2103,7 @@ void StatisticsOverlayTests::attemptPeriodsUsePointerKeyboardAndKeepOtherStatist
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns(datedAttemptRuns());
     QVERIFY2(scene.create(QStringLiteral("workbench"), false), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.overlay()->attemptsKnown());
     QTRY_COMPARE(scene.app->dungeons()->totalAttemptCount(), 4);
     QTRY_COMPARE(scene.app->jobs()->totalAttemptCount(), 4);
@@ -2231,8 +2208,7 @@ void StatisticsOverlayTests::attemptCountDistinguishesLoadingFailureAndZero()
     scene.app->setRecordRegion(QStringLiteral("CN"));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     scene.backend.holdDashboard = true;
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_COMPARE(scene.backend.pending.size(), 1);
     QTRY_VERIFY(scene.item(QStringLiteral("floatingAttemptsLoading"), true));
     QVERIFY(!scene.overlay()->attemptsKnown());
@@ -2292,8 +2268,7 @@ void StatisticsOverlayTests::attemptRangeRenderedEvidence()
     QVERIFY2(scene.create(style, dark), qPrintable(scene.errors));
     scene.language.setLanguage(language);
     scene.overlay()->setGeometry(QRect(80, 80, 240, 560));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_COMPARE(scene.floating()->width(), 240);
     QTRY_VERIFY(scene.overlay()->attemptsKnown());
     for (const QVariant &entry : scene.overlay()->attemptPeriodOptions()) {
@@ -2347,8 +2322,7 @@ void StatisticsOverlayTests::nativeInputStylesAndTrayRecovery()
         QSKIP("Native Windows styles and tray require the windows platform; run this case separately.");
     Scene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     scene.overlay()->setLocked(true);
     QTest::qWait(40);
     auto nativeStyle = [&] { return GetWindowLongPtr(std::bit_cast<HWND>(scene.floating()->winId()), GWL_EXSTYLE); };
@@ -2402,8 +2376,7 @@ void StatisticsOverlayTests::renderedEvidence()
     QVERIFY2(scene.create(style, dark), qPrintable(scene.errors));
     scene.app->setRecordRegion(QString());
     scene.overlay()->setGeometry(QRect(80, 80, 300, 560));
-    scene.overlay()->show();
-    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QVERIFY(showFloating(scene));
     QTRY_VERIFY(scene.app->dungeons()->rowCountProperty() > 0);
     const QString prefix = style + (dark ? "-dark" : "-light");
     QVERIFY(scene.grab(prefix + QStringLiteral("-idle")));
