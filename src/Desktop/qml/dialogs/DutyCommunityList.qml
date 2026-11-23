@@ -244,7 +244,7 @@ ColumnLayout {
                 objectName: "dutyCommunityBulkSubmit"
                 compact: true
                 visible: !pane.store.remote
-                iconName: "arrow-up"
+                iconName: "send"
                 text: qsTr("投稿")
                 onClicked: pane.store.submitRows(pane.store.checkedIds)
             }

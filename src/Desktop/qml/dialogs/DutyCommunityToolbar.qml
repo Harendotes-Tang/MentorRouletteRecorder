@@ -97,7 +97,7 @@ ColumnLayout {
         MultiFilterButton {
             objectName: "dutyCommunityDutyFilter"
             visible: bar.store.remote
-            iconName: "gamepad-2"
+            iconName: "swords"
             title: qsTr("副本")
             options: bar.store.dutyOptions
             selection: bar.store.dutyFilter
@@ -128,7 +128,7 @@ ColumnLayout {
         }
         MultiFilterButton {
             objectName: "dutyCommunityLanguageFilter"
-            iconName: "notebook-pen"
+            iconName: "languages"
             title: qsTr("语言")
             options: bar.store.languageOptions
             selection: bar.store.languageFilter
@@ -136,7 +136,7 @@ ColumnLayout {
         }
         MultiFilterButton {
             objectName: "dutyCommunityStageFilter"
-            iconName: "swords"
+            iconName: "skull"
             title: qsTr("BOSS / 阶段")
             options: bar.store.stageOptions
             selection: bar.store.stageFilter
@@ -166,7 +166,7 @@ ColumnLayout {
         TogglePill {
             objectName: "dutyCommunityFavoriteOnly"
             visible: !bar.store.remote
-            iconName: "medal"
+            iconName: "star"
             text: qsTr("只看收藏")
             checked: bar.store.favoriteOnly
             onClicked: bar.store.favoriteOnly = !bar.store.favoriteOnly

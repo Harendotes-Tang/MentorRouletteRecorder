@@ -3,7 +3,7 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 69 个图标中有 28 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
+（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 73 个图标中有 28 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
 其中 `circle-alert` 与 `circle-help` 在名单上仍写作 Feather 的旧名 `alert-circle` 与 `help-circle`（Lucide 后来改了名，对应关系记在生成器的 `FEATHER_RENAMES` 中）；`globe` 不在名单上。
 生成器按同一份名单把 MIT 声明与这 28 个名称一并写入 `Lucide.js` 的文件头（`fromFeather`）。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
@@ -28,6 +28,8 @@
 
 
 2026-11-19 全部 69 个图标升级到 `lucide-static@1.76.0`（`https://unpkg.com/lucide-static@1.76.0/icons/<name>.svg`），逐个覆盖并重新生成 `Lucide.js`；与 1.61.0 相比只有 `circle-help` 的问号画法有变化，其余文件仅版本注释不同。下表为新文件的校验值，上文两处「1.61.0」记录的是当时的取用版本。
+
+2026-11-23 新增 `languages`、`send`、`skull`、`star`（「提醒与宏」的语言、投稿、BOSS / 阶段与收藏），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
 
 2026-11-09 图标统一补齐：复选、浮窗、完成状态、窗口控制与复制操作的新增图标同样取自上述固定官方 npm 版本；浮窗旧名称由 `OverlayIcons.js` 映射到标准 Lucide 名称，运行时仍只读取本地生成库。
 
@@ -74,6 +76,7 @@
 | `image.svg` | `a76d752a3bf99c20bab65453260308799cd90faf32f35c170b19222ace13885e` |
 | `inbox.svg` | `e567a335888a078a37e76740e654b582760b7f3f87e5cd4a14a7ca4cb41f8f47` |
 | `info.svg` | `e718a8c91a197551cf9c06c06e956f49e9f6e1f967414e18bad44f8591bcadb6` |
+| `languages.svg` | `d07e21dd6aaff5c8c9ded188afc09cc8ccb7a0041f76b1d07297fb845d5e2987` |
 | `layout-dashboard.svg` | `fc185932ada42aabb7de6c1ccdb91ea3f440aacee14a0461aaacb8b82bcc1541` |
 | `lock-open.svg` | `c0a4cd366aa5dcbf95434e071a944fc02065c7834dd995e457e0a9d62f37f3e9` |
 | `lock.svg` | `bb33207071e22c9d18ccb7ca1ae0604902476c5d117499a72c776589f039c3a3` |
@@ -91,11 +94,14 @@
 | `plus.svg` | `6ae825b04b65ebd4593252d8a86b031a3dceb68bfde837e0f6611bc2b91e4058` |
 | `radio.svg` | `d719fbace88d9c180b9f0d17a8c47f242d9f09d64c29a9e938e3a3a123bb829e` |
 | `search.svg` | `d2c492f6c3e5bfe43d0ec7f22031d10dee141531907ef923fd63f89f3f631a05` |
+| `send.svg` | `11d3a7e58866ff244fa6b88a249848c52916801b42aae2bc16d739d2bceb4acc` |
 | `server.svg` | `63254fe737b5d1c505261ce56e8ef134a1c9073c0b9b9349efe8181efaa1ed8b` |
 | `settings.svg` | `bed6ed745f25d997a1141a057f16e7b89ee2d88ad2c42f9af0819c2d02e6c5f4` |
+| `skull.svg` | `3f6c2d27e53b70818276cb179b0541d5d412d4db16ad2070bf1309fef9b7bba8` |
 | `sliders-horizontal.svg` | `227f58fd45bc90e5fd9a8a4c8b14fad14089e48f966895b8356efe43bcfed46a` |
 | `smile.svg` | `6d91891cf38d3d9cae4fea3dc08cf6e3e1fd00ead52e8c6c3ec57bedd2fcbc06` |
 | `square.svg` | `c59b10bcff68f8c815f3879917fb2ea8917553759436fe6c06921112209b961f` |
+| `star.svg` | `b3b5608b4eeba47d8e7891abee0e9ad0a8df0646c6959b41ba3ec70c6212292f` |
 | `sun.svg` | `e2877a548779ff45be8d74063b88c88119f0ea69c19fd6357baf44ccb9ee2509` |
 | `swords.svg` | `168de43f6e4b633492dcf9700a065382897191a4432764e021fb03990efd5fb1` |
 | `target.svg` | `bceb97844e2ba7875fbeef2182b6a83d4809ebe5091d472b4fd2a5c6952cc504` |

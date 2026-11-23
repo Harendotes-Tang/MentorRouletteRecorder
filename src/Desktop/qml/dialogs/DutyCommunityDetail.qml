@@ -378,7 +378,7 @@ ColumnLayout {
             objectName: "dutyCommunitySubmit"
             visible: !pane.store.remote && !pane.store.confirmingDelete
             variant: "ghost"
-            iconName: "arrow-up"
+            iconName: "send"
             text: pane.ticked > 0 ? qsTr("投稿 %1 项").arg(pane.ticked) : qsTr("投稿")
             onClicked: pane.store.submitRows(pane.actionIds)
         }
