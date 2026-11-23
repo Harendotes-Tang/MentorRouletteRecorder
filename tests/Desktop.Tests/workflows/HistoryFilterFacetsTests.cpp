@@ -91,7 +91,6 @@ private Q_SLOTS:
         FacetBackend backend;
         mr::HistoryController history(&backend);
         QCOMPARE(history.historyFilter(), (QVariantMap{{"date_field", "matched_at_utc"}}));
-        QCOMPARE(history.runs()->sortField(), QStringLiteral("history_date"));
         history.setHistoryFilter({{"date_field", "history_date"}, {"history_from_day", "2026-09-01"},
                                   {"history_to_day", "2026-09-03"}, {"from_utc", "2026-09-01T00:00:00Z"}});
         const QJsonObject filter = backend.calls.last().payload.value("filter").toObject();

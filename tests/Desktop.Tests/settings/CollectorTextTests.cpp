@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "CollectorTextTestSupport.h"
 #include "CollectorText.h"
 #include "CollectorTextCatalog.h"
 #include "Formatters.h"
@@ -27,32 +28,21 @@
 // Chinese the Collector sent.
 namespace {
 
-// Stands in for a compiled catalogue: every CollectorText source gets a
-// recognisable "translation" that keeps the placeholders.
-class MarkingTranslator : public QTranslator
+using mrtest::textRef;
+
+/// The stand-in catalogue (mrtest::MarkingTranslator) that also notes each key it was asked for.
+class KeyRecordingTranslator final : public mrtest::MarkingTranslator
 {
 public:
     QString translate(const char *context, const char *sourceText, const char *disambiguation,
                       int n) const override
     {
-        Q_UNUSED(n)
-        if (qstrcmp(context, "CollectorText") != 0 || !sourceText)
-            return {};
-        seen.insert(QString::fromUtf8(disambiguation));
-        return QStringLiteral("[") + QString::fromUtf8(disambiguation) + QStringLiteral("] ") +
-               QString::fromUtf8(sourceText);
+        if (qstrcmp(context, "CollectorText") == 0 && sourceText)
+            seen.insert(QString::fromUtf8(disambiguation));
+        return MarkingTranslator::translate(context, sourceText, disambiguation, n);
     }
-    bool isEmpty() const override { return false; }
     mutable QSet<QString> seen;
 };
-
-QVariantMap ref(const char *key, const QVariantMap &args = {})
-{
-    QVariantMap map{{QStringLiteral("key"), QString::fromUtf8(key)}};
-    if (!args.isEmpty())
-        map.insert(QStringLiteral("args"), args);
-    return map;
-}
 
 // A key with arguments of each kind, found in the generated table so the test
 // does not hard-code the catalogue's contents.
@@ -76,7 +66,7 @@ QVariant sampleValue(const QString &kind)
     if (kind == QLatin1String("clock"))
         return QStringLiteral("2026-10-15T12:34:56.000Z");
     if (kind == QLatin1String("text_ref"))
-        return ref(mr::collector_text::catalogueBegin()->source.key);
+        return textRef(mr::collector_text::catalogueBegin()->source.key);
     return QStringLiteral("值");
 }
 
@@ -88,7 +78,7 @@ QVariantMap sampleRef(const mr::collector_text::CatalogueEntry &entry)
         const QStringList pair = part.split(QLatin1Char(':'));
         args.insert(pair.at(0), sampleValue(pair.at(1)));
     }
-    return ref(entry.source.key, args);
+    return textRef(entry.source.key, args);
 }
 
 } // namespace
@@ -150,12 +140,12 @@ private Q_SLOTS:
         const QString chinese = QStringLiteral("采集服务的中文原句。");
         QCOMPARE(mr::collector_text::render(QVariant(), chinese), chinese);
         QCOMPARE(mr::collector_text::render(QStringLiteral("not a map"), chinese), chinese);
-        QCOMPARE(mr::collector_text::render(ref("no.such_key"), chinese), chinese);
+        QCOMPARE(mr::collector_text::render(textRef("no.such_key"), chinese), chinese);
 
         const auto *withArgs = entryWith("number");
         if (withArgs) {
             // A missing argument, or one of the wrong type, is not guessed at.
-            QCOMPARE(mr::collector_text::render(ref(withArgs->source.key), chinese), chinese);
+            QCOMPARE(mr::collector_text::render(textRef(withArgs->source.key), chinese), chinese);
             QVariantMap wrong = sampleRef(*withArgs);
             QVariantMap args = wrong.value(QStringLiteral("args")).toMap();
             for (auto it = args.begin(); it != args.end(); ++it)
@@ -199,9 +189,9 @@ private Q_SLOTS:
             QSKIP("the key is not in the catalogue");
         const QVariantMap status{
             {QStringLiteral("hint_ref"),
-             ref("calibration.event.pop_repeated",
-                 {{QStringLiteral("roulette"), QStringLiteral("练级迷宫")},
-                  {QStringLiteral("count"), 3}})}};
+             textRef("calibration.event.pop_repeated",
+                     {{QStringLiteral("roulette"), QStringLiteral("练级迷宫")},
+                      {QStringLiteral("count"), 3}})}};
         QQmlEngine engine;
         mr::Formatters formatters;
         engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
@@ -215,10 +205,11 @@ private Q_SLOTS:
                           "    property string fromMissing: Fmt.collectorText(Status.no_such_ref, '中文')\n"
                           "}\n",
                           QUrl());
-        MarkingTranslator translator;
-        QCoreApplication::installTranslator(&translator);
-        std::unique_ptr<QObject> object(component.create());
-        QCoreApplication::removeTranslator(&translator);
+        std::unique_ptr<QObject> object;
+        {
+            const mrtest::MarkedLanguage language;
+            object.reset(component.create());
+        }
         QVERIFY2(object, qPrintable(component.errorString()));
 
         const QString expected = QStringLiteral("[calibration.event.pop_repeated] 匹配弹窗：练级迷宫（检测到 3 次）");
@@ -233,9 +224,9 @@ private Q_SLOTS:
             QSKIP("the key is not in the catalogue");
         const auto with = [](const QVariant &count) {
             return mr::collector_text::render(
-                ref("calibration.event.pop_repeated",
-                    {{QStringLiteral("roulette"), QStringLiteral("练级迷宫")},
-                     {QStringLiteral("count"), count}}),
+                textRef("calibration.event.pop_repeated",
+                        {{QStringLiteral("roulette"), QStringLiteral("练级迷宫")},
+                         {QStringLiteral("count"), count}}),
                 QStringLiteral("中文"));
         };
         QVERIFY(with(3).contains(QStringLiteral("3")));
@@ -255,9 +246,9 @@ private Q_SLOTS:
         const auto chain = [&](int errors) {
             QVariantMap joined = one;
             for (int i = 1; i < errors; ++i)
-                joined = ref("import.table.errors_joined",
-                             {{QStringLiteral("first"), one}, {QStringLiteral("rest"), joined}});
-            return ref("import.source.unreadable", {{QStringLiteral("detail"), joined}});
+                joined = textRef("import.table.errors_joined",
+                                 {{QStringLiteral("first"), one}, {QStringLiteral("rest"), joined}});
+            return textRef("import.source.unreadable", {{QStringLiteral("detail"), joined}});
         };
 
         // The deepest the Collector sends: eight errors, ten levels.
@@ -278,7 +269,7 @@ private Q_SLOTS:
         QVariantMap args = outer.value(QStringLiteral("args")).toMap();
         for (auto it = args.begin(); it != args.end(); ++it) {
             if (it.value().typeId() == QMetaType::QVariantMap)
-                it.value() = ref("no.such_key");
+                it.value() = textRef("no.such_key");
         }
         outer.insert(QStringLiteral("args"), args);
         QCOMPARE(mr::collector_text::render(outer, QStringLiteral("中文")), QStringLiteral("中文"));
@@ -286,7 +277,7 @@ private Q_SLOTS:
 
     void aTranslatorReplacesTheWordingAndAValueIsNotExpandedTwice()
     {
-        MarkingTranslator translator;
+        KeyRecordingTranslator translator;
         QCoreApplication::installTranslator(&translator);
         const char *key = mr::collector_text::catalogueBegin()->source.key;
         const QString rendered = mr::collector_text::render(
@@ -317,10 +308,11 @@ private Q_SLOTS:
         const auto *first = mr::collector_text::catalogueBegin();
         const mr::LiveText live = mr::collector_text::live(sampleRef(*first), QStringLiteral("中文"));
         const QString before = live.text();
-        MarkingTranslator translator;
-        QCoreApplication::installTranslator(&translator);
-        const QString after = live.text();
-        QCoreApplication::removeTranslator(&translator);
+        QString after;
+        {
+            const mrtest::MarkedLanguage language;
+            after = live.text();
+        }
         QVERIFY(before != after);
         QVERIFY(after.startsWith(QStringLiteral("[")));
 
@@ -358,10 +350,10 @@ private Q_SLOTS:
             handledRef = guard ? guard->errorRef() : QVariant();
         });
 
-        MarkingTranslator translator;
-        QCoreApplication::installTranslator(&translator);
-        reply->fail(QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("中文"), {}, messageRef);
-        QCoreApplication::removeTranslator(&translator);
+        {
+            const mrtest::MarkedLanguage language;
+            reply->fail(QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("中文"), {}, messageRef);
+        }
 
         QVERIFY2(handled.startsWith(QStringLiteral("[")), qPrintable(handled));
         QCOMPARE(handledRef.toMap().value(QStringLiteral("key")).toString(),

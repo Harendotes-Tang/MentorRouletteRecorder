@@ -29,6 +29,15 @@
 // (tests/Desktop.Tests/CMakeLists.txt) run the executable with --ui-language and
 // find the translated text on screen.
 namespace {
+/// The file the installer leaves for the first start, naming the language picked in setup.
+QSettings::Status writeInstallerSeed(const QString &path, const QString &code)
+{
+    QSettings seed(path, QSettings::IniFormat);
+    seed.setValue(QStringLiteral("Installer/Language"), code);
+    seed.sync();
+    return seed.status();
+}
+
 class LanguageManagerTests : public QObject
 {
     Q_OBJECT
@@ -136,12 +145,7 @@ private Q_SLOTS:
         QVERIFY(temp.isValid());
         const QString settingsPath = temp.filePath(QStringLiteral("desktop.ini"));
         const QString seedPath = temp.filePath(QStringLiteral("installer-language.ini"));
-        {
-            QSettings seed(seedPath, QSettings::IniFormat);
-            seed.setValue(QStringLiteral("Installer/Language"), code);
-            seed.sync();
-            QCOMPARE(seed.status(), QSettings::NoError);
-        }
+        QCOMPARE(writeInstallerSeed(seedPath, code), QSettings::NoError);
         {
             mr::AppSettings settings(settingsPath, nullptr);
             mr::LanguageManager manager(&settings);
@@ -160,10 +164,7 @@ private Q_SLOTS:
         QVERIFY(temp.isValid());
         const QString settingsPath = temp.filePath(QStringLiteral("desktop.ini"));
         const QString seedPath = temp.filePath(QStringLiteral("installer-language.ini"));
-        {
-            QSettings seed(seedPath, QSettings::IniFormat);
-            seed.setValue(QStringLiteral("Installer/Language"), QStringLiteral("ja"));
-        }
+        QCOMPARE(writeInstallerSeed(seedPath, QStringLiteral("ja")), QSettings::NoError);
         {
             mr::AppSettings settings(settingsPath, nullptr);
             mr::LanguageManager manager(&settings);
@@ -209,10 +210,7 @@ private Q_SLOTS:
             QCOMPARE(manager.code(), QStringLiteral("zh-CN"));
             QVERIFY(settings.value(QStringLiteral("ui/language"), QString()).isEmpty());
         }
-        {
-            QSettings seed(seedPath, QSettings::IniFormat);
-            seed.setValue(QStringLiteral("Installer/Language"), QStringLiteral("fr"));
-        }
+        QCOMPARE(writeInstallerSeed(seedPath, QStringLiteral("fr")), QSettings::NoError);
         mr::AppSettings settings(temp.filePath(QStringLiteral("invalid.ini")), nullptr);
         mr::LanguageManager manager(&settings);
         manager.initialize(QString(), seedPath);
@@ -225,10 +223,7 @@ private Q_SLOTS:
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
         const QString seedPath = temp.filePath(QStringLiteral("installer-language.ini"));
-        {
-            QSettings seed(seedPath, QSettings::IniFormat);
-            seed.setValue(QStringLiteral("Installer/Language"), QStringLiteral("ja"));
-        }
+        QCOMPARE(writeInstallerSeed(seedPath, QStringLiteral("ja")), QSettings::NoError);
         mr::AppSettings settings(temp.filePath(QStringLiteral("desktop.ini")), nullptr);
         mr::LanguageManager manager(&settings);
         manager.initialize(QStringLiteral("en"), seedPath);

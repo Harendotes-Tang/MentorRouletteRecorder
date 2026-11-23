@@ -20,6 +20,30 @@ QString registeredCommandLine()
         .arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
 }
 
+/// The account's login Run key; every native QSettings access lands in the audit root instead.
+constexpr auto kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+#ifdef Q_OS_WIN
+/// Sets this account's MentorRecorder Run value, as an installed copy or an older build left it.
+void registerRunValue(const QString &commandLine)
+{
+    QSettings run(QLatin1String(kRunKey), QSettings::NativeFormat);
+    run.setValue(QStringLiteral("MentorRecorder"), commandLine);
+}
+#endif
+
+/// A temporary folder that receives every native QSettings access (AppSettingsAudit.h),
+/// with the access log emptied.
+struct AuditRoot
+{
+    QTemporaryDir directory;
+    AuditRoot()
+    {
+        settingsAuditRoot() = directory.path();
+        nativeSettingsAccesses() = {};
+    }
+};
+
 class AppSettingsIsolationTests final : public QObject
 {
     Q_OBJECT
@@ -33,11 +57,9 @@ private slots:
     {
         QString temporaryPath;
         {
-            QTemporaryDir directory;
-            QVERIFY(directory.isValid());
-            temporaryPath = directory.path();
-            settingsAuditRoot() = temporaryPath;
-            nativeSettingsAccesses() = {};
+            const AuditRoot root;
+            QVERIFY(root.directory.isValid());
+            temporaryPath = root.directory.path();
             const QString requested = QStringLiteral("audit-only-native-target");
             {
                 QSettings settings(requested, QSettings::NativeFormat);
@@ -77,10 +99,8 @@ private slots:
     {
         QFETCH(bool, screenshot);
         QFETCH(QString, backend);
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(mr::AppSettings::isHarnessRun(screenshot, backend));
         // The distribution's rules: even the flavour that may register keeps a harness run away.
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);
@@ -105,10 +125,8 @@ private slots:
     // desktop.ini says - it does not even open the key.
     void aDevelopmentBuildNeverOpensTheRunValue()
     {
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
         const auto restore = qScopeGuard([] { QStandardPaths::setTestModeEnabled(true); });
         {
@@ -142,10 +160,8 @@ private slots:
     }
     void normalRunStillRegistersAndRemovesOnlyItsOwnValue()
     {
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);
 #ifdef Q_OS_WIN
@@ -156,7 +172,7 @@ private slots:
         const auto write = nativeSettingsAccesses()[1].toObject();
         QCOMPARE(write.value("operation").toString(), QStringLiteral("set"));
         QCOMPARE(write.value("key").toString(), QStringLiteral("MentorRecorder"));
-        QCOMPARE(write.value("target").toString(), QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
+        QCOMPARE(write.value("target").toString(), QLatin1String(kRunKey));
         // The switch keeps a login start in the tray (main.cpp), through a positional marker.
         QCOMPARE(write.value("value").toString(), registeredCommandLine());
         QCOMPARE(mr::AppSettings::autostartArgument(), QStringLiteral("autostart"));
@@ -176,10 +192,8 @@ private slots:
     }
     void refreshRewritesTheRunValueOnlyWhileAutostartIsOn()
     {
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);
         // Off: a start-up refresh must not recreate a value the player removed.
@@ -188,12 +202,8 @@ private slots:
         QVERIFY2(nativeSettingsAccesses().isEmpty(), "refresh wrote the Run key while autostart is off");
 #ifdef Q_OS_WIN
         // On: an installation registered before the marker existed gets it.
-        {
-            QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-            run.setValue(QStringLiteral("MentorRecorder"), QStringLiteral("\"%1\"").arg(
-                QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
-        }
+        registerRunValue(QStringLiteral("\"%1\"").arg(
+            QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
         nativeSettingsAccesses() = {};
         settings.setValue(QStringLiteral("general/autostart"), true);
         settings.refreshAutostartRegistration();
@@ -209,12 +219,8 @@ private slots:
         QCOMPARE(nativeSettingsAccesses().size(), 1);
         QCOMPARE(nativeSettingsAccesses()[0].toObject().value("operation").toString(), QStringLiteral("open"));
         // The option form unreleased builds wrote is brought to the positional one.
-        {
-            QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-            run.setValue(QStringLiteral("MentorRecorder"), QStringLiteral("\"%1\" --autostart").arg(
-                QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
-        }
+        registerRunValue(QStringLiteral("\"%1\" --autostart").arg(
+            QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
         nativeSettingsAccesses() = {};
         settings.refreshAutostartRegistration();
         QCOMPARE(nativeSettingsAccesses().size(), 2);
@@ -233,15 +239,11 @@ private slots:
 #ifndef Q_OS_WIN
         QSKIP("The Run value is a Windows registry value.");
 #else
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
-        const auto restore = qScopeGuard([] {
-            nativeSettingsRefuseWrites() = false;
-            QStandardPaths::setTestModeEnabled(true);
-        });
+        // init() releases nativeSettingsRefuseWrites() for the next test.
+        const auto restore = qScopeGuard([] { QStandardPaths::setTestModeEnabled(true); });
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);
         QSignalSpy changed(&settings, &mr::AppSettings::generalChanged);
 
@@ -267,11 +269,7 @@ private slots:
 
         // A refused start-up refresh is reported too; the player's choice is kept.
         nativeSettingsRefuseWrites() = false;
-        {
-            QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-            run.setValue(QStringLiteral("MentorRecorder"), QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\""));
-        }
+        registerRunValue(QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\""));
         mr::AppSettings restarted(mr::AppSettings::filePath(), Flavour::Distribution);
         QSignalSpy restartedChanged(&restarted, &mr::AppSettings::generalChanged);
         nativeSettingsRefuseWrites() = true;
@@ -292,15 +290,11 @@ private slots:
 #ifndef Q_OS_WIN
         QSKIP("The Run value is a Windows registry value.");
 #else
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
-        nativeSettingsAccesses() = {};
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
-        const auto restore = qScopeGuard([] {
-            nativeSettingsDropWrites() = false;
-            QStandardPaths::setTestModeEnabled(true);
-        });
+        // init() releases nativeSettingsDropWrites() for the next test.
+        const auto restore = qScopeGuard([] { QStandardPaths::setTestModeEnabled(true); });
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);
 
         nativeSettingsDropWrites() = true;
@@ -321,11 +315,7 @@ private slots:
 
         // The start-up refresh of a moved copy, dropped: reported, the choice kept.
         nativeSettingsDropWrites() = false;
-        {
-            QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-            run.setValue(QStringLiteral("MentorRecorder"), QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\""));
-        }
+        registerRunValue(QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\""));
         mr::AppSettings restarted(mr::AppSettings::filePath(), Flavour::Distribution);
         nativeSettingsDropWrites() = true;
         restarted.refreshAutostartRegistration();
@@ -385,16 +375,12 @@ private slots:
 #ifndef Q_OS_WIN
         QSKIP("The Run value is a Windows registry value.");
 #else
-        QTemporaryDir directory;
-        QVERIFY(directory.isValid());
-        settingsAuditRoot() = directory.path();
+        const AuditRoot root;
+        QVERIFY(root.directory.isValid());
         QStandardPaths::setTestModeEnabled(false);
         const auto restore = qScopeGuard([] { QStandardPaths::setTestModeEnabled(true); });
-        const QString moved = QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\"");
-        const auto registerMoved = [&moved] {
-            QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-            run.setValue(QStringLiteral("MentorRecorder"), moved);
+        const auto registerMoved = [] {
+            registerRunValue(QStringLiteral("\"C:\\Moved\\MentorRecorder.Desktop.exe\""));
             nativeSettingsAccesses() = {};
         };
         mr::AppSettings settings(mr::AppSettings::filePath(), Flavour::Distribution);

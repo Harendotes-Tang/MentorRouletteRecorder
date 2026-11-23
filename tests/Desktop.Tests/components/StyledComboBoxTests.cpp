@@ -8,7 +8,6 @@
 #include "RoleCatalog.h"
 #include <QQmlContext>
 #include <QSignalSpy>
-#include <QDir>
 #include <QGuiApplication>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -48,8 +47,7 @@ private slots:
 
 void StyledComboBoxTests::initTestCase()
 {
-    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
-    mrtest::registerSourceQmlComponents();
+    QVERIFY(mrtest::registerSourceQmlComponents());
 }
 
 void StyledComboBoxTests::aBoxWithoutSectionsListsEachOptionOnce()

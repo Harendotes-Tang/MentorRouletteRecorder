@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
@@ -7,9 +8,7 @@
 #include "IpcFraming.h"
 #include "MockBackend.h"
 #include "RoleCatalog.h"
-#include "RunFormValidator.h"
 #include "RecoveryController.h"
-#include "RunListModel.h"
 #include "StatsModels.h"
 #include "AppSettings.h"
 #include "TtsService.h"
@@ -32,32 +31,6 @@ namespace {
 QString firstRoleGroup(const QVariantList &rows, int index)
 {
     return rows.at(index).toMap().value(QStringLiteral("role_group")).toString();
-}
-
-/// A valid correction form, as the dialog builds it.
-QVariantMap baseForm()
-{
-    QVariantMap form;
-    form.insert(QStringLiteral("reason"), QString::fromUtf8("\u961f\u53cb\u622a\u56fe\u786e\u8ba4"));
-    form.insert(QStringLiteral("reason_label"), QString::fromUtf8("\u4fee\u6b63\u539f\u56e0"));
-    form.insert(QStringLiteral("date"), QStringLiteral("2026-09-04"));
-    form.insert(QStringLiteral("matched"), QStringLiteral("20:00:00"));
-    form.insert(QStringLiteral("entered"), QStringLiteral("20:01:11"));
-    form.insert(QStringLiteral("ended"), QStringLiteral("20:20:00"));
-    form.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-    form.insert(QStringLiteral("duty_name"), QString::fromUtf8("\u77f3\u536b\u5854"));
-    form.insert(QStringLiteral("job_name"), QString::fromUtf8("\u9a91\u58eb"));
-    form.insert(QStringLiteral("contributes"), true);
-    form.insert(QStringLiteral("note"), QString());
-    form.insert(QStringLiteral("edit_mode"), false);
-    return form;
-}
-
-QString validationCode(const QVariantMap &form, const QVariantMap &before = {})
-{
-    return mr::RunFormValidator::validate(form, before)
-        .value(QStringLiteral("code"))
-        .toString();
 }
 
 int sumAttempts(const QVariantList &rows)
@@ -321,10 +294,6 @@ private Q_SLOTS:
     void ipcEnvelope_toleratesAdditiveFields();
     void formatters_renderNullsAndDurations();
     void mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered();
-    void runListModel_filtersSortsAndPages();
-    void runListModel_resizeRoundTripKeepsNavigationAnchor();
-    void runListModel_clampsAnchorWhenTotalShrinks();
-    void runListModel_sortsByTheDateColumnByDefault();
     void ttsService_readsTheVoicesAgainWhenTheAppIsActivated();
     void jobStatsModel_roleBreakdownKeepsFixedOrder();
     void mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows();
@@ -357,8 +326,6 @@ private Q_SLOTS:
     void appController_retriesAFailedRecordedRegionRead();
     void appController_regionUnsupportedFollowsTheProfileReply();
     void appController_aBoundCharacterAwaitingItsNameIsNoSecondCharacter();
-    void runFormValidator_rejectsEveryPrototypeCase();
-    void runFormValidator_buildsTheBeforeAfterDiff();
 };
 } // namespace
 
@@ -694,158 +661,23 @@ void DesktopTests::mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered
     mr::MockBackend backend;
     backend.setLiveMode(mr::MockBackend::LiveMode::Matched);
 
-    QVariantMap status;
-    backend.request(QStringLiteral("GetCaptureStatus"))
-        ->whenDone(&backend, [&status](bool ok, const QVariantMap &payload, const QString &,
-                                       const QString &) {
-            if (ok)
-                status = payload;
-        });
-    QTRY_COMPARE_WITH_TIMEOUT(status.value(QStringLiteral("last_valid_event_kind")).toString(),
-                              QStringLiteral("MATCH_ANNOUNCED"), 3000);
+    const mrtest::Answer status = mrtest::ask(backend, QStringLiteral("GetCaptureStatus"));
+    QVERIFY(status.ok);
+    QCOMPARE(status.payload.value(QStringLiteral("last_valid_event_kind")).toString(),
+             QStringLiteral("MATCH_ANNOUNCED"));
     QVERIFY(!mr::Formatters::eventKindLabel(
-                 status.value(QStringLiteral("last_valid_event_kind")).toString())
+                 status.payload.value(QStringLiteral("last_valid_event_kind")).toString())
                  .isEmpty());
     // The time is set with the kind, the way the contract requires of the Collector.
-    QVERIFY(!status.value(QStringLiteral("last_valid_event_at_utc")).toString().isEmpty());
+    QVERIFY(!status.payload.value(QStringLiteral("last_valid_event_at_utc")).toString().isEmpty());
 
     // Every other fixture keeps the settled duty result: this changes one scenario,
     // not the projection the rest of the capture-page tests read.
     mr::MockBackend entered;
-    QVariantMap enteredStatus;
-    entered.request(QStringLiteral("GetCaptureStatus"))
-        ->whenDone(&entered, [&enteredStatus](bool ok, const QVariantMap &payload, const QString &,
-                                              const QString &) {
-            if (ok)
-                enteredStatus = payload;
-        });
-    QTRY_COMPARE_WITH_TIMEOUT(
-        enteredStatus.value(QStringLiteral("last_valid_event_kind")).toString(),
-        QStringLiteral("DUTY_RESULT"), 3000);
-}
-
-void DesktopTests::runListModel_filtersSortsAndPages()
-{
-    mr::MockBackend backend;
-    mr::RunListModel model;
-    model.setBackend(&backend);
-
-    // QML selects the map through the integer model role, which exceeds one byte.
-    QCOMPARE(static_cast<int>(mr::RunListModel::RunRole), Qt::UserRole + 1);
-    QCOMPARE(model.roleNames().value(Qt::UserRole + 1), QByteArray("run"));
-    model.reload();
-    QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() > 0, 3000);
-    QCOMPARE(model.data(model.index(0), Qt::UserRole + 1).toMap(), model.runAt(0));
-    QVERIFY(!model.data(model.index(0), Qt::UserRole).isValid());
-    QCOMPARE(model.page(), 1);
-    QCOMPARE(model.pageSize(), 10);
-    QVERIFY(model.total() >= model.rowCount());
-
-    model.sortBy(QStringLiteral("duty_name"));
-    QTRY_COMPARE_WITH_TIMEOUT(model.sortField(), QStringLiteral("duty_name"), 3000);
-    QCOMPARE(model.sortAscending(), false);
-
-    model.sortBy(QStringLiteral("duty_name"));
-    QTRY_VERIFY_WITH_TIMEOUT(model.sortAscending(), 3000);
-
-    QVariantMap correctedOnly;
-    correctedOnly.insert(QStringLiteral("corrected_only"), true);
-    model.setFilter(correctedOnly);
-    QTRY_COMPARE_WITH_TIMEOUT(model.total(), 1, 3000);
-    QCOMPARE(model.rowCount(), 1);
-    QVERIFY(model.runAt(0).value(QStringLiteral("manually_corrected")).toBool());
-
-    QVariantMap includeDeleted;
-    includeDeleted.insert(QStringLiteral("include_deleted"), true);
-    model.setFilter(includeDeleted);
-    QTRY_VERIFY_WITH_TIMEOUT(model.total() > 90, 3000);
-    QVERIFY(model.runAt(0).contains(QStringLiteral("run_id")));
-
-    // The page size follows the window (HistoryPage.rowsThatFit). Growing or
-    // shrinking it keeps the row at the top of the current page in view rather
-    // than jumping back to page 1: page 3 of 10 starts at row 20, which sits on
-    // page 2 of 15 (rows 15-29); the original anchor, row 20, then heads
-    // page 5 of 5, without accumulating rounding loss across resizes.
-    // reload() marks the model loading before the request leaves, so waiting
-    // for that flag to clear is waiting for the page that was just asked for.
-    model.goToPage(3);
-    QCOMPARE(model.page(), 3);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    const QString topRow = model.runAt(0).value(QStringLiteral("run_id")).toString();
-    QVERIFY(!topRow.isEmpty());
-    model.setPageSize(15);
-    QCOMPARE(model.pageSize(), 15);
-    QCOMPARE(model.page(), 2);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    QCOMPARE(model.rowCount(), 15);
-    QCOMPARE(model.runAt(5).value(QStringLiteral("run_id")).toString(), topRow);
-    model.setPageSize(5);
-    QCOMPARE(model.page(), 5);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    QCOMPARE(model.rowCount(), 5);
-    QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), topRow);
-}
-
-void DesktopTests::runListModel_resizeRoundTripKeepsNavigationAnchor()
-{
-    mr::MockBackend backend;
-    mr::RunListModel model;
-    model.setBackend(&backend);
-    model.setFilter({{QStringLiteral("include_deleted"), true}});
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    QVERIFY(model.total() > 90);
-    model.goToPage(10);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    const QString anchor = model.runAt(0).value(QStringLiteral("run_id")).toString();
-    QVERIFY(!anchor.isEmpty());
-
-    for (int cycle = 0; cycle < 3; ++cycle) {
-        model.setPageSize(11);
-        QCOMPARE(model.page(), 9);
-        QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-        QCOMPARE(model.runAt(2).value(QStringLiteral("run_id")).toString(), anchor);
-        model.setPageSize(10);
-        QCOMPARE(model.page(), 10);
-        QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-        QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), anchor);
-    }
-
-    model.setPageSize(11);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.goToPage(3); // Explicit navigation establishes row 22 as the new anchor.
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.setPageSize(10);
-    QCOMPARE(model.page(), 3);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.sortBy(QStringLiteral("duty_name"));
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.setPageSize(11);
-    QCOMPARE(model.page(), 1);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.goToPage(3);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.setFilter({});
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-    model.setPageSize(10);
-    QCOMPARE(model.page(), 1);
-    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
-}
-
-// Review K1-8: the history list opens sorted by its 日期 column (history_date),
-// so imported rows with only an original-site date sit among the others and the
-// column shows the sort arrow; matched_at_utc put them all at the end.
-void DesktopTests::runListModel_sortsByTheDateColumnByDefault()
-{
-    DeferredBackend backend;
-    mr::RunListModel model;
-    QCOMPARE(model.sortField(), QStringLiteral("history_date"));
-    QVERIFY(!model.sortAscending());
-    model.setBackend(&backend);
-    model.reload();
-    QCOMPARE(backend.seenMessages().last(), QStringLiteral("QueryRuns"));
-    const QJsonObject sort = backend.seenPayloads().last().value(QStringLiteral("sort")).toObject();
-    QCOMPARE(sort.value(QStringLiteral("field")).toString(), QStringLiteral("history_date"));
-    QCOMPARE(sort.value(QStringLiteral("direction")).toString(), QStringLiteral("desc"));
+    const mrtest::Answer enteredStatus = mrtest::ask(entered, QStringLiteral("GetCaptureStatus"));
+    QVERIFY(enteredStatus.ok);
+    QCOMPARE(enteredStatus.payload.value(QStringLiteral("last_valid_event_kind")).toString(),
+             QStringLiteral("DUTY_RESULT"));
 }
 
 // Review I4-4: a voice added through 「打开 Windows 语音设置」 appears when the player
@@ -874,69 +706,24 @@ void DesktopTests::ttsService_readsTheVoicesAgainWhenTheAppIsActivated()
     QCOMPARE(engine->state(), QTextToSpeech::Ready);
 }
 
-void DesktopTests::runListModel_clampsAnchorWhenTotalShrinks()
-{
-    DeferredBackend backend;
-    backend.setAutoRespond(false);
-    mr::RunListModel model;
-    model.setBackend(&backend);
-    const auto complete = [&backend](int page, int total) {
-        backend.completeNext(QStringLiteral("QueryRuns"),
-                             {{QStringLiteral("items"), QJsonArray{}},
-                              {QStringLiteral("page_info"),
-                               QJsonObject{{QStringLiteral("page"), page},
-                                           {QStringLiteral("total"), total}}}});
-    };
-    model.reload();
-    complete(1, 100);
-    model.goToPage(10);
-    complete(10, 100);
-    model.reload();
-    complete(10, 35); // The real repository retains the requested page even when now empty.
-    QCOMPARE(model.page(), 4); // The model immediately requests the last surviving page.
-    QVERIFY(model.isLoading());
-    complete(4, 35);
-    model.setPageSize(7);
-    QCOMPARE(model.page(), 5); // Last surviving row (34) stays in view.
-    complete(5, 35);
-    model.setPageSize(10);
-    QCOMPARE(model.page(), 4);
-    complete(4, 35);
-
-    model.reload();
-    complete(1, 0);
-    complete(1, 0); // Empty history also clamps the previous last page back to one.
-    model.setPageSize(7);
-    QCOMPARE(model.page(), 1);
-    complete(1, 0);
-}
-
 void DesktopTests::mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows()
 {
     mr::MockBackend backend;
     for (const QString &type : {QStringLiteral("GetDungeonStats"), QStringLiteral("GetJobStats")}) {
-        const auto query = [&backend, &type](int page, int size, QJsonObject &answer) {
-            bool finished = false;
-            QObject context;
-            backend.request(type, {{"page", page}, {"page_size", size}})->whenDone(
-                &context, [&answer, &finished](bool ok, const QVariantMap &payload, const QString &, const QString &) {
-                    finished = true;
-                    QVERIFY(ok);
-                    answer = QJsonObject::fromVariantMap(payload);
-                });
-            QTRY_VERIFY_WITH_TIMEOUT(finished, 3000);
+        const auto query = [&backend, &type](int page, int size) {
+            return mrtest::ask(backend, type, {{"page", page}, {"page_size", size}});
         };
-        QJsonObject all;
-        query(1, 200, all);
-        const auto expected = all.value("items").toArray();
+        const mrtest::Answer all = query(1, 200);
+        QVERIFY(all.ok);
+        const auto expected = all.payload.value("items").toArray();
         QVERIFY(expected.size() > 2);
         QJsonArray collected;
         for (int page = 1; collected.size() < expected.size(); ++page) {
-            QJsonObject response;
-            query(page, 2, response);
-            QCOMPARE(response.value("page_info").toObject().value("total").toInt(), expected.size());
-            QCOMPARE(response.value("page_info").toObject().value("page").toInt(), page);
-            const auto items = response.value("items").toArray();
+            const mrtest::Answer response = query(page, 2);
+            QVERIFY(response.ok);
+            QCOMPARE(response.payload.value("page_info").toObject().value("total").toInt(), expected.size());
+            QCOMPARE(response.payload.value("page_info").toObject().value("page").toInt(), page);
+            const auto items = response.payload.value("items").toArray();
             QVERIFY(!items.isEmpty());
             for (const auto &item : items)
                 collected.append(item);
@@ -1842,131 +1629,6 @@ void DesktopTests::appController_notifiesAggregateCaptureProjectionForFormalStat
     QVERIFY(!controller.capturing());
     QCOMPARE(controller.captureActionLabel(), QString::fromUtf8("开始捕获"));
     QVERIFY(controller.captureActionEnabled());
-}
-
-void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
-{
-    // The happy path first, so a later failure means the rule fired and not
-    // that the fixture was broken to begin with.
-    QVERIFY(mr::RunFormValidator::validate(baseForm())
-                .value(QStringLiteral("ok"))
-                .toBool());
-
-    // ERR_REASON_REQUIRED - blank and whitespace-only both count as missing.
-    QVariantMap noReason = baseForm();
-    noReason.insert(QStringLiteral("reason"), QString());
-    QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
-    noReason.insert(QStringLiteral("reason"), QStringLiteral("   "));
-    QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
-    // The sentence is the player's and carries no machine code: the dialog adds the code
-    // for a maintainer only (AppController::errorText). The code itself stays in `code`.
-    const auto sentence = [](const QVariantMap &form) {
-        return mr::RunFormValidator::validate(form).value(QStringLiteral("message")).toString();
-    };
-    QCOMPARE(sentence(noReason), QString::fromUtf8("请先填写修正原因，再保存。"));
-
-    // Matched time is mandatory.
-    QVariantMap noMatched = baseForm();
-    noMatched.insert(QStringLiteral("matched"), QString());
-    QCOMPARE(validationCode(noMatched), QStringLiteral("ERR_BAD_REQUEST"));
-
-    // ERR_TIME_ORDER - entry before the match.
-    QVariantMap earlyEntry = baseForm();
-    earlyEntry.insert(QStringLiteral("entered"), QStringLiteral("19:59:00"));
-    QCOMPARE(validationCode(earlyEntry), QStringLiteral("ERR_TIME_ORDER"));
-    QCOMPARE(sentence(earlyEntry), QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
-
-    // ERR_NEGATIVE_DURATION - end before the entry.
-    QVariantMap negative = baseForm();
-    negative.insert(QStringLiteral("ended"), QStringLiteral("20:00:30"));
-    QCOMPARE(validationCode(negative), QStringLiteral("ERR_NEGATIVE_DURATION"));
-    QCOMPARE(sentence(negative), QString::fromUtf8("结束时间不能早于进本时间。如果跨了零点，请把结束日期改为第二天。"));
-
-    // ERR_TIME_ORDER - end before the match when there is no entry at all.
-    QVariantMap cancelledBackwards = baseForm();
-    cancelledBackwards.insert(QStringLiteral("result"),
-                              QStringLiteral("CANCELLED_BEFORE_ENTRY"));
-    cancelledBackwards.insert(QStringLiteral("entered"), QString());
-    cancelledBackwards.insert(QStringLiteral("ended"), QStringLiteral("19:30:00"));
-    QCOMPARE(validationCode(cancelledBackwards), QStringLiteral("ERR_TIME_ORDER"));
-    QCOMPARE(sentence(cancelledBackwards), QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
-
-    // An entry time may be left out for any result: the record keeps its outcome.
-    QVariantMap missingEntry = baseForm();
-    missingEntry.insert(QStringLiteral("entered"), QString());
-    missingEntry.insert(QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED"));
-    QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
-    missingEntry.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-    QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
-
-    // ... and CANCELLED_BEFORE_ENTRY with no entry time is fine.
-    QVariantMap cancelled = baseForm();
-    cancelled.insert(QStringLiteral("entered"), QString());
-    cancelled.insert(QStringLiteral("ended"), QStringLiteral("20:00:40"));
-    cancelled.insert(QStringLiteral("result"), QStringLiteral("CANCELLED_BEFORE_ENTRY"));
-    QVERIFY(mr::RunFormValidator::validate(cancelled)
-                .value(QStringLiteral("ok"))
-                .toBool());
-
-    // A COMPLETED run may have no end time either; its duration is then unknown.
-    QVariantMap noEnd = baseForm();
-    noEnd.insert(QStringLiteral("ended"), QString());
-    QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
-    noEnd.insert(QStringLiteral("entered"), QString());
-    QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
-
-    // ERR_NO_CHANGES - "没有任何字段被修改。"
-    QVariantMap unchanged = baseForm();
-    unchanged.insert(QStringLiteral("edit_mode"), true);
-    QVariantMap before = baseForm();
-    before.remove(QStringLiteral("edit_mode"));
-    QCOMPARE(validationCode(unchanged, before), QStringLiteral("ERR_NO_CHANGES"));
-    QCOMPARE(mr::RunFormValidator::validate(unchanged, before)
-                 .value(QStringLiteral("message"))
-                 .toString(),
-             QString::fromUtf8("内容还没有变化，无需保存。"));
-
-    // One changed field is enough to make the same form valid.
-    QVariantMap changed = unchanged;
-    changed.insert(QStringLiteral("note"), QStringLiteral("fixed"));
-    QVERIFY(mr::RunFormValidator::validate(changed, before)
-                .value(QStringLiteral("ok"))
-                .toBool());
-
-    // Date shape.
-    QVERIFY(mr::RunFormValidator::isValidDate(QStringLiteral("2026-09-04")));
-    QVERIFY(!mr::RunFormValidator::isValidDate(QStringLiteral("2026-13-04")));
-    QVERIFY(!mr::RunFormValidator::isValidDate(QStringLiteral("04/09/2026")));
-    QVERIFY(!mr::RunFormValidator::isValidDate(QString()));
-}
-
-void DesktopTests::runFormValidator_buildsTheBeforeAfterDiff()
-{
-    QVariantMap before = baseForm();
-    before.remove(QStringLiteral("edit_mode"));
-    before.insert(QStringLiteral("result"), QStringLiteral("DISCONNECTED"));
-    before.insert(QStringLiteral("ended"), QString());
-
-    QVariantMap after = baseForm();
-    after.insert(QStringLiteral("edit_mode"), true);
-
-    const QVariantList rows = mr::RunFormValidator::diff(before, after);
-    QCOMPARE(rows.size(), 2);
-    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("k")).toString(),
-             QString::fromUtf8("\u7ed3\u675f\u65f6\u95f4"));
-    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("a")).toString(),
-             QString::fromUtf8("\u2014"));
-    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("b")).toString(),
-             QStringLiteral("20:20:00"));
-    QCOMPARE(rows.at(1).toMap().value(QStringLiteral("k")).toString(),
-             QString::fromUtf8("\u7ed3\u679c"));
-    QCOMPARE(rows.at(1).toMap().value(QStringLiteral("a")).toString(),
-             QString::fromUtf8("\u65ad\u7ebf"));
-    QCOMPARE(rows.at(1).toMap().value(QStringLiteral("b")).toString(),
-             QString::fromUtf8("\u901a\u5173"));
-
-    // Identical inputs produce no rows at all.
-    QVERIFY(mr::RunFormValidator::diff(before, before).isEmpty());
 }
 
 // A run identified from its zone alone (schema 8: duty_source = TERRITORY) has

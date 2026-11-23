@@ -67,6 +67,32 @@ QVariantMap crossMidnightRun()
             {"job_id", null}};
 }
 
+/// A valid correction form, as the dialog builds it.
+QVariantMap baseForm()
+{
+    QVariantMap form;
+    form.insert(QStringLiteral("reason"), QString::fromUtf8("队友截图确认"));
+    form.insert(QStringLiteral("reason_label"), QString::fromUtf8("修正原因"));
+    form.insert(QStringLiteral("date"), QStringLiteral("2026-09-04"));
+    form.insert(QStringLiteral("matched"), QStringLiteral("20:00:00"));
+    form.insert(QStringLiteral("entered"), QStringLiteral("20:01:11"));
+    form.insert(QStringLiteral("ended"), QStringLiteral("20:20:00"));
+    form.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    form.insert(QStringLiteral("duty_name"), QString::fromUtf8("石卫塔"));
+    form.insert(QStringLiteral("job_name"), QString::fromUtf8("骑士"));
+    form.insert(QStringLiteral("contributes"), true);
+    form.insert(QStringLiteral("note"), QString());
+    form.insert(QStringLiteral("edit_mode"), false);
+    return form;
+}
+
+QString validationCode(const QVariantMap &form, const QVariantMap &before = {})
+{
+    return mr::RunFormValidator::validate(form, before)
+        .value(QStringLiteral("code"))
+        .toString();
+}
+
 using mrtest::qmlMap;
 
 } // namespace
@@ -338,6 +364,131 @@ ApplicationWindow {
         for (const auto *key : {"matched_at_utc", "entered_at_utc", "ended_at_utc"})
             QCOMPARE(fields.value(key), expected.value(key));
         QCOMPARE(fields.value("duration_ms").toLongLong(), 1502333);
+    }
+
+    void rejectsEveryPrototypeCase()
+    {
+        // The happy path first, so a later failure means the rule fired and not
+        // that the fixture was broken to begin with.
+        QVERIFY(mr::RunFormValidator::validate(baseForm())
+                    .value(QStringLiteral("ok"))
+                    .toBool());
+
+        // ERR_REASON_REQUIRED - blank and whitespace-only both count as missing.
+        QVariantMap noReason = baseForm();
+        noReason.insert(QStringLiteral("reason"), QString());
+        QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
+        noReason.insert(QStringLiteral("reason"), QStringLiteral("   "));
+        QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
+        // The sentence is the player's and carries no machine code: the dialog adds the code
+        // for a maintainer only (AppController::errorText). The code itself stays in `code`.
+        const auto sentence = [](const QVariantMap &form) {
+            return mr::RunFormValidator::validate(form).value(QStringLiteral("message")).toString();
+        };
+        QCOMPARE(sentence(noReason), QString::fromUtf8("请先填写修正原因，再保存。"));
+
+        // Matched time is mandatory.
+        QVariantMap noMatched = baseForm();
+        noMatched.insert(QStringLiteral("matched"), QString());
+        QCOMPARE(validationCode(noMatched), QStringLiteral("ERR_BAD_REQUEST"));
+
+        // ERR_TIME_ORDER - entry before the match.
+        QVariantMap earlyEntry = baseForm();
+        earlyEntry.insert(QStringLiteral("entered"), QStringLiteral("19:59:00"));
+        QCOMPARE(validationCode(earlyEntry), QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(sentence(earlyEntry), QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
+
+        // ERR_NEGATIVE_DURATION - end before the entry.
+        QVariantMap negative = baseForm();
+        negative.insert(QStringLiteral("ended"), QStringLiteral("20:00:30"));
+        QCOMPARE(validationCode(negative), QStringLiteral("ERR_NEGATIVE_DURATION"));
+        QCOMPARE(sentence(negative), QString::fromUtf8("结束时间不能早于进本时间。如果跨了零点，请把结束日期改为第二天。"));
+
+        // ERR_TIME_ORDER - end before the match when there is no entry at all.
+        QVariantMap cancelledBackwards = baseForm();
+        cancelledBackwards.insert(QStringLiteral("result"),
+                                  QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+        cancelledBackwards.insert(QStringLiteral("entered"), QString());
+        cancelledBackwards.insert(QStringLiteral("ended"), QStringLiteral("19:30:00"));
+        QCOMPARE(validationCode(cancelledBackwards), QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(sentence(cancelledBackwards), QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
+
+        // An entry time may be left out for any result: the record keeps its outcome.
+        QVariantMap missingEntry = baseForm();
+        missingEntry.insert(QStringLiteral("entered"), QString());
+        missingEntry.insert(QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED"));
+        QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
+        missingEntry.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+        QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
+
+        // ... and CANCELLED_BEFORE_ENTRY with no entry time is fine.
+        QVariantMap cancelled = baseForm();
+        cancelled.insert(QStringLiteral("entered"), QString());
+        cancelled.insert(QStringLiteral("ended"), QStringLiteral("20:00:40"));
+        cancelled.insert(QStringLiteral("result"), QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+        QVERIFY(mr::RunFormValidator::validate(cancelled)
+                    .value(QStringLiteral("ok"))
+                    .toBool());
+
+        // A COMPLETED run may have no end time either; its duration is then unknown.
+        QVariantMap noEnd = baseForm();
+        noEnd.insert(QStringLiteral("ended"), QString());
+        QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
+        noEnd.insert(QStringLiteral("entered"), QString());
+        QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
+
+        // ERR_NO_CHANGES - "没有任何字段被修改。"
+        QVariantMap unchanged = baseForm();
+        unchanged.insert(QStringLiteral("edit_mode"), true);
+        QVariantMap before = baseForm();
+        before.remove(QStringLiteral("edit_mode"));
+        QCOMPARE(validationCode(unchanged, before), QStringLiteral("ERR_NO_CHANGES"));
+        QCOMPARE(mr::RunFormValidator::validate(unchanged, before)
+                     .value(QStringLiteral("message"))
+                     .toString(),
+                 QString::fromUtf8("内容还没有变化，无需保存。"));
+
+        // One changed field is enough to make the same form valid.
+        QVariantMap changed = unchanged;
+        changed.insert(QStringLiteral("note"), QStringLiteral("fixed"));
+        QVERIFY(mr::RunFormValidator::validate(changed, before)
+                    .value(QStringLiteral("ok"))
+                    .toBool());
+
+        // Date shape.
+        QVERIFY(mr::RunFormValidator::isValidDate(QStringLiteral("2026-09-04")));
+        QVERIFY(!mr::RunFormValidator::isValidDate(QStringLiteral("2026-13-04")));
+        QVERIFY(!mr::RunFormValidator::isValidDate(QStringLiteral("04/09/2026")));
+        QVERIFY(!mr::RunFormValidator::isValidDate(QString()));
+    }
+
+    void buildsTheBeforeAfterDiff()
+    {
+        QVariantMap before = baseForm();
+        before.remove(QStringLiteral("edit_mode"));
+        before.insert(QStringLiteral("result"), QStringLiteral("DISCONNECTED"));
+        before.insert(QStringLiteral("ended"), QString());
+
+        QVariantMap after = baseForm();
+        after.insert(QStringLiteral("edit_mode"), true);
+
+        const QVariantList rows = mr::RunFormValidator::diff(before, after);
+        QCOMPARE(rows.size(), 2);
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("k")).toString(),
+                 QString::fromUtf8("结束时间"));
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("a")).toString(),
+                 QString::fromUtf8("—"));
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("b")).toString(),
+                 QStringLiteral("20:20:00"));
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("k")).toString(),
+                 QString::fromUtf8("结果"));
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("a")).toString(),
+                 QString::fromUtf8("断线"));
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("b")).toString(),
+                 QString::fromUtf8("通关"));
+
+        // Identical inputs produce no rows at all.
+        QVERIFY(mr::RunFormValidator::diff(before, before).isEmpty());
     }
 
 private:

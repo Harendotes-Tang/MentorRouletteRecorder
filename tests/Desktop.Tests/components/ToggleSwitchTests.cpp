@@ -1,27 +1,21 @@
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QDir>
 #include <QGuiApplication>
-#include <QQmlComponent>
 #include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTest>
-#include <memory>
 
 namespace {
-struct ToggleScene
+struct ToggleScene : mrtest::QmlComponentScene
 {
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
     bool create(const QString &style = QStringLiteral("classic"))
     {
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
         engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
+        return QmlComponentScene::create(R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
@@ -40,12 +34,8 @@ ApplicationWindow {
         }
         Button { objectName: "after"; text: "After" }
     }
-})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + "/ToggleProbe.qml"));
-        root.reset(component.create());
-        errors = component.errorString();
-        return root != nullptr;
+})", QStringLiteral("/ToggleProbe.qml"));
     }
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *item(const char *name) const { return root->findChild<QQuickItem *>(QString::fromLatin1(name)); }
     bool focusBefore() const
     {
@@ -68,9 +58,7 @@ class ToggleSwitchTests final : public QObject
 private slots:
     void initTestCase()
     {
-        const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-        qmlRegisterSingletonType(QUrl::fromLocalFile(root + "/Theme.qml"), "MentorRecorder", 1, 0, "Theme");
-        qmlRegisterType(QUrl::fromLocalFile(root + "/components/ToggleSwitch.qml"), "MentorRecorder", 1, 0, "ToggleSwitch");
+        QVERIFY(mrtest::registerSourceQmlComponents());
     }
     void tabSpaceAndBacktabOperateExactlyOnce()
     {

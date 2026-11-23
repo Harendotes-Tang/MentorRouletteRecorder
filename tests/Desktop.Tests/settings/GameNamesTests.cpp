@@ -7,6 +7,7 @@
 // record wizard shows translated names while sending Chinese ones.
 
 #include "DesktopTestRunner.h"
+#include "MockBackendTestSupport.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
@@ -100,21 +101,15 @@ QVariantMap sastashaRun()
 /// The run ids MockBackend lists for \a filter, as the Collector would.
 QStringList listedRuns(mr::IBackend &backend, const QVariantMap &filter)
 {
-    bool done = false;
-    QStringList ids;
-    const QJsonObject payload{{QStringLiteral("filter"), QJsonObject::fromVariantMap(filter)},
-                              {QStringLiteral("page"), 1},
-                              {QStringLiteral("page_size"), 200}};
-    backend.request(QStringLiteral("QueryRuns"), payload)->whenDone(&backend,
-        [&done, &ids](bool ok, const QVariantMap &result, const QString &, const QString &) {
-            done = true;
-            if (!ok)
-                return;
-            for (const QVariant &item : result.value(QStringLiteral("items")).toList())
-                ids.append(item.toMap().value(QStringLiteral("run_id")).toString());
-        });
-    if (!QTest::qWaitFor([&done] { return done; }, 3000))
+    const mrtest::Answer listed = mrtest::ask(backend, QStringLiteral("QueryRuns"),
+                                              {{QStringLiteral("filter"), QJsonObject::fromVariantMap(filter)},
+                                               {QStringLiteral("page"), 1},
+                                               {QStringLiteral("page_size"), 200}});
+    if (!listed.done)
         return {QStringLiteral("TEST_NO_REPLY")};
+    QStringList ids;
+    for (const QJsonValue &item : listed.payload.value(QStringLiteral("items")).toArray())
+        ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
     ids.sort();
     return ids;
 }

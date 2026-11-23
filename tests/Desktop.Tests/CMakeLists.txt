@@ -151,7 +151,7 @@ endforeach()
 # AutomaticRecording / GameSelection / Recovery: their controllers, without a Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
-    SUITES Desktop WorkflowController AutomaticRecording RecordingWarning TrayRecordingNotification ExportFailure ExportOrdering Recovery RunFormValidator
+    SUITES Desktop WorkflowController AutomaticRecording RecordingWarning TrayRecordingNotification ExportFailure Recovery RunFormValidator
            RunListModel HistoryFilterFacets AppLiveEvent GameSelection DailyBackupScheduler HistoryImageCleanupController
     LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
@@ -160,7 +160,7 @@ foreach(suite IN ITEMS AutomaticRecording GameSelection)
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests TrayRecordingNotification)
-foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel HistoryFilterFacets
+foreach(suite IN ITEMS WorkflowController ExportFailure Recovery RunFormValidator RunListModel HistoryFilterFacets
                        DailyBackupScheduler HistoryImageCleanupController AppLiveEvent)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()

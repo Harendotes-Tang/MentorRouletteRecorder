@@ -3,7 +3,6 @@
 // wheels behind the clock icon. Real QML from src/Desktop/qml, in a Window.
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
-#include <QDir>
 #include <QGuiApplication>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -102,8 +101,7 @@ private slots:
 
 void TimeFieldTests::initTestCase()
 {
-    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
-    mrtest::registerSourceQmlComponents();
+    QVERIFY(mrtest::registerSourceQmlComponents());
 }
 
 void TimeFieldTests::bareDigitsBecomeATimeAsTheyAreTyped()

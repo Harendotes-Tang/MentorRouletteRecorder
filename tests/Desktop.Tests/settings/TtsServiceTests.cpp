@@ -11,6 +11,7 @@
 #include "DesktopTestRunner.h"
 #include "ScopedEnvironmentVariable.h"
 #include "CollectorStubTestSupport.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -2235,20 +2236,11 @@ void TtsServiceTests::mockBackend_refusesSettingPendingReviewTrue()
     payload.insert(QStringLiteral("reason"), QString::fromUtf8("用户确认通关"));
     payload.insert(QStringLiteral("changes"), changes);
 
-    QString code;
-    QString message;
-    bool done = false;
-    backend.request(QStringLiteral("CorrectRun"), payload)
-        ->whenDone(&backend, [&](bool ok, const QVariantMap &, const QString &errorCode,
-                                 const QString &errorMessage) {
-            done = true;
-            QVERIFY(!ok);
-            code = errorCode;
-            message = errorMessage;
-        });
-    QTRY_VERIFY_WITH_TIMEOUT(done, 3000);
-    QCOMPARE(code, QStringLiteral("ERR_BAD_REQUEST"));
-    QVERIFY(message.contains(QStringLiteral("pending_review")));
+    const mrtest::Answer refused = mrtest::ask(backend, QStringLiteral("CorrectRun"), payload);
+    QVERIFY(refused.done);
+    QVERIFY(!refused.ok);
+    QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+    QVERIFY(refused.message.contains(QStringLiteral("pending_review")));
 
     // The same outcome correction without the forbidden true flag is accepted.
     changes.remove(QStringLiteral("pending_review"));

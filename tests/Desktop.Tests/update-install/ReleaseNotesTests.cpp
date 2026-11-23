@@ -14,6 +14,21 @@
 
 namespace {
 
+/// The SHA-256 of \a text's UTF-8 as lower-case hex: presentation.json's bodySha256.
+QString sha256Hex(const QString &text)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+/// CHANGELOG.md of this source tree; empty when it cannot be read.
+QString sourceChangelog()
+{
+    QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
+    if (!source.open(QIODevice::ReadOnly))
+        return {};
+    return QString::fromUtf8(source.readAll());
+}
+
 /// What makes \a presentation stale for \a version of \a changelog: another version's
 /// file, or an annotation that matches no entry or more than one. parseEntries() drops
 /// such annotations silently, so 本次更新 would lose its titles and hidden list while
@@ -160,8 +175,7 @@ private Q_SLOTS:
     {
         const QString body = QString::fromUtf8("界面语言：真实完整正文。");
         const QString log = QString::fromUtf8("## [1.7.3-beta.1]\n### 新增\n- ") + body;
-        QJsonObject annotation{{"bodySha256", QString::fromLatin1(QCryptographicHash::hash(
-                                    body.toUtf8(), QCryptographicHash::Sha256).toHex())},
+        QJsonObject annotation{{"bodySha256", sha256Hex(body)},
                                {"title", "Curated title"}, {"summary", "Short summary"},
                                {"tag", "Language"}, {"highlight", true},
                                {"action", "language-settings"}};
@@ -218,9 +232,7 @@ private Q_SLOTS:
         QCOMPARE(kept[2].toMap().value("detail").toString(), QString::fromUtf8("甲。乙。丙。"));
 
         // presentation.json keeps addressing the CHANGELOG text as written, markers included.
-        QJsonObject annotation{{"bodySha256", QString::fromLatin1(QCryptographicHash::hash(
-                                    body.toUtf8(), QCryptographicHash::Sha256).toHex())},
-                               {"title", "Curated"}};
+        QJsonObject annotation{{"bodySha256", sha256Hex(body)}, {"title", "Curated"}};
         const QJsonObject presentation{{"version", "1.8.0-beta.1"}, {"entries", QJsonArray{annotation}}};
         const auto curated = mr::ReleaseNotesController::parseEntries(
             log, "1.8.0-beta.1", QJsonDocument(presentation).toJson());
@@ -234,12 +246,9 @@ private Q_SLOTS:
         const QString body = QString::fromUtf8("打包期间源码变化即停止。");
         const QString log = QString::fromUtf8("## [1.8.0-beta.1]\n### 构建与发布\n- ") + body
             + QString::fromUtf8("\n### 新增\n- 浮窗。\n");
-        const auto digestOf = [](const QString &text) {
-            return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
-        };
-        const QJsonObject hiddenAnnotation{{"bodySha256", digestOf(body)}, {"title", "Hidden"},
+        const QJsonObject hiddenAnnotation{{"bodySha256", sha256Hex(body)}, {"title", "Hidden"},
                                            {"hidden", true}, {"highlight", true}};
-        const QJsonObject shownAnnotation{{"bodySha256", digestOf(QString::fromUtf8("浮窗。"))},
+        const QJsonObject shownAnnotation{{"bodySha256", sha256Hex(QString::fromUtf8("浮窗。"))},
                                           {"title", "Shown"}, {"highlight", true}};
         const QJsonObject presentation{{"version", "1.8.0-beta.1"},
                                        {"entries", QJsonArray{hiddenAnnotation, shownAnnotation}}};
@@ -257,12 +266,10 @@ private Q_SLOTS:
     {
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
-        QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
-        QVERIFY(source.open(QIODevice::ReadOnly));
-        const QString log = QString::fromUtf8(source.readAll());
+        const QString log = sourceChangelog();
+        QVERIFY(!log.isEmpty());
         const auto unannotated = mr::ReleaseNotesController::parseEntries(log, notes.version());
         QCOMPARE(notes.entries().size(), unannotated.size());
-        int highlights = 0;
         int hidden = 0;
         for (qsizetype i = 0; i < unannotated.size(); ++i) {
             const auto entry = notes.entries()[i].toMap();
@@ -273,50 +280,20 @@ private Q_SLOTS:
                 QVERIFY2(!entry.value(QLatin1String(key)).toString().contains(QStringLiteral("**")), key);
             if (entry.value("hidden").toBool())
                 ++hidden;
-            if (entry.value("highlight").toBool()) {
-                ++highlights;
+            if (entry.value("highlight").toBool())
                 QCOMPARE(entry.value("action").toString(), QStringLiteral("language-settings"));
-            }
         }
         QVERIFY2(hidden < unannotated.size(), "presentation.json must leave at least one entry shown");
-        if (notes.version() == QStringLiteral("1.7.3-beta.1")) {
-            QCOMPARE(notes.entries().size(), 13);
-            QCOMPARE(notes.counts().value("added").toInt(), 5);
-            QCOMPARE(notes.counts().value("fixed").toInt(), 6);
-            QCOMPARE(notes.counts().value("improved").toInt(), 2);
-            QCOMPARE(highlights, 1);
-            QVERIFY(notes.prerelease());
-        }
-        if (notes.version() == QStringLiteral("1.8.0-beta.1")) {
-            // Every bullet is curated; the dialog lists 12 and counts the other 18.
-            QCOMPARE(notes.entries().size(), 30);
-            QCOMPARE(hidden, 18);
-            QCOMPARE(notes.counts().value("added").toInt(), 5);
-            QCOMPARE(notes.counts().value("improved").toInt(), 3);
-            QCOMPARE(notes.counts().value("fixed").toInt(), 4);
-            QCOMPARE(notes.counts().size(), 3);
-            for (const auto &value : notes.entries())
-                QVERIFY(value.toMap().value("curated").toBool());
-        }
-        if (notes.version() == QStringLiteral("1.7.3-beta.2")) {
-            QCOMPARE(notes.entries().size(), 6);
-            QCOMPARE(notes.counts().value("added").toInt(), 1);
-            QCOMPARE(notes.counts().value("fixed").toInt(), 2);
-            QCOMPARE(notes.counts().value("improved").toInt(), 3);
-            QCOMPARE(highlights, 1);
-            QVERIFY(notes.prerelease());
-        }
     }
 
     // Audit 2026-11-03 I3-5: the curation of 本次更新 is checked for the version this build
-    // is, whatever that is, not only for the versions named above.
+    // is, whatever that is.
     void bundledPresentationMatchesTheCurrentVersionEntryByEntry()
     {
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
-        QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
-        QVERIFY(source.open(QIODevice::ReadOnly));
-        const QString log = QString::fromUtf8(source.readAll());
+        const QString log = sourceChangelog();
+        QVERIFY(!log.isEmpty());
         QFile file(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/src/Desktop/resources/release-notes/presentation.json"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray presentation = file.readAll();
@@ -325,19 +302,16 @@ private Q_SLOTS:
 
         // The check itself: a bumped version, a reworded bullet and a bullet written twice are all caught.
         const QString changelog = QString::fromUtf8("## [2.0.0]\n### 新增\n- 新的条目。\n- 重复的条目。\n- 重复的条目。\n");
-        const auto digestOf = [](const QString &text) {
-            return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
-        };
-        const QJsonObject current{{"bodySha256", digestOf(QString::fromUtf8("新的条目。"))}, {"title", "Current"}};
+        const QJsonObject current{{"bodySha256", sha256Hex(QString::fromUtf8("新的条目。"))}, {"title", "Current"}};
         const auto curated = [&](const QString &version, const QJsonArray &entries) {
             return QJsonDocument(QJsonObject{{"version", version}, {"entries", entries}}).toJson();
         };
         QVERIFY(presentationProblems(changelog, "2.0.0", curated("2.0.0", {current})).isEmpty());
         QVERIFY(presentationProblems(changelog, "2.0.0", curated("1.9.0", {})).isEmpty());
         QCOMPARE(presentationProblems(changelog, "2.0.0", curated("1.9.0", {current})).size(), 1);
-        const QJsonObject reworded{{"bodySha256", digestOf(QString::fromUtf8("旧的条目。"))}, {"title", "Reworded"}};
+        const QJsonObject reworded{{"bodySha256", sha256Hex(QString::fromUtf8("旧的条目。"))}, {"title", "Reworded"}};
         QCOMPARE(presentationProblems(changelog, "2.0.0", curated("2.0.0", {current, reworded})).size(), 1);
-        const QJsonObject twice{{"bodySha256", digestOf(QString::fromUtf8("重复的条目。"))}, {"title", "Twice"}};
+        const QJsonObject twice{{"bodySha256", sha256Hex(QString::fromUtf8("重复的条目。"))}, {"title", "Twice"}};
         QCOMPARE(presentationProblems(changelog, "2.0.0", curated("2.0.0", {twice})).size(), 1);
     }
 
@@ -346,9 +320,9 @@ private Q_SLOTS:
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
         QVERIFY(!notes.version().isEmpty());
-        QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
-        QVERIFY(source.open(QIODevice::ReadOnly));
-        const QString expected = mr::ReleaseNotesController::extractNotes(QString::fromUtf8(source.readAll()), notes.version());
+        const QString log = sourceChangelog();
+        QVERIFY(!log.isEmpty());
+        const QString expected = mr::ReleaseNotesController::extractNotes(log, notes.version());
         QCOMPARE(notes.text(), expected);
         QVERIFY(!notes.text().contains("## [Unreleased]"));
     }

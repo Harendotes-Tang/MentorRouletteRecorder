@@ -106,6 +106,14 @@ public:
 private:
     int serial = 0;
 };
+/// A test root of its own: this instance's desktop.ini and a backend.
+struct Store
+{
+    QTemporaryDir dir{testRoot()};
+    mr::AppSettings settings{dir.filePath(QStringLiteral("desktop.ini")), nullptr};
+    Backend backend;
+    QString path(const char *name) const { return dir.filePath(QString::fromUtf8(name)); }
+};
 } // namespace
 
 namespace {
@@ -128,47 +136,43 @@ private Q_SLOTS:
     }
     void provisionalWorkAndDraftSurviveRestart()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
+        Store store; QVERIFY(store.dir.isValid());
         const auto data = run(QStringLiteral("draft-run"));
         {
-            mr::RecoveryController first(&backend, &settings);
+            mr::RecoveryController first(&store.backend, &store.settings);
             first.offer(data, QStringLiteral("reflection"));
             QVERIFY(first.saveDraft(data, fields(QStringLiteral("unfinished note"))));
-            QVERIFY(journal(dir.path()).isEmpty());
-            first.setDatabasePath(dir.filePath(QStringLiteral("records.db")));
+            QVERIFY(journal(store.dir.path()).isEmpty());
+            first.setDatabasePath(store.path("records.db"));
             QTRY_VERIFY(!first.busy());
             QCOMPARE(first.count(), 1);
         }
-        mr::RecoveryController reopened(&backend, &settings);
-        reopened.setDatabasePath(dir.filePath(QStringLiteral("records.db")));
+        mr::RecoveryController reopened(&store.backend, &store.settings);
+        reopened.setDatabasePath(store.path("records.db"));
         QTRY_VERIFY(!reopened.busy());
         QCOMPARE(reopened.count(), 1);
         const auto draft = reopened.draft(data);
         QCOMPARE(draft.value(QStringLiteral("text")).toString(), QStringLiteral("unfinished note"));
         QVERIFY(!draft.value(QStringLiteral("conflict")).toBool());
-        QCOMPARE(backend.mutations, 0);
+        QCOMPARE(store.backend.mutations, 0);
     }
     void databaseIsolationAndNullSettingsMemoryOnly()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        controller.setDatabasePath(dir.filePath(QStringLiteral("first.db")));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        controller.setDatabasePath(store.path("first.db"));
         QTRY_VERIFY(!controller.busy());
         const auto data = run(QStringLiteral("same-id"));
         QVERIFY(controller.saveDraft(data, fields(QStringLiteral("first database"))));
-        controller.setDatabasePath(dir.filePath(QStringLiteral("second.db")));
+        controller.setDatabasePath(store.path("second.db"));
         QTRY_VERIFY(!controller.busy());
         QVERIFY(controller.draft(data).isEmpty());
         QCOMPARE(controller.count(), 0);
-        controller.setDatabasePath(dir.filePath(QStringLiteral("first.db")));
+        controller.setDatabasePath(store.path("first.db"));
         QTRY_VERIFY(!controller.busy());
         QCOMPARE(controller.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("first database"));
-        mr::RecoveryController memory(&backend, nullptr);
-        memory.setDatabasePath(dir.filePath(QStringLiteral("first.db")));
+        mr::RecoveryController memory(&store.backend, nullptr);
+        memory.setDatabasePath(store.path("first.db"));
         QTRY_VERIFY(!memory.busy());
         QVERIFY(memory.draft(data).isEmpty());
         memory.saveDraft(data, fields(QStringLiteral("not persisted")));
@@ -176,12 +180,10 @@ private Q_SLOTS:
     }
     void concurrentWritersMergeAndOldSaveCannotDeleteNewDraft()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController a(&backend, &settings);
-        mr::RecoveryController b(&backend, &settings);
-        const QString db = dir.filePath(QStringLiteral("records.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController a(&store.backend, &store.settings);
+        mr::RecoveryController b(&store.backend, &store.settings);
+        const QString db = store.path("records.db");
         a.setDatabasePath(db); b.setDatabasePath(db);
         QTRY_VERIFY(!a.busy() && !b.busy());
         const auto one = run(QStringLiteral("one"));
@@ -195,7 +197,7 @@ private Q_SLOTS:
         a.markReflectionSaved(QStringLiteral("one"), oldToken);
         QCOMPARE(a.draft(one).value(QStringLiteral("text")).toString(), QStringLiteral("newer unsent note"));
         QCOMPARE(a.count(), 2);
-        mr::RecoveryController c(&backend, &settings); c.setDatabasePath(db);
+        mr::RecoveryController c(&store.backend, &store.settings); c.setDatabasePath(db);
         QTRY_VERIFY(!c.busy()); QCOMPARE(c.count(), 2);
         QCOMPARE(c.draft(one).value(QStringLiteral("text")).toString(), QStringLiteral("newer unsent note"));
     }
@@ -222,15 +224,13 @@ private Q_SLOTS:
     }
     void corruptJournalRetainsInputAndOriginalBytes()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        controller.setDatabasePath(dir.filePath(QStringLiteral("records.db")));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        controller.setDatabasePath(store.path("records.db"));
         QTRY_VERIFY(!controller.busy());
         const auto data = run(QStringLiteral("corrupt"));
         controller.offer(data, QStringLiteral("reflection"));
-        const QString path = journal(dir.path()); QVERIFY(!path.isEmpty());
+        const QString path = journal(store.dir.path()); QVERIFY(!path.isEmpty());
         QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
         QCOMPARE(file.write("{broken"), static_cast<qint64>(7)); file.close();
         QVERIFY(!controller.saveDraft(data, fields(QStringLiteral("keep this input"))));
@@ -242,35 +242,31 @@ private Q_SLOTS:
     }
     void lockedWriterRetriesWithoutLosingInput()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        const QString db = dir.filePath(QStringLiteral("records.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        const QString db = store.path("records.db");
         controller.setDatabasePath(db); QTRY_VERIFY(!controller.busy());
         const auto data = run(QStringLiteral("locked")); controller.offer(data, QStringLiteral("reflection"));
-        QLockFile lock(journal(dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
+        QLockFile lock(journal(store.dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
         QVERIFY(!controller.saveDraft(data, fields(QStringLiteral("retry me"))));
         QCOMPARE(controller.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("retry me"));
         lock.unlock(); controller.refresh(); QTRY_VERIFY(!controller.busy());
         QVERIFY(controller.error().isEmpty());
-        mr::RecoveryController reopened(&backend, &settings); reopened.setDatabasePath(db);
+        mr::RecoveryController reopened(&store.backend, &store.settings); reopened.setDatabasePath(db);
         QTRY_VERIFY(!reopened.busy());
         QCOMPARE(reopened.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("retry me"));
     }
     void failedWriteSurvivesDatabaseRoundTripInMemory()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        const QString db = dir.filePath(QStringLiteral("first.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        const QString db = store.path("first.db");
         controller.setDatabasePath(db); QTRY_VERIFY(!controller.busy());
         const auto data = run(QStringLiteral("keep-on-switch"));
         controller.offer(data, QStringLiteral("reflection"));
-        QLockFile lock(journal(dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
+        QLockFile lock(journal(store.dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
         QVERIFY(!controller.saveDraft(data, fields(QStringLiteral("not yet on disk"))));
-        controller.setDatabasePath(dir.filePath(QStringLiteral("second.db"))); QTRY_VERIFY(!controller.busy());
+        controller.setDatabasePath(store.path("second.db")); QTRY_VERIFY(!controller.busy());
         QVERIFY(controller.draft(data).isEmpty());
         controller.setDatabasePath(db); QTRY_VERIFY(!controller.busy());
         QCOMPARE(controller.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("not yet on disk"));
@@ -279,11 +275,9 @@ private Q_SLOTS:
     }
     void scopeChangingFlushesEditorIntoOldDatabase()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        const QString first = dir.filePath(QStringLiteral("first.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        const QString first = store.path("first.db");
         controller.setDatabasePath(first); QTRY_VERIFY(!controller.busy());
         const QString oldKey = controller.databaseKey();
         const auto data = run(QStringLiteral("open-editor"));
@@ -293,7 +287,7 @@ private Q_SLOTS:
                 QCOMPARE(controller.databaseKey(), oldKey);
                 QVERIFY(controller.saveDraft(data, fields(QStringLiteral("last old-scope keystroke"))));
             });
-        controller.setDatabasePath(dir.filePath(QStringLiteral("second.db"))); QTRY_VERIFY(!controller.busy());
+        controller.setDatabasePath(store.path("second.db")); QTRY_VERIFY(!controller.busy());
         disconnect(flush);
         QCOMPARE(changed.size(), 1);
         QVERIFY(controller.databaseKey() != oldKey);
@@ -303,17 +297,15 @@ private Q_SLOTS:
     }
     void quitFlushesLastInputAndRetriesInactiveFailedJournal()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        const QString first = dir.filePath(QStringLiteral("first.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        const QString first = store.path("first.db");
         controller.setDatabasePath(first); QTRY_VERIFY(!controller.busy());
         const auto data = run(QStringLiteral("inactive-dirty"));
         controller.offer(data, QStringLiteral("reflection"));
-        QLockFile lock(journal(dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
+        QLockFile lock(journal(store.dir.path()) + QStringLiteral(".lock")); QVERIFY(lock.tryLock(0));
         QVERIFY(!controller.saveDraft(data, fields(QStringLiteral("retry inactive on quit"))));
-        controller.setDatabasePath(dir.filePath(QStringLiteral("second.db"))); QTRY_VERIFY(!controller.busy());
+        controller.setDatabasePath(store.path("second.db")); QTRY_VERIFY(!controller.busy());
         lock.unlock();
         const auto current = run(QStringLiteral("last-keystroke"));
         connect(&controller, &mr::RecoveryController::flushRequested, &controller, [&] {
@@ -321,7 +313,7 @@ private Q_SLOTS:
         });
         QVERIFY(QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit", Qt::DirectConnection));
         QCOMPARE(controller.draft(current).value(QStringLiteral("text")).toString(), QStringLiteral("captured at quit"));
-        mr::RecoveryController reopened(&backend, &settings); reopened.setDatabasePath(first);
+        mr::RecoveryController reopened(&store.backend, &store.settings); reopened.setDatabasePath(first);
         QTRY_VERIFY(!reopened.busy());
         QCOMPARE(reopened.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("retry inactive on quit"));
     }
@@ -536,21 +528,19 @@ private Q_SLOTS:
     }
     void reconnectRequiresFreshDatabaseIdentityBeforeOpening()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
         QVERIFY(!controller.identityVerified());
-        const QString path = dir.filePath(QStringLiteral("database.db"));
+        const QString path = store.path("database.db");
         controller.setDatabasePath(path); QTRY_VERIFY(!controller.busy());
-        const auto data = run(QStringLiteral("reconnect")); backend.rows = {data};
+        const auto data = run(QStringLiteral("reconnect")); store.backend.rows = {data};
         controller.saveDraft(data, fields(QStringLiteral("old database input")));
         QSignalSpy opened(&controller, &mr::RecoveryController::openRequested);
-        const int issued = backend.queries;
-        Q_EMIT backend.connectionChanged();
+        const int issued = store.backend.queries;
+        Q_EMIT store.backend.connectionChanged();
         QVERIFY(!controller.identityVerified());
         controller.requestOpen(QStringLiteral("reconnect"));
-        QCOMPARE(backend.queries, issued);
+        QCOMPARE(store.backend.queries, issued);
         QCOMPARE(opened.size(), 1);
         QVERIFY(opened.first().at(0).toMap().value(QStringLiteral("recoveryUnavailable")).toBool());
         controller.setDatabasePath(path); QTRY_VERIFY(!controller.busy());
@@ -560,19 +550,17 @@ private Q_SLOTS:
     }
     void reconnectOffersAreBoundOnlyAfterNewIdentityVerified()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController controller(&backend, &settings);
-        const QString a = dir.filePath(QStringLiteral("a.db"));
-        const QString b = dir.filePath(QStringLiteral("b.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController controller(&store.backend, &store.settings);
+        const QString a = store.path("a.db");
+        const QString b = store.path("b.db");
         controller.setDatabasePath(a); QTRY_VERIFY(!controller.busy());
         controller.offer(run(QStringLiteral("from-a")), QStringLiteral("reflection"));
         QSignalSpy ready(&controller, &mr::RecoveryController::promptReady);
-        const QString aPath = journal(dir.path());
+        const QString aPath = journal(store.dir.path());
         QFile old(aPath); QVERIFY(old.open(QIODevice::ReadOnly));
         const QByteArray before = old.readAll(); old.close();
-        Q_EMIT backend.connectionChanged();
+        Q_EMIT store.backend.connectionChanged();
         controller.offer(run(QStringLiteral("from-b")), QStringLiteral("reflection"));
         QCOMPARE(ready.size(), 0);
         QVERIFY(old.open(QIODevice::ReadOnly)); QCOMPARE(old.readAll(), before); old.close();
@@ -589,12 +577,10 @@ private Q_SLOTS:
     }
     void sameInputMergeDoesNotProvideTokenForDifferentSubmittedFields()
     {
-        QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
-        mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
-        Backend backend;
-        mr::RecoveryController a(&backend, &settings);
-        mr::RecoveryController b(&backend, &settings);
-        const QString db = dir.filePath(QStringLiteral("records.db"));
+        Store store; QVERIFY(store.dir.isValid());
+        mr::RecoveryController a(&store.backend, &store.settings);
+        mr::RecoveryController b(&store.backend, &store.settings);
+        const QString db = store.path("records.db");
         const auto data = run(QStringLiteral("same-run"));
         a.setDatabasePath(db); b.setDatabasePath(db); QTRY_VERIFY(!a.busy() && !b.busy());
         a.saveDraft(data, fields(QStringLiteral("editor-a")));
@@ -606,7 +592,7 @@ private Q_SLOTS:
         QCOMPARE(a.draftTokenForFields(QStringLiteral("same-run"), fields(QStringLiteral("editor-a"))), QString());
         a.markReflectionSaved(QStringLiteral("same-run"), editorA.value(QStringLiteral("token")).toString());
         QCOMPARE(a.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("editor-b"));
-        mr::RecoveryController restarted(&backend, &settings); restarted.setDatabasePath(db); QTRY_VERIFY(!restarted.busy());
+        mr::RecoveryController restarted(&store.backend, &store.settings); restarted.setDatabasePath(db); QTRY_VERIFY(!restarted.busy());
         QCOMPARE(restarted.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("editor-b"));
     }
 };

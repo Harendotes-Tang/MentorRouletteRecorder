@@ -103,8 +103,7 @@ private slots:
 
 void DateFieldTests::initTestCase()
 {
-    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
-    mrtest::registerSourceQmlComponents();
+    QVERIFY(mrtest::registerSourceQmlComponents());
 }
 
 void DateFieldTests::emptyFieldShowsThePlaceholderAndIsValid()

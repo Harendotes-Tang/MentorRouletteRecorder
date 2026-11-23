@@ -6,7 +6,6 @@
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
 #include <QCoreApplication>
-#include <QDir>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
 #include <QQuickItem>
@@ -86,8 +85,7 @@ private slots:
 
 void StyledTextFieldTests::initTestCase()
 {
-    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
-    mrtest::registerSourceQmlComponents();
+    QVERIFY(mrtest::registerSourceQmlComponents());
 }
 
 void StyledTextFieldTests::tabOnAnEmptyFieldEntersItsExampleAsIfTyped()

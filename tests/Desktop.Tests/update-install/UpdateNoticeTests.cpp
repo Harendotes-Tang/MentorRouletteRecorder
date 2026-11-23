@@ -34,13 +34,10 @@
 #include "TestFonts.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
+#include "UpdatePageScene.h"
 #include "AppController.h"
 #include "AppSettings.h"
-#include "Formatters.h"
 #include "IBackend.h"
-#include "JobCatalog.h"
-#include "MockBackend.h"
-#include "RoleCatalog.h"
 #include "UpdateController.h"
 
 #include <QFile>
@@ -48,8 +45,6 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QPointer>
@@ -62,15 +57,7 @@
 
 namespace {
 
-constexpr auto kReleaseUrl =
-    "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest";
-/// $defs/UpdateStatus.installer_url for 9.9.9, as the Collector builds it.
-constexpr auto kInstallerUrl =
-    "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v9.9.9/"
-    "MentorRecorder-9.9.9-setup.exe";
 constexpr auto kCheckedAt = "2026-09-17T02:00:00.000Z";
-
-using mrtest::findVisualItem;
 
 void collectText(QQuickItem *item, QStringList &texts)
 {
@@ -238,79 +225,14 @@ private:
     }
 };
 
-/// One shipping page on the deterministic backend. The browser is replaced
-/// before anything is clicked: a test never opens github.com.
-struct PageScene
+/// One shipping page on the deterministic backend, with or without a newer version on offer.
+struct PageScene : UpdatePageScene
 {
-    std::unique_ptr<mr::MockBackend> backend = std::make_unique<mr::MockBackend>();
-    std::unique_ptr<mr::AppSettings> settings;
-    std::unique_ptr<mr::Formatters> formatters;
-    std::unique_ptr<mr::JobCatalog> jobs;
-    std::unique_ptr<mr::RoleCatalog> roles;
-    std::unique_ptr<QQmlEngine> engine;
-    std::unique_ptr<mr::AppController> app;
-    std::unique_ptr<QObject> root;
-    QQuickItem *page = nullptr;
-    QStringList opened;
-
-    ~PageScene()
-    {
-        root.reset();
-        engine.reset();
-        app.reset();
-    }
-
     bool open(const QString &element, bool updateAvailable)
     {
         backend->setUpdateAvailable(updateAvailable);
-        settings = std::make_unique<mr::AppSettings>();
-        settings->setDismissedUpdateVersion(QString());
-        app = std::make_unique<mr::AppController>(backend.get(), settings.get());
-        formatters = std::make_unique<mr::Formatters>();
-        jobs = std::make_unique<mr::JobCatalog>();
-        roles = std::make_unique<mr::RoleCatalog>();
-        engine = std::make_unique<QQmlEngine>();
-        auto *context = engine->rootContext();
-        context->setContextProperty(QStringLiteral("App"), app.get());
-        context->setContextProperty(QStringLiteral("Fmt"), formatters.get());
-        context->setContextProperty(QStringLiteral("Jobs"), jobs.get());
-        context->setContextProperty(QStringLiteral("Roles"), roles.get());
-        context->setContextProperty(QStringLiteral("Settings"), settings.get());
-        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(engine.get());
-        component.setData(QStringLiteral(R"(import QtQuick
-import QtQuick.Controls
-import QtQuick.Layouts
-import MentorRecorder
-ApplicationWindow {
-    width: 1100; height: 900; visible: true
-    color: Theme.surface
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 16
-        %1 { objectName: "scenePage"; Layout.fillWidth: true; Layout.fillHeight: true }
-    }
-})").arg(element).toUtf8(), QUrl());
-        root.reset(component.create());
-        if (!root) {
-            qWarning("%s", qPrintable(component.errorString()));
-            return false;
-        }
-        page = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("scenePage")));
-        if (!page)
-            return false;
-        app->update()->setUrlOpener([this](const QUrl &url) {
-            opened.append(url.toString());
-            return true;
-        });
-        return true;
-    }
-
-    QQuickItem *item(const QString &name) const { return findVisualItem(page, name); }
-    bool shows(const QString &name) const
-    {
-        auto *found = item(name);
-        return found && found->isVisible();
+        startApplication();
+        return loadPage(element);
     }
 };
 

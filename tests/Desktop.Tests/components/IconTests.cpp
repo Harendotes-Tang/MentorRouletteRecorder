@@ -5,7 +5,6 @@
 // Real QML from src/Desktop/qml, loaded from source the way MotionTests does.
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
-#include <QDir>
 #include <QGuiApplication>
 #include <QImage>
 #include <QPair>
@@ -33,6 +32,12 @@ struct Scene : mrtest::QmlComponentScene
 QQuickItem *childNamed(QObject *root, const QString &name)
 {
     return root->findChild<QQuickItem *>(name);
+}
+
+/// The SVG text of a Lucide data: URL.
+QString svgOf(const QString &dataUrl)
+{
+    return QUrl::fromPercentEncoding(dataUrl.mid(dataUrl.indexOf(u',') + 1).toUtf8());
 }
 
 using mrtest::findVisualItem;
@@ -72,10 +77,8 @@ QPair<int, int> darkHalves(const QImage &image)
 
 void IconTests::initTestCase()
 {
-    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
-    mrtest::registerSourceQmlComponents();
-    qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/overlay/OverlayHourglass.qml")),
-                    "MentorRecorder", 1, 0, "OverlayHourglass");
+    // OverlayHourglass: QmlRuntimeTestRegistration.cpp registers every /overlay type at start-up.
+    QVERIFY(mrtest::registerSourceQmlComponents());
 }
 
 // Audit 2026-11-10 L3-1: the float's hourglass animated a `sand` value that nothing
@@ -124,7 +127,7 @@ QtObject {
 
     const QString plus = scene.root->property("plus").toString();
     QVERIFY2(plus.startsWith(QStringLiteral("data:image/svg+xml;utf8,")), qPrintable(plus));
-    const QString svg = QUrl::fromPercentEncoding(plus.mid(plus.indexOf(u',') + 1).toUtf8());
+    const QString svg = svgOf(plus);
     QVERIFY2(svg.contains(QStringLiteral("stroke=\"#ffffff\"")), qPrintable(svg));
     QVERIFY2(svg.contains(QStringLiteral("<path d=\"M5 12h14\"/>")), qPrintable(svg));
     QVERIFY2(!svg.contains(QStringLiteral("currentColor")), qPrintable(svg));
@@ -149,8 +152,7 @@ QtObject {
     readonly property color translucent: Qt.rgba(1, 0, 0, 0.5)
     readonly property string source: Lucide.source("x", translucent)
 })"), qPrintable(scene.errors));
-    const QString source = scene.root->property("source").toString();
-    const QString svg = QUrl::fromPercentEncoding(source.mid(source.indexOf(u',') + 1).toUtf8());
+    const QString svg = svgOf(scene.root->property("source").toString());
     QVERIFY2(svg.contains(QStringLiteral("stroke=\"#ff0000\"")), qPrintable(svg));
     QVERIFY2(svg.contains(QStringLiteral("stroke-opacity=\"0.502\"")), qPrintable(svg));
     // Never a nine-digit colour the SVG renderer would not understand.
@@ -184,8 +186,7 @@ Item {
 
         // ...and its stroke is the label's colour.
         const QColor foreground = label->property("color").value<QColor>();
-        const QString source = icon->property("source").toUrl().toString();
-        const QString svg = QUrl::fromPercentEncoding(source.mid(source.indexOf(u',') + 1).toUtf8());
+        const QString svg = svgOf(icon->property("source").toUrl().toString());
         QVERIFY2(svg.contains(QStringLiteral("stroke=\"") + foreground.name(QColor::HexRgb) + u'"'),
                  qPrintable(QString::fromLatin1(name) + u' ' + svg));
 
