@@ -171,13 +171,10 @@ class HistoryColumnsTests final : public QObject
 private:
     static bool waitForRows(PageFixture &fixture)
     {
-        for (int attempt = 0; attempt < 200; ++attempt) {
-            if (!fixture.app->runs()->isLoading() && fixture.app->runs()->rowCount() > 0
-                && fixture.title(QStringLiteral("date")) && fixture.cell(QStringLiteral("date")))
-                return true;
-            QTest::qWait(25);
-        }
-        return false;
+        return QTest::qWaitFor([&fixture] {
+            return !fixture.app->runs()->isLoading() && fixture.app->runs()->rowCount() > 0
+                   && fixture.title(QStringLiteral("date")) && fixture.cell(QStringLiteral("date"));
+        }, 5000);
     }
 
     static void checkDurationHandleDoesNotSortAndRestoresWidth(PageFixture &fixture)

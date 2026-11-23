@@ -43,19 +43,24 @@ private slots:
         auto *runtime = Runtime::forEngine(&engine);
         QVERIFY(runtime);
 
+        // Each generated property exists with its type, notifies, and starts at its
+        // default; a service starts unset.
+        const auto check = [runtime](const char *name, int typeId, const QVariant &initial) {
+            const auto property = runtime->metaObject()->property(
+                runtime->metaObject()->indexOfProperty(name));
+            QVERIFY2(property.isValid(), name);
+            QCOMPARE(property.metaType().id(), typeId);
+            QVERIFY2(property.hasNotifySignal(), name);
+            QVERIFY2(property.read(runtime) == initial, name);
+        };
+
         const char *services[] = {
             "lang", "names", "app", "fmt", "jobs", "roles", "runForm",
             "noteImages", "reflections", "reflectionShare", "importRecords",
             "settings", "releaseNotes", "calibrationEvidence", "tts"
         };
-        for (const auto *name : services) {
-            const auto property = runtime->metaObject()->property(
-                runtime->metaObject()->indexOfProperty(name));
-            QVERIFY2(property.isValid(), name);
-            QCOMPARE(property.metaType().id(), QMetaType::QVariant);
-            QVERIFY2(property.hasNotifySignal(), name);
-            QVERIFY2(!property.read(runtime).isValid(), name);
-        }
+        for (const auto *name : services)
+            check(name, QMetaType::QVariant, QVariant());
 
         const char *flags[] = {
             "suppressReleaseNotes", "forceReleaseNotes", "graphsAvailable",
@@ -64,31 +69,14 @@ private slots:
             "forceOpenShare", "forceOpenImport", "forceOpenDetail",
             "forceOpenEdit", "forceOpenCreate"
         };
-        for (const auto *name : flags) {
-            const auto property = runtime->metaObject()->property(
-                runtime->metaObject()->indexOfProperty(name));
-            QVERIFY2(property.isValid(), name);
-            QCOMPARE(property.metaType().id(), QMetaType::Bool);
-            QVERIFY2(property.hasNotifySignal(), name);
-            QVERIFY2(!property.read(runtime).toBool(), name);
-        }
+        for (const auto *name : flags)
+            check(name, QMetaType::Bool, false);
 
         for (const auto *name : {"forceUiStyle", "forceSettingsTab", "forceDetailTab",
-                                 "forceSpeechConfirm"}) {
-            const auto property = runtime->metaObject()->property(
-                runtime->metaObject()->indexOfProperty(name));
-            QVERIFY2(property.isValid(), name);
-            QCOMPARE(property.metaType().id(), QMetaType::QString);
-            QVERIFY2(property.hasNotifySignal(), name);
-            QVERIFY2(property.read(runtime).toString().isEmpty(), name);
-        }
+                                 "forceSpeechConfirm"})
+            check(name, QMetaType::QString, QString());
 
-        const auto wizardStep = runtime->metaObject()->property(
-            runtime->metaObject()->indexOfProperty("forceWizardStep"));
-        QVERIFY(wizardStep.isValid());
-        QCOMPARE(wizardStep.metaType().id(), QMetaType::Int);
-        QVERIFY(wizardStep.hasNotifySignal());
-        QCOMPARE(wizardStep.read(runtime).toInt(), 1);
+        check("forceWizardStep", QMetaType::Int, 1);
     }
 
     void enginesAndProductionFactoriesRemainIndependent()

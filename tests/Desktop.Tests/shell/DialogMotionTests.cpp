@@ -62,7 +62,13 @@ ApplicationWindow {
         root.reset(component.create());
         for (const auto &error : component.errors())
             errors += error.toString() + QLatin1Char('\n');
-        return root != nullptr;
+        if (!root)
+            return false;
+        // Every test drives the popup on a window that is on screen.
+        const bool exposed = QTest::qWaitForWindowExposed(window());
+        if (!exposed)
+            errors += QStringLiteral("The window was never exposed.\n");
+        return exposed;
     }
     QObject *popup() const { return root->property("popup").value<QObject *>(); }
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
@@ -83,7 +89,6 @@ private Q_SLOTS:
     {
         DialogScene scene;
         QVERIFY2(scene.create(false), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QVERIFY(scene.call("open"));
         QVERIFY(scene.moving());
         QTRY_VERIFY(scene.popup()->property("opened").toBool());
@@ -99,7 +104,6 @@ private Q_SLOTS:
     {
         DialogScene scene;
         QVERIFY2(scene.create(false), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QSignalSpy closed(scene.popup(), SIGNAL(closed()));
         QVERIFY(scene.call("open"));
         QTRY_VERIFY_WITH_TIMEOUT(scene.popup()->property("opacity").toDouble() > 0.0, 100);
@@ -127,7 +131,6 @@ private Q_SLOTS:
         QFETCH(bool, closing);
         DialogScene scene;
         QVERIFY2(scene.create(false), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QVERIFY(scene.call("open"));
         if (closing) {
             QTRY_VERIFY(scene.popup()->property("opened").toBool());
@@ -148,7 +151,6 @@ private Q_SLOTS:
     {
         DialogScene scene;
         QVERIFY2(scene.create(false), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QVERIFY(scene.call("open"));
         QVERIFY(scene.moving());
         scene.root->setProperty("reenterOnScale", true);
@@ -189,7 +191,6 @@ ApplicationWindow {
 })";
         DialogScene scene;
         QVERIFY2(scene.create(false, false, source), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         auto *evidence = scene.root->property("evidence").value<QObject *>();
         QVERIFY(evidence);
         QVERIFY(QMetaObject::invokeMethod(evidence, "prepare"));
@@ -212,7 +213,6 @@ ApplicationWindow {
     {
         DialogScene scene;
         QVERIFY2(scene.create(false, true), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QSignalSpy closed(scene.popup(), SIGNAL(closed()));
         QVERIFY(scene.call("open"));
         QVERIFY(scene.moving());
@@ -232,7 +232,6 @@ ApplicationWindow {
     {
         DialogScene scene;
         QVERIFY2(scene.create(false), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QVERIFY(scene.call("open"));
         QVERIFY(scene.moving());
         scene.window()->hide();
@@ -248,7 +247,6 @@ ApplicationWindow {
     {
         DialogScene scene;
         QVERIFY2(scene.create(true), qPrintable(scene.errors));
-        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         scene.window()->requestActivate();
         auto *button = scene.root->property("button").value<QObject *>();
         QVERIFY(button);

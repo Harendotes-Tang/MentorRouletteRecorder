@@ -8,6 +8,7 @@
 #include "HistoryController.h"
 #include "HistoryBatchTestSupport.h"
 #include "MockBackend.h"
+#include "MockBackendTestSupport.h"
 #include "NoteImageStore.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
@@ -18,12 +19,9 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
-#include <QPointer>
 #include <QScopeGuard>
-#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
-#include <QTimer>
 #include <QTimeZone>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -377,22 +375,14 @@ private Q_SLOTS:
             {QStringLiteral("to_utc"), QStringLiteral("2024-09-25T03:59:59.999Z")},
             {QStringLiteral("history_from_day"), QStringLiteral("2024-09-24")},
             {QStringLiteral("history_to_day"), QStringLiteral("2024-09-24")}};
-        bool finished = false;
-        bool success = false;
-        QVariantMap result;
-        auto collect = [&](bool ok, const QVariantMap &payload, const QString &, const QString &) {
-            finished = true; success = ok; result = payload;
-        };
-        backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
-        QTRY_VERIFY(finished);
-        QVERIFY(success);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 3);
+        const auto all = mrtest::ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
+        QVERIFY(all.ok);
+        QCOMPARE(all.payload.value(QStringLiteral("items")).toArray().size(), 3);
         filter.insert(QStringLiteral("run_id"), QJsonArray{secondId()});
-        finished = false;
-        backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
-        QTRY_VERIFY(finished);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 1);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("run_id")).toString(), secondId());
+        const auto one = mrtest::ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
+        const QJsonArray items = one.payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().toObject().value(QStringLiteral("run_id")).toString(), secondId());
     }
     void importedMaintenanceRevisionCannotUndoEvenWithOnlyPendingFlagChange() {
         ControlledBackend backend;
@@ -425,34 +415,24 @@ private Q_SLOTS:
         actual.insert(QStringLiteral("entered_at_utc"), QDateTime(sourceDay.addDays(dayOffset), QTime(hour, 0),
             QTimeZone::systemTimeZone()).toUTC().toString(Qt::ISODateWithMs));
         backend.resetRuns({actual, source});
-        bool finished = false;
-        bool success = false;
-        QVariantMap result;
-        auto collect = [&](bool ok, const QVariantMap &payload, const QString &, const QString &) {
-            finished = true; success = ok; result = payload;
-        };
         for (bool ascending : {true, false}) {
-            finished = false;
             const QJsonObject sort{{QStringLiteral("field"), QStringLiteral("history_date")},
                 {QStringLiteral("direction"), ascending ? QStringLiteral("asc") : QStringLiteral("desc")}};
-            backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("sort"), sort}})->whenDone(this, collect);
-            QTRY_VERIFY(finished);
-            QVERIFY(success);
-            const QVariantList rows = result.value(QStringLiteral("items")).toList();
+            const auto sorted = mrtest::ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("sort"), sort}});
+            QVERIFY(sorted.ok);
+            const QJsonArray rows = sorted.payload.value(QStringLiteral("items")).toArray();
             QCOMPARE(rows.size(), 2);
-            QCOMPARE(rows.first().toMap().value(QStringLiteral("run_id")).toString(), sourceFirst == ascending ? firstId() : secondId());
+            QCOMPARE(rows.first().toObject().value(QStringLiteral("run_id")).toString(), sourceFirst == ascending ? firstId() : secondId());
         }
         // The default instant filter remains UTC-day based; only the comparison
         // key used by ORDER BY treats a raw calendar day as local midnight.
-        finished = false;
         const QJsonObject filter{{QStringLiteral("date_field"), QStringLiteral("history_date")},
             {QStringLiteral("run_id"), QJsonArray{firstId()}},
             {QStringLiteral("from_utc"), QStringLiteral("2024-09-24T00:00:00.000Z")},
             {QStringLiteral("to_utc"), QStringLiteral("2024-09-24T00:00:00.000Z")}};
-        backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
-        QTRY_VERIFY(finished);
-        QVERIFY(success);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 1);
+        const auto filtered = mrtest::ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
+        QVERIFY(filtered.ok);
+        QCOMPARE(filtered.payload.value(QStringLiteral("items")).toArray().size(), 1);
     }
     void cleanupRejectsTraversalAndUnexpectedDirectories() {
         QTemporaryDir dir;

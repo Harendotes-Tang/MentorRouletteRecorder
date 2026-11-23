@@ -9,16 +9,12 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "EditRunDialogFixture.h"
 #include "FileTestSupport.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
-#include "Formatters.h"
-#include "JobCatalog.h"
-#include "MockBackend.h"
 #include "NoteImageStore.h"
-#include "RoleCatalog.h"
-#include "RunFormValidator.h"
 
 #include <QColor>
 #include <QBuffer>
@@ -30,9 +26,6 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QMimeData>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QScopeGuard>
@@ -41,8 +34,6 @@
 #include <QTest>
 #include <QVariantList>
 #include <QVariantMap>
-
-#include <memory>
 
 namespace {
 
@@ -61,7 +52,21 @@ bool writeImage(const QString &path, const QColor &color = Qt::red)
 }
 
 using mrtest::qmlList;
-using mrtest::qmlMap;
+
+/// A BMP header that announces 10000 x 10000 pixels with no pixel data behind it: a few
+/// dozen bytes on disk, hundreds of megabytes decoded.
+QByteArray bmpBombHeader()
+{
+    QByteArray bytes;
+    QDataStream out(&bytes, QIODevice::WriteOnly);
+    out.setByteOrder(QDataStream::LittleEndian);
+    out.writeRawData("BM", 2);
+    out << static_cast<quint32>(54) << static_cast<quint32>(0) << static_cast<quint32>(54);     // file size, reserved, pixel offset
+    out << static_cast<quint32>(40) << static_cast<qint32>(10000) << static_cast<qint32>(10000); // info size, width, height
+    out << static_cast<quint16>(1) << static_cast<quint16>(24) << static_cast<quint32>(0) << static_cast<quint32>(0);
+    out << static_cast<qint32>(2835) << static_cast<qint32>(2835) << static_cast<quint32>(0) << static_cast<quint32>(0);
+    return bytes;
+}
 
 QStringList names(const QVariantList &rows)
 {
@@ -88,55 +93,14 @@ struct StoreFixture {
     QString runDir() const { return store.runDirectory(kRunId()); }
 };
 
-/// The wizard on a mock backend, with NoteImages pointed at a temp root.
-struct DialogFixture {
-    mr::MockBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    mr::Formatters formatters;
-    mr::JobCatalog jobs;
-    mr::RoleCatalog roles;
-    mr::RunFormValidator validator;
+/// The store comes first, so it outlives the dialog that shows its images.
+struct ImageFiles {
     StoreFixture files;
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
+};
 
-    bool create()
-    {
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
-        engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), &validator);
-        engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), &files.store);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 900; height: 800; visible: true
-    EditRunDialog { objectName: "edit" }
-})",
-                          QUrl());
-        root.reset(component.create());
-        for (const auto &error : component.errors())
-            errors += error.toString() + QLatin1Char('\n');
-        if (!root)
-            return false;
-        auto *edit = dialog();
-        edit->setProperty("dutyOptions",
-                          QVariantList{QVariantMap{{QStringLiteral("content_id"), 70},
-                                                   {QStringLiteral("duty_name"),
-                                                    QString::fromUtf8("伊库拉尔堡垒")}}});
-        edit->setProperty("jobOptions",
-                          QVariantList{QVariantMap{{QStringLiteral("job_id"), 19},
-                                                   {QStringLiteral("job_name"),
-                                                    QString::fromUtf8("骑士")}}});
-        return true;
-    }
-
-    QObject *dialog() const { return root->findChild<QObject *>(QStringLiteral("edit")); }
+/// The wizard, with NoteImages pointed at a temp root.
+struct DialogFixture : ImageFiles, EditRunDialogFixture {
+    DialogFixture() { imageStore = &files.store; }
 
     static QVariantMap run()
     {
@@ -159,11 +123,7 @@ ApplicationWindow {
         };
     }
 
-    bool openForRun() const
-    {
-        return QMetaObject::invokeMethod(dialog(), "openForRun",
-                                         Q_ARG(QVariant, QVariant(run())));
-    }
+    bool openForRun() const { return EditRunDialogFixture::openForRun(run()); }
 
     bool stage(const QString &path) const
     {
@@ -177,23 +137,6 @@ ApplicationWindow {
     bool submit() const { return QMetaObject::invokeMethod(dialog(), "submit"); }
 
     QVariantList rows() const { return qmlList(dialog()->property("noteImageRows")); }
-
-    /// The item the wizard puts on step 3; Repeater delegates are not children
-    /// of the dialog, so the lookup walks the popup's visual tree.
-    QQuickItem *item(const QString &name) const
-    {
-        const auto *content = dialog()->property("contentItem").value<QQuickItem *>();
-        QList<QQuickItem *> pending;
-        if (content)
-            pending.append(const_cast<QQuickItem *>(content));
-        while (!pending.isEmpty()) {
-            QQuickItem *current = pending.takeFirst();
-            if (current->objectName() == name)
-                return current;
-            pending.append(current->childItems());
-        }
-        return dialog()->findChild<QQuickItem *>(name);
-    }
 };
 
 } // namespace
@@ -264,11 +207,7 @@ private Q_SLOTS:
 
         // The suffix says PNG; the bytes do not.
         const QString fake = QDir(fixture.pictures.path()).absoluteFilePath(QStringLiteral("fake.png"));
-        {
-            QFile file(fake);
-            QVERIFY(file.open(QIODevice::WriteOnly));
-            file.write("this is not an image");
-        }
+        QVERIFY(mrtest::writeFile(fake, "this is not an image"));
         QVariantMap look = fixture.store.inspect(fake);
         QVERIFY(!look.value(QStringLiteral("ok")).toBool());
         QVERIFY(look.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("图片格式")));
@@ -279,10 +218,7 @@ private Q_SLOTS:
         QVERIFY(look.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("找不到")));
 
         const QString empty = QDir(fixture.pictures.path()).absoluteFilePath(QStringLiteral("empty.png"));
-        {
-            QFile file(empty);
-            QVERIFY(file.open(QIODevice::WriteOnly));
-        }
+        QVERIFY(mrtest::writeFile(empty, {}));
         look = fixture.store.inspect(empty);
         QVERIFY(!look.value(QStringLiteral("ok")).toBool());
         QVERIFY(look.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("空文件")));
@@ -521,15 +457,7 @@ private Q_SLOTS:
         auto result = fixture.store.addClipboard(kRunId());
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("超过")));
-        QByteArray bomb;
-        QDataStream out(&bomb, QIODevice::WriteOnly);
-        out.setByteOrder(QDataStream::LittleEndian);
-        out.writeRawData("BM", 2);
-        out << static_cast<quint32>(54) << static_cast<quint32>(0) << static_cast<quint32>(54);
-        out << static_cast<quint32>(40) << static_cast<qint32>(10000) << static_cast<qint32>(10000);
-        out << static_cast<quint16>(1) << static_cast<quint16>(24) << static_cast<quint32>(0) << static_cast<quint32>(0);
-        out << static_cast<qint32>(2835) << static_cast<qint32>(2835) << static_cast<quint32>(0) << static_cast<quint32>(0);
-        setEncoded(QStringLiteral("image/bmp"), bomb);
+        setEncoded(QStringLiteral("image/bmp"), bmpBombHeader());
         result = fixture.store.addClipboard(kRunId());
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("分辨率")));
@@ -674,20 +602,8 @@ private Q_SLOTS:
     {
         StoreFixture fixture;
 
-        // A BMP header that announces 10000 x 10000 pixels with no pixel data
-        // behind it: a few dozen bytes on disk, hundreds of megabytes decoded.
         const QString bomb = QDir(fixture.pictures.path()).absoluteFilePath(QStringLiteral("bomb.bmp"));
-        {
-            QFile file(bomb);
-            QVERIFY(file.open(QIODevice::WriteOnly));
-            QDataStream out(&file);
-            out.setByteOrder(QDataStream::LittleEndian);
-            out.writeRawData("BM", 2);
-            out << static_cast<quint32>(54) << static_cast<quint32>(0) << static_cast<quint32>(54);     // file size, reserved, pixel offset
-            out << static_cast<quint32>(40) << static_cast<qint32>(10000) << static_cast<qint32>(10000); // info size, width, height
-            out << static_cast<quint16>(1) << static_cast<quint16>(24) << static_cast<quint32>(0) << static_cast<quint32>(0);
-            out << static_cast<qint32>(2835) << static_cast<qint32>(2835) << static_cast<quint32>(0) << static_cast<quint32>(0);
-        }
+        QVERIFY(mrtest::writeFile(bomb, bmpBombHeader()));
         const QVariantMap look = fixture.store.inspect(bomb);
         QVERIFY(!look.value(QStringLiteral("ok")).toBool());
         QVERIFY2(look.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("分辨率")),
@@ -833,11 +749,7 @@ private Q_SLOTS:
 
         // A refusal shows in the banner and stages nothing.
         const QString fake = QDir(fixture.files.pictures.path()).absoluteFilePath(QStringLiteral("bad.png"));
-        {
-            QFile file(fake);
-            QVERIFY(file.open(QIODevice::WriteOnly));
-            file.write("nope");
-        }
+        QVERIFY(mrtest::writeFile(fake, "nope"));
         QVERIFY(!fixture.stage(fake));
         QCOMPARE(dialog->property("errorCode").toString(), QStringLiteral("ERR_NOTE_IMAGE"));
         QVERIFY(!dialog->property("errorText").toString().isEmpty());
@@ -936,17 +848,15 @@ private Q_SLOTS:
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun());
         auto *dialog = fixture.dialog();
-        QSignalSpy corrections(dialog, SIGNAL(correctRequested(QVariant,QString)));
 
         const QString shot = fixture.files.picture(QStringLiteral("shot.png"));
         QVERIFY(fixture.stage(shot));
         dialog->setProperty("noteText", QString::fromUtf8("第一次带新人"));
-        QVERIFY(fixture.submit());
+        const QVariantMap changes = fixture.submitCorrection();
 
         // The correction carries the note and nothing about the image; the file
         // waits for the Collector's answer.
-        QCOMPARE(corrections.count(), 1);
-        const QVariantMap changes = qmlMap(corrections.first().at(0));
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.value(QStringLiteral("note")).toString(), QString::fromUtf8("第一次带新人"));
         QVERIFY(!changes.contains(QStringLiteral("note_images")));
         QVERIFY(!changes.contains(QStringLiteral("images")));

@@ -10,8 +10,6 @@
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 
-#include <QFontDatabase>
-#include <QFontInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlComponent>

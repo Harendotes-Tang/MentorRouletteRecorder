@@ -13,11 +13,8 @@
 #include "TrayController.h"
 
 #include <QApplication>
-#include <QDir>
-#include <QGuiApplication>
 #include <QMetaProperty>
 #include <QPointer>
-#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -25,13 +22,10 @@
 #include <QQuickWindow>
 #include <QStandardPaths>
 #include <QTest>
-#include <QTimer>
 #include <QTemporaryDir>
 
-#include <algorithm>
 #include <cmath>
 #include <functional>
-#include <memory>
 
 namespace {
 

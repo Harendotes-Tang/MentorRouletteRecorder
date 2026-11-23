@@ -15,16 +15,13 @@
 // is 未知. The step 2 filters never change those lists.
 
 #include "DesktopTestRunner.h"
+#include "EditRunDialogFixture.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
-#include "Formatters.h"
 #include "JobCatalog.h"
-#include "MockBackend.h"
 #include "NoteImageStore.h"
-#include "RoleCatalog.h"
-#include "RunFormValidator.h"
 #include <algorithm>
 
 #include <QDateTime>
@@ -32,12 +29,8 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
-#include <QQuickWindow>
 #include <QScopeGuard>
 #include <QSet>
 #include <QSignalSpy>
@@ -47,14 +40,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-#include <memory>
-
 namespace {
-
-QVariantMap duty(int contentId, const QString &name)
-{
-    return {{QStringLiteral("content_id"), contentId}, {QStringLiteral("duty_name"), name}};
-}
 
 /// A catalogue-shaped row, as DutyCatalog::allDuties() hands them out.
 QVariantMap catalogueDuty(int contentId, const char *name, const char *category, int level,
@@ -67,11 +53,6 @@ QVariantMap catalogueDuty(int contentId, const char *name, const char *category,
             {QStringLiteral("party_size"), partySize},
             {QStringLiteral("difficulty"), QString::fromUtf8(difficulty)},
             {QStringLiteral("version"), QString::fromUtf8(version)}};
-}
-
-QVariantMap job(int jobId, const QString &name)
-{
-    return {{QStringLiteral("job_id"), jobId}, {QStringLiteral("job_name"), name}};
 }
 
 QVariantMap run(const QString &id, int contentId, int jobId, const QString &result)
@@ -115,168 +96,6 @@ QJsonObject runRow(const QJsonValue &contentId, bool softDeleted = false)
     row.insert(QStringLiteral("soft_deleted"), softDeleted);
     return row;
 }
-
-struct DialogFixture {
-    mr::MockBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    mr::Formatters formatters;
-    mr::JobCatalog jobs;
-    mr::RoleCatalog roles;
-    mr::RunFormValidator validator;
-    mr::NoteImageStore *imageStore = nullptr;
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-    /// Puts a history-row stand-in (a TapHandler) under the dialog and counts its taps.
-    bool backgroundTapProbe = false;
-
-    bool create(bool reduceMotion = true)
-    {
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
-        engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), &validator);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
-        if (imageStore)
-            engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), imageStore);
-        QQmlComponent component(&engine);
-        QByteArray source = R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 900; height: 800; visible: true
-    property int backgroundTaps: 0
-    PROBE
-    EditRunDialog { objectName: "edit" }
-})";
-        source.replace("PROBE", backgroundTapProbe
-            ? "Rectangle { anchors.fill: parent; TapHandler { onTapped: backgroundTaps += 1 } }"
-            : "");
-        component.setData(source, QUrl());
-        root.reset(component.create());
-        for (const auto &error : component.errors())
-            errors += error.toString() + QLatin1Char('\n');
-        if (!root)
-            return false;
-
-        auto *edit = dialog();
-        edit->setProperty("dutyOptions", QVariantList{duty(70, QStringLiteral("伊库拉尔堡垒")),
-                                                      duty(71, QStringLiteral("石卫塔")),
-                                                      duty(72, QStringLiteral("铜铃铜山"))});
-        edit->setProperty("jobOptions", QVariantList{job(19, QStringLiteral("骑士")),
-                                                     job(21, QStringLiteral("战士")),
-                                                     job(24, QStringLiteral("白魔法师"))});
-        return true;
-    }
-
-    QObject *dialog() const { return root->findChild<QObject *>(QStringLiteral("edit")); }
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    /// Repeater and ListView delegates are not QObject children of the dialog, so the lookup
-    /// walks the popup's visual tree. A visible match wins over one that is on its way out.
-    QQuickItem *item(const QString &name) const
-    {
-        const auto *content = dialog()->property("contentItem").value<QQuickItem *>();
-        QQuickItem *hidden = nullptr;
-        QList<QQuickItem *> pending;
-        if (content)
-            pending.append(const_cast<QQuickItem *>(content));
-        while (!pending.isEmpty()) {
-            QQuickItem *current = pending.takeFirst();
-            if (current->objectName() == name) {
-                if (current->isVisible())
-                    return current;
-                if (!hidden)
-                    hidden = current;
-            }
-            pending.append(current->childItems());
-        }
-        return hidden ? hidden : dialog()->findChild<QQuickItem *>(name);
-    }
-
-    bool openForRun(const QVariantMap &value) const
-    {
-        return QMetaObject::invokeMethod(dialog(), "openForRun", Q_ARG(QVariant, QVariant(value)));
-    }
-
-    bool goToStep(int step) const
-    {
-        return QMetaObject::invokeMethod(dialog(), "goToStep", Q_ARG(QVariant, QVariant(step)));
-    }
-
-    int step() const { return dialog()->property("currentStep").toInt(); }
-
-    /// Waits for the popup to be fully laid out, then clicks the centre of \a name the way a
-    /// player does. Fails the test if the item is missing, hidden or outside the window.
-    bool click(const QString &name) const
-    {
-        // Delegates a filter change released are deleted later; let that happen first so a
-        // stale row cannot be the one that is found.
-        QTest::qWait(30);
-        QQuickItem *target = nullptr;
-        if (!QTest::qWaitFor([&] {
-                target = item(name);
-                return target && target->isVisible() && target->width() > 0;
-            }, 2000)) {
-            qWarning() << "not clickable:" << name;
-            return false;
-        }
-        // The step body scrolls; bring the target into its viewport first, as a player would.
-        if (auto *body = item(QStringLiteral("wizardBody"))) {
-            bool inside = false;
-            for (auto *parent = target->parentItem(); parent; parent = parent->parentItem())
-                inside = inside || parent == body;
-            if (inside) {
-                const QRectF rect = target->mapRectToItem(body, QRectF(0, 0, target->width(),
-                                                                       target->height()));
-                qreal contentY = body->property("contentY").toReal();
-                if (rect.top() < 0)
-                    contentY += rect.top() - 8;
-                else if (rect.bottom() > body->height())
-                    contentY += rect.bottom() - body->height() + 8;
-                body->setProperty("contentY", contentY);
-            }
-        }
-        // A ListView row or a freshly shown step may still be moving into place.
-        QTest::qWait(30);
-        const QPointF centre = target->mapToScene(QPointF(target->width() / 2,
-                                                          target->height() / 2));
-        if (centre.x() < 0 || centre.y() < 0 || centre.x() > window()->width()
-            || centre.y() > window()->height()) {
-            qWarning() << "outside the window:" << name << centre;
-            return false;
-        }
-        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
-        return true;
-    }
-
-    bool selected(const QString &name) const
-    {
-        const QQuickItem *target = item(name);
-        return target && target->property("selected").toBool();
-    }
-
-    bool chosenRow(const QString &name) const
-    {
-        const QQuickItem *target = item(name);
-        return target && target->property("chosen").toBool();
-    }
-
-    QVariantList visibleIds() const
-    {
-        QVariantList ids;
-        for (const QVariant &row : qmlList(dialog()->property("visibleDuties")))
-            ids.append(qmlMap(row).value(QStringLiteral("content_id")).toInt());
-        return ids;
-    }
-
-    QString selectedDutyName() const
-    {
-        QVariant selected;
-        QMetaObject::invokeMethod(dialog(), "selectedDutyName", Q_RETURN_ARG(QVariant, selected));
-        return selected.toString();
-    }
-};
 
 /// The sentence 「估算进本」 adds to 备注, as EditRunDialog.qml writes it.
 const QString &kEstimateNote()
@@ -326,7 +145,7 @@ private Q_SLOTS:
 
     void everyPickerFollowsTheRunTheDialogWasReopenedFor()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
 
         // Index 0 of the duty and job lists is the injected "unknown" row, so content_id 70
@@ -390,7 +209,7 @@ private Q_SLOTS:
     // 所以修改不会写错记录，丢的是用户刚输入的内容。
     void aSubmissionInFlightLocksTheWindowAndOwnsOnlyItsOwnReply()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19,
                                        QStringLiteral("COMPLETED"))));
@@ -446,7 +265,7 @@ private Q_SLOTS:
     {
         // The pickers must not fight the user either: after a pick, the row stays chosen and
         // the dialog reports the matching name to the validator.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19,
                                        QStringLiteral("CANCELLED_BEFORE_ENTRY"))));
@@ -466,7 +285,7 @@ private Q_SLOTS:
     // pick must reach the form, and "not known" must stay null rather than becoming false.
     void theEntryChipsFollowTheRunAndAPickReachesTheForm()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
 
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
@@ -513,7 +332,7 @@ private Q_SLOTS:
     {
         QFETCH(bool, territoryOnly);
         QFETCH(QString, category);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const auto alliance = mr::DutyCatalog::shared()->lookup(92);
         fixture.dialog()->setProperty("dutyOptions", QVariantList{alliance});
@@ -528,17 +347,15 @@ private Q_SLOTS:
                  category == QStringLiteral("大型任务") ? QStringLiteral("团队任务") : category);
         QVERIFY(fixture.openForRun(displayed));
         fixture.dialog()->setProperty("noteText", QStringLiteral("只修改备注"));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QCOMPARE(raw.value(QStringLiteral("duty_category")).toString(), category);
     }
 
     void choosingAnotherIdWithTheSameNameIsACorrection()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const auto oldDuty = mr::DutyCatalog::shared()->lookup(69);
         const auto newDuty = mr::DutyCatalog::shared()->lookup(944);
@@ -567,7 +384,7 @@ private Q_SLOTS:
     void resultCorrectionPreservesAnIdentifiedDutyWithoutACatalogueMatch()
     {
         QFETCH(QVariant, contentId);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("territory-run"), 70, 19, QStringLiteral("UNKNOWN"));
         value.insert(QStringLiteral("content_id"), contentId);
@@ -609,7 +426,7 @@ private Q_SLOTS:
 
     void progressPreviewCountsOnlyCompletedContributingRuns()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("cancelled"), 70, 19,
                                        QStringLiteral("CANCELLED_BEFORE_ENTRY"))));
@@ -664,7 +481,7 @@ private Q_SLOTS:
     // 「估算进本」 remains an optional way to fill the entry from the match.
     void completingAMissingEntrySubmitsWithoutATimeAndTheEstimateStaysOptional()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("missing-entry"), 70, 19,
                          QStringLiteral("CANCELLED_BEFORE_ENTRY"));
@@ -725,7 +542,7 @@ private Q_SLOTS:
     {
         QFETCH(QString, result);
         QFETCH(bool, hasTimes);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = incompleteImportedRun(result);
         if (hasTimes) {
@@ -736,11 +553,9 @@ private Q_SLOTS:
         }
         QVERIFY(fixture.openForRun(value));
         fixture.dialog()->setProperty("noteText", QStringLiteral("仅补充备注，时间仍不详"));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        const auto changes = fixture.submitCorrection();
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QCOMPARE(changes.value(QStringLiteral("note")).toString(), QStringLiteral("仅补充备注，时间仍不详"));
         QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
@@ -753,7 +568,7 @@ private Q_SLOTS:
         QTemporaryDir root;
         QVERIFY(root.isValid());
         mr::NoteImageStore images(root.path());
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         fixture.imageStore = &images;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const auto value = incompleteImportedRun();
@@ -792,7 +607,7 @@ private Q_SLOTS:
         QFETCH(bool, confirmed);
         QFETCH(bool, hasRoulette);
         QFETCH(bool, eligible);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const auto metadata = [hasFlag, confirmed](bool incomplete) {
             QVariantMap value{{QStringLiteral("incomplete"), incomplete}};
@@ -825,10 +640,8 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), eligible ? 1 : 0);
         if (!eligible)
             QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("还未确认是指导者任务")));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QVERIFY(!changes.contains(QStringLiteral("import_metadata")));
     }
@@ -852,7 +665,7 @@ private Q_SLOTS:
     {
         QFETCH(QVariantMap, edits);
         QFETCH(QString, code);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(incompleteImportedRun()));
         for (auto it = edits.cbegin(); it != edits.cend(); ++it)
@@ -877,7 +690,7 @@ private Q_SLOTS:
     {
         QFETCH(QString, source);
         QFETCH(bool, metadata);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = incompleteImportedRun();
         value.insert(QStringLiteral("source"), source);
@@ -893,7 +706,7 @@ private Q_SLOTS:
 
     void reviewedImportedCompletionCountsWhileTimeGapsRemainInformational()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = incompleteImportedRun(QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("pending_review"), false);
@@ -903,26 +716,22 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("countsAfterSave").toBool());
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
         fixture.dialog()->setProperty("noteText", QStringLiteral("已核对通关，时间不详"));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
         QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
     }
 
     void reselectingTheDefaultImportedResultConfirmsWithoutInventingTimes()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(incompleteImportedRun(QStringLiteral("COMPLETED"))));
         QVERIFY(fixture.click(QStringLiteral("resultPick_COMPLETED")));
         QVERIFY(fixture.dialog()->property("importedResultSelected").toBool());
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
-        const auto changes = qmlMap(corrections.at(0).at(0));
         QCOMPARE(changes.keys(), QStringList{QStringLiteral("result")});
         QVERIFY(fixture.dialog()->property("countsAfterSave").toBool());
     }
@@ -943,7 +752,7 @@ private Q_SLOTS:
         QTemporaryDir imageRoot;
         QVERIFY(imageRoot.isValid());
         mr::NoteImageStore images(imageRoot.path());
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         fixture.imageStore = &images;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("complete-pending-import"), 70, 19, QStringLiteral("COMPLETED"));
@@ -991,7 +800,7 @@ private Q_SLOTS:
     void explicitlyConfirmingEstimatedImportedResultMatchesProgress()
     {
         QFETCH(QString, originalResult);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("explicit-estimated-import"), 70, 19, originalResult);
         value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
@@ -1006,10 +815,8 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
         QVERIFY(fixture.dialog()->property("confirmsImportedFacts").toBool());
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 1);
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QCOMPARE(changes.value(QStringLiteral("entered_at_utc")), value.value(QStringLiteral("matched_at_utc")));
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
@@ -1036,7 +843,7 @@ private Q_SLOTS:
         QFETCH(bool, incomplete);
         QFETCH(bool, pendingReview);
         QFETCH(bool, confirmResult);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("complete-import-facts"), 70, 19, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("source"), source);
@@ -1069,11 +876,8 @@ private Q_SLOTS:
             QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 1);
             QCOMPARE(fixture.dialog()->property("progressTitle").toString(), QStringLiteral("保存后，成就进度 +1"));
         }
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(corrections.isValid());
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.contains(QStringLiteral("result")), confirmResult);
         if (confirmResult)
             QCOMPARE(changes.value(QStringLiteral("result")).toString(), value.value(QStringLiteral("result")).toString());
@@ -1085,7 +889,7 @@ private Q_SLOTS:
 
     void estimatedImportedTimesDoNotConfirmTheDefaultOutcome()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("estimated-import-facts"), 70, 19, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
@@ -1096,17 +900,15 @@ private Q_SLOTS:
         QVERIFY(fixture.openForRun(value));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QVERIFY(!changes.contains(QStringLiteral("result")));
         QVERIFY(changes.value(QStringLiteral("duration_ms")).isNull());
     }
 
     void creatingAnEstimatedRunSendsAnExplicitUnknownDuration()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         fixture.dialog()->setProperty("matchedDate", "2026-09-13");
@@ -1129,7 +931,7 @@ private Q_SLOTS:
     // 估算悄悄当成实测，连排队时间一起算进平均耗时。
     void anEstimatedEntryMovesWithTheMatchDate()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         fixture.dialog()->setProperty("matchedTime", "20:00:00");
@@ -1165,7 +967,7 @@ private Q_SLOTS:
         QCOMPARE(QCoreApplication::translate("EditRunDialog", kEstimateNote().toUtf8().constData()),
                  kEstimateNoteEnglish());
 
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         fixture.dialog()->setProperty("matchedTime", "20:00:00");
@@ -1190,7 +992,7 @@ private Q_SLOTS:
     // 原因不被覆盖，新增记录的原因也不会自称「修正识别结果」。
     void markingCompletedReplacesOnlyThePrefilledCorrectionReason()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const QString correctedReason = QStringLiteral("实际已通关，修正识别结果");
 
@@ -1221,7 +1023,7 @@ private Q_SLOTS:
     // 时间按匹配时间估算的记录（进本 = 匹配）才继续保持耗时为空。
     void aMeasuredEntryGetsItsDurationOnceTheEndIsCorrected()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("recovered"), 70, 19, QStringLiteral("INTERRUPTED"));
         value.insert(QStringLiteral("duration_ms"), QVariant());
@@ -1231,10 +1033,8 @@ private Q_SLOTS:
         const auto end = entered.addSecs(25LL * 60);
         fixture.dialog()->setProperty("endedDate", end.toLocalTime().toString(QStringLiteral("yyyy-MM-dd")));
         fixture.dialog()->setProperty("endedTime", end.toLocalTime().toString(QStringLiteral("HH:mm:ss.zzz")));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
         QVERIFY(!changes.value(QStringLiteral("duration_ms")).isNull());
         QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), entered.msecsTo(end));
@@ -1250,7 +1050,7 @@ private Q_SLOTS:
     void reopeningAnUnknownDurationPreservesItUntilTheEntryIsReplaced()
     {
         QFETCH(bool, replaceEntry);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("estimated"), 70, 19, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("entered_at_utc"), value.value(QStringLiteral("matched_at_utc")));
@@ -1267,11 +1067,8 @@ private Q_SLOTS:
             fixture.dialog()->setProperty("enteredDate", actualEntry.toLocalTime().toString(QStringLiteral("yyyy-MM-dd")));
             fixture.dialog()->setProperty("enteredTime", actualEntry.toLocalTime().toString(QStringLiteral("HH:mm:ss.zzz")));
         }
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(corrections.isValid());
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QVERIFY(changes.contains(QStringLiteral("duration_ms")));
         if (replaceEntry)
             QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), actualEntry.msecsTo(end));
@@ -1283,7 +1080,7 @@ private Q_SLOTS:
     // 耗时为空（不计入平均耗时），备注里还留着「进本时间按匹配时间估算」。
     void aRealEntryTimeReplacesTheEstimate()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("missing-entry"), 70, 19,
                          QStringLiteral("CANCELLED_BEFORE_ENTRY"));
@@ -1327,7 +1124,7 @@ private Q_SLOTS:
     // 的检查永远不成立，空的修正被送到采集服务，只换来 ERR_NO_CHANGES。
     void anUntouchedFormIsNoCorrection()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("whole-minutes"), 70, 19, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-04T12:39:00.000Z"));
@@ -1364,7 +1161,7 @@ private Q_SLOTS:
     // Tab 照旧移到下一项。提示末尾写明「（按 Tab 填入）」，否则没人知道。
     void tabEntersTheReasonAndNoteExamples()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("example-run"), 70, 19, QStringLiteral("COMPLETED"))));
         QVERIFY(fixture.goToStep(3));
@@ -1433,7 +1230,7 @@ private Q_SLOTS:
     void choosingTheUnknownDutyAlwaysNamesTheContent()
     {
         QFETCH(QVariant, contentId);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("zone-run"), 70, 19, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("content_id"), contentId);
@@ -1446,10 +1243,8 @@ private Q_SLOTS:
         QVERIFY(fixture.click(QStringLiteral("changeDutyButton")));
         QCOMPARE(fixture.dialog()->property("dutyIndex").toInt(), 0);
 
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QVERIFY(changes.contains(QStringLiteral("content_id")));
         QVERIFY(changes.value(QStringLiteral("content_id")).isNull());
         QVERIFY(changes.value(QStringLiteral("duty_name")).isNull());
@@ -1459,7 +1254,7 @@ private Q_SLOTS:
     {
         // Plan §5: min(720, window - 40) x min(680, window - 32), and the action row stays
         // visible whatever the step body holds - the body scrolls instead.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         fixture.root->setProperty("width", 700);
         fixture.root->setProperty("height", 600);
@@ -1503,7 +1298,7 @@ private Q_SLOTS:
 
     void stepsNavigateAndARefusalBringsUpTheTimes()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         QCOMPARE(fixture.step(), 1);
@@ -1571,7 +1366,7 @@ private Q_SLOTS:
 
     void changingTheDayMovesOnlyTheTimesStillOnIt()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         fixture.dialog()->setProperty("matchedDate", "2026-09-07");
@@ -1605,7 +1400,7 @@ private Q_SLOTS:
     {
         // Leaving a TimeField canonicalizes its text. That write must not cut the field off
         // from the dialog: reopened for run B, it has to show B's times, not run A's.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
         QVERIFY(fixture.goToStep(3));
@@ -1634,7 +1429,7 @@ private Q_SLOTS:
         // The history rows sit under the modal dialog and listen with a TapHandler, as the
         // dialog's own chips do. A pick in the dialog must not also tap the row behind it:
         // that re-selects another run, and the correction is then saved onto that run.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         fixture.backgroundTapProbe = true;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
@@ -1648,7 +1443,7 @@ private Q_SLOTS:
 
     void dutyFiltersNarrowByPartyLevelDifficultyAndSearch()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         fixture.dialog()->setProperty("dutyOptions", QVariantList{
             catalogueDuty(1, "天然要害沙斯塔夏溶洞", "四人迷宫", 15, 4, "普通", "2.x"),
@@ -1764,7 +1559,7 @@ private Q_SLOTS:
     {
         QFETCH(int, retiredJobId);
         QFETCH(QString, retiredJobName);
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("retired-job"), 70, retiredJobId, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
@@ -1828,7 +1623,7 @@ private Q_SLOTS:
 
     void anUnknownJobCanStillBeFilledFromEligibleJobs()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto value = run(QStringLiteral("unknown-job"), 70, 0, QStringLiteral("COMPLETED"));
         value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
@@ -1841,17 +1636,15 @@ private Q_SLOTS:
         QVERIFY(fixture.goToStep(2));
         QVERIFY(fixture.item(QStringLiteral("jobUnknownChip"))->property("checked").toBool());
         QVERIFY(fixture.click(QStringLiteral("jobPick_24")));
-        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = qmlMap(corrections.at(0).at(0));
+        const auto changes = fixture.submitCorrection();
+        QVERIFY(!changes.isEmpty());
         QCOMPARE(changes.value(QStringLiteral("job_id")).toInt(), 24);
         QVERIFY(!changes.contains(QStringLiteral("job_name")));
     }
 
     void jobsAreGroupedByRoleInLegendOrder()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVariantMap scholar = job(28, QStringLiteral("学者"));
         scholar.insert(QStringLiteral("role_group"), QStringLiteral("治疗"));
@@ -1908,7 +1701,7 @@ private Q_SLOTS:
         QVERIFY(mr::AppController::recentDutiesFromRuns(QJsonArray(), 5).isEmpty());
 
         // Through the mock backend and into the dialog's chips.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         fixture.dialog()->setProperty("dutyOptions", fixture.controller.dutyCatalogOptions());
         QSignalSpy changed(&fixture.controller, &mr::AppController::recentDutiesChanged);
@@ -2057,7 +1850,7 @@ private Q_SLOTS:
         QVERIFY(raids > 100);
 
         // In the wizard, 繁中服's raids are where the 8人本 / 24人本 filters look.
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("TC")))));
@@ -2082,7 +1875,7 @@ private Q_SLOTS:
     // named region, else 国服, and the sentence names the region and its goal.
     void aNewRecordStartsInTheDashboardsRegionAndSaysWhichAchievementItCounts()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         fixture.backend.setAchievement(QStringLiteral("TC"), 1500, 0);
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto *dialog = fixture.dialog();
@@ -2133,7 +1926,7 @@ private Q_SLOTS:
     // system's animations off it lands at once.
     void stepSwitchSlidesTheIncomingStep()
     {
-        DialogFixture fixture;
+        EditRunDialogFixture fixture;
         QVERIFY2(fixture.create(false), qPrintable(fixture.errors));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
         QVERIFY(fixture.dialog()->property("stepAnimates").toBool());
@@ -2154,7 +1947,7 @@ private Q_SLOTS:
         QTRY_COMPARE(fixture.dialog()->property("stepProgress").toReal(), 1.0);
 
         // Reduced motion: no in-between frame, ever.
-        DialogFixture still;
+        EditRunDialogFixture still;
         QVERIFY2(still.create(true), qPrintable(still.errors));
         QVERIFY(QMetaObject::invokeMethod(still.dialog(), "openForCreate"));
         QVERIFY(!still.dialog()->property("stepAnimates").toBool());

@@ -35,6 +35,25 @@ ApplicationWindow {
     return value;
 }
 
+/// The trend chart of kTrendScene() on a window that is on screen; null when it is not
+/// (scene.errors says why when it can).
+QQuickItem *showTrendChart(Scene &scene, bool reduceMotion)
+{
+    if (!scene.create(kTrendScene(), reduceMotion))
+        return nullptr;
+    if (!QTest::qWaitForWindowExposed(scene.window())) {
+        scene.errors += QStringLiteral("The window was never exposed.\n");
+        return nullptr;
+    }
+    return scene.item(QStringLiteral("chart"));
+}
+
+/// The layer that draws the chart's bars while one series turns into the next.
+QQuickItem *motionLayer(const QQuickItem *chart)
+{
+    return chart->property("motionLayer").value<QQuickItem *>();
+}
+
 /// The day the trend series of these tests end on (a Friday).
 QDate trendToday() { return {2026, 9, 4}; }
 
@@ -80,7 +99,7 @@ QList<int> weekCounts()
 QList<QRectF> graphsBars(QQuickItem *chart)
 {
     QList<QRectF> out;
-    const QQuickItem *layer = chart->property("motionLayer").value<QQuickItem *>();
+    const QQuickItem *layer = motionLayer(chart);
     std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
         if (item == layer)
             return;
@@ -104,7 +123,7 @@ QList<QRectF> graphsBars(QQuickItem *chart)
 /// The motion layer's bar items, left to right.
 QList<QQuickItem *> layerBars(QQuickItem *chart)
 {
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    auto *layer = motionLayer(chart);
     QList<QQuickItem *> out;
     const auto children = layer->childItems();
     for (QQuickItem *child : children) {
@@ -188,14 +207,14 @@ QList<QRectF> layerShapes(QQuickItem *chart)
     QList<QRectF> bars;
     for (const QQuickItem *bar : layerBars(chart))
         bars.append(sceneRect(bar));
-    return shapesIn(bars, sceneRect(chart->property("motionLayer").value<QQuickItem *>()));
+    return shapesIn(bars, sceneRect(motionLayer(chart)));
 }
 
 /// What the motion layer draws at \a progress of its running motion. The clock
 /// is left alone: its next tick sets its own value again.
 QList<QRectF> layerShapesAt(QQuickItem *chart, qreal progress)
 {
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    auto *layer = motionLayer(chart);
     const QVariant now = layer->property("progress");
     layer->setProperty("progress", progress);
     const QList<QRectF> shapes = layerShapes(chart);
@@ -267,9 +286,8 @@ void TrendMotionTests::initTestCase()
 void TrendMotionTests::trendHoverMatchesRenderedBars()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
-    auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
+    QQuickItem *chart = showTrendChart(scene, true);
+    QVERIFY2(chart, qPrintable(scene.errors));
     auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
     QVERIFY(hover);
     for (const int width : {720, 1100}) {
@@ -296,10 +314,9 @@ void TrendMotionTests::trendHoverMatchesRenderedBars()
 void TrendMotionTests::trendMonthAxisGivesTheLastMonthItsOwnLength()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
-    auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QQuickItem *chart = showTrendChart(scene, true);
+    QVERIFY2(chart, qPrintable(scene.errors));
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     const auto ms = [](const QDate &day, const QTimeZone &zone) {
         return static_cast<double>(QDateTime(day, QTime(0, 0), zone).toMSecsSinceEpoch());
@@ -329,9 +346,8 @@ void TrendMotionTests::trendMonthAxisGivesTheLastMonthItsOwnLength()
 void TrendMotionTests::trendTipFollowsADayThatGainsACountUnderThePointer()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
-    auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
+    QQuickItem *chart = showTrendChart(scene, true);
+    QVERIFY2(chart, qPrintable(scene.errors));
     auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
     auto *tip = chart->findChild<QQuickItem *>(QStringLiteral("trendTip"));
     QVERIFY(hover && tip);
@@ -365,7 +381,7 @@ void TrendMotionTests::trendTipFollowsADayThatGainsACountUnderThePointer()
 void TrendMotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)
 {
     QVERIFY(!chart->property("transitionRunning").toBool());
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     QVERIFY(!layer->isVisible());
     QVERIFY(fuzzyEqual(layer->property("progress").toReal(), 1.0));
@@ -393,24 +409,17 @@ void TrendMotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)
     QTRY_COMPARE(graphsBars(chart).size(), bars);
     const QList<QRectF> drawn = graphsBars(chart);
     for (int i = 0; i < items.size(); ++i) {
-        const QRectF mine = items.at(i)->mapRectToScene(
-            QRectF(0, 0, items.at(i)->width(), items.at(i)->height()));
-        const QRectF theirs = drawn.at(i);
-        const QString detail = QStringLiteral("bar %1: layer (%2,%3 %4x%5) graphs (%6,%7 %8x%9)")
-                                   .arg(i).arg(mine.x()).arg(mine.y()).arg(mine.width())
-                                   .arg(mine.height()).arg(theirs.x()).arg(theirs.y())
-                                   .arg(theirs.width()).arg(theirs.height());
-        QVERIFY2(fuzzyEqual(mine.x(), theirs.x()) && fuzzyEqual(mine.width(), theirs.width())
-                     && fuzzyEqual(mine.bottom(), theirs.bottom())
-                     && fuzzyEqual(mine.height(), theirs.height()),
-                 qPrintable(detail));
+        const QRectF mine = sceneRect(items.at(i));
+        QVERIFY2(sameBar(mine, drawn.at(i)),
+                 qPrintable(QStringLiteral("bar %1: layer %2 graphs %3")
+                                .arg(i).arg(barText(mine), barText(drawn.at(i)))));
     }
 }
 
 void TrendMotionTests::switchAndVerifyEnds(QQuickItem *chart, const QVariantList &series,
                                       const QString &phase, int movingBars)
 {
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     const QRectF plot = sceneRect(layer);
     // The picture on screen, once Qt Graphs has laid it out.
@@ -448,10 +457,8 @@ void TrendMotionTests::switchAndVerifyEnds(QQuickItem *chart, const QVariantList
 void TrendMotionTests::trendSwitchLeavesEveryBarAtRest()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    QQuickItem *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
+    QQuickItem *chart = showTrendChart(scene, false);
+    QVERIFY2(chart, qPrintable(scene.errors));
     const QVariantList days = buckets(QStringLiteral("day"), dayCounts());
     QList<int> changed = dayCounts();
     changed[29] = 6;
@@ -500,11 +507,9 @@ void TrendMotionTests::trendSwitchLeavesEveryBarAtRest()
 void TrendMotionTests::trendMergeIsOneContinuousMotion()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QQuickItem *chart = showTrendChart(scene, false);
+    QVERIFY2(chart, qPrintable(scene.errors));
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     const QVariantList days = buckets(QStringLiteral("day"), dayCounts());
     const QVariantList weeks = buckets(QStringLiteral("week"), weekCounts());
@@ -597,11 +602,9 @@ void TrendMotionTests::trendMergeIsOneContinuousMotion()
 void TrendMotionTests::trendSplitStartsOnTheBarsOnScreen()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QQuickItem *chart = showTrendChart(scene, false);
+    QVERIFY2(chart, qPrintable(scene.errors));
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     chart->setProperty("buckets", buckets(QStringLiteral("week"), weekCounts()));
     const QList<QRectF> weekBars = settledGraphsBars(chart, 12);
@@ -643,11 +646,9 @@ void TrendMotionTests::trendSplitStartsOnTheBarsOnScreen()
 void TrendMotionTests::interruptedTrendSwitchGoesOnFromTheFrameOnScreen()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    QQuickItem *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QQuickItem *chart = showTrendChart(scene, false);
+    QVERIFY2(chart, qPrintable(scene.errors));
+    auto *layer = motionLayer(chart);
     QVERIFY(layer);
     const QVariantList days = buckets(QStringLiteral("day"), dayCounts());
     const QVariantList weeks = buckets(QStringLiteral("week"), weekCounts());
@@ -711,11 +712,9 @@ void TrendMotionTests::interruptedTrendSwitchGoesOnFromTheFrameOnScreen()
 void TrendMotionTests::interruptedTrendSwitchEndsClean()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    QQuickItem *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QQuickItem *chart = showTrendChart(scene, false);
+    QVERIFY2(chart, qPrintable(scene.errors));
+    auto *layer = motionLayer(chart);
     chart->setProperty("buckets", buckets(QStringLiteral("day"), dayCounts()));
     QTRY_COMPARE(graphsBars(chart).size(), 30);
 
@@ -747,23 +746,17 @@ void TrendMotionTests::interruptedTrendSwitchEndsClean()
     QTest::qWait(600);
     QVERIFY(!chart->property("transitionRunning").toBool());
     verifyTrendAtRest(chart, 12);
-    if (QTest::currentTestFailed())
-        return;
 }
 
 void TrendMotionTests::reducedMotionTrendSwitchIsInstant()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
-    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-    QQuickItem *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
+    QQuickItem *chart = showTrendChart(scene, true);
+    QVERIFY2(chart, qPrintable(scene.errors));
     chart->setProperty("buckets", buckets(QStringLiteral("day"), dayCounts()));
     chart->setProperty("buckets", buckets(QStringLiteral("week"), weekCounts()));
     QVERIFY(!chart->property("transitionRunning").toBool());
     verifyTrendAtRest(chart, 12);
-    if (QTest::currentTestFailed())
-        return;
 }
 
 MR_DESKTOP_TEST_SUITE(TrendMotion)

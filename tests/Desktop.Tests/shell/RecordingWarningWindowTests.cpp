@@ -108,12 +108,18 @@ struct Scene
     {
         return root->findChild<QQuickWindow *>(QStringLiteral("recordingWarningWindow"));
     }
-    void recovering()
+    // The capture state the Collector reports while it recovers its path; before create()
+    // it is what the window starts with.
+    void markRecovering()
     {
         backend.capture.insert(QStringLiteral("messages_decoded"), 0);
         backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
         backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
         backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
+    }
+    void recovering()
+    {
+        markRecovering();
         app.recording()->observeCapture(backend.capture.toVariantMap());
     }
     void failed()
@@ -183,10 +189,7 @@ private slots:
     void recoveryNoticeLeavesByItselfAndYieldsToTheMainWindow()
     {
         Scene scene;
-        scene.backend.capture.insert(QStringLiteral("messages_decoded"), 0);
-        scene.backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
-        scene.backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
-        scene.backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
+        scene.markRecovering();
         QVERIFY2(scene.create(), qPrintable(scene.errors));
         scene.window()->hide();
         QTRY_VERIFY(scene.warning()->isVisible());
@@ -226,10 +229,7 @@ private slots:
     void recoveryShowsAfterAnAcknowledgedFirstFailure()
     {
         Scene scene;
-        scene.backend.capture.insert(QStringLiteral("messages_decoded"), 0);
-        scene.backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
-        scene.backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
-        scene.backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
+        scene.markRecovering();
         QVERIFY2(scene.create(), qPrintable(scene.errors));
         scene.window()->hide();
         QTRY_VERIFY(scene.warning()->isVisible());

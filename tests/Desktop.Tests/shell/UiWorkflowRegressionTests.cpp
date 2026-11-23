@@ -509,6 +509,65 @@ QString textStartingWith(QQuickItem *from, const QString &prefix)
     return {};
 }
 
+/// QueryRuns with nothing to list.
+QJsonObject emptyRunsPage()
+{
+    return {{QStringLiteral("items"), QJsonArray{}},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}};
+}
+
+/// A calibration ready for review: one 匹配弹窗 the player has to confirm.
+QJsonObject calibrationTimeline()
+{
+    return {{QStringLiteral("state"), QStringLiteral("READY")},
+            {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+            {QStringLiteral("events"),
+             QJsonArray{QJsonObject{{QStringLiteral("event_id"), QStringLiteral("pop-1")},
+                                    {QStringLiteral("kind"), QStringLiteral("pop")},
+                                    {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
+                                    {QStringLiteral("t_ms"), 120000.0},
+                                    {QStringLiteral("label"), QString::fromUtf8("匹配弹窗：练级迷宫")},
+                                    {QStringLiteral("requires_confirmation"), true}}}}};
+}
+
+/// 软件说明 (DisclosureDialog) opened on its own window.
+struct DisclosureScene {
+    WorkflowBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    mr::Formatters formatters;
+    QQmlEngine engine;
+    std::unique_ptr<QObject> window;
+    QString errors;
+
+    /// The dialog's content once it is on screen; null when it never is.
+    QQuickItem *open()
+    {
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 900; height: 900; visible: true
+    DisclosureDialog { id: notice; objectName: "disclosure"; anchors.centerIn: parent }
+    Component.onCompleted: notice.openDialog()
+})", QUrl());
+        window.reset(component.create());
+        if (!window) {
+            errors = component.errorString();
+            return nullptr;
+        }
+        auto *dialog = window->findChild<QObject *>(QStringLiteral("disclosure"));
+        if (!dialog || !QTest::qWaitFor([dialog] { return dialog->property("visible").toBool(); }, 5000)) {
+            errors = QStringLiteral("The disclosure dialog did not open.");
+            return nullptr;
+        }
+        return dialog->property("contentItem").value<QQuickItem *>();
+    }
+};
+
 } // namespace
 
 namespace {
@@ -1175,9 +1234,7 @@ void UiWorkflowRegressionTests::overviewPendingPreviewOnlyRequestsSharedEditor()
 void UiWorkflowRegressionTests::overviewPendingCountComesFromRecoverySnapshot()
 {
     ShellScene scene;
-    scene.backend.answers.insert(QStringLiteral("QueryRuns"),
-        QJsonObject{{QStringLiteral("items"), QJsonArray{}},
-                    {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}}}});
+    scene.backend.answers.insert(QStringLiteral("QueryRuns"), emptyRunsPage());
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.backend.answers.insert(QStringLiteral("GetDashboardStats"),
         QJsonObject{{QStringLiteral("unfinished_pending_review"), 7}});
@@ -1211,16 +1268,6 @@ void UiWorkflowRegressionTests::calibrationDialogsLockWhileBusyAndDropAnEarlierR
     auto *calibration = scene.controller.calibration();
     QVERIFY(calibration);
 
-    const QJsonObject timeline{
-        {QStringLiteral("state"), QStringLiteral("READY")},
-        {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-        {QStringLiteral("events"),
-         QJsonArray{QJsonObject{{QStringLiteral("event_id"), QStringLiteral("pop-1")},
-                                {QStringLiteral("kind"), QStringLiteral("pop")},
-                                {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
-                                {QStringLiteral("t_ms"), 120000.0},
-                                {QStringLiteral("label"), QString::fromUtf8("匹配弹窗：练级迷宫")},
-                                {QStringLiteral("requires_confirmation"), true}}}}};
     auto *dialog = scene.named(QStringLiteral("calibrationDialog"));
     QVERIFY(dialog);
     QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
@@ -1228,7 +1275,7 @@ void UiWorkflowRegressionTests::calibrationDialogsLockWhileBusyAndDropAnEarlierR
     // 时间线在窗口已经打开之后才喂进去：启动时的一次状态读取会把校准重置回
     // 「没在校准」，等窗口稳定再喂，事件才不会在提交前被清空。
     calibration->refreshFromCaptureStatus(
-        QJsonObject{{QStringLiteral("calibration"), timeline}}.toVariantMap());
+        QJsonObject{{QStringLiteral("calibration"), calibrationTimeline()}}.toVariantMap());
     QCOMPARE(calibration->confirmCount(), 1);
     const int closeOnEscape = dialog->property("closePolicy").toInt();
     QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict",
@@ -1311,22 +1358,12 @@ void UiWorkflowRegressionTests::calibrationDialogsCannotBeCancelledWhileBusy()
     QVERIFY(QMetaObject::invokeMethod(importDialog, "close"));
     QTRY_VERIFY(!importDialog->property("visible").toBool());
 
-    const QJsonObject timeline{
-        {QStringLiteral("state"), QStringLiteral("READY")},
-        {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-        {QStringLiteral("events"),
-         QJsonArray{QJsonObject{{QStringLiteral("event_id"), QStringLiteral("pop-1")},
-                                {QStringLiteral("kind"), QStringLiteral("pop")},
-                                {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
-                                {QStringLiteral("t_ms"), 120000.0},
-                                {QStringLiteral("label"), QString::fromUtf8("匹配弹窗：练级迷宫")},
-                                {QStringLiteral("requires_confirmation"), true}}}}};
     auto *dialog = scene.named(QStringLiteral("calibrationDialog"));
     QVERIFY(dialog);
     QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
     QTRY_VERIFY(dialog->property("visible").toBool());
     calibration->refreshFromCaptureStatus(
-        QJsonObject{{QStringLiteral("calibration"), timeline}}.toVariantMap());
+        QJsonObject{{QStringLiteral("calibration"), calibrationTimeline()}}.toVariantMap());
     QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict",
                                       Q_ARG(QVariant, QVariant(QStringLiteral("pop-1"))),
                                       Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
@@ -1481,9 +1518,7 @@ void verifyHistoryRegionErrorAndHelp(UiFixture &fixture, QQuickItem *region, QOb
 void UiWorkflowRegressionTests::historyDatePresetsAndKeyboardKeepTheAppliedRange()
 {
     UiFixture fixture;
-    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
-        {{QStringLiteral("items"), QJsonArray{}},
-         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"), emptyRunsPage());
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -1550,9 +1585,7 @@ void UiWorkflowRegressionTests::historyDatePresetsAndKeyboardKeepTheAppliedRange
 void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountStates()
 {
     UiFixture fixture;
-    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
-        {{QStringLiteral("items"), QJsonArray{}},
-         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"), emptyRunsPage());
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -1624,9 +1657,7 @@ void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountSta
 void UiWorkflowRegressionTests::historyRangeStaysAppliedWhenANarrowerFilterReturnsNoRows()
 {
     UiFixture fixture;
-    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
-        {{QStringLiteral("items"), QJsonArray{}},
-         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"), emptyRunsPage());
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -2845,9 +2876,7 @@ void UiWorkflowRegressionTests::theRecordSwitchesSayWhenTheyAct()
 void UiWorkflowRegressionTests::overviewPendingCardHidesWhenRecoveryEmpty()
 {
     ShellScene scene;
-    scene.backend.answers.insert(QStringLiteral("QueryRuns"),
-        QJsonObject{{QStringLiteral("items"), QJsonArray{}},
-                    {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}}}});
+    scene.backend.answers.insert(QStringLiteral("QueryRuns"), emptyRunsPage());
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.controller.recovery()->refresh();
     QTRY_VERIFY(!scene.controller.recovery()->busy()
@@ -2869,29 +2898,9 @@ void UiWorkflowRegressionTests::overviewPendingCardHidesWhenRecoveryEmpty()
 // filled in under 待复核.
 void UiWorkflowRegressionTests::theExplanationSaysAClearIsRecordedByItself()
 {
-    WorkflowBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    mr::Formatters formatters;
-    QQmlEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-    QQmlComponent component(&engine);
-    component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 900; height: 900; visible: true
-    DisclosureDialog { id: notice; objectName: "disclosure"; anchors.centerIn: parent }
-    Component.onCompleted: notice.openDialog()
-})", QUrl());
-    const std::unique_ptr<QObject> window(component.create());
-    QVERIFY2(window, qPrintable(component.errorString()));
-    auto *dialog = window->findChild<QObject *>(QStringLiteral("disclosure"));
-    QVERIFY(dialog);
-    QTRY_VERIFY(dialog->property("visible").toBool());
-    auto *content = dialog->property("contentItem").value<QQuickItem *>();
-    QVERIFY(content);
+    DisclosureScene scene;
+    QQuickItem *content = scene.open();
+    QVERIFY2(content, qPrintable(scene.errors));
 
     QCOMPARE(textStartingWith(content, QString::fromUtf8("· 3. ")),
              QString::fromUtf8("· 3. 正常排指导者任务，未能自动判定的结果到“待处理”里填写"));
@@ -2904,29 +2913,9 @@ ApplicationWindow {
 // address; 联网一 names it next to GitHub and the CDN.
 void UiWorkflowRegressionTests::theCalibrationFetchNamesEveryOperatorThatSeesTheAddress()
 {
-    WorkflowBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    mr::Formatters formatters;
-    QQmlEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
-    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-    QQmlComponent component(&engine);
-    component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 900; height: 900; visible: true
-    DisclosureDialog { id: notice; objectName: "disclosure"; anchors.centerIn: parent }
-    Component.onCompleted: notice.openDialog()
-})", QUrl());
-    const std::unique_ptr<QObject> window(component.create());
-    QVERIFY2(window, qPrintable(component.errorString()));
-    auto *dialog = window->findChild<QObject *>(QStringLiteral("disclosure"));
-    QVERIFY(dialog);
-    QTRY_VERIFY(dialog->property("visible").toBool());
-    auto *content = dialog->property("contentItem").value<QQuickItem *>();
-    QVERIFY(content);
+    DisclosureScene scene;
+    QQuickItem *content = scene.open();
+    QVERIFY2(content, qPrintable(scene.errors));
 
     const QString fetch = textStartingWith(content, QString::fromUtf8("游戏更新后，如果还不能自动记录"));
     QVERIFY(!fetch.isEmpty());

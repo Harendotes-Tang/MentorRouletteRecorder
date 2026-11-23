@@ -1,191 +1,50 @@
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
+#include "ShippingWindowFixture.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
-#include "AppSettings.h"
 #include "BundledFonts.h"
-#include "Formatters.h"
-#include "GameNames.h"
-#include "JobCatalog.h"
-#include "LanguageManager.h"
-#include "MockBackend.h"
 #include "RecoveryController.h"
-#include "RoleCatalog.h"
-#include "RunFormValidator.h"
 
 #include <QApplication>
 #include <QClipboard>
-#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
-#include <QFileInfo>
 #include <QFont>
-#include <QJsonArray>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
-#include <QTemporaryDir>
 #include <QTest>
-#include <QTimer>
-#include <QUuid>
 #include <qpa/qwindowsysteminterface.h>
-
-#include <memory>
 
 namespace {
 
-QVariantMap finishedRun(bool completed)
+/// Clicks the 「新增记录」 button of the page on screen once it can take the click.
+bool clickNewRecord(const ShippingWindowScene &scene)
 {
-    const QString end = QDateTime::currentDateTimeUtc().addSecs(1).toString(Qt::ISODateWithMs);
-    const QString start = QDateTime::currentDateTimeUtc().addSecs(-1200).toString(Qt::ISODateWithMs);
-    return {{"run_id", QStringLiteral("a32cb20c-9925-4656-bd91-02122658dc63")},
-            {"revision", 1}, {"source", QStringLiteral("AUTO_NETWORK")},
-            {"state", completed ? QStringLiteral("COMPLETED") : QStringLiteral("UNKNOWN_FINAL_STATE")},
-            {"result", completed ? QStringLiteral("COMPLETED") : QStringLiteral("UNKNOWN")},
-            {"mentor_roulette_id", 9}, {"mentor_confirmed", true}, {"is_mentor", true},
-            {"duty_name", QStringLiteral("测试副本：森林中的重逢")},
-            {"duty_category", QStringLiteral("迷宫挑战")},
-            {"job_id", 24}, {"job_name", QStringLiteral("白魔法师")},
-            {"created_at_utc", start}, {"matched_at_utc", start},
-            {"entered_at_utc", start}, {"ended_at_utc", end},
-            {"duration_ms", 1200000}, {"pending_review", !completed},
-            {"contributes_to_goal", true}, {"soft_deleted", false}};
+    QQuickItem *button = nullptr;
+    const auto find = [&](auto &&self, QQuickItem *parent) -> QQuickItem * {
+        if (!parent->isVisible()) return nullptr;
+        if (parent->property("text").toString() == QStringLiteral("新增记录")
+            && parent->metaObject()->indexOfSignal("clicked()") >= 0)
+            return parent;
+        for (auto *child : parent->childItems())
+            if (auto *found = self(self, child)) return found;
+        return nullptr;
+    };
+    QQuickWindow *window = scene.mainWindow();
+    if (!QTest::qWaitFor([&] {
+            button = find(find, window->contentItem());
+            return button && button->isEnabled() && button->width() > 0 && button->height() > 0;
+        })) return false;
+    const QPoint center = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
+    if (!QRect(QPoint(), window->size()).contains(center)) return false;
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center);
+    return true;
 }
-
-class WorkspaceBackend final : public mr::MockBackend
-{
-public:
-    QStringList commands;
-    bool refuseNextNote = false;
-
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
-    {
-        commands.append(type);
-        if (type == QLatin1String("SetRunReflection") && refuseNextNote) {
-            refuseNextNote = false;
-            auto *reply = new mr::BackendReply(QStringLiteral("workspace-note-refusal"), type, this);
-            QTimer::singleShot(0, reply, [reply] {
-                reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("测试：笔记暂时无法保存"));
-            });
-            return reply;
-        }
-        return mr::MockBackend::request(type, payload);
-    }
-};
-
-struct WorkspaceScene
-{
-    QTemporaryDir directory;
-    mr::AppSettings settings{QDir(directory.path()).filePath(QStringLiteral("desktop.ini")), nullptr};
-    mr::LanguageManager language{&settings};
-    WorkspaceBackend backend;
-    std::unique_ptr<mr::AppController> app;
-    mr::Formatters formatters;
-    mr::JobCatalog jobs;
-    mr::RoleCatalog roles;
-    mr::RunFormValidator validator;
-    QString errors;
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-
-    bool create()
-    {
-        if (!directory.isValid()) return false;
-        backend.setDataDirectory(QDir(directory.path()).filePath(QStringLiteral("data")));
-        backend.setLiveMode(mr::MockBackend::LiveMode::None);
-        backend.setRecordingFixture(QStringLiteral("listening"));
-        backend.resetRuns({});
-        settings.setPromptPresentation(QStringLiteral("window"));
-        language.initialize(QStringLiteral("zh-CN"));
-        language.attachEngine(&engine);
-        app = std::make_unique<mr::AppController>(&backend, &settings);
-        auto *context = engine.rootContext();
-        context->setContextProperty(QStringLiteral("App"), app.get());
-        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        context->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
-        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        context->setContextProperty(QStringLiteral("Roles"), &roles);
-        context->setContextProperty(QStringLiteral("RunForm"), &validator);
-        context->setContextProperty(QStringLiteral("Settings"), &settings);
-        context->setContextProperty(QStringLiteral("Lang"), &language);
-        context->setContextProperty(QStringLiteral("SuppressOnboarding"), true);
-        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        context->setContextProperty(QStringLiteral("ForceUiStyle"), QStringLiteral("classic"));
-        QObject::connect(&engine, &QQmlEngine::warnings, &engine, [this](const QList<QQmlError> &warnings) {
-            for (const auto &warning : warnings) errors += warning.toString() + QLatin1Char('\n');
-        });
-        QQmlComponent component(&engine, QUrl::fromLocalFile(
-            QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/Main.qml")));
-        root.reset(component.create());
-        for (const auto &error : component.errors()) errors += error.toString() + QLatin1Char('\n');
-        if (!root || !QTest::qWaitForWindowExposed(window())) return false;
-        const QString expectedDatabase = QDir::cleanPath(QDir(directory.path())
-            .filePath(QStringLiteral("data/mentor_recorder.db")));
-        return QTest::qWaitFor([&] {
-            const QString actualDatabase = QDir::cleanPath(QDir::fromNativeSeparators(
-                app->collectorStatus().value(QStringLiteral("database_path")).toString()));
-            return backend.commands.contains(QStringLiteral("GetStatus"))
-                && app->recovery()->identityVerified() && !app->recovery()->busy()
-                && actualDatabase == expectedDatabase;
-        });
-    }
-
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    QObject *manual() const { return root->findChild<QObject *>(QStringLiteral("editRunDialog")); }
-    QObject *reflection() const { return root->findChild<QObject *>(QStringLiteral("reflectionDialog")); }
-    QQuickWindow *reminder() const { return root->findChild<QQuickWindow *>(QStringLiteral("recoveryReminderWindow")); }
-    QQuickItem *workspace() const { return root->findChild<QQuickItem *>(QStringLiteral("recordWorkspacePage")); }
-
-    bool inlineSession(QObject *editor) const
-    {
-        return editor->property("inlineActive").toBool() && !editor->property("visible").toBool()
-            && app->currentPage() == 8 && window()->isVisible() && workspace()->isVisible()
-            && !reminder()->isVisible();
-    }
-
-    bool click(QQuickItem *button) const
-    {
-        if (!button || !button->isVisible() || !button->isEnabled()) return false;
-        const QPoint center = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
-        if (!QRect(QPoint(), window()->size()).contains(center)) return false;
-        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, center);
-        return true;
-    }
-
-    bool clickNewRecord() const
-    {
-        QQuickItem *button = nullptr;
-        const auto find = [&](auto &&self, QQuickItem *parent) -> QQuickItem * {
-            if (!parent->isVisible()) return nullptr;
-            if (parent->property("text").toString() == QStringLiteral("新增记录")
-                && parent->metaObject()->indexOfSignal("clicked()") >= 0)
-                return parent;
-            for (auto *child : parent->childItems())
-                if (auto *found = self(self, child)) return found;
-            return nullptr;
-        };
-        if (!QTest::qWaitFor([&] {
-                button = find(find, window()->contentItem());
-                return button && button->isEnabled() && button->width() > 0 && button->height() > 0;
-            })) return false;
-        return click(button);
-    }
-
-    void publish(const QVariantMap &run)
-    {
-        backend.resetRuns({QJsonObject::fromVariantMap(run)});
-        Q_EMIT backend.liveEvent({{"event_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
-            {"event_type", QStringLiteral("RunFinished")}, {"kind", QStringLiteral("run_finished")},
-            {"emitted_at_utc", QDateTime::currentDateTimeUtc().addSecs(1).toString(Qt::ISODateWithMs)},
-            {"state", run.value(QStringLiteral("state"))}, {"run", run}});
-    }
-};
 
 class FeedbackUrlReceiver final : public QObject
 {
@@ -201,6 +60,7 @@ class RecordWorkspaceTests final : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
+        QVERIFY(QDir().mkpath(evidenceDirectory()));
         QVERIFY(mrtest::registerShippingQml());
     }
 
@@ -214,10 +74,10 @@ private Q_SLOTS:
     void overviewAndHistoryCreateInsideTheWorkspace()
     {
         QFETCH(int, sourcePage);
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         scene.app->navigate(sourcePage);
-        QVERIFY(scene.clickNewRecord());
+        QVERIFY(clickNewRecord(scene));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         auto *body = scene.workspace()->findChild<QQuickItem *>(QStringLiteral("manualRecordPageContent"));
         QVERIFY(body && body->isVisible());
@@ -254,28 +114,27 @@ private Q_SLOTS:
             QDesktopServices::unsetUrlHandler(QStringLiteral("mailto"));
         });
 
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
-        QVERIFY(scene.clickNewRecord());
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        QVERIFY(clickNewRecord(scene));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         const QString draft = QStringLiteral("填写到一半的心得");
         QVERIFY(scene.manual()->setProperty("reflectionText", draft));
         QVERIFY(externalApp.urls.isEmpty());
 
-        const auto item = [&scene](const QString &name) { return scene.root->findChild<QQuickItem *>(name); };
-        QVERIFY(scene.click(item(QStringLiteral("feedbackEntry"))));
+        QVERIFY(scene.click(QStringLiteral("feedbackEntry")));
         const auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("feedbackDialog"));
         QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
         QVERIFY(externalApp.urls.isEmpty());
 
         if (expectedUrl.scheme() == QStringLiteral("mailto")) {
-            QVERIFY(scene.click(item(QStringLiteral("feedbackCopyEmailButton"))));
+            QVERIFY(scene.click(QStringLiteral("feedbackCopyEmailButton")));
             QCOMPARE(QApplication::clipboard()->text(), expectedUrl.path());
             QVERIFY(externalApp.urls.isEmpty());
         }
 
-        QVERIFY(scene.click(item(actionName)));
+        QVERIFY(scene.click(actionName));
         QCOMPARE(externalApp.urls, QList<QUrl>{expectedUrl});
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QVERIFY(scene.inlineSession(scene.manual()));
@@ -285,8 +144,8 @@ private Q_SLOTS:
 
     void refusedNoteAfterCreationStaysOnThePageAndRetriesTheSameRun()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.manual()->setProperty("matchedTime", QStringLiteral("12:00:00"));
@@ -295,7 +154,7 @@ private Q_SLOTS:
         scene.manual()->setProperty("reflectionMood", QStringLiteral("ok"));
         const QString note = QStringLiteral("这次补录的记录已经保存，心得失败后继续重试。");
         scene.manual()->setProperty("reflectionText", note);
-        scene.backend.refuseNextNote = true;
+        scene.backend.refuseNextReflection = true;
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "submit"));
         QTRY_VERIFY(scene.manual()->property("recordSaved").toBool());
         QTRY_VERIFY(!scene.manual()->property("reflectionSubmitting").toBool());
@@ -317,56 +176,56 @@ private Q_SLOTS:
 
     void escapeOnAnotherPageDoesNotCloseTheHiddenReflectionSession()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         const auto run = finishedRun(true);
         scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
         scene.app->recovery()->offer(run, QStringLiteral("reflection"));
         scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-        QTRY_VERIFY(scene.inlineSession(scene.reflection()));
-        auto *note = scene.reflection()->property("noteEditor").value<QObject *>();
+        QTRY_VERIFY(scene.inlineSession(scene.editor()));
+        auto *note = scene.editor()->property("noteEditor").value<QObject *>();
         QVERIFY(note);
         const QString text = QStringLiteral("切换页面后仍保留的心得草稿");
         note->setProperty("text", text);
         scene.app->navigate(1);
         QTRY_VERIFY(!scene.workspace()->isVisible());
-        QTRY_VERIFY(!scene.reflection()->property("editorOnScreen").toBool());
-        scene.window()->requestActivate();
-        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
-        QTest::keyClick(scene.window(), Qt::Key_Escape);
+        QTRY_VERIFY(!scene.editor()->property("editorOnScreen").toBool());
+        scene.mainWindow()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
+        QTest::keyClick(scene.mainWindow(), Qt::Key_Escape);
         QTest::qWait(100);
         QCOMPARE(scene.app->currentPage(), 1);
-        QVERIFY(scene.reflection()->property("inlineActive").toBool());
-        QVERIFY(!scene.reflection()->property("visible").toBool());
+        QVERIFY(scene.editor()->property("inlineActive").toBool());
+        QVERIFY(!scene.editor()->property("visible").toBool());
         QCOMPARE(note->property("text").toString(), text);
         QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
         scene.app->navigate(8);
-        QTRY_VERIFY(scene.inlineSession(scene.reflection()));
+        QTRY_VERIFY(scene.inlineSession(scene.editor()));
         QCOMPARE(note->property("text").toString(), text);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 
     void closingManualEntryReoffersTheAutomaticPromptItBlocked()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         // Only a form in the active window is on show (audit 2026-11-20 K1-1).
-        scene.window()->requestActivate();
-        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
+        scene.mainWindow()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
         QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
         scene.publish(finishedRun(false));
         QTRY_COMPARE(offers.count(), 1);
         QTRY_COMPARE(scene.app->recovery()->count(), 1);
-        QVERIFY(!scene.reflection()->property("editingActive").toBool());
-        QVERIFY(!scene.reminder()->isVisible());
+        QVERIFY(!scene.editor()->property("editingActive").toBool());
+        QVERIFY(!scene.host()->isVisible());
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
-        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
-        QVERIFY(scene.reflection()->property("standalone").toBool());
-        QVERIFY(scene.reflection()->property("automaticOpen").toBool());
-        QVERIFY(!scene.reflection()->property("inlineActive").toBool());
-        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+        QVERIFY(scene.editor()->property("standalone").toBool());
+        QVERIFY(scene.editor()->property("automaticOpen").toBool());
+        QVERIFY(!scene.editor()->property("inlineActive").toBool());
+        QVERIFY(scene.editor()->property("askingResult").toBool());
         QCOMPARE(scene.app->currentPage(), 0);
         QCOMPARE(scene.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -376,22 +235,22 @@ private Q_SLOTS:
     // popup after a duty opens all the same and the draft stays where it was.
     void aManualEntryLeftOnAnotherPageDoesNotHoldTheAutomaticPromptBack()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.app->navigate(1);
         QTRY_COMPARE(scene.app->currentPage(), 1);
         scene.publish(finishedRun(false));
-        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
-        QVERIFY(scene.reflection()->property("standalone").toBool());
-        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+        QVERIFY(scene.editor()->property("standalone").toBool());
+        QVERIFY(scene.editor()->property("askingResult").toBool());
         QVERIFY(scene.manual()->property("inlineActive").toBool());
         QCOMPARE(scene.app->currentPage(), 1);
         // Finishing the parked form does not answer the popup that is still open.
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
         QTRY_VERIFY(!scene.manual()->property("inlineActive").toBool());
-        QVERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 
@@ -399,23 +258,23 @@ private Q_SLOTS:
     // again as soon as the form is parked, not only once it is finished.
     void aPopupHeldByTheFormOpensOnceTheFormIsParked()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
-        scene.window()->requestActivate();
-        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
+        scene.mainWindow()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
         QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
         scene.publish(finishedRun(false));
         QTRY_COMPARE(offers.count(), 1);
         QTRY_COMPARE(scene.app->recovery()->count(), 1);
         QTest::qWait(100);
-        QVERIFY(!scene.reminder()->isVisible());
-        QVERIFY(!scene.reflection()->property("editingActive").toBool());
+        QVERIFY(!scene.host()->isVisible());
+        QVERIFY(!scene.editor()->property("editingActive").toBool());
         scene.app->navigate(1);
-        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
-        QVERIFY(scene.reflection()->property("standalone").toBool());
-        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+        QVERIFY(scene.editor()->property("standalone").toBool());
+        QVERIFY(scene.editor()->property("askingResult").toBool());
         QVERIFY(scene.manual()->property("inlineActive").toBool());
         QCOMPARE(scene.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -426,25 +285,25 @@ private Q_SLOTS:
     // popup stays held back.
     void aFileChooserOpenedFromTheFormKeepsThePopupHeld()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
-        scene.window()->requestActivate();
-        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
+        scene.mainWindow()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
         QWindow chooser;
         chooser.resize(320, 240);
         chooser.show();
         chooser.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&chooser));
-        QTRY_VERIFY(!scene.window()->isActive());
+        QTRY_VERIFY(!scene.mainWindow()->isActive());
         QCOMPARE(QGuiApplication::applicationState(), Qt::ApplicationActive);
         QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
         scene.publish(finishedRun(false));
         QTRY_COMPARE(offers.count(), 1);
         QTest::qWait(100);
-        QVERIFY(!scene.reminder()->isVisible());
-        QVERIFY(!scene.reflection()->property("editingActive").toBool());
+        QVERIFY(!scene.host()->isVisible());
+        QVERIFY(!scene.editor()->property("editingActive").toBool());
         QVERIFY(scene.root->property("popupHeldByManualForm").toBool());
         QVERIFY(scene.manual()->property("inlineActive").toBool());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -454,8 +313,8 @@ private Q_SLOTS:
     // so the form on its page does not hold the popup back.
     void aFormInAnInactiveWindowDoesNotHoldThePopupBack()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         // The game is another process: this application as a whole stops being active. A window
@@ -467,10 +326,10 @@ private Q_SLOTS:
                 Qt::ApplicationActive);
         });
         QCOMPARE(QGuiApplication::applicationState(), Qt::ApplicationInactive);
-        QVERIFY(scene.window()->isVisible());
+        QVERIFY(scene.mainWindow()->isVisible());
         scene.publish(finishedRun(false));
-        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
-        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+        QVERIFY(scene.editor()->property("askingResult").toBool());
         QVERIFY(scene.manual()->property("inlineActive").toBool());
         QCOMPARE(scene.app->currentPage(), 8);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -480,8 +339,8 @@ private Q_SLOTS:
     // being written on the record page; they open once it is closed.
     void releaseNotesWaitForTheInlineEditor()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         auto *notes = scene.root->findChild<QObject *>(QStringLiteral("releaseNotesDialog"));
@@ -500,22 +359,22 @@ private Q_SLOTS:
     // forward; the popup window the editor was last parented to stays hidden.
     void inboxDuringACorrectionDialogDoesNotShowTheEmptyPopupWindow()
     {
-        WorkspaceScene scene;
-        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        ShippingWindowScene scene;
+        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
         const auto run = finishedRun(true);
         scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
         // The last answered popup leaves the editor parented to the popup window.
-        QVERIFY(scene.reflection()->setProperty(
-            "parent", QVariant::fromValue<QQuickItem *>(scene.reminder()->contentItem())));
+        QVERIFY(scene.editor()->setProperty(
+            "parent", QVariant::fromValue<QQuickItem *>(scene.host()->contentItem())));
         QVERIFY(scene.manual()->setProperty("inlinePresentation", false));
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "openForRun", Q_ARG(QVariant, QVariant(run))));
         QTRY_VERIFY(scene.manual()->property("visible").toBool());
         QVERIFY(scene.root->property("recordEditorOccupied").toBool());
         scene.app->recovery()->requestInbox();
         QTest::qWait(100);
-        QVERIFY(!scene.reminder()->isVisible());
-        QVERIFY(scene.window()->isVisible());
-        QTRY_VERIFY(scene.window()->isActive());
+        QVERIFY(!scene.host()->isVisible());
+        QVERIFY(scene.mainWindow()->isVisible());
+        QTRY_VERIFY(scene.mainWindow()->isActive());
         QVERIFY(scene.manual()->property("visible").toBool());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }

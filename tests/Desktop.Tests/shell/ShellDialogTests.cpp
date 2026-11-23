@@ -37,9 +37,9 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 #include <QUuid>
@@ -156,9 +156,11 @@ QVariantMap selectedRun(const QString &id)
             {QStringLiteral("pending_review"), true}};
 }
 
-/// The shipping window, onboarding suppressed, on a scripted backend.
+/// The shipping window, onboarding suppressed, on a scripted backend, with a desktop.ini of
+/// its own that starts as a new user's.
 struct Shell {
-    mr::AppSettings settings;
+    QTemporaryDir directory;
+    mr::AppSettings settings{directory.filePath(QStringLiteral("desktop.ini")), nullptr};
     ShellBackend backend;
     std::unique_ptr<mr::AppController> controller;
     mr::Formatters formatters;
@@ -217,6 +219,13 @@ struct Shell {
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QObject *named(const QString &name) const { return root->findChild<QObject *>(name); }
+    /// 设置, at its tab \a id ("goal", "about", ...).
+    bool openSettingsTab(const QString &id) const
+    {
+        controller->navigate(5);
+        QQuickItem *tab = item(QStringLiteral("settingsTab_") + id);
+        return tab && QMetaObject::invokeMethod(tab, "clicked");
+    }
     /// Popups and Repeater delegates live in the visual tree only; the popups'
     /// overlay is a child of the window's root item.
     QQuickItem *item(const QString &name) const
@@ -274,6 +283,47 @@ struct Shell {
         collectVisibleText(window()->contentItem(), texts);
         return texts;
     }
+};
+
+/// The release notes dialog of a created \a shell listing \a entries (a stand-in for
+/// presentation.json) while it acknowledges through \a notes. The dialog gets \a notes back
+/// when this goes, before the stand-in does.
+struct NotesPresentation {
+    std::unique_ptr<QObject> proxy;
+    QPointer<QObject> dialog;
+    mr::ReleaseNotesController *notes = nullptr;
+    /// Empty when the dialog shows the stand-in.
+    QString error;
+
+    NotesPresentation(const Shell &shell, mr::ReleaseNotesController &source, const QVariantList &entries)
+        : dialog(shell.named(QStringLiteral("releaseNotesDialog"))), notes(&source)
+    {
+        QQmlComponent presentation(shell.engine.get());
+        presentation.setData(R"(import QtQml
+            QtObject {
+                required property var source
+                required property var entries
+                readonly property string version: source.version
+                readonly property bool prerelease: source.prerelease
+                readonly property var counts: source.counts
+                function acknowledge() { source.acknowledge() }
+            })", QUrl());
+        proxy.reset(presentation.createWithInitialProperties({
+            {QStringLiteral("source"), QVariant::fromValue(&source)},
+            {QStringLiteral("entries"), entries}}));
+        if (!proxy)
+            error = presentation.errorString();
+        else if (!dialog)
+            error = QStringLiteral("The shell has no release notes dialog.");
+        else if (!dialog->setProperty("notesController", QVariant::fromValue(proxy.get())))
+            error = QStringLiteral("The release notes dialog took no notesController.");
+    }
+    ~NotesPresentation()
+    {
+        if (dialog)
+            dialog->setProperty("notesController", QVariant::fromValue(notes));
+    }
+    Q_DISABLE_COPY_MOVE(NotesPresentation)
 };
 
 /// One refusal, as the place that explains it receives it.
@@ -371,13 +421,9 @@ void refuseBaselineChanges(Shell &shell, QHash<QString, QString> &shown)
     QTRY_VERIFY(!guide->property("visible").toBool());
 
     // 设置 · 成就: refused by its own check (no reason), then by the Collector.
-    shell.controller->navigate(5);
-    auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
-    QVERIFY(goalTab);
-    QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
-    QQuickItem *line = nullptr;
+    QVERIFY(shell.openSettingsTab(QStringLiteral("goal")));
     QTRY_VERIFY(shell.item(QStringLiteral("baselineErrorText")));
-    line = shell.item(QStringLiteral("baselineErrorText"));
+    QQuickItem *line = shell.item(QStringLiteral("baselineErrorText"));
     QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
     QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 1);
     shown.insert(QStringLiteral("cardCheck"), line->property("text").toString());
@@ -477,14 +523,6 @@ private Q_SLOTS:
     void releaseNotesWaitForOnboardingAndAcknowledgeOnEscape()
     {
         Shell shell;
-        const bool oldFirstRun = shell.settings.firstRunCompleted();
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const auto restore = qScopeGuard([&] {
-            shell.settings.setFirstRunCompleted(oldFirstRun);
-            shell.settings.setReleaseNotesSeenVersion(oldSeen);
-        });
-        shell.settings.setFirstRunCompleted(false);
-        shell.settings.setReleaseNotesSeenVersion(QString());
         mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\n- Offline notes");
         shell.releaseNotes = &notes;
         shell.firstStart = true;
@@ -511,9 +549,6 @@ private Q_SLOTS:
     void releaseNotesWaitForOtherModalAndVisibleWindow()
     {
         Shell shell;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
-        shell.settings.setReleaseNotesSeenVersion(QString());
         mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\n- Offline notes");
         shell.releaseNotes = &notes;
         QVERIFY2(shell.create(), qPrintable(shell.errors));
@@ -556,13 +591,6 @@ private Q_SLOTS:
         QFETCH(QString, style);
         QFETCH(QString, theme);
         Shell shell;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const QString oldStyle = shell.settings.uiStyle();
-        const auto restore = qScopeGuard([&] {
-            shell.settings.setReleaseNotesSeenVersion(oldSeen);
-            shell.settings.setUiStyle(oldStyle);
-        });
-        shell.settings.setReleaseNotesSeenVersion(QString());
         shell.settings.setUiStyle(style);
         const QString longNotes = QStringLiteral("## [1.7.2]\n### 改进\n")
             + QString::fromUtf8("- 更新内容支持离线阅读，较长的说明自动换行，关闭按钮始终可见。\n").repeated(65);
@@ -638,13 +666,6 @@ private Q_SLOTS:
         QFETCH(QString, style);
         QFETCH(QString, theme);
         Shell shell;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const QString oldStyle = shell.settings.uiStyle();
-        const auto restore = qScopeGuard([&] {
-            shell.settings.setReleaseNotesSeenVersion(oldSeen);
-            shell.settings.setUiStyle(oldStyle);
-        });
-        shell.settings.setReleaseNotesSeenVersion(QString());
         shell.settings.setUiStyle(style);
         const QString version = QStringLiteral("9.0.0-beta.1");
         const QString changelog = QStringLiteral("## [9.0.0-beta.1]\n### 改进\n- 固定的排版示例。\n### 修复\n- 第二条排版示例。\n");
@@ -661,26 +682,9 @@ private Q_SLOTS:
             entry.insert(QStringLiteral("tag"), i == 0 ? QStringLiteral("改进") : QStringLiteral("修复"));
             entries[i] = entry;
         }
-        QQmlComponent presentation(shell.engine.get());
-        presentation.setData(R"(import QtQml
-            QtObject {
-                required property var source
-                required property var entries
-                readonly property string version: source.version
-                readonly property bool prerelease: source.prerelease
-                readonly property var counts: source.counts
-                function acknowledge() { source.acknowledge() }
-            })", QUrl());
-        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
-            {QStringLiteral("source"), QVariant::fromValue(&notes)},
-            {QStringLiteral("entries"), entries}}));
-        QVERIFY2(fixture, qPrintable(presentation.errorString()));
-        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
-        QVERIFY(dialog);
-        const auto restoreController = qScopeGuard([&] {
-            dialog->setProperty("notesController", QVariant::fromValue(&notes));
-        });
-        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
+        const NotesPresentation presented(shell, notes, entries);
+        QVERIFY2(presented.error.isEmpty(), qPrintable(presented.error));
+        QObject *dialog = presented.dialog;
         QTRY_VERIFY(dialog->property("opened").toBool());
 
         const auto baseline = [](QQuickItem *item) {
@@ -723,9 +727,6 @@ private Q_SLOTS:
     void releaseNotesListOnlyShownEntriesAndCompactCuratedFixes()
     {
         Shell shell;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
-        shell.settings.setReleaseNotesSeenVersion(QString());
         const QString version = QStringLiteral("9.0.0-beta.1");
         const QString changelog = QStringLiteral(
             "## [9.0.0-beta.1]\n### 新增\n- **新功能。**说明。\n### 修复\n- **修复一。**说明。\n"
@@ -745,26 +746,9 @@ private Q_SLOTS:
             entry.insert(QStringLiteral("hidden"), i == 3);
             entries[i] = entry;
         }
-        QQmlComponent presentation(shell.engine.get());
-        presentation.setData(R"(import QtQml
-            QtObject {
-                required property var source
-                required property var entries
-                readonly property string version: source.version
-                readonly property bool prerelease: source.prerelease
-                readonly property var counts: source.counts
-                function acknowledge() { source.acknowledge() }
-            })", QUrl());
-        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
-            {QStringLiteral("source"), QVariant::fromValue(&notes)},
-            {QStringLiteral("entries"), entries}}));
-        QVERIFY2(fixture, qPrintable(presentation.errorString()));
-        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
-        QVERIFY(dialog);
-        const auto restoreController = qScopeGuard([&] {
-            dialog->setProperty("notesController", QVariant::fromValue(&notes));
-        });
-        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
+        const NotesPresentation presented(shell, notes, entries);
+        QVERIFY2(presented.error.isEmpty(), qPrintable(presented.error));
+        QObject *dialog = presented.dialog;
         QTRY_VERIFY(dialog->property("opened").toBool());
 
         QVERIFY(shell.item(QStringLiteral("releaseNotesTitle_0")));
@@ -794,8 +778,6 @@ private Q_SLOTS:
     {
         Shell shell;
         shell.enableLanguage = true;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
         const QString version = QStringLiteral("9.0.0-beta.1");
         const QString changelog = QStringLiteral("## [9.0.0-beta.1]\n### 新增\n- 界面语言设置。\n### 修复\n- ")
             + QStringLiteral("用于检查展开详情、滚动与重新打开的完整说明。").repeated(40);
@@ -813,26 +795,9 @@ private Q_SLOTS:
         languageEntry.insert(QStringLiteral("highlight"), true);
         languageEntry.insert(QStringLiteral("action"), QStringLiteral("language-settings"));
         entries[0] = languageEntry;
-        QQmlComponent presentation(shell.engine.get());
-        presentation.setData(R"(import QtQml
-            QtObject {
-                required property var source
-                required property var entries
-                readonly property string version: source.version
-                readonly property bool prerelease: source.prerelease
-                readonly property var counts: source.counts
-                function acknowledge() { source.acknowledge() }
-            })", QUrl());
-        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
-            {QStringLiteral("source"), QVariant::fromValue(&notes)},
-            {QStringLiteral("entries"), entries}}));
-        QVERIFY2(fixture, qPrintable(presentation.errorString()));
-        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
-        QVERIFY(dialog);
-        const auto restoreController = qScopeGuard([&] {
-            dialog->setProperty("notesController", QVariant::fromValue(&notes));
-        });
-        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
+        const NotesPresentation presented(shell, notes, entries);
+        QVERIFY2(presented.error.isEmpty(), qPrintable(presented.error));
+        QObject *dialog = presented.dialog;
         shell.controller->navigate(5);
         QVERIFY(shell.click(QStringLiteral("settingsTab_about")));
         QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
@@ -898,9 +863,6 @@ private Q_SLOTS:
     void releaseNotesSuppressedInHarness()
     {
         Shell shell;
-        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
-        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
-        shell.settings.setReleaseNotesSeenVersion(QString());
         mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\nOffline");
         shell.releaseNotes = &notes;
         shell.suppressReleaseNotes = true;
@@ -1064,13 +1026,9 @@ private Q_SLOTS:
         QTRY_COMPARE(shell.controller->goalCount(), 1000);
 
         // Reopened from settings: it shows the goal in force and can be left unchanged.
-        shell.controller->navigate(5);
-        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
-        QVERIFY(goalTab);
-        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
-        QQuickItem *reopen = nullptr;
+        QVERIFY(shell.openSettingsTab(QStringLiteral("goal")));
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
-        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
+        QQuickItem *reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QCOMPARE(dialog->property("goalText").toString(), QStringLiteral("1000"));
@@ -1098,13 +1056,9 @@ private Q_SLOTS:
         Shell shell;
         shell.backend.holdTypes << QStringLiteral("GetDashboardStats");
         QVERIFY2(shell.create(), qPrintable(shell.errors));
-        shell.controller->navigate(5);
-        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
-        QVERIFY(goalTab);
-        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
-        QQuickItem *save = nullptr;
+        QVERIFY(shell.openSettingsTab(QStringLiteral("goal")));
         QTRY_VERIFY(shell.item(QStringLiteral("saveAchievementButton")) && shell.item(QStringLiteral("saveAchievementButton"))->isVisible());
-        save = shell.item(QStringLiteral("saveAchievementButton"));
+        QQuickItem *save = shell.item(QStringLiteral("saveAchievementButton"));
         auto *goal = shell.item(QStringLiteral("goalField"));
         auto *baseline = shell.item(QStringLiteral("baselineField"));
         auto *reason = shell.item(QStringLiteral("baselineReasonField"));
@@ -1130,9 +1084,8 @@ private Q_SLOTS:
         // The guide reopened from settings waits as well; 从 0 开始 is a save too.
         auto *dialog = shell.named(QStringLiteral("baselineDialog"));
         QVERIFY(dialog);
-        QQuickItem *reopen = nullptr;
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
-        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
+        QQuickItem *reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QVERIFY(!shell.click(QStringLiteral("baselineSaveButton")));
@@ -1196,13 +1149,9 @@ private Q_SLOTS:
         shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), recorded);
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
-        shell.controller->navigate(5);
-        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
-        QVERIFY(goalTab);
-        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
-        QQuickItem *figures = nullptr;
+        QVERIFY(shell.openSettingsTab(QStringLiteral("goal")));
         QTRY_VERIFY(shell.item(QStringLiteral("progressFormulaFigures")) && shell.item(QStringLiteral("progressFormulaFigures"))->isVisible());
-        figures = shell.item(QStringLiteral("progressFormulaFigures"));
+        QQuickItem *figures = shell.item(QStringLiteral("progressFormulaFigures"));
         QTRY_COMPARE(figures->property("text").toString(), QStringLiteral("227 + 20 = 247"));
         auto *baseline = shell.item(QStringLiteral("baselineField"));
         auto *reason = shell.item(QStringLiteral("baselineReasonField"));
@@ -1517,20 +1466,15 @@ private Q_SLOTS:
         shell.backend.holdTypes << QStringLiteral("UpdateAchievementBaseline");
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
-        shell.controller->navigate(5);
-        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
-        QVERIFY(goalTab);
-        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
-        QQuickItem *line = nullptr;
+        QVERIFY(shell.openSettingsTab(QStringLiteral("goal")));
         QTRY_VERIFY(shell.item(QStringLiteral("baselineErrorText")));
-        line = shell.item(QStringLiteral("baselineErrorText"));
+        QQuickItem *line = shell.item(QStringLiteral("baselineErrorText"));
         auto *dialog = shell.named(QStringLiteral("baselineDialog"));
         QVERIFY(dialog);
 
         // The guide, reopened from the card, saves and is refused: its own refusal.
-        QQuickItem *reopen = nullptr;
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
-        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
+        QQuickItem *reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
@@ -1917,8 +1861,6 @@ private Q_SLOTS:
     void theJobDonutRepaintsWhenTheStyleChanges()
     {
         Shell shell;
-        const QString before = shell.settings.uiStyle();
-        const auto restore = qScopeGuard([&] { shell.settings.setUiStyle(before); });
         shell.settings.setUiStyle(QStringLiteral("classic"));
         shell.backend.answers.insert(QStringLiteral("GetJobStats"), QJsonObject{
             {QStringLiteral("items"), QJsonArray{QJsonObject{
@@ -1957,9 +1899,8 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
         QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
         QCOMPARE(shell.controller->currentPage(), 0);
-        QQuickItem *edit = nullptr;
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("修改")));
-        edit = shell.itemWithText(QString::fromUtf8("修改"));
+        QQuickItem *edit = shell.itemWithText(QString::fromUtf8("修改"));
         const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
         QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
 
@@ -1998,9 +1939,8 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
         shell.controller->setRecordRegion(scope);
         QVERIFY(!shell.controller->achievementSettingsLoaded());
-        QQuickItem *edit = nullptr;
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("修改")));
-        edit = shell.itemWithText(QString::fromUtf8("修改"));
+        QQuickItem *edit = shell.itemWithText(QString::fromUtf8("修改"));
         const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
         QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
         QTRY_VERIFY(shell.item(QStringLiteral("settingsTab_goal"))->property("current").toBool());
@@ -2027,10 +1967,8 @@ private Q_SLOTS:
     {
         Shell shell;
         shell.firstStart = true;
-        shell.settings.setFirstRunCompleted(false);
         // What a settings file that never confirmed the explanation holds.
         shell.settings.setValue(QStringLiteral("ui/disclosure_acknowledged_version"), 0);
-        const auto restore = qScopeGuard([&shell] { shell.settings.setFirstRunCompleted(true); });
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QObject *guide = shell.named(QStringLiteral("baselineDialog"));
         QObject *explanation = shell.named(QStringLiteral("disclosureDialog"));
@@ -2050,10 +1988,7 @@ private Q_SLOTS:
     {
         Shell shell;
         QVERIFY2(shell.create(), qPrintable(shell.errors));
-        shell.controller->navigate(5);
-        auto *tab = shell.item(QStringLiteral("settingsTab_about"));
-        QVERIFY(tab);
-        QVERIFY(QMetaObject::invokeMethod(tab, "clicked"));
+        QVERIFY(shell.openSettingsTab(QStringLiteral("about")));
         QTRY_VERIFY(shell.item(QStringLiteral("aboutExplanationButton"))
                     && shell.item(QStringLiteral("aboutExplanationButton"))->isVisible());
         const QString about = shell.visibleTexts().join(QLatin1Char('\n'));
@@ -2108,10 +2043,7 @@ private Q_SLOTS:
                                                  {QStringLiteral("reads_game_executable"), true}});
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QTRY_COMPARE(shell.controller->oodleMode(), QStringLiteral("FfxivTcp"));
-        shell.controller->navigate(5);
-        auto *tab = shell.item(QStringLiteral("settingsTab_about"));
-        QVERIFY(tab);
-        QVERIFY(QMetaObject::invokeMethod(tab, "clicked"));
+        QVERIFY(shell.openSettingsTab(QStringLiteral("about")));
         QTRY_VERIFY(shell.item(QStringLiteral("readsGameExecutableTile"))
                     && shell.item(QStringLiteral("readsGameExecutableTile"))->isVisible());
         const QString page = shell.visibleTexts().join(QLatin1Char('\n'));

@@ -1,34 +1,21 @@
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
+#include "ShippingWindowFixture.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
-#include "AppSettings.h"
 #include "BundledFonts.h"
-#include "Formatters.h"
-#include "GameNames.h"
-#include "JobCatalog.h"
-#include "LanguageManager.h"
-#include "MockBackend.h"
 #include "RecoveryController.h"
-#include "RoleCatalog.h"
-#include "RunFormValidator.h"
 #include "StatisticsOverlayController.h"
 
 #include <QApplication>
-#include <QClipboard>
-#include <QDateTime>
 #include <bit>
 
 #include <QDir>
-#include <QEvent>
 #include <QFileInfo>
 #include <QFont>
 #include <QImage>
 #include <QJsonArray>
 #include <QLockFile>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -37,247 +24,9 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
-#include <QTimer>
-#include <QUuid>
-#include <memory>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #endif
-
-namespace {
-QString evidenceDirectory()
-{
-    return QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/artifacts/recoverable-prompts-20261020");
-}
-
-QVariantMap finishedRun(bool completed = false, int sequence = 1)
-{
-    const QString now = QDateTime::currentDateTimeUtc().addSecs(1).toString(Qt::ISODateWithMs);
-    const QString earlier = QDateTime::currentDateTimeUtc().addSecs(-1200).toString(Qt::ISODateWithMs);
-    const QString state = completed ? QStringLiteral("COMPLETED") : QStringLiteral("UNKNOWN_FINAL_STATE");
-    const QString result = completed ? QStringLiteral("COMPLETED") : QStringLiteral("UNKNOWN");
-    return {{QStringLiteral("run_id"), QStringLiteral("4e9bb2ac-2222-4333-8444-%1").arg(sequence, 12, 10, QLatin1Char('0'))},
-            {QStringLiteral("revision"), 1}, {QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")},
-            {QStringLiteral("state"), state}, {QStringLiteral("result"), result},
-            {QStringLiteral("mentor_roulette_id"), 9},
-            {QStringLiteral("mentor_confirmed"), true}, {QStringLiteral("is_mentor"), true},
-            {QStringLiteral("duty_name"), QStringLiteral("测试副本：森林中的重逢")},
-            {QStringLiteral("duty_category"), QStringLiteral("迷宫挑战")},
-            {QStringLiteral("job_id"), 24}, {QStringLiteral("job_name"), QStringLiteral("白魔法师")},
-            {QStringLiteral("created_at_utc"), earlier}, {QStringLiteral("matched_at_utc"), earlier},
-            {QStringLiteral("entered_at_utc"), earlier}, {QStringLiteral("ended_at_utc"), now},
-            {QStringLiteral("duration_ms"), 1200000}, {QStringLiteral("pending_review"), !completed},
-            {QStringLiteral("contributes_to_goal"), true}, {QStringLiteral("soft_deleted"), false}};
-}
-
-struct ObservedBackend : mr::MockBackend {
-    QStringList commands;
-    int freshReads = 0;
-    bool refuseNextReflection = false;
-    bool refuseFreshRead = false;
-    bool refusePendingReads = false;
-    bool connected = true;
-
-    bool isConnected() const override { return connected; }
-
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
-    {
-        commands.append(type);
-        const bool freshRead = type == QLatin1String("QueryRuns")
-            && !payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("run_id")).toArray().isEmpty();
-        if (freshRead) ++freshReads;
-        const bool refuseNote = type == QLatin1String("SetRunReflection") && refuseNextReflection;
-        const bool refusePending = refusePendingReads && type == QLatin1String("QueryRuns")
-            && payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("pending_review")).toBool();
-        if (!refuseNote && !refusePending && !(freshRead && refuseFreshRead))
-            return mr::MockBackend::request(type, payload);
-        refuseNextReflection = false;
-        auto *reply = new mr::BackendReply(QUuid::createUuid().toString(), type, this);
-        QTimer::singleShot(0, reply, [reply] {
-            reply->fail(QStringLiteral("ERR_TEST_READ_OR_SAVE"), QStringLiteral("测试：暂时无法保存或读取，请稍后重试。"));
-        });
-        return reply;
-    }
-};
-
-struct Scene {
-    QTemporaryDir directory{evidenceDirectory() + QStringLiteral("/ui-settings-XXXXXX")};
-    mr::AppSettings settings;
-    mr::LanguageManager language{&settings};
-    ObservedBackend backend;
-    QJsonArray publishedRuns;
-    std::unique_ptr<mr::AppController> app;
-    mr::Formatters formatters;
-    mr::JobCatalog jobs;
-    mr::RoleCatalog roles;
-    mr::RunFormValidator runForm;
-    // The warning callback remains connected throughout QQmlEngine teardown.
-    QString errors;
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-
-    explicit Scene(const QString &sharedDirectory = {})
-        : settings(QDir(sharedDirectory.isEmpty() ? directory.path() : sharedDirectory)
-                       .filePath(QStringLiteral("desktop.ini")), nullptr)
-    {
-        backend.setDataDirectory(QFileInfo(settings.instanceFilePath()).absolutePath() + QStringLiteral("/data"));
-        backend.setLiveMode(mr::MockBackend::LiveMode::None);
-        backend.setRecordingFixture(QStringLiteral("listening"));
-        backend.resetRuns({});
-        settings.setPromptPresentation(QStringLiteral("window"));
-    }
-
-    bool create(bool dark = true)
-    {
-        language.initialize(QStringLiteral("zh-CN"));
-        language.attachEngine(&engine);
-        app = std::make_unique<mr::AppController>(&backend, &settings);
-        app->setThemeMode(dark ? QStringLiteral("dark") : QStringLiteral("light"));
-        auto *context = engine.rootContext();
-        context->setContextProperty(QStringLiteral("App"), app.get());
-        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        context->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
-        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        context->setContextProperty(QStringLiteral("Roles"), &roles);
-        context->setContextProperty(QStringLiteral("RunForm"), &runForm);
-        context->setContextProperty(QStringLiteral("Settings"), &settings);
-        context->setContextProperty(QStringLiteral("Lang"), &language);
-        context->setContextProperty(QStringLiteral("SuppressOnboarding"), true);
-        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        context->setContextProperty(QStringLiteral("ForceUiStyle"), QStringLiteral("harendotes"));
-        QObject::connect(&engine, &QQmlEngine::warnings, &engine, [this](const QList<QQmlError> &warnings) {
-            for (const auto &warning : warnings) errors += warning.toString() + QLatin1Char('\n');
-        });
-        QQmlComponent component(&engine, QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/Main.qml")));
-        root.reset(component.create());
-        for (const auto &error : component.errors()) errors += error.toString() + QLatin1Char('\n');
-        if (!root) return false;
-        // Exercise the real initial connection/GetStatus handshake. Manually
-        // assigning the scope here can race the queued startup connection and
-        // make that later callback close an editor the fixture already opened.
-        if (!QTest::qWaitForWindowExposed(mainWindow())) {
-            errors += QStringLiteral("Main window did not become exposed.\n");
-            return false;
-        }
-        const QString expectedDatabase = QDir::cleanPath(QDir(QFileInfo(settings.instanceFilePath()).absolutePath())
-            .filePath(QStringLiteral("data/mentor_recorder.db")));
-        if (!QTest::qWaitFor([&] {
-                const QString actualDatabase = QDir::cleanPath(QDir::fromNativeSeparators(
-                    app->collectorStatus().value(QStringLiteral("database_path")).toString()));
-                return backend.commands.contains(QStringLiteral("GetStatus"))
-                    && app->recovery()->identityVerified() && !app->recovery()->busy()
-                    && actualDatabase == expectedDatabase;
-            })) {
-            errors += QStringLiteral("Initial GetStatus did not verify the isolated database.\n");
-            return false;
-        }
-        return true;
-    }
-
-    QQuickWindow *mainWindow() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    QQuickWindow *host() const { return root->findChild<QQuickWindow *>(QStringLiteral("recoveryReminderWindow")); }
-    QQuickWindow *floating() const { return root->findChild<QQuickWindow *>(QStringLiteral("statisticsFloatingWindow")); }
-    QObject *editor() const { return root->findChild<QObject *>(QStringLiteral("reflectionDialog")); }
-    QObject *inbox() const { return root->findChild<QObject *>(QStringLiteral("recoveryInbox")); }
-    QObject *note() const { return editor()->property("noteEditor").value<QObject *>(); }
-    QQuickWindow *editingWindow() const { return editor()->property("inlineActive").toBool() ? mainWindow() : host(); }
-    bool workspaceActive() const
-    {
-        return editor()->property("inlineActive").toBool() && !editor()->property("visible").toBool()
-            && mainWindow()->isVisible() && app->currentPage() == 8 && !host()->isVisible();
-    }
-
-    QQuickItem *item(const QString &name) const
-    {
-        const auto find = [&](auto &&self, QQuickItem *parent) -> QQuickItem * {
-            if (parent->objectName() == name && parent->isVisible()) return parent;
-            for (auto *child : parent->childItems())
-                if (auto *match = self(self, child)) return match;
-            return nullptr;
-        };
-        // Overview and inbox deliberately reuse the same row component. When
-        // the modal list is open, mouse input must target its row, not the
-        // identically named preview underneath the popup's input shield.
-        if (inbox() && inbox()->property("visible").toBool()) {
-            auto *popupContent = inbox()->property("contentItem").value<QQuickItem *>();
-            if (popupContent)
-                if (auto *match = find(find, popupContent)) return match;
-        }
-        auto windows = root->findChildren<QQuickWindow *>();
-        windows.prepend(mainWindow());
-        for (auto *window : windows)
-            if (window->isVisible())
-                if (auto *match = find(find, window->contentItem())) return match;
-        return nullptr;
-    }
-
-    bool click(const QString &name) const
-    {
-        QQuickItem *target = nullptr;
-        QPoint point;
-        // A refreshed Repeater can expose a delegate before its parent layouts
-        // have positioned it. Polish the actual visual ancestry before mapping
-        // the mouse location, and keep the click inside this Scene's windows.
-        if (!QTest::qWaitFor([&] {
-                target = item(name);
-                if (!target || !target->isEnabled() || !target->window()) return false;
-                QList<QQuickItem *> ancestors;
-                for (auto *parent = target; parent; parent = parent->parentItem()) ancestors.prepend(parent);
-                for (auto *parent : ancestors) parent->ensurePolished();
-                if (target->width() <= 0 || target->height() <= 0) return false;
-                point = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
-                return QRect(QPoint(), target->window()->size()).contains(point);
-            }, 1500)) return false;
-        QTest::mouseClick(target->window(), Qt::LeftButton, Qt::NoModifier, point);
-        return true;
-    }
-
-    bool enterNote(const QString &text) const
-    {
-        auto *window = editingWindow();
-        window->requestActivate();
-        if (!QTest::qWaitForWindowActive(window)) return false;
-        if (!click(QStringLiteral("reflectionTextArea"))) return false;
-        const QString previous = QApplication::clipboard()->text();
-        QApplication::clipboard()->setText(text);
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
-        QApplication::clipboard()->setText(previous);
-        return note()->property("text").toString() == text;
-    }
-
-    void publish(const QVariantMap &run)
-    {
-        const QString id = run.value(QStringLiteral("run_id")).toString();
-        bool replaced = false;
-        for (qsizetype index = 0; index < publishedRuns.size(); ++index) {
-            if (publishedRuns.at(index).toObject().value(QStringLiteral("run_id")).toString() != id) continue;
-            publishedRuns.replace(index, QJsonObject::fromVariantMap(run));
-            replaced = true;
-            break;
-        }
-        if (!replaced) publishedRuns.append(QJsonObject::fromVariantMap(run));
-        backend.resetRuns(publishedRuns);
-        Q_EMIT backend.liveEvent({{QStringLiteral("event_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
-            {QStringLiteral("event_type"), QStringLiteral("RunFinished")},
-            {QStringLiteral("kind"), QStringLiteral("run_finished")},
-            {QStringLiteral("emitted_at_utc"), QDateTime::currentDateTimeUtc().addSecs(1).toString(Qt::ISODateWithMs)},
-            {QStringLiteral("state"), run.value(QStringLiteral("state"))}, {QStringLiteral("run"), run}});
-    }
-
-    QStringList hostTexts() const
-    {
-        QStringList result;
-        const auto collect = [&](auto &&self, QQuickItem *parent) -> void {
-            const QString text = parent->property("text").toString();
-            if (!text.isEmpty() && parent->isVisible()) result.append(text);
-            for (auto *child : parent->childItems()) self(self, child);
-        };
-        collect(collect, host()->contentItem());
-        return result;
-    }
-};
-} // namespace
 
 namespace {
 class RecoveryUiTests : public QObject
@@ -335,7 +84,7 @@ void RecoveryUiTests::initTestCase()
 
 void RecoveryUiTests::hiddenMainReminderCanDeferAndReopen()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QVERIFY(scene.host() && scene.editor() && scene.inbox());
     scene.mainWindow()->hide();
@@ -370,7 +119,7 @@ void RecoveryUiTests::hiddenMainReminderCanDeferAndReopen()
 
 void RecoveryUiTests::nativeCloseDefersTheDraftAndWaitsForAnActiveSave() const
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     const auto run = finishedRun(true);
@@ -412,7 +161,7 @@ void RecoveryUiTests::automaticNativeWindowDoesNotStealForeground()
 #ifdef Q_OS_WIN
     if (QGuiApplication::platformName() != QLatin1String("windows"))
         QSKIP("Native foreground HWND verification requires the Windows platform.");
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     QWindow foreground;
@@ -449,7 +198,7 @@ void RecoveryUiTests::restartDraftCanOpenFromOverviewAndSave()
     const auto run = finishedRun(true);
     const QString note = QStringLiteral("下次注意转场时的治疗时机。");
     {
-        Scene first(shared.path());
+        ShippingWindowScene first(shared.path());
         QVERIFY2(first.create(), qPrintable(first.errors));
         first.publish(run);
         QTRY_VERIFY(first.host()->isVisible() && first.editor()->property("opened").toBool());
@@ -460,7 +209,7 @@ void RecoveryUiTests::restartDraftCanOpenFromOverviewAndSave()
         QCOMPARE(first.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
         QVERIFY2(first.errors.isEmpty(), qPrintable(first.errors));
     }
-    Scene restored(shared.path());
+    ShippingWindowScene restored(shared.path());
     restored.backend.resetRuns({QJsonObject::fromVariantMap(run)});
     QVERIFY2(restored.create(), qPrintable(restored.errors));
     QTRY_COMPARE(restored.app->recovery()->count(), 1);
@@ -493,7 +242,7 @@ void RecoveryUiTests::silentModesAndDisabledPrompts()
 {
     QFETCH(QString, mode);
     QFETCH(bool, enabled);
-    Scene scene;
+    ShippingWindowScene scene;
     scene.settings.setPromptPresentation(mode);
     scene.settings.setReflectPrompt(enabled);
     scene.settings.setConfirmPrompt(enabled);
@@ -560,7 +309,7 @@ void RecoveryUiTests::silentModesAndDisabledPrompts()
 
 void RecoveryUiTests::failedSaveAndChangedNoteKeepRecoverableInput()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto run = finishedRun(true);
     scene.publish(run);
@@ -600,13 +349,12 @@ void RecoveryUiTests::failedSaveAndChangedNoteKeepRecoverableInput()
 
 void RecoveryUiTests::journalFailureKeepsEditorOpenUntilRetry()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto run = finishedRun(true);
     scene.publish(run);
     QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
-    const QString journal = QDir(QFileInfo(scene.settings.instanceFilePath()).absolutePath())
-        .filePath(QStringLiteral("recovery/") + scene.app->recovery()->databaseKey() + QStringLiteral(".json"));
+    const QString journal = scene.journalPath();
     QLockFile lock(journal + QStringLiteral(".lock"));
     QVERIFY(lock.tryLock(0));
     QVERIFY(scene.enterNote(QStringLiteral("retain input while disk is busy")));
@@ -627,7 +375,7 @@ void RecoveryUiTests::journalFailureKeepsEditorOpenUntilRetry()
 
 void RecoveryUiTests::oldSaveReplyCannotCloseReopenedEditorAfterScopeChanges()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto run = finishedRun(true);
     scene.publish(run);
@@ -638,8 +386,7 @@ void RecoveryUiTests::oldSaveReplyCannotCloseReopenedEditorAfterScopeChanges()
     scene.backend.setReplyDelay(1200, QStringLiteral("SetRunReflection"));
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
     QVERIFY(scene.editor()->property("busy").toBool());
-    const QString original = QDir(QFileInfo(scene.settings.instanceFilePath()).absolutePath())
-        .filePath(QStringLiteral("data/mentor_recorder.db"));
+    const QString original = scene.databasePath();
     scene.app->recovery()->setDatabasePath(original + QStringLiteral(".other"));
     QTRY_VERIFY(!scene.host()->isVisible());
     scene.app->recovery()->setDatabasePath(original);
@@ -657,7 +404,7 @@ void RecoveryUiTests::oldSaveReplyCannotCloseReopenedEditorAfterScopeChanges()
 
 void RecoveryUiTests::sameRunWithoutDraftUsesLatestCommittedNote()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto run = finishedRun();
     scene.publish(run);
@@ -680,7 +427,7 @@ void RecoveryUiTests::sameRunWithoutDraftUsesLatestCommittedNote()
 
 void RecoveryUiTests::answerStaysOpenForTheNote()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     const auto run = finishedRun();
@@ -713,7 +460,7 @@ void RecoveryUiTests::answerWithAJobThenFinishClosesCleanly()
 {
     // A run without a job: the job picked in the popup goes with the answer,
     // and 完成 afterwards neither resends it nor gets stuck on ERR_NO_CHANGES.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     auto run = finishedRun();
@@ -744,7 +491,7 @@ void RecoveryUiTests::aJobOnlyFinishLeavesNothingPending()
     // the note popup and 完成 pressed without a note. The job was saved, but the
     // draft holding it and the 待补笔记 reminder stayed, so the run was still
     // listed as pending with a draft.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     auto run = finishedRun(true);
@@ -774,7 +521,7 @@ void RecoveryUiTests::aPageRequestOvertakenByAnAnswerLeavesTheNoteEditable()
     // Audit 2026-11-03 L2-4: 「下一条」 and then 「通关 +1」 before the page read
     // came back. The busy popup dropped the page, but kept waiting for it: the
     // note field stayed read-only and the image controls locked.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
@@ -813,7 +560,7 @@ void RecoveryUiTests::theGrowingPopupStaysOnTheScreen()
     // Audit 2026-11-03 K1-6: the popup was placed once. Docked at the bottom
     // of the screen, the note field growing while writing pushed the field and
     // 完成 below the screen edge.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     scene.publish(finishedRun());
@@ -840,7 +587,7 @@ void RecoveryUiTests::aRefusedNoteAfterTheAnswerStillCollapses()
 {
     // 收起 after an answer saves like 完成; when that save is refused, the next
     // 收起 closes the ordinary way and the draft is kept.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     const auto run = finishedRun();
@@ -866,7 +613,7 @@ void RecoveryUiTests::aDeletedRecordsReminderCanBeRemoved()
     // Review I2-1 / P-2: a reminder whose record was purged stayed in 待处理 for
     // good. Opening it ends the reminder; the kept draft can be copied and then
     // removed with 移除提醒, which asks once more because it deletes typed text.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
     const auto run = finishedRun(true, 71);
@@ -923,17 +670,15 @@ void RecoveryUiTests::reviewFromTheNoteEditorOpensTheReasonDialogForThatRecord()
 {
     // Review K1-3 / L1-2: 在历史记录中复核 for the record already selected in the
     // history page toggled the selection off, and nothing opened.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto run = finishedRun(true, 91);
     run.insert(QStringLiteral("pending_review"), true); // Kept after a calibration withdrawal.
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(run));
-    scene.backend.resetRuns(scene.publishedRuns);
+    scene.store(run);
     scene.app->navigate(1);
     scene.app->selectRun(run);
     QVERIFY(scene.app->hasSelection());
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
+    QVERIFY(scene.openReflection(run));
     QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.click(QStringLiteral("reviewRecoveredRecordButton")));
     auto *reason = scene.root->findChild<QObject *>(QStringLiteral("reasonDialog"));
@@ -952,15 +697,13 @@ void RecoveryUiTests::theMainWindowNoteEditorKeepsItsOwnLook()
     // Review K1-4 / L2-5 / P-7: editing a note from the history page showed the
     // reminder's wording (本次笔记待补录, 收起, 关闭只会收起提醒…) and every close
     // put up the 「已收起到待处理」 pill. Only the popup is a reminder.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto run = finishedRun(true, 92);
     run.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("an old note")},
                                                          {QStringLiteral("mood"), QStringLiteral("ok")}});
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(run));
-    scene.backend.resetRuns(scene.publishedRuns);
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
+    scene.store(run);
+    QVERIFY(scene.openReflection(run));
     QTRY_VERIFY(scene.workspaceActive());
     QStringList texts;
     const auto collect = [&](auto &&self, QQuickItem *parent) -> void {
@@ -992,17 +735,14 @@ void RecoveryUiTests::escapeInTheMainWindowEditorKeepsAnUnsavedDraft()
     // the recovery journal unwritable Esc closed it and the typed text was gone.
     // Every managed editor puts itself away through defer(), which stays open
     // with the draft error until the draft is kept; only the chrome differs.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto run = finishedRun(true, 74);
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(run));
-    scene.backend.resetRuns(scene.publishedRuns);
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
+    scene.store(run);
+    QVERIFY(scene.openReflection(run));
     QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(!scene.editor()->property("standalone").toBool());
-    const QString journal = QDir(QFileInfo(scene.settings.instanceFilePath()).absolutePath())
-        .filePath(QStringLiteral("recovery/") + scene.app->recovery()->databaseKey() + QStringLiteral(".json"));
+    const QString journal = scene.journalPath();
     QLockFile lock(journal + QStringLiteral(".lock"));
     QVERIFY(lock.tryLock(0));
     QVERIFY(scene.note()->setProperty("text", QStringLiteral("typed while the disk is busy")));
@@ -1029,14 +769,13 @@ void RecoveryUiTests::aPendingRecordWithAKnownResultCanBeReviewed()
     // Review K1-2: a run kept for review with its result already recorded (crash
     // recovery, a withdrawn calibration) opened as a note popup with no way to
     // settle it, so it stayed in 待处理 for good.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto run = finishedRun(true, 93);
     run.insert(QStringLiteral("result"), QStringLiteral("INTERRUPTED"));
     run.insert(QStringLiteral("pending_review"), true);
     const QString id = run.value(QStringLiteral("run_id")).toString();
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(run));
-    scene.backend.resetRuns(scene.publishedRuns);
+    scene.store(run);
     scene.app->recovery()->refresh();
     QTRY_COMPARE(scene.app->recovery()->count(), 1);
     QTRY_VERIFY(!scene.app->recovery()->busy());
@@ -1064,7 +803,7 @@ void RecoveryUiTests::floatingModeOpensThePopupBesideAVisibleFloat()
     // Review L2-8 / K1-5 / P-6: 浮窗提示 behaved exactly like 仅保留待办. As the
     // setting says, it opens the popup while the float is up; with the float
     // closed the prompt only waits in 待处理 (silentModesAndDisabledPrompts).
-    Scene scene;
+    ShippingWindowScene scene;
     scene.settings.setPromptPresentation(QStringLiteral("floating"));
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.app->statisticsOverlay()->show();
@@ -1083,13 +822,11 @@ void RecoveryUiTests::aNoteEditorLeftInTheHiddenWindowDoesNotHoldPopupsBack()
     // Review L2-10: a note editor left open in the main window when it went to
     // the tray stayed "visible", and every automatic popup was dropped until the
     // window came back. Hiding the window puts that editor away, its draft kept.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto old = finishedRun(true, 95);
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(old));
-    scene.backend.resetRuns(scene.publishedRuns);
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(old)), Q_ARG(QVariant, QVariant(QString()))));
+    scene.store(old);
+    QVERIFY(scene.openReflection(old));
     QTRY_VERIFY(scene.workspaceActive());
     scene.note()->setProperty("text", QStringLiteral("half a note"));
     scene.mainWindow()->hide();
@@ -1110,7 +847,7 @@ void RecoveryUiTests::aLostConnectionPutsThePopupAwayWithANotice()
     // Review L2-6: a Collector disconnect closed the popup with no word, and the
     // run was never offered again. It is put away like 收起: the draft is kept
     // and the 「已收起到待处理」 notice says where it went.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     const auto run = finishedRun(true, 97);
@@ -1129,7 +866,7 @@ void RecoveryUiTests::aLostConnectionPutsThePopupAwayWithANotice()
 void RecoveryUiTests::bringingTheWindowForwardKeepsItMaximised()
 {
     // Review K1-6: 查看全部待处理 called showNormal() and un-maximised the window.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.mainWindow()->showMaximized();
     if (!QTest::qWaitFor([&] { return scene.mainWindow()->visibility() == QWindow::Maximized; }))
@@ -1147,16 +884,14 @@ void RecoveryUiTests::openingAnotherRecordBringsTheOpenEditorForward()
 {
     // Review K1-7: 继续处理 or 重新打开 while the editor was open for another
     // record did nothing at all; the open editor's window is brought forward.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto open = finishedRun(true, 98);
     const auto other = finishedRun(true, 99);
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(open));
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(other));
-    scene.backend.resetRuns(scene.publishedRuns);
+    scene.store(open);
+    scene.store(other);
     scene.app->recovery()->offer(other, QStringLiteral("reflection"));
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(open)), Q_ARG(QVariant, QVariant(QString()))));
+    QVERIFY(scene.openReflection(open));
     QTRY_VERIFY(scene.workspaceActive());
     scene.mainWindow()->showMinimized();
     if (!QTest::qWaitFor([&] { return scene.mainWindow()->visibility() == QWindow::Minimized; }))
@@ -1170,8 +905,7 @@ void RecoveryUiTests::openingAnotherRecordBringsTheOpenEditorForward()
     // (openReflection) still did nothing at all in that case.
     scene.mainWindow()->showMinimized();
     QTRY_VERIFY(scene.mainWindow()->visibility() == QWindow::Minimized);
-    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
-                                      Q_ARG(QVariant, QVariant(other)), Q_ARG(QVariant, QVariant(QString()))));
+    QVERIFY(scene.openReflection(other));
     QTRY_VERIFY(scene.mainWindow()->visibility() != QWindow::Minimized);
     QCOMPARE(scene.editor()->property("runId").toString(), open.value(QStringLiteral("run_id")).toString());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -1182,7 +916,7 @@ void RecoveryUiTests::noNpcapWarningWhileNothingIsKnownAboutNpcap()
     // Review K2-1 (the 总览 banner and the side panel's Npcap row, reported by
     // Y5b): without a capture status - no pipe - nothing is known about Npcap,
     // and 「未检测到 Npcap」 / 「未安装」 would be a false claim.
-    Scene scene;
+    ShippingWindowScene scene;
     scene.backend.setNpcapMissing(true);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     const auto shown = [&](const QString &text) {
@@ -1214,7 +948,7 @@ struct QueuedQuestion {
     QVariantMap question = finishedRun(false, 82);
 };
 
-bool openNoteThenQueueQuestion(Scene &scene, const QueuedQuestion &runs, QSignalSpy &offers, bool compact)
+bool openNoteThenQueueQuestion(ShippingWindowScene &scene, const QueuedQuestion &runs, QSignalSpy &offers, bool compact)
 {
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
     scene.publish(runs.note);
@@ -1241,7 +975,7 @@ void RecoveryUiTests::aQuestionAnsweredInThePagerIsNotAskedAgain()
 {
     // Review L2-2: paging to a queued question and answering it there left it in
     // the automatic queue, so closing the popup asked 「通关了吗？」 again.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
     const QueuedQuestion runs;
@@ -1266,7 +1000,7 @@ void RecoveryUiTests::aQuestionAnsweredElsewhereIsNotAskedAgain()
 {
     // Review L2-2: a queued question answered somewhere else (here: directly,
     // as the history page would) is dropped from the automatic queue.
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
     QSignalSpy reviewed(scene.app.get(), &mr::AppController::mutationSucceeded);
@@ -1288,7 +1022,7 @@ void RecoveryUiTests::anAutomaticClearShowsTheCollectorsCountBeforeAndAfter()
     // Review L2-1 / I2-2 / P-3: the prompt opens on the run's own events, before
     // the dashboard has read the run; the popup shows the Collector's count from
     // before the run and the one read after it - never a number computed here.
-    Scene scene;
+    ShippingWindowScene scene;
     scene.backend.setAchievement(2000, 10);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QTRY_COMPARE(scene.app->dashboard().value(QStringLiteral("achievement_progress")).toInt(), 10);
@@ -1329,7 +1063,7 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
     QFETCH(bool, contributes);
     QFETCH(bool, unassigned);
     const bool counted = contributes && !unassigned;
-    Scene scene;
+    ShippingWindowScene scene;
     scene.backend.setAchievement(2000, 10);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QTRY_COMPARE(scene.app->dashboard().value(QStringLiteral("achievement_progress")).toInt(), 10);
@@ -1369,7 +1103,7 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
 
 void RecoveryUiTests::overviewUsesUnifiedCountAndSharedActions()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
     const auto result = finishedRun(false, 31);
@@ -1377,8 +1111,7 @@ void RecoveryUiTests::overviewUsesUnifiedCountAndSharedActions()
     const auto draft = finishedRun(true, 33);
     scene.publish(result);
     scene.publish(note);
-    scene.publishedRuns.append(QJsonObject::fromVariantMap(draft));
-    scene.backend.resetRuns(scene.publishedRuns);
+    scene.store(draft);
     QVERIFY(scene.app->recovery()->saveDraft(result, {{QStringLiteral("text"), QStringLiteral("result note draft")},
         {QStringLiteral("mood"), QStringLiteral("good")}, {QStringLiteral("jobId"), 24}}));
     QVERIFY(scene.app->recovery()->saveDraft(draft, {{QStringLiteral("text"), QStringLiteral("another draft")},
@@ -1419,7 +1152,7 @@ void RecoveryUiTests::overviewUsesUnifiedCountAndSharedActions()
 
 void RecoveryUiTests::overviewDraftOnlyDisappearsAfterSave()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.settings.setReflectPrompt(false);
     const auto draft = finishedRun(true, 41);
@@ -1445,7 +1178,7 @@ void RecoveryUiTests::overviewDraftOnlyDisappearsAfterSave()
 
 void RecoveryUiTests::overviewFailedReadKeepsRecoveryAccess()
 {
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     auto *card = scene.root->findChild<QQuickItem *>(QStringLiteral("dashboardPendingWorkCard"));
     QVERIFY(card && !card->isVisible());
@@ -1490,7 +1223,7 @@ void RecoveryUiTests::overviewEvidence()
 {
     QFETCH(bool, dark);
     QFETCH(bool, compact);
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(dark), qPrintable(scene.errors));
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
     auto task = finishedRun(false, 61);
@@ -1535,7 +1268,7 @@ void RecoveryUiTests::renderedEvidence()
 {
     QFETCH(bool, dark);
     QFETCH(bool, answered);
-    Scene scene;
+    ShippingWindowScene scene;
     QVERIFY2(scene.create(dark), qPrintable(scene.errors));
     scene.mainWindow()->hide();
     scene.publish(finishedRun());
