@@ -12,7 +12,7 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>Restart recovery shares field protection and processes protected open rows once.</summary>
-public sealed class ReviewRecoveryRegressionTests
+public sealed class CrashRecoveryServiceTests
 {
     /// <summary>
     /// Review finding L-19. Undoing a correction back to the values the record was created

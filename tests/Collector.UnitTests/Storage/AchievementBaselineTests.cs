@@ -16,7 +16,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// save. The two 1.5.1 betas checked that time once at start-up and may have left a setting recording the check
 /// and a system entry in the history; such a database works like any other.
 /// </summary>
-public sealed class AchievementBaselineUpgradeTests : IDisposable
+public sealed class AchievementBaselineTests : IDisposable
 {
     private static readonly DateTimeOffset Entered = new(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset GoalOnly = new(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
