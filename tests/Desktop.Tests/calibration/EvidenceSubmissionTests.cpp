@@ -2,11 +2,6 @@
 #include "RecordingBackend.h"
 #include "QmlComponentTestSupport.h"
 #include "EvidenceSubmissionController.h"
-#include "CaptureValidationController.h"
-#include "AutomaticRecordingController.h"
-#include "AppController.h"
-#include "Formatters.h"
-#include "MockBackend.h"
 #include "TestCollectorGuard.h"
 
 #include <QDir>
@@ -75,21 +70,6 @@ QJsonObject answer(const QString &json, const QString &kind = QStringLiteral("CO
 }
 
 using mrtest::findVisualItem;
-
-class CaptureHost final : public mr::CaptureValidationController::Host {
-public:
-    bool formal = false;
-    void setFormalCapturing(bool running) { formal = running; }
-    bool candidate = true;
-    QString profile = QStringLiteral("UNSUPPORTED_BUILD");
-    bool formalCapturing() const override { return formal; }
-    bool candidateValidationEnabled() const override { return candidate; }
-    quint64 formalCaptureRevision() const override { return 0; }
-    QString captureProfileStatus() const override { return profile; }
-    void applyFormalCaptureStatus(const QVariantMap &) override { formal = false; }
-    void refreshStatus() override {}
-    void showToast(const QString &) override {}
-};
 }
 
 namespace {
@@ -98,7 +78,7 @@ class EvidenceSubmissionTests final : public QObject {
 private Q_SLOTS:
     void initTestCase()
     {
-        QVERIFY(mrtest::registerSourceQml({"components", "dialogs", "pages"}));
+        QVERIFY(mrtest::registerSourceQml({"components", "dialogs"}));
     }
 
     void previewAndCancelHaveNoSideEffects()
@@ -265,95 +245,6 @@ private Q_SLOTS:
         QCOMPARE(opened, 0);
     }
 
-    void metadataButtonNeverStartsFormalCapture()
-    {
-        EvidenceBackend backend;
-        CaptureHost host;
-        mr::CaptureValidationController capture(&host);
-        capture.setBackend(&backend);
-        capture.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{"state", "IDLE"}, {"active", false}});
-        QVERIFY(capture.metadataActionEnabled());
-        capture.toggleMetadataObservation();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StartCaptureValidation"));
-        backend.calls.last().reply->succeed({{"state", "RECORDING"}, {"active", true}});
-        capture.toggleMetadataObservation();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StopCaptureValidation"));
-        backend.calls.last().reply->succeed({{"state", "COMPLETED"}, {"active", false}});
-        host.setFormalCapturing(true);
-        QVERIFY(capture.metadataActionEnabled());
-        capture.toggleMetadataObservation();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StartCaptureValidation"));
-        QCOMPARE(backend.calls.last().payload.value("switch_from_unsupported"), QJsonValue(true));
-        backend.calls.last().reply->succeed({{"state", "COMPLETED"}, {"active", false}});
-        host.setFormalCapturing(true);
-        host.profile = QStringLiteral("VERIFIED");
-        QVERIFY(!capture.metadataActionEnabled());
-    }
-
-    void failedStartQueuesFreshStatusBehindOldGeneration()
-    {
-        EvidenceBackend backend;
-        CaptureHost host;
-        mr::CaptureValidationController capture(&host);
-        capture.setBackend(&backend);
-        QSignalSpy ownership(&capture, &mr::CaptureValidationController::metadataOwnershipChanged);
-        capture.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{"state", "IDLE"}, {"active", false}});
-        capture.refreshStatusSnapshot();
-        auto old = backend.calls.last().reply;
-        capture.toggleMetadataObservation();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StartCaptureValidation"));
-        backend.calls.last().reply->fail("ERR_TEST", "start failed");
-        QCOMPARE(ownership.size(), 1);
-        QCOMPARE(ownership.last().at(0).toBool(), true);
-        old->succeed({{"state", "IDLE"}, {"active", false}});
-        QTRY_COMPARE(backend.calls.last().type, QStringLiteral("GetCaptureValidationStatus"));
-        backend.calls.last().reply->succeed({{"state", "IDLE"}, {"active", false}});
-        QCOMPARE(ownership.size(), 2);
-        QCOMPARE(ownership.last().at(0).toBool(), false);
-        QVERIFY(capture.metadataActionEnabled());
-    }
-
-    void explicitMetadataOwnershipSurvivesReconnectAndDraining()
-    {
-        EvidenceBackend backend;
-        CaptureHost host;
-        mr::AutomaticRecordingController recording(&backend);
-        mr::CaptureValidationController capture(&host);
-        capture.setBackend(&backend);
-        connect(&capture, &mr::CaptureValidationController::metadataOwnershipChanged,
-                &recording, &mr::AutomaticRecordingController::setUserObservation);
-        capture.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{"state", "IDLE"}, {"active", false}});
-        capture.toggleMetadataObservation();
-        backend.calls.last().reply->succeed({{"state", "RECORDING"}, {"active", true}});
-        const qsizetype activeCalls = backend.calls.size();
-        recording.refresh();
-        recording.retry();
-        QCOMPARE(backend.calls.size(), activeCalls);
-        QCOMPARE(recording.state(), QStringLiteral("observing"));
-        backend.setConnected(false);
-        capture.reset();
-        backend.setConnected(true);
-        recording.refresh();
-        QCOMPARE(backend.calls.size(), activeCalls);
-        capture.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{"state", "RECORDING"}, {"active", true}});
-        capture.toggleMetadataObservation();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StopCaptureValidation"));
-        backend.calls.last().reply->succeed({{"state", "STOPPING"}, {"active", true}});
-        const qsizetype drainingCalls = backend.calls.size();
-        recording.refresh();
-        QCOMPARE(backend.calls.size(), drainingCalls);
-        capture.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{"state", "COMPLETED"}, {"active", false}});
-        QCOMPARE(backend.calls.last().type, QStringLiteral("GetCaptureSettings"));
-        int stopCalls = 0;
-        for (const auto &call : backend.calls) stopCalls += call.type == QLatin1String("StopCaptureValidation");
-        QCOMPARE(stopCalls, 1); // 唯一的停止来自玩家按钮，自动记录没有争抢。
-    }
-
     void longDialogKeyboardAndThemes_data()
     {
         QTest::addColumn<QString>("style"); QTest::addColumn<bool>("dark");
@@ -361,53 +252,6 @@ private Q_SLOTS:
             QTest::newRow(qPrintable(style + "-dark")) << style << true;
             QTest::newRow(qPrintable(style + "-light")) << style << false;
         }
-    }
-
-    void guidedMarkersWorkWithoutMaintainerMode()
-    {
-        mr::MockBackend backend;
-        backend.setValidationFixture(QStringLiteral("RECORDING"));
-        mr::AppController app(&backend, nullptr);
-        app.recording()->setUserObservation(true);
-        mr::Formatters formatters;
-        mr::EvidenceSubmissionController evidence(&backend);
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty("App", &app);
-        engine.rootContext()->setContextProperty("Fmt", &formatters);
-        engine.rootContext()->setContextProperty("CalibrationEvidence", &evidence);
-        engine.rootContext()->setContextProperty("ReduceMotion", true);
-        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 1100; height: 720; visible: true; color: Theme.contentBackground
-    ScrollView { anchors.fill: parent
-        contentWidth: availableWidth
-        EvidencePage { width: parent.width }
-    }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *window = qobject_cast<QQuickWindow *>(root.get());
-        QVERIFY(window);
-        QTRY_VERIFY(app.validationMarkerEnabled());
-        QVERIFY(!app.maintainerToolsVisible());
-        auto *marker = findVisualItem(window->contentItem(), "templateObservationMarker_queued");
-        const auto *action = findVisualItem(window->contentItem(), "templateObservationActionButton");
-        QVERIFY(marker && action);
-        QVERIFY(marker->isEnabled());
-        marker->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_VERIFY(!app.validationFeedback().isEmpty());
-        QVERIFY(!app.maintainerToolsVisible());
-        const auto dir = qEnvironmentVariable("MR_CALIBRATION_EVIDENCE_DIR");
-        if (!dir.isEmpty()) {
-            QVERIFY(QDir().mkpath(dir));
-            QVERIFY(window->grabWindow().save(dir + "/guided-observation.png"));
-        }
-        QCOMPARE(warnings.size(), 0);
     }
 
     void candidateSelectorKeyboardSwitchDisablesOldTarget()

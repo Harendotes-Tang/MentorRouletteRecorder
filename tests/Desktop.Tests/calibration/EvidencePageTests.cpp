@@ -4,32 +4,31 @@
 #include "DesktopTestRunner.h"
 #include "EvidenceSceneFixture.h"
 #include "AppController.h"
-#include "EvidenceSubmissionController.h"
 #include "Formatters.h"
 #include "GameSelectionController.h"
-#include "MockBackend.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 
+#include <QDir>
 #include <QGuiApplication>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QDateTime>
-#include <QHash>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
-#include <QTimer>
 
 #include <algorithm>
-#include <memory>
 
 namespace {
+
+/// The round the Collector reports from the start, before the page opens; report() replaces it later.
+void script(EvidenceScene &scene, const QJsonObject &status)
+{
+    scene.backend.scripted = true;
+    scene.backend.validation = status;
+}
 
 class EvidencePageTests : public QObject
 {
@@ -134,8 +133,7 @@ private Q_SLOTS:
         EvidenceScene scene;
         if (!fixture.isEmpty())
             scene.backend.setRecordingFixture(fixture);
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("WAITING"), QStringLiteral("round-wait-for"));
+        script(scene, roundStatus(QStringLiteral("WAITING"), QStringLiteral("round-wait-for")));
         scene.backend.validation.insert(QStringLiteral("reason"), reason);
         QVERIFY(scene.open(QStringLiteral("WAITING")));
         QTRY_COMPARE(scene.app->validationState(), QStringLiteral("WAITING"));
@@ -215,6 +213,30 @@ private Q_SLOTS:
         QCOMPARE(scene.warnings->size(), 0);
     }
 
+    // The guided markers are a player's: pressed from the keyboard on a page without the
+    // maintainer tools, one reaches the Collector, and the tools stay hidden.
+    void guidedMarkersWorkWithoutMaintainerMode()
+    {
+        EvidenceScene scene;
+        QVERIFY(scene.open(QStringLiteral("RECORDING")));
+        QTRY_VERIFY(scene.app->validationMarkerEnabled());
+        QVERIFY(!scene.app->maintainerToolsVisible());
+        auto *marker = scene.item(QStringLiteral("templateObservationMarker_queued"));
+        const auto *action = scene.item(QStringLiteral("templateObservationActionButton"));
+        QVERIFY(marker && action);
+        QVERIFY(marker->isEnabled());
+        marker->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(scene.window, Qt::Key_Space);
+        QTRY_VERIFY(!scene.app->validationFeedback().isEmpty());
+        QVERIFY(!scene.app->maintainerToolsVisible());
+        const auto dir = qEnvironmentVariable("MR_CALIBRATION_EVIDENCE_DIR");
+        if (!dir.isEmpty()) {
+            QVERIFY(QDir().mkpath(dir));
+            QVERIFY(scene.window->grabWindow().save(dir + "/guided-observation.png"));
+        }
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
     void theReportIsComposedFromTheRound()
     {
         EvidenceScene scene;
@@ -258,8 +280,7 @@ private Q_SLOTS:
     void aRoundThatSearchedForTheDecoderRequiresTheLog()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-search"), 500, 30);
+        script(scene, roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-search"), 500, 30));
         QVERIFY(scene.open(QStringLiteral("RECORDING")));
         QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-search"));
         QTRY_VERIFY(scene.sessionValue("recording").toBool());
@@ -316,8 +337,7 @@ private Q_SLOTS:
     void zeroMessagesBeforeTheGameGoesOnlineAreNoAnomaly()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-title"), 0, 120);
+        script(scene, roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-title"), 0, 120));
         scene.backend.networkPath = {{QStringLiteral("ipv4_connections"), 0},
                                      {QStringLiteral("ipv6_connections"), 0},
                                      {QStringLiteral("loopback_connections"), 0}};
@@ -353,8 +373,7 @@ private Q_SLOTS:
     void anUncountedConnectionStillSaysNothingArrives()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-uncounted"), 0, 400);
+        script(scene, roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-uncounted"), 0, 400));
         const QJsonValue unread(QJsonValue::Null);
         scene.backend.networkPath = {{QStringLiteral("ipv4_connections"), unread},
                                      {QStringLiteral("ipv6_connections"), unread},
@@ -396,8 +415,7 @@ private Q_SLOTS:
     void theRoundsMarksBelongToItsSession()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-one"), 500, 30);
+        script(scene, roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-one"), 500, 30));
         QVERIFY(scene.open(QStringLiteral("RECORDING")));
         QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-one"));
         QTRY_COMPARE(scene.stepStatus(3), QStringLiteral("cur"));
@@ -539,10 +557,9 @@ private Q_SLOTS:
     void aFailedRoundOffersItsFilesAndAReport()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
         const auto failed = roundStatus(QStringLiteral("FAILED"), QStringLiteral("round-failed"), 0, 40,
                                         QStringLiteral("C:/mock-only/failed/trace.jsonl"));
-        scene.backend.validation = roundStatus(QStringLiteral("STOPPING"), QStringLiteral("round-failed"), 0, 39);
+        script(scene, roundStatus(QStringLiteral("STOPPING"), QStringLiteral("round-failed"), 0, 39));
         scene.backend.validation.insert(QStringLiteral("error_code"), QStringLiteral("ERR_INTERNAL"));
         QVERIFY(scene.open(QStringLiteral("IDLE")));
         QTRY_COMPARE(scene.app->validationState(), QStringLiteral("STOPPING"));
@@ -582,8 +599,7 @@ private Q_SLOTS:
     void stepTwoOffersAPlainStop()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-quiet"), 20, 10);
+        script(scene, roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-quiet"), 20, 10));
         QVERIFY(scene.open(QStringLiteral("RECORDING")));
         QTRY_COMPARE(scene.stepStatus(2), QStringLiteral("cur"));
         auto *stop = scene.item(QStringLiteral("evidenceReadinessStopButton"));
@@ -598,8 +614,7 @@ private Q_SLOTS:
     void theRoundClockCountsTheWait()
     {
         EvidenceScene scene;
-        scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("WAITING"), QStringLiteral("round-wait"));
+        script(scene, roundStatus(QStringLiteral("WAITING"), QStringLiteral("round-wait")));
         QVERIFY(scene.open(QStringLiteral("WAITING")));
         QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-wait"));
         auto *clock = scene.sessionValue("clock").value<QObject *>();

@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "OcrStubSupport.h"
 #include "OfflineOcrEngine.h"
 
 #include <QCoreApplication>
@@ -25,33 +26,14 @@
 
 namespace {
 
-constexpr auto kHeader = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
-const QStringList &kModels()
-{
-    static const QStringList value{QStringLiteral("PP-OCRv6_det_small.onnx"),
-                          QStringLiteral("PP-OCRv6_rec_small.onnx"),
-                          QStringLiteral("ch_ppocr_mobile_v2.0_cls_mobile.onnx")};
-    return value;
-}
+using mrtest::installOcrStub;
+using mrtest::ocrModelFiles;
+using mrtest::ocrTsvHeader;
 
 bool writeFile(const QString &path, const QByteArray &bytes)
 {
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
-}
-
-QString installWorker(QTemporaryDir &directory, const QString &relativeAppDirectory = QStringLiteral("app with spaces"))
-{
-    QString app = directory.filePath(relativeAppDirectory);
-    const QString ocr = QDir(app).filePath(QStringLiteral("ocr"));
-    const QString models = QDir(ocr).filePath(QStringLiteral("models"));
-    if (!QDir().mkpath(models)
-        || !QFile::copy(QCoreApplication::applicationFilePath(), QDir(ocr).filePath(QStringLiteral("local-ai-ocr.exe"))))
-        return {};
-    for (const auto &name : kModels())
-        if (!writeFile(QDir(models).filePath(name), "synthetic-model"))
-            return {};
-    return app;
 }
 
 QString createScreenshot(QTemporaryDir &directory, const QString &name = QStringLiteral("截图 with spaces.png"))
@@ -62,9 +44,31 @@ QString createScreenshot(QTemporaryDir &directory, const QString &name = QString
     return image.save(path) ? path : QString();
 }
 
+/// The engine over the stub worker installed in a folder of its own, with spies on its signals.
+struct EngineBench
+{
+    QTemporaryDir directory;
+    QString app = installOcrStub(directory);
+    mr::OfflineOcrEngine engine;
+    QSignalSpy recognized{&engine, &mr::OfflineOcrEngine::imageRecognized};
+    QSignalSpy finished{&engine, &mr::OfflineOcrEngine::finished};
+    QSignalSpy failures{&engine, &mr::OfflineOcrEngine::failed};
+
+    EngineBench() { engine.setApplicationDirectoryForTesting(app); }
+    /// A screenshot of the size the stub worker accepts, in the bench's folder.
+    QString screenshot(const QString &name = QStringLiteral("截图 with spaces.png")) { return createScreenshot(directory, name); }
+};
+
+/// The work folder the stub worker wrote into its ready marker; empty when the marker cannot be read.
+QString workDirectoryOf(const QString &readyMarker)
+{
+    QFile marker(readyMarker);
+    return marker.open(QIODevice::ReadOnly) ? QString::fromUtf8(marker.readAll()) : QString();
+}
+
 QByteArray wholeImageTsv()
 {
-    QByteArray tsv(kHeader);
+    QByteArray tsv(ocrTsvHeader());
     // These are whole detected text rectangles, including a combined timestamp
     // and mixed Han/Latin/punctuation note. No per-character boxes are guessed.
     for (int row = 0; row < 10; ++row) {
@@ -138,9 +142,9 @@ int worker(int argc, char **argv)
     if (mode == QLatin1String("malformed"))
         tsv = "unexpected output";
     if (mode == QLatin1String("bad-coordinate"))
-        tsv = QByteArray(kHeader) + "5\t1\t1\t1\t1\t1\t1850\t20\t100\t27\t99\toutside\n";
+        tsv = ocrTsvHeader() + "5\t1\t1\t1\t1\t1\t1850\t20\t100\t27\t99\toutside\n";
     if (mode == QLatin1String("empty"))
-        tsv = kHeader;
+        tsv = ocrTsvHeader();
     return writeFile(args[4], tsv) ? 0 : 16;
 }
 
@@ -180,7 +184,7 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("name");
         QTest::addColumn<bool>("empty");
-        for (const auto &name : kModels()) {
+        for (const auto &name : ocrModelFiles()) {
             QTest::newRow(qPrintable(name + QStringLiteral("-missing"))) << name << false;
             QTest::newRow(qPrintable(name + QStringLiteral("-empty"))) << name << true;
         }
@@ -190,44 +194,34 @@ private Q_SLOTS:
     {
         QFETCH(QString, name);
         QFETCH(bool, empty);
-        QTemporaryDir directory;
-        const QString app = installWorker(directory);
-        const QString model = QDir(mr::OfflineOcrEngine::modelsPath(app)).filePath(name);
+        EngineBench bench;
+        const QString model = QDir(mr::OfflineOcrEngine::modelsPath(bench.app)).filePath(name);
         QVERIFY(empty ? writeFile(model, {}) : QFile::remove(model));
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(app);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(!engine.start({createScreenshot(directory)}));
-        QCOMPARE(failures.size(), 1);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("本机图片识别文件不完整")));
-        QVERIFY(engine.findChildren<QProcess *>().isEmpty());
+        QVERIFY(!bench.engine.start({bench.screenshot()}));
+        QCOMPARE(bench.failures.size(), 1);
+        QVERIFY(bench.failures[0][0].toString().contains(QStringLiteral("本机图片识别文件不完整")));
+        QVERIFY(bench.engine.findChildren<QProcess *>().isEmpty());
     }
 
     void validatesEntireBatchBeforeLaunching()
     {
-        QTemporaryDir directory;
-        const QString app = installWorker(directory);
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(app);
-        const QString valid = createScreenshot(directory);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(!engine.start({valid, directory.filePath(QStringLiteral("missing.png"))}));
-        QVERIFY(!engine.start({QFileInfo(valid).fileName()}));
+        EngineBench bench;
+        const QString valid = bench.screenshot();
+        QVERIFY(!bench.engine.start({valid, bench.directory.filePath(QStringLiteral("missing.png"))}));
+        QVERIFY(!bench.engine.start({QFileInfo(valid).fileName()}));
         QFile oversized(valid);
         QVERIFY(oversized.open(QIODevice::ReadWrite) && oversized.resize(mr::OfflineOcrEngine::MaxInputBytes + 1));
         oversized.close();
-        QVERIFY(!engine.start({valid}));
-        QVERIFY(!engine.start({}));
-        QVERIFY(!engine.start(QStringList(mr::OfflineOcrEngine::MaxImages + 1, valid)));
-        QCOMPARE(failures.size(), 5);
-        QVERIFY(!engine.busy() && engine.findChildren<QProcess *>().isEmpty());
+        QVERIFY(!bench.engine.start({valid}));
+        QVERIFY(!bench.engine.start({}));
+        QVERIFY(!bench.engine.start(QStringList(mr::OfflineOcrEngine::MaxImages + 1, valid)));
+        QCOMPARE(bench.failures.size(), 5);
+        QVERIFY(!bench.engine.busy() && bench.engine.findChildren<QProcess *>().isEmpty());
     }
 
     void oversizedPixelHeaderIsRejectedWithoutDecoding()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
+        EngineBench bench;
         QByteArray bmp(54, '\0');
         bmp[0] = 'B';
         bmp[1] = 'M';
@@ -242,70 +236,57 @@ private Q_SLOTS:
         put(22, 10000);
         bmp[26] = 1;
         bmp[28] = 24;
-        const QString path = directory.filePath(QStringLiteral("oversize.bmp"));
+        const QString path = bench.directory.filePath(QStringLiteral("oversize.bmp"));
         QVERIFY(writeFile(path, bmp));
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(!engine.start({path}));
-        QCOMPARE(failures.size(), 1);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("5000 万像素")));
-        QVERIFY(engine.findChildren<QProcess *>().isEmpty());
+        QVERIFY(!bench.engine.start({path}));
+        QCOMPARE(bench.failures.size(), 1);
+        QVERIFY(bench.failures[0][0].toString().contains(QStringLiteral("5000 万像素")));
+        QVERIFY(bench.engine.findChildren<QProcess *>().isEmpty());
     }
 
     void damagedPackagedExecutableSettlesWithChineseFailure()
     {
-        QTemporaryDir directory;
-        const QString app = installWorker(directory);
-        QVERIFY(writeFile(mr::OfflineOcrEngine::enginePath(app), "damaged executable"));
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(app);
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(engine.start({createScreenshot(directory)}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QCOMPARE(failures.size(), 1);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("无法启动")));
-        QVERIFY(!finished[0][0].toBool() && recognized.isEmpty() && !engine.busy());
+        EngineBench bench;
+        QVERIFY(writeFile(mr::OfflineOcrEngine::enginePath(bench.app), "damaged executable"));
+        QVERIFY(bench.engine.start({bench.screenshot()}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QCOMPARE(bench.failures.size(), 1);
+        QVERIFY(bench.failures[0][0].toString().contains(QStringLiteral("无法启动")));
+        QVERIFY(!bench.finished[0][0].toBool() && bench.recognized.isEmpty() && !bench.engine.busy());
     }
 
     void oneWholeImagePassPreservesAllTenNotesAndCoordinates()
     {
-        QTemporaryDir directory;
-        const QString app = installWorker(directory);
-        const QString path = createScreenshot(directory);
-        const QString log = directory.filePath(QStringLiteral("worker-log.jsonl"));
+        EngineBench bench;
+        const QString path = bench.screenshot();
+        const QString log = bench.directory.filePath(QStringLiteral("worker-log.jsonl"));
         qputenv("MR_TEST_AI_OCR_LOG", log.toUtf8());
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(app);
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(engine.start({path}));
-        QVERIFY(!engine.start({path}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
-        QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures[0][0].toString()));
-        QVERIFY(finished[0][0].toBool());
-        QCOMPARE(recognized.size(), 1);
-        QCOMPARE(recognized[0][0].toString(), path);
-        QCOMPARE(recognized[0][1].toByteArray(), wholeImageTsv());
-        QCOMPARE(recognized[0][1].toByteArray().count(QStringLiteral("无事发生.jpg").toUtf8()), 10);
+        QVERIFY(bench.engine.start({path}));
+        QVERIFY(!bench.engine.start({path}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 10000);
+        QVERIFY2(bench.failures.isEmpty(), bench.failures.isEmpty() ? "" : qPrintable(bench.failures[0][0].toString()));
+        QVERIFY(bench.finished[0][0].toBool());
+        QCOMPARE(bench.recognized.size(), 1);
+        QCOMPARE(bench.recognized[0][0].toString(), path);
+        QCOMPARE(bench.recognized[0][1].toByteArray(), wholeImageTsv());
+        QCOMPARE(bench.recognized[0][1].toByteArray().count(QStringLiteral("无事发生.jpg").toUtf8()), 10);
         QFile file(log);
         QVERIFY(file.open(QIODevice::ReadOnly));
         const auto records = file.readAll().trimmed().split('\n');
         QCOMPARE(records.size(), 1);
         const auto record = QJsonDocument::fromJson(records[0]).object();
         const auto args = record.value(QStringLiteral("args")).toArray();
-        QCOMPARE(QDir::cleanPath(args[0].toString()), QDir::cleanPath(mr::OfflineOcrEngine::enginePath(app)));
+        QCOMPARE(QDir::cleanPath(args[0].toString()), QDir::cleanPath(mr::OfflineOcrEngine::enginePath(bench.app)));
         QCOMPARE(args[1].toString(), QStringLiteral("--input"));
         QVERIFY(args[2].toString() != path && args[2].toString().endsWith(QStringLiteral("/input.png")));
         QCOMPARE(args[3].toString(), QStringLiteral("--output"));
         QCOMPARE(args[5].toString(), QStringLiteral("--models"));
-        QCOMPARE(QDir::cleanPath(args[6].toString()), QDir::cleanPath(mr::OfflineOcrEngine::modelsPath(app)));
+        QCOMPARE(QDir::cleanPath(args[6].toString()), QDir::cleanPath(mr::OfflineOcrEngine::modelsPath(bench.app)));
         QCOMPARE(record.value(QStringLiteral("omp_threads")).toString(), QStringLiteral("2"));
         QVERIFY(!record.value(QStringLiteral("pythonpath_present")).toBool());
         QVERIFY(!QFileInfo::exists(record.value(QStringLiteral("cwd")).toString()));
-        QCOMPARE(engine.completedImages(), 1);
-        QVERIFY(!engine.busy());
+        QCOMPARE(bench.engine.completedImages(), 1);
+        QVERIFY(!bench.engine.busy());
     }
 
 #ifdef Q_OS_WIN
@@ -324,7 +305,7 @@ private Q_SLOTS:
         QString relativeApp = QStringLiteral("深目录 with spaces");
         while (mr::OfflineOcrEngine::enginePath(directory.filePath(relativeApp)).size() < 220)
             relativeApp += QStringLiteral("/nested app files");
-        const QString app = installWorker(directory, relativeApp);
+        const QString app = installOcrStub(directory, relativeApp);
         QVERIFY(!app.isEmpty());
         const QString log = directory.filePath(QStringLiteral("deep-worker.jsonl"));
         qputenv("MR_TEST_AI_OCR_LOG", log.toUtf8());
@@ -352,16 +333,12 @@ private Q_SLOTS:
 
     void emptyWholeImageResultRemainsEmpty()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
+        EngineBench bench;
         qputenv("MR_TEST_AI_OCR_MODE", "empty");
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QVERIFY(engine.start({createScreenshot(directory)}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QVERIFY(finished[0][0].toBool());
-        QCOMPARE(recognized[0][1].toByteArray(), QByteArray(kHeader));
+        QVERIFY(bench.engine.start({bench.screenshot()}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QVERIFY(bench.finished[0][0].toBool());
+        QCOMPARE(bench.recognized[0][1].toByteArray(), ocrTsvHeader());
     }
 
     void failuresNeverEmitPartialImage_data()
@@ -374,23 +351,18 @@ private Q_SLOTS:
     void failuresNeverEmitPartialImage()
     {
         QFETCH(QByteArray, mode);
-        QTemporaryDir directory;
-        const QString ready = directory.filePath(QStringLiteral("ready"));
+        EngineBench bench;
+        const QString ready = bench.directory.filePath(QStringLiteral("ready"));
         qputenv("MR_TEST_AI_OCR_READY", ready.toUtf8());
         qputenv("MR_TEST_AI_OCR_MODE", mode);
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(engine.start({createScreenshot(directory)}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QVERIFY(!finished[0][0].toBool());
-        QCOMPARE(failures.size(), 1);
-        QVERIFY(recognized.isEmpty() && !engine.busy());
-        QFile marker(ready);
-        QVERIFY(marker.open(QIODevice::ReadOnly));
-        QVERIFY(!QFileInfo::exists(QString::fromUtf8(marker.readAll())));
+        QVERIFY(bench.engine.start({bench.screenshot()}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QVERIFY(!bench.finished[0][0].toBool());
+        QCOMPARE(bench.failures.size(), 1);
+        QVERIFY(bench.recognized.isEmpty() && !bench.engine.busy());
+        const QString work = workDirectoryOf(ready);
+        QVERIFY(!work.isEmpty());
+        QVERIFY(!QFileInfo::exists(work));
     }
 
     void cancelOrTimeoutKillsOwnedChild_data()
@@ -403,40 +375,32 @@ private Q_SLOTS:
     void cancelOrTimeoutKillsOwnedChild()
     {
         QFETCH(bool, timeout);
-        QTemporaryDir directory;
-        const QString app = installWorker(directory);
-        const QString path = createScreenshot(directory);
-        const QString ready = directory.filePath(QStringLiteral("ready"));
+        EngineBench bench;
+        const QString path = bench.screenshot();
+        const QString ready = bench.directory.filePath(QStringLiteral("ready"));
         qputenv("MR_TEST_AI_OCR_READY", ready.toUtf8());
         qputenv("MR_TEST_AI_OCR_MODE", "sleep");
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(app);
         // Leave cold process startup time before testing expiry. The worker must
         // outlive this deadline so a normal exit cannot masquerade as a timeout.
-        engine.setTimeoutForTesting(5000);
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
-        QVERIFY(engine.start({path}));
+        bench.engine.setTimeoutForTesting(5000);
+        QVERIFY(bench.engine.start({path}));
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(ready), 3000);
-        QFile marker(ready);
-        QVERIFY(marker.open(QIODevice::ReadOnly));
-        const QString work = QString::fromUtf8(marker.readAll());
-        marker.close();
+        const QString work = workDirectoryOf(ready);
+        QVERIFY(!work.isEmpty());
         if (!timeout)
-            engine.cancel();
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QVERIFY(!finished[0][0].toBool());
-        QCOMPARE(failures.size(), timeout ? 1 : 0);
+            bench.engine.cancel();
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QVERIFY(!bench.finished[0][0].toBool());
+        QCOMPARE(bench.failures.size(), timeout ? 1 : 0);
         if (timeout)
-            QVERIFY(failures[0][0].toString().contains(QStringLiteral("图片识别超时")));
-        QVERIFY(recognized.isEmpty() && !QFileInfo::exists(work) && !engine.busy());
+            QVERIFY(bench.failures[0][0].toString().contains(QStringLiteral("图片识别超时")));
+        QVERIFY(bench.recognized.isEmpty() && !QFileInfo::exists(work) && !bench.engine.busy());
         qunsetenv("MR_TEST_AI_OCR_MODE");
-        engine.setTimeoutForTesting(5000);
-        QVERIFY(engine.start({path}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 5000);
-        QVERIFY(finished[1][0].toBool());
-        QCOMPARE(recognized.size(), 1);
+        bench.engine.setTimeoutForTesting(5000);
+        QVERIFY(bench.engine.start({path}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 2, 5000);
+        QVERIFY(bench.finished[1][0].toBool());
+        QCOMPARE(bench.recognized.size(), 1);
     }
 
     void destructionKillsChildAndRemovesOwnedImage()
@@ -446,13 +410,11 @@ private Q_SLOTS:
         qputenv("MR_TEST_AI_OCR_READY", ready.toUtf8());
         qputenv("MR_TEST_AI_OCR_MODE", "sleep");
         auto engine = std::make_unique<mr::OfflineOcrEngine>();
-        engine->setApplicationDirectoryForTesting(installWorker(directory));
+        engine->setApplicationDirectoryForTesting(installOcrStub(directory));
         QVERIFY(engine->start({createScreenshot(directory)}));
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(ready), 3000);
-        QFile marker(ready);
-        QVERIFY(marker.open(QIODevice::ReadOnly));
-        const QString work = QString::fromUtf8(marker.readAll());
-        marker.close();
+        const QString work = workDirectoryOf(ready);
+        QVERIFY(!work.isEmpty());
         QVERIFY(QFileInfo::exists(work));
         engine.reset();
         QVERIFY(!QFileInfo::exists(work));
@@ -460,71 +422,81 @@ private Q_SLOTS:
 
     void drainsNoisyPipesWithoutChangingRecognition()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
+        EngineBench bench;
         qputenv("MR_TEST_AI_OCR_MODE", "noisy");
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QVERIFY(engine.start({createScreenshot(directory)}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QVERIFY(finished[0][0].toBool());
-        QCOMPARE(recognized[0][1].toByteArray(), wholeImageTsv());
+        QVERIFY(bench.engine.start({bench.screenshot()}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QVERIFY(bench.finished[0][0].toBool());
+        QCOMPARE(bench.recognized[0][1].toByteArray(), wholeImageTsv());
     }
 
     void failedCallbackMayStartNewBatchWithoutOldTerminalSignal()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
-        const QString path = createScreenshot(directory);
+        EngineBench bench;
+        const QString path = bench.screenshot();
         qputenv("MR_TEST_AI_OCR_MODE", "fail");
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
         bool restarted = false;
-        connect(&engine, &mr::OfflineOcrEngine::failed, &engine, [&](const QString &) {
+        connect(&bench.engine, &mr::OfflineOcrEngine::failed, &bench.engine, [&](const QString &) {
             qunsetenv("MR_TEST_AI_OCR_MODE");
-            restarted = engine.start({path});
+            restarted = bench.engine.start({path});
         });
-        QVERIFY(engine.start({path}));
+        QVERIFY(bench.engine.start({path}));
         QTRY_VERIFY_WITH_TIMEOUT(restarted, 5000);
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QCOMPARE(failures.size(), 1);
-        QCOMPARE(recognized.size(), 1);
-        QVERIFY(finished[0][0].toBool() && !engine.busy());
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QCOMPARE(bench.failures.size(), 1);
+        QCOMPARE(bench.recognized.size(), 1);
+        QVERIFY(bench.finished[0][0].toBool() && !bench.engine.busy());
     }
 
     void cancellationBeforeQueuedLaunchStartsNoWorker()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QVERIFY(engine.start({createScreenshot(directory)}));
-        engine.cancel();
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 1000);
-        QVERIFY(!finished[0][0].toBool());
-        QVERIFY(recognized.isEmpty() && engine.findChildren<QProcess *>().isEmpty());
+        EngineBench bench;
+        QVERIFY(bench.engine.start({bench.screenshot()}));
+        bench.engine.cancel();
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 1000);
+        QVERIFY(!bench.finished[0][0].toBool());
+        QVERIFY(bench.recognized.isEmpty() && bench.engine.findChildren<QProcess *>().isEmpty());
+    }
+
+    // Start, cancel and start again before either queued launch ran: the engine owns exactly one
+    // running worker, and each start settles once.
+    void rapidCancelRestartOwnsOnlyOneProcess()
+    {
+        EngineBench bench;
+        const QString path = bench.screenshot();
+        qputenv("MR_TEST_AI_OCR_MODE", "sleep");
+        bench.engine.setTimeoutForTesting(5000);
+        QVERIFY(bench.engine.start({path}));
+        bench.engine.cancel();
+        QVERIFY(!bench.engine.busy());
+        QVERIFY(bench.engine.start({path})); // Before either queued start ran.
+        QTest::qWait(100);
+        const auto activeProcesses = [&bench] {
+            int count = 0;
+            for (auto *process : bench.engine.findChildren<QProcess *>())
+                if (process->state() != QProcess::NotRunning)
+                    ++count;
+            return count;
+        };
+        QCOMPARE(activeProcesses(), 1);
+        bench.engine.cancel();
+        QTRY_VERIFY_WITH_TIMEOUT(!bench.engine.busy(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(activeProcesses(), 0, 5000);
+        QCOMPARE(bench.finished.size(), 2);
     }
 
     void imagesRunSeriallyAndSettleOnce()
     {
-        QTemporaryDir directory;
-        mr::OfflineOcrEngine engine;
-        engine.setApplicationDirectoryForTesting(installWorker(directory));
-        const QString first = createScreenshot(directory);
-        const QString second = createScreenshot(directory, QStringLiteral("第二张.png"));
-        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
-        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
-        QVERIFY(engine.start({first, second}));
-        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
-        QCOMPARE(recognized.size(), 2);
-        QCOMPARE(recognized[0][0].toString(), first);
-        QCOMPARE(recognized[1][0].toString(), second);
-        QCOMPARE(engine.completedImages(), 2);
-        QVERIFY(finished[0][0].toBool());
+        EngineBench bench;
+        const QString first = bench.screenshot();
+        const QString second = bench.screenshot(QStringLiteral("第二张.png"));
+        QVERIFY(bench.engine.start({first, second}));
+        QTRY_COMPARE_WITH_TIMEOUT(bench.finished.size(), 1, 5000);
+        QCOMPARE(bench.recognized.size(), 2);
+        QCOMPARE(bench.recognized[0][0].toString(), first);
+        QCOMPARE(bench.recognized[1][0].toString(), second);
+        QCOMPARE(bench.engine.completedImages(), 2);
+        QVERIFY(bench.finished[0][0].toBool());
     }
 };
 } // namespace

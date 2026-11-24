@@ -10,10 +10,12 @@
 //     tests/Fixtures/ipc-requests/ConfirmCalibration.json;
 //   * that one WRONG shows the "再打一把" sentence instead of an error code;
 //   * that a calibration_changed live event costs exactly one GetCaptureStatus
-//     and never a run query, a statistics refresh or an announcement.
+//     and never a run query, a statistics refresh or an announcement;
+//   * that the 自动校准 and 共享校准 switches reach the Collector.
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "PlayerVocabulary.h"
 #include "TestFonts.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
@@ -98,6 +100,23 @@ QJsonObject observingCalibration()
             {QStringLiteral("events"), QJsonArray{}}};
 }
 
+/// observingCalibration() with these progress flags seen as well.
+QJsonObject observingWithProgress(std::initializer_list<const char *> seen)
+{
+    QJsonObject calibration = observingCalibration();
+    QJsonObject progress = calibration.value(QStringLiteral("progress")).toObject();
+    for (const char *key : seen)
+        progress.insert(QLatin1String(key), true);
+    calibration.insert(QStringLiteral("progress"), progress);
+    return calibration;
+}
+
+/// A capture status that carries \a calibration and nothing else.
+QVariantMap captureWith(const QJsonObject &calibration)
+{
+    return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
+}
+
 /// 对 for every row of readyTimeline() that asks.
 QVariantMap allCorrectVerdicts()
 {
@@ -175,14 +194,88 @@ using mrtest::findVisualItem;
 /// the raw contract tokens no player-facing string may leak.
 const QStringList &maintainerVocabulary()
 {
-    static const QStringList words{
-        QString::fromUtf8("开始捕获"), QString::fromUtf8("开始验证"),
-        QString::fromUtf8("停止捕获"), QString::fromUtf8("维护者工具"),
-        QString::fromUtf8("对照核对"), QStringLiteral("opcode"), QStringLiteral("0x"),
-        QStringLiteral("UNSUPPORTED_BUILD"), QStringLiteral("VERIFIED"),
-        QStringLiteral("OBSERVING"), QStringLiteral("BLOCKED"),
-        QStringLiteral("ERR_")};
+    static const QStringList words = mrtest::maintainerWords() + QStringList{
+        QStringLiteral("UNSUPPORTED_BUILD"), QStringLiteral("OBSERVING"), QStringLiteral("BLOCKED")};
     return words;
+}
+
+/// App's calibration card in a window \a width wide that grows with it, or App's calibration
+/// dialog in a 720 x 640 window, opened. Context beyond App and ReduceMotion goes on engine first.
+struct CalibrationView
+{
+    QQmlEngine engine; // before root: the window goes first
+    std::unique_ptr<QObject> root;
+    QQuickItem *card = nullptr;
+    QObject *dialog = nullptr;
+    QString errors;
+
+    bool openCard(mr::AppController &app, int width)
+    {
+        if (!load(app, QStringLiteral(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: %1; height: card.implicitHeight + 32; visible: true
+    color: Theme.surface
+    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
+})").arg(width).toUtf8()))
+            return false;
+        card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
+        return card != nullptr;
+    }
+
+    bool openDialog(mr::AppController &app, const QByteArray &dialogItem = "CalibrationDialog { id: inner }")
+    {
+        if (!load(app, QByteArray(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: 640; visible: true
+    )") + dialogItem + "\n}"))
+            return false;
+        dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
+        return dialog && QMetaObject::invokeMethod(dialog, "openDialog")
+               && QTest::qWaitFor([this] { return dialog->property("visible").toBool(); });
+    }
+
+    QQuickItem *item(const QString &name) const { return findVisualItem(card, name); }
+    QQuickItem *dialogContent() const
+    {
+        return qobject_cast<QQuickItem *>(dialog->property("contentItem").value<QObject *>());
+    }
+    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
+
+private:
+    bool load(mr::AppController &app, const QByteArray &qml)
+    {
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(qml, QUrl());
+        root.reset(component.create());
+        errors = component.errorString();
+        return root != nullptr;
+    }
+};
+
+/// The dialog's verdict for one event. The third argument is the name a relabel carries;
+/// CORRECT and WRONG never have one.
+bool setVerdict(QObject *dialog, const QString &eventId, const QString &verdict)
+{
+    return QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(eventId)),
+                                     Q_ARG(QVariant, QVariant(verdict)), Q_ARG(QVariant, QVariant(QString())));
+}
+
+/// Keeps \a frame as \a name in MR_CALIBRATION_EVIDENCE_DIR when that is set, like the other
+/// calibration suites' screenshots; without it nothing is written.
+void saveEvidence(const QImage &frame, const QString &name)
+{
+    const QString directory = qEnvironmentVariable("MR_CALIBRATION_EVIDENCE_DIR");
+    if (directory.isEmpty())
+        return;
+    QVERIFY(QDir().mkpath(directory));
+    const QString path = QDir(directory).filePath(name);
+    QVERIFY2(frame.save(path), qPrintable(path));
 }
 
 void verifyPlayerCopy(const QString &text)
@@ -375,8 +468,7 @@ private Q_SLOTS:
                             calibration.value(QStringLiteral("events")).toArray().at(1),
                             calibration.value(QStringLiteral("events")).toArray().at(2)};
         calibration.insert(QStringLiteral("events"), shuffled);
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(calibration));
 
         QCOMPARE(controller.state(), QStringLiteral("READY"));
         QCOMPARE(controller.confirmCount(), 4);
@@ -412,8 +504,7 @@ private Q_SLOTS:
         pop.insert(QStringLiteral("at_utc"), noon.toUTC().toString(Qt::ISODateWithMs));
         QJsonObject calibration = readyTimeline();
         calibration.insert(QStringLiteral("events"), QJsonArray{pop, queued});
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(calibration));
 
         QCOMPARE(controller.events().size(), 2);
         const QVariantMap first = controller.events().at(0).toMap();
@@ -429,8 +520,7 @@ private Q_SLOTS:
         CalibrationBackend backend;
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), readyTimeline()}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
 
         QSignalSpy confirmed(&controller, &mr::CalibrationController::confirmed);
         QVariantMap verdicts;
@@ -466,8 +556,7 @@ private Q_SLOTS:
         CalibrationBackend backend;
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), readyTimeline()}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
 
         controller.confirm({{QStringLiteral("pop-120000"), QStringLiteral("CORRECT")}});
         QCOMPARE(backend.count("ConfirmCalibration"), 0);
@@ -481,8 +570,7 @@ private Q_SLOTS:
         backend.confirmErrorCode = QStringLiteral("ERR_CALIBRATION_REJECTED");
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), readyTimeline()}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
 
         QSignalSpy rejected(&controller, &mr::CalibrationController::rejected);
         QVariantMap verdicts{{QStringLiteral("finder_request-60000"), QStringLiteral("CORRECT")},
@@ -510,20 +598,17 @@ private Q_SLOTS:
         backend.confirmErrorCode = QStringLiteral("ERR_INTERNAL");
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        const auto status = [](const QJsonObject &calibration) {
-            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
-        };
-        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         controller.confirm(allCorrectVerdicts());
         QCOMPARE(backend.count("ConfirmCalibration"), 1);
         QVERIFY(!controller.error().isEmpty());
 
         // The same draft read again: the failure still applies to it, and a retry is up to the player.
-        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         QVERIFY(!controller.error().isEmpty());
 
         // Finished after all: there is nothing left to retry.
-        controller.refreshFromCaptureStatus(status(readyTimeline(false)));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline(false)));
         QCOMPARE(controller.state(), QStringLiteral("DONE"));
         QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
     }
@@ -534,26 +619,23 @@ private Q_SLOTS:
         backend.confirmErrorCode = QStringLiteral("ERR_CALIBRATION_REJECTED");
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        const auto status = [](const QJsonObject &calibration) {
-            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
-        };
-        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         controller.confirm(allCorrectVerdicts());
         const QString rejected = mr::CalibrationController::rejectedMessage();
         QCOMPARE(controller.error(), rejected);
 
         // Observing again is what the rejection leads to, and the sentence says why.
-        controller.refreshFromCaptureStatus(status(observingCalibration()));
+        controller.refreshFromCaptureStatus(captureWith(observingCalibration()));
         QCOMPARE(controller.state(), QStringLiteral("OBSERVING"));
         QCOMPARE(controller.error(), rejected);
         QJsonObject waiting = observingCalibration();
         waiting.insert(QStringLiteral("state"), QStringLiteral("WAITING"));
-        controller.refreshFromCaptureStatus(status(waiting));
+        controller.refreshFromCaptureStatus(captureWith(waiting));
         QCOMPARE(controller.state(), QStringLiteral("WAITING"));
         QCOMPARE(controller.error(), rejected);
 
         // The next draft is a new question: the old answer must not greet it.
-        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         QCOMPARE(controller.state(), QStringLiteral("READY"));
         QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
     }
@@ -564,16 +646,13 @@ private Q_SLOTS:
         backend.confirmErrorCode = QStringLiteral("ERR_INTERNAL");
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        const auto status = [](const QJsonObject &calibration) {
-            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
-        };
-        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         controller.confirm(allCorrectVerdicts());
         QVERIFY(!controller.error().isEmpty());
 
         QJsonObject patched = readyTimeline();
         patched.insert(QStringLiteral("game_build"), QStringLiteral("2026.10.01.0000.0000"));
-        controller.refreshFromCaptureStatus(status(patched));
+        controller.refreshFromCaptureStatus(captureWith(patched));
         QCOMPARE(controller.state(), QStringLiteral("READY"));
         QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
     }
@@ -583,8 +662,7 @@ private Q_SLOTS:
         CalibrationBackend backend;
         mr::CalibrationController controller;
         controller.setBackend(&backend);
-        controller.refreshFromCaptureStatus(
-            QJsonObject{{QStringLiteral("calibration"), readyTimeline()}}.toVariantMap());
+        controller.refreshFromCaptureStatus(captureWith(readyTimeline()));
         QVERIFY(controller.confirmCount() > 0);
         controller.discard();
         QCOMPARE(backend.count("DiscardCalibration"), 1);
@@ -624,46 +702,6 @@ private Q_SLOTS:
         QCOMPARE(app.calibration()->confirmCount(), 4);
     }
 
-    void calibratedProfilesAreLabelledInTheSidebar_data()
-    {
-        QTest::addColumn<bool>("shared");
-        QTest::addColumn<QString>("origin");
-        QTest::addColumn<QString>("label");
-        QTest::newRow("local") << false << "LOCAL_CALIBRATION" << QString::fromUtf8("本机校准");
-        QTest::newRow("shared") << true << "SHARED_CALIBRATION" << QString::fromUtf8("共享校准");
-    }
-
-    void calibratedProfilesAreLabelledInTheSidebar()
-    {
-        QFETCH(bool, shared);
-        QFETCH(QString, origin);
-        QFETCH(QString, label);
-        mr::MockBackend backend;
-        if (shared)
-            backend.setSharedCalibrationFixture(QStringLiteral("verified"));
-        else
-            backend.setCalibrationFixture(QStringLiteral("done"));
-        mr::AppController app(&backend, nullptr);
-        QTRY_COMPARE(app.captureStatus().value(QStringLiteral("profile_origin")).toString(), origin);
-
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import MentorRecorder
-Item {
-    // The listening branch of the capture page's protocol wording.
-    readonly property string label:
-        App.captureStatus.profile_origin === "LOCAL_CALIBRATION" ? qsTr("本机校准")
-        : App.captureStatus.profile_origin === "SHARED_CALIBRATION" ? qsTr("共享校准")
-        : qsTr("版本已支持")
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        QCOMPARE(root->property("label").toString(), label);
-    }
-
     // -- QML ----------------------------------------------------------------
 
     void aLongTimelineScrollsAndKeepsTheConfirmButtonInsideTheWindow()
@@ -681,23 +719,10 @@ Item {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: 640; visible: true
-    CalibrationDialog { id: inner; anchors.centerIn: parent }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
-        QVERIFY(dialog);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        CalibrationView view;
+        QVERIFY2(view.openDialog(app, "CalibrationDialog { id: inner; anchors.centerIn: parent }"),
+                 qPrintable(view.errors));
+        auto *dialog = view.dialog;
 
         auto *confirm = dialog->findChild<QQuickItem *>(QStringLiteral("calibrationDialogConfirm"));
         QVERIFY(confirm);
@@ -721,31 +746,16 @@ ApplicationWindow {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->confirmCount(), 4);
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: 640; visible: true
-    property alias dialog: inner
-    CalibrationDialog { id: inner }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
-        QVERIFY(dialog);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        CalibrationView view;
+        QVERIFY2(view.openDialog(app), qPrintable(view.errors));
+        auto *dialog = view.dialog;
 
         auto *confirm = dialog->findChild<QObject *>(QStringLiteral("calibrationDialogConfirm"));
         QVERIFY(confirm);
         QVERIFY(!confirm->property("enabled").toBool());
 
         // The login row is a time reference only: no buttons, and no verdict.
-        auto *content = qobject_cast<QQuickItem *>(dialog->property("contentItem").value<QObject *>());
+        auto *content = view.dialogContent();
         QVERIFY(content);
         QVERIFY(findVisualItem(content, QStringLiteral("calibrationEvent_login-0")));
         QVERIFY(!findVisualItem(content, QStringLiteral("calibrationVerdict_login-0")));
@@ -755,11 +765,7 @@ ApplicationWindow {
         for (int index = 0; index < required.size(); ++index) {
             QVERIFY2(findVisualItem(content, QStringLiteral("calibrationVerdict_") + required.at(index)),
                      qPrintable(required.at(index)));
-            // The third argument is the name a relabel carries; CORRECT never has one.
-            QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict",
-                                              Q_ARG(QVariant, QVariant(required.at(index))),
-                                              Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
-                                              Q_ARG(QVariant, QVariant(QString()))));
+            QVERIFY(setVerdict(dialog, required.at(index), QStringLiteral("CORRECT")));
             // Enabled only once the last one is answered.
             QCOMPARE(confirm->property("enabled").toBool(), index == required.size() - 1);
         }
@@ -793,35 +799,19 @@ ApplicationWindow {
         // The open list draws its rows with StyledComboBox's delegate, which reads these two.
         mr::JobCatalog jobs;
         mr::RoleCatalog roles;
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: 640; visible: true
-    CalibrationDialog { id: inner }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        CalibrationView view;
+        view.engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        view.engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
+        QVERIFY2(view.openDialog(app), qPrintable(view.errors));
+        auto *window = view.window();
         QVERIFY(window);
-        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
-        QVERIFY(dialog);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
-        auto *content = qobject_cast<QQuickItem *>(dialog->property("contentItem").value<QObject *>());
+        auto *dialog = view.dialog;
+        auto *content = view.dialogContent();
         QVERIFY(content);
 
         for (const QString &id : {QStringLiteral("finder_request-60000"), QStringLiteral("duty_enter-124000"),
                                   QStringLiteral("duty_exit-214000")}) {
-            QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(id)),
-                                              Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
-                                              Q_ARG(QVariant, QVariant(QString()))));
+            QVERIFY(setVerdict(dialog, id, QStringLiteral("CORRECT")));
         }
         auto *confirm = findVisualItem(content, QStringLiteral("calibrationDialogConfirm"));
         auto *right = findVisualItem(content, QStringLiteral("calibrationVerdictCorrect_pop-120000"));
@@ -879,30 +869,14 @@ ApplicationWindow {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->confirmCount(), 4);
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: 640; visible: true
-    CalibrationDialog { id: inner }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
-        QVERIFY(dialog);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        CalibrationView view;
+        QVERIFY2(view.openDialog(app), qPrintable(view.errors));
+        auto *dialog = view.dialog;
 
         for (const QString &id : {QStringLiteral("finder_request-60000"), QStringLiteral("pop-120000"),
                                   QStringLiteral("duty_enter-124000"), QStringLiteral("duty_exit-214000")}) {
-            QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(id)),
-                Q_ARG(QVariant, QVariant(id == QLatin1String("duty_enter-124000")
-                                         ? QStringLiteral("WRONG") : QStringLiteral("CORRECT"))),
-                Q_ARG(QVariant, QVariant(QString()))));
+            QVERIFY(setVerdict(dialog, id, id == QLatin1String("duty_enter-124000")
+                                               ? QStringLiteral("WRONG") : QStringLiteral("CORRECT")));
         }
         QSignalSpy rejected(app.calibration(), &mr::CalibrationController::rejected);
         QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
@@ -928,28 +902,12 @@ ApplicationWindow {
             mr::AppController app(&backend, nullptr);
             QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
 
-            QQmlEngine engine;
-            engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-            QQmlComponent component(&engine);
-            component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: 640; visible: true
-    CalibrationDialog { id: inner }
-})", QUrl());
-            std::unique_ptr<QObject> root(component.create());
-            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-            auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
-            QVERIFY(dialog);
-            QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-            QTRY_VERIFY(dialog->property("visible").toBool());
+            CalibrationView view;
+            QVERIFY2(view.openDialog(app), qPrintable(view.errors));
+            auto *dialog = view.dialog;
             for (const QString &id : {QStringLiteral("finder_request-60000"), QStringLiteral("pop-120000"),
                                       QStringLiteral("duty_enter-124000"), QStringLiteral("duty_exit-214000")}) {
-                QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(id)),
-                                                  Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
-                                                  Q_ARG(QVariant, QVariant(QString()))));
+                QVERIFY(setVerdict(dialog, id, QStringLiteral("CORRECT")));
             }
             QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
             QTRY_VERIFY(!dialog->property("visible").toBool());
@@ -980,30 +938,16 @@ ApplicationWindow {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(card);
-        auto *headline = card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 720), qPrintable(view.errors));
+        auto *headline = view.card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
         QVERIFY(headline);
         QTRY_VERIFY(headline->property("text").toString().contains(QString::fromUtf8("记录照常进行")));
         const QString offer = headline->property("text").toString();
         QVERIFY2(!offer.contains(QString::fromUtf8("就能开始自动记录")), qPrintable(offer));
         QVERIFY2(offer.contains(QStringLiteral("4")), qPrintable(offer));
         verifyPlayerCopy(offer);
-        auto *confirm = findVisualItem(card, QStringLiteral("calibrationConfirmButton"));
+        auto *confirm = view.item(QStringLiteral("calibrationConfirmButton"));
         QVERIFY(confirm && confirm->isVisible());
 
         // A first calibration, nothing in force: recording really starts on confirmation.
@@ -1022,40 +966,22 @@ ApplicationWindow {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *card = root->findChild<QObject *>(QStringLiteral("calibrationCard"));
-        QVERIFY(card);
-        auto *visualCard = qobject_cast<QQuickItem *>(card);
-        QVERIFY(visualCard);
-
-        auto *headline = card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 720), qPrintable(view.errors));
+        auto *headline = view.card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
         QVERIFY(headline);
         verifyPlayerCopy(headline->property("text").toString());
         QVERIFY(headline->property("text").toString().contains(QString::fromUtf8("正在重新校准")));
 
         for (const QString &key : {QStringLiteral("finder_request_seen"), QStringLiteral("pop_seen"),
                                    QStringLiteral("duty_entry_seen"), QStringLiteral("duty_exit_seen")}) {
-            QVERIFY2(findVisualItem(visualCard, QStringLiteral("calibrationProgress_") + key),
-                     qPrintable(key));
+            QVERIFY2(view.item(QStringLiteral("calibrationProgress_") + key), qPrintable(key));
         }
         // 核对并启用 only exists once the draft is ready.
-        auto *confirm = findVisualItem(visualCard, QStringLiteral("calibrationConfirmButton"));
+        auto *confirm = view.item(QStringLiteral("calibrationConfirmButton"));
         QVERIFY(confirm);
         QVERIFY(!confirm->isVisible());
-        auto *discard = findVisualItem(visualCard, QStringLiteral("calibrationDiscardButton"));
+        auto *discard = view.item(QStringLiteral("calibrationDiscardButton"));
         QVERIFY(discard);
         QVERIFY(discard->isVisible());
 
@@ -1064,17 +990,13 @@ ApplicationWindow {
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("BLOCKED"));
         QCOMPARE(app.calibration()->blockers().size(), 1);
         verifyPlayerCopy(app.calibration()->blockers().first());
-        QTRY_VERIFY(findVisualItem(visualCard, QStringLiteral("calibrationBlockers")));
+        QTRY_VERIFY(view.item(QStringLiteral("calibrationBlockers")));
     }
 
     void retainedProgressExplainsReloginWithoutClearingEvidence()
     {
         CalibrationBackend backend;
-        QJsonObject calibration = observingCalibration();
-        auto progress = calibration.value(QStringLiteral("progress")).toObject();
-        progress.insert(QStringLiteral("pop_seen"), true);
-        progress.insert(QStringLiteral("duty_entry_seen"), true);
-        calibration.insert(QStringLiteral("progress"), progress);
+        QJsonObject calibration = observingWithProgress({"pop_seen", "duty_entry_seen"});
         const QString legacyBlocker = QString::fromUtf8("打完这把副本，离开后再回来。");
         calibration.insert(QStringLiteral("blockers"), QJsonArray{legacyBlocker});
 
@@ -1092,25 +1014,12 @@ ApplicationWindow {
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(card);
-        auto *context = findVisualItem(card, QStringLiteral("calibrationProgressContext"));
-        auto *times = findVisualItem(card, QStringLiteral("calibrationEvidenceTimes"));
-        auto *blocker = findVisualItem(card, QStringLiteral("calibrationBlockerText"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 720), qPrintable(view.errors));
+        auto *card = view.card;
+        auto *context = view.item(QStringLiteral("calibrationProgressContext"));
+        auto *times = view.item(QStringLiteral("calibrationEvidenceTimes"));
+        auto *blocker = view.item(QStringLiteral("calibrationBlockerText"));
         QVERIFY(context);
         QVERIFY(times);
         QVERIFY(blocker);
@@ -1128,19 +1037,19 @@ ApplicationWindow {
         verifyPlayerCopy(blocker->property("text").toString());
         for (const QString &key : {QStringLiteral("finder_request_seen"), QStringLiteral("pop_seen"),
                                   QStringLiteral("duty_entry_seen")}) {
-            auto *row = findVisualItem(card, QStringLiteral("calibrationProgressText_") + key);
+            auto *row = view.item(QStringLiteral("calibrationProgressText_") + key);
             QVERIFY(row);
             QCOMPARE(row->property("text").toString(), QString::fromUtf8("已识别"));
         }
         QCOMPARE(app.calibration()->blockers(), QStringList{legacyBlocker});
         QCOMPARE(backend.count("DiscardCalibration"), 0);
 
-        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        auto *window = view.window();
         QVERIFY(window);
         QTest::qWait(100);
         const QImage frame = window->grabWindow();
         QVERIFY(!frame.isNull());
-        QVERIFY(frame.save(QDir::current().absoluteFilePath(QStringLiteral("calibration-retained-progress.png"))));
+        saveEvidence(frame, QStringLiteral("calibration-retained-progress.png"));
 
         // A later entry starts a fresh incomplete chain; a previous login must not
         // make it read as a relogin after that new entry.
@@ -1150,7 +1059,7 @@ ApplicationWindow {
         app.refreshStatus();
         QTRY_VERIFY(!card->property("reloggedSinceEntry").toBool());
         QTRY_VERIFY(times->property("text").toString().contains(localStamp(entry)));
-        QVERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText"))
+        QVERIFY(view.item(QStringLiteral("calibrationBlockerText"))
             ->property("text").toString().contains(QString::fromUtf8("如果你已经出本")));
 
         // Older or empty snapshots do not leave the previous session's times on screen.
@@ -1165,7 +1074,7 @@ ApplicationWindow {
         calibration.insert(QStringLiteral("blockers"), QJsonArray{otherBlocker});
         backend.capture.insert(QStringLiteral("calibration"), calibration);
         app.refreshStatus();
-        QTRY_COMPARE(findVisualItem(card, QStringLiteral("calibrationBlockerText"))
+        QTRY_COMPARE(view.item(QStringLiteral("calibrationBlockerText"))
             ->property("text").toString(), otherBlocker);
 
         // Capture faults still take precedence over instructions to play another duty.
@@ -1176,7 +1085,7 @@ ApplicationWindow {
         app.refreshStatus();
         app.recording()->refresh();
         QTRY_VERIFY(card->property("captureSilent").toBool());
-        QVERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText"))
+        QVERIFY(view.item(QStringLiteral("calibrationBlockerText"))
             ->property("text").toString().contains(QString::fromUtf8("暂时读不到游戏数据")));
         QCOMPARE(backend.count("DiscardCalibration"), 0);
     }
@@ -1191,11 +1100,7 @@ ApplicationWindow {
         const QVariantMap finishDuty = mrtest::textRef("calibration.blocker.finish_duty");
         const QVariantMap noLogin = mrtest::textRef("calibration.blocker.no_login");
         CalibrationBackend backend;
-        QJsonObject calibration = observingCalibration();
-        auto progress = calibration.value(QStringLiteral("progress")).toObject();
-        progress.insert(QStringLiteral("pop_seen"), true);
-        progress.insert(QStringLiteral("duty_entry_seen"), true);
-        calibration.insert(QStringLiteral("progress"), progress);
+        QJsonObject calibration = observingWithProgress({"pop_seen", "duty_entry_seen"});
         calibration.insert(QStringLiteral("blockers"),
                            QJsonArray{mr::collector_text::chinese(finishDuty), mr::collector_text::chinese(noLogin)});
         calibration.insert(QStringLiteral("blocker_refs"),
@@ -1205,31 +1110,17 @@ ApplicationWindow {
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
         QVERIFY(app.calibration()->blockers().constFirst().startsWith(QStringLiteral("[calibration.blocker.finish_duty]")));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 720; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(card);
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 720), qPrintable(view.errors));
         QStringList lines;
-        QTRY_VERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText")));
+        QTRY_VERIFY(view.item(QStringLiteral("calibrationBlockerText")));
         const std::function<void(QQuickItem *)> collect = [&lines, &collect](QQuickItem *item) {
             if (item->objectName() == QLatin1String("calibrationBlockerText"))
                 lines.append(item->property("text").toString());
             for (auto *child : item->childItems())
                 collect(child);
         };
-        QTRY_VERIFY((lines.clear(), collect(card), lines.size() == 2));
+        QTRY_VERIFY((lines.clear(), collect(view.card), lines.size() == 2));
         QVERIFY2(lines.at(0).contains(QString::fromUtf8("软件还没识别到这次副本的离开时间")), qPrintable(lines.at(0)));
         QVERIFY2(!lines.at(0).contains(QStringLiteral("finish_duty")), qPrintable(lines.at(0)));
         QCOMPARE(lines.at(1), mrtest::marked("calibration.blocker.no_login", mr::collector_text::chinese(noLogin)));
@@ -1267,40 +1158,23 @@ ApplicationWindow {
         QVERIFY(app.calibration()->progress().value(QStringLiteral("pop_shape_seen")).toBool());
         QVERIFY(!app.calibration()->progress().value(QStringLiteral("duty_entry_seen")).toBool());
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *visualCard = qobject_cast<QQuickItem *>(
-            root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(visualCard);
-
-        auto *label = findVisualItem(
-            visualCard, QStringLiteral("calibrationProgressText_pop_seen"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 320), qPrintable(view.errors));
+        auto *visualCard = view.card;
+        auto *label = view.item(QStringLiteral("calibrationProgressText_pop_seen"));
         QVERIFY(label);
         const QString expected = QString::fromUtf8("等待进本后确认");
         QCOMPARE(label->property("text").toString(), expected);
         verifyPlayerCopy(expected);
         // The step keeps its name beside the state it is in.
-        auto *stepLabel = findVisualItem(visualCard, QStringLiteral("calibrationProgressLabel_pop_seen"));
+        auto *stepLabel = view.item(QStringLiteral("calibrationProgressLabel_pop_seen"));
         QVERIFY(stepLabel);
         QCOMPARE(stepLabel->property("text").toString(), QString::fromUtf8("匹配弹窗"));
 
-        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        auto *window = view.window();
         QVERIFY(window);
         QTRY_VERIFY(window->isVisible());
-        auto *discard = findVisualItem(
-            visualCard, QStringLiteral("calibrationDiscardButton"));
+        auto *discard = view.item(QStringLiteral("calibrationDiscardButton"));
         QVERIFY(discard);
         for (const int width : {320, 240}) {
             window->setWidth(width);
@@ -1308,10 +1182,8 @@ ApplicationWindow {
             QTest::qWait(100); // Let the resized layout polish before capturing failure evidence.
             const QImage frame = window->grabWindow();
             QVERIFY2(!frame.isNull(), "narrow calibration card screenshot is null");
-            const QString screenshotPath = QDir::current().absoluteFilePath(width == 320
-                ? QStringLiteral("calibration-pop-shape-narrow.png")
-                : QStringLiteral("calibration-pop-shape-wrapped.png"));
-            QVERIFY2(frame.save(screenshotPath), qPrintable(screenshotPath));
+            saveEvidence(frame, width == 320 ? QStringLiteral("calibration-pop-shape-narrow.png")
+                                             : QStringLiteral("calibration-pop-shape-wrapped.png"));
             QCOMPARE(frame.width(), qRound(width * window->devicePixelRatio()));
 
             // Too narrow for the five steps in a line, the card stacks them; the
@@ -1345,25 +1217,9 @@ ApplicationWindow {
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
         QVERIFY(!app.calibration()->progress().contains(QStringLiteral("pop_shape_seen")));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *visualCard = qobject_cast<QQuickItem *>(
-            root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(visualCard);
-        auto *label = findVisualItem(
-            visualCard, QStringLiteral("calibrationProgressText_pop_seen"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 320), qPrintable(view.errors));
+        auto *label = view.item(QStringLiteral("calibrationProgressText_pop_seen"));
         QVERIFY(label);
         QCOMPARE(label->property("text").toString(),
                  QString::fromUtf8("等待识别"));
@@ -1380,63 +1236,28 @@ ApplicationWindow {
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
         QVERIFY(!app.calibration()->progress().contains(QStringLiteral("job_seen")));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *visualCard = qobject_cast<QQuickItem *>(
-            root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(visualCard);
-
-        auto *job = findVisualItem(visualCard, QStringLiteral("calibrationProgressText_job_seen"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 320), qPrintable(view.errors));
+        auto *job = view.item(QStringLiteral("calibrationProgressText_job_seen"));
         QVERIFY(job);
         const QString unseen = QString::fromUtf8("暂未识别，职业先记为未知");
         QCOMPARE(job->property("text").toString(), unseen);
         verifyPlayerCopy(unseen);
 
         // The other rows keep their wording.
-        auto *exit = findVisualItem(visualCard, QStringLiteral("calibrationProgressText_duty_exit_seen"));
+        auto *exit = view.item(QStringLiteral("calibrationProgressText_duty_exit_seen"));
         QVERIFY(exit);
         QCOMPARE(exit->property("text").toString(), QString::fromUtf8("等待识别"));
 
         // Once the Collector reports it, the row says so in the same words the rule uses.
         CalibrationBackend recognised;
-        QJsonObject calibration = observingCalibration();
-        QJsonObject progress = calibration.value(QStringLiteral("progress")).toObject();
-        progress.insert(QStringLiteral("job_seen"), true);
-        calibration.insert(QStringLiteral("progress"), progress);
-        recognised.capture.insert(QStringLiteral("calibration"), calibration);
+        recognised.capture.insert(QStringLiteral("calibration"), observingWithProgress({"job_seen"}));
         mr::AppController seen(&recognised, nullptr);
         QTRY_VERIFY(seen.calibration()->progress().value(QStringLiteral("job_seen")).toBool());
 
-        QQmlEngine seenEngine;
-        seenEngine.rootContext()->setContextProperty(QStringLiteral("App"), &seen);
-        seenEngine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent seenComponent(&seenEngine);
-        seenComponent.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> seenRoot(seenComponent.create());
-        QVERIFY2(seenRoot != nullptr, qPrintable(seenComponent.errorString()));
-        auto *seenCard = qobject_cast<QQuickItem *>(
-            seenRoot->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(seenCard);
-        auto *seenJob = findVisualItem(seenCard, QStringLiteral("calibrationProgressText_job_seen"));
+        CalibrationView seenView;
+        QVERIFY2(seenView.openCard(seen, 320), qPrintable(seenView.errors));
+        auto *seenJob = seenView.item(QStringLiteral("calibrationProgressText_job_seen"));
         QVERIFY(seenJob);
         QCOMPARE(seenJob->property("text").toString(), QString::fromUtf8("已识别"));
     }
@@ -1447,43 +1268,21 @@ ApplicationWindow {
         // noticed nothing. duty_entry_seen is the stricter claim; duty_zone_seen is
         // what the player actually did.
         CalibrationBackend backend;
-        QJsonObject calibration = observingCalibration();
-        QJsonObject progress = calibration.value(QStringLiteral("progress")).toObject();
-        progress.insert(QStringLiteral("duty_zone_seen"), true);
-        calibration.insert(QStringLiteral("progress"), progress);
-        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        backend.capture.insert(QStringLiteral("calibration"), observingWithProgress({"duty_zone_seen"}));
         mr::AppController app(&backend, nullptr);
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
         QVERIFY(!app.calibration()->progress().value(QStringLiteral("duty_entry_seen")).toBool());
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *visualCard = qobject_cast<QQuickItem *>(
-            root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(visualCard);
-
-        auto *entry = findVisualItem(
-            visualCard, QStringLiteral("calibrationProgressText_duty_entry_seen"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 320), qPrintable(view.errors));
+        auto *entry = view.item(QStringLiteral("calibrationProgressText_duty_entry_seen"));
         QVERIFY(entry);
         const QString expected = QString::fromUtf8("已检测到进本，还没对上排队记录");
         QCOMPARE(entry->property("text").toString(), expected);
         verifyPlayerCopy(expected);
 
         // 出本 has no near evidence of its own, so it must keep the plain wording.
-        auto *exit = findVisualItem(
-            visualCard, QStringLiteral("calibrationProgressText_duty_exit_seen"));
+        auto *exit = view.item(QStringLiteral("calibrationProgressText_duty_exit_seen"));
         QVERIFY(exit);
         QCOMPARE(exit->property("text").toString(), QString::fromUtf8("等待识别"));
     }
@@ -1498,50 +1297,44 @@ ApplicationWindow {
         QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
         QVERIFY(!app.calibration()->progress().contains(QStringLiteral("duty_zone_seen")));
 
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
-        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 320; height: card.implicitHeight + 32; visible: true
-    color: Theme.surface
-    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
-})", QUrl());
-        std::unique_ptr<QObject> root(component.create());
-        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-        auto *visualCard = qobject_cast<QQuickItem *>(
-            root->findChild<QObject *>(QStringLiteral("calibrationCard")));
-        QVERIFY(visualCard);
-        auto *entry = findVisualItem(
-            visualCard, QStringLiteral("calibrationProgressText_duty_entry_seen"));
+        CalibrationView view;
+        QVERIFY2(view.openCard(app, 320), qPrintable(view.errors));
+        auto *entry = view.item(QStringLiteral("calibrationProgressText_duty_entry_seen"));
         QVERIFY(entry);
         QCOMPARE(entry->property("text").toString(), QString::fromUtf8("等待识别"));
     }
 
-    void settingsToggleWritesTheCollectorOwnedSwitch()
+    // 自动校准 and 共享校准 are switches the Collector owns: each goes through AppController's
+    // settings whitelist and the debounce, and the Collector's answer agrees.
+    void captureSettingSwitchesReachTheCollector_data()
     {
+        QTest::addColumn<QString>("key");
+        QTest::newRow("auto-calibration") << QStringLiteral("auto_calibration_enabled");
+        QTest::newRow("shared-calibration") << QStringLiteral("shared_calibration_enabled");
+    }
+
+    void captureSettingSwitchesReachTheCollector()
+    {
+        QFETCH(QString, key);
         mr::MockBackend backend;
         mr::AppController app(&backend, nullptr);
         QTRY_VERIFY(app.captureSettingsLoaded());
         // Default on: off means fail-closed silence on every patch day.
-        QVERIFY(app.captureSettings().value(QStringLiteral("auto_calibration_enabled")).toBool());
+        QVERIFY(app.captureSettings().value(key).toBool());
 
         // The whitelist in AppController has to know the key, or the write is
         // dropped before it reaches the debounce.
-        app.updateCaptureSetting(QStringLiteral("auto_calibration_enabled"), false);
-        QVERIFY(!app.captureSettings().value(QStringLiteral("auto_calibration_enabled")).toBool());
+        app.updateCaptureSetting(key, false);
+        QVERIFY(!app.captureSettings().value(key).toBool());
         // And the Collector's confirmed answer has to agree once the debounce
         // has flushed, not just the optimistic local copy.
         QTest::qWait(1200);
-        QVERIFY(!app.captureSettings().value(QStringLiteral("auto_calibration_enabled")).toBool());
+        QVERIFY(!app.captureSettings().value(key).toBool());
         QVERIFY(app.captureSettingsError().isEmpty());
 
-        app.updateCaptureSetting(QStringLiteral("auto_calibration_enabled"), true);
+        app.updateCaptureSetting(key, true);
         QTest::qWait(1200);
-        QVERIFY(app.captureSettings().value(QStringLiteral("auto_calibration_enabled")).toBool());
+        QVERIFY(app.captureSettings().value(key).toBool());
         QVERIFY(app.captureSettingsError().isEmpty());
     }
 };

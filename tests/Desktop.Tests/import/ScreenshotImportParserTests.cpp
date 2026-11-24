@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "OcrStubSupport.h"
 #include "ScopedEnvironmentVariable.h"
 #include "ScreenshotImportParser.h"
 #include "JobCatalog.h"
@@ -18,11 +19,7 @@
 
 namespace {
 
-const QByteArray &kTsvHeader()
-{
-    static const QByteArray value = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
-    return value;
-}
+using mrtest::ocrTsvHeader;
 
 /** @brief 创建不含真实用户正文的 TSV；block 用于模拟 sparse OCR 把同一行切成多块。 */
 QByteArray word(int line, int left, int top, int width, int height, const QString &text,
@@ -42,12 +39,68 @@ QImage screenshot(int height = 800)
     return image;
 }
 
+/** @brief 白底截图上一张手机卡片的深色底（x 30..569，自 y=70 起，高 cardHeight）。 */
+QImage cardScreenshot(int cardHeight = 180)
+{
+    QImage image = screenshot();
+    {
+        QPainter painter(&image);
+        painter.fillRect(QRect(30, 70, 540, cardHeight), QColor(85, 45, 45));
+    }
+    return image;
+}
+
 QByteArray card(int top, int line = 1, const QString &time = QStringLiteral("2026-10-01 12:34:56"))
 {
     return word(line, 150, top, 280, 20, QStringLiteral("Lv.50 合成副本"))
         + word(line + 1, 150, top + 40, 260, 20, QStringLiteral("合成心得第一行"))
         + word(line + 2, 150, top + 65, 260, 20, QStringLiteral("合成心得第二行"))
         + word(line + 3, 380, top + 100, 190, 15, time);
+}
+
+/** @brief 1845 宽网页的一条单行记录（行 2..1830 × top..top+91），返回等级、副本、日期与时间单词。 */
+QByteArray rowHead(int top, const QString &level, int block)
+{
+    return word(1, 140, top + 40, 44, 15, level, 92, block)
+        + word(1, 281, top + 37, 188, 20, QStringLiteral("山中战线泽梅尔要塞"), 93, block + 1)
+        + word(1, 500, top + 39, 103, 15, QStringLiteral("2024-09-11"), 91, block + 2)
+        + word(1, 613, top + 39, 76, 15, QStringLiteral("19:54:56"), 90, block + 3);
+}
+
+/**
+ * @brief 一个只属于本测试的 LOCALAPPDATA，其中 MentorRecorder/icons/jobs 是解析器读取本地职业图标模板的空文件夹；
+ * 析构时恢复原来的 LOCALAPPDATA。
+ */
+class LocalJobIcons
+{
+public:
+    bool isValid() const { return m_ready; }
+    bool save(int jobId, const QImage &icon) const
+    {
+        return icon.save(m_jobs.filePath(QStringLiteral("%1.png").arg(jobId)));
+    }
+
+private:
+    QTemporaryDir m_directory;
+    mrtest::ScopedEnvironmentVariable m_localAppData{"LOCALAPPDATA", m_directory.path().toUtf8()};
+    QDir m_jobs{m_directory.filePath(QStringLiteral("MentorRecorder/icons/jobs"))};
+    bool m_ready = m_directory.isValid() && QDir().mkpath(m_jobs.path());
+};
+
+/** @brief 本地模板里的 19 号职业图标：合成金色字形；构建带分类器时改用已打包的同号图标。 */
+QImage templateIcon19()
+{
+    if (mr::JobIconClassifier().isAvailable())
+        return QImage(QStringLiteral(":/resources/icons/jobs/19.png"));
+    QImage icon(56, 56, QImage::Format_ARGB32);
+    icon.fill(Qt::transparent);
+    QPainter painter(&icon);
+    painter.fillRect(QRect(8, 8, 8, 40), QColor(220, 185, 75));
+    painter.fillRect(QRect(8, 40, 40, 8), QColor(220, 185, 75));
+    painter.fillRect(QRect(40, 20, 8, 28), QColor(220, 185, 75));
+    painter.fillRect(QRect(24, 8, 8, 12), QColor(220, 185, 75));
+    painter.end();
+    return icon;
 }
 
 bool hasWarning(const QVariantMap &row, const QString &part)
@@ -174,7 +227,7 @@ void ScreenshotImportParserTests::separatesCardsAndPreservesLineOrder()
 {
     QString error;
     // TSV order intentionally differs from screen order.
-    const QByteArray tsv = kTsvHeader() + card(350, 10, QStringLiteral("2026-10-01 12:30:00"))
+    const QByteArray tsv = ocrTsvHeader() + card(350, 10, QStringLiteral("2026-10-01 12:30:00"))
         + card(100);
     const QVariantList rows = mr::ScreenshotImportParser::parse(screenshot(), tsv,
                                                                QStringLiteral("C:/synthetic.png"), &error);
@@ -197,7 +250,7 @@ void ScreenshotImportParserTests::separatesCardsAndPreservesLineOrder()
 
 void ScreenshotImportParserTests::sparseBlocksOnTheSameRowFormOneTitleAndTimestamp()
 {
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 35, 20, QStringLiteral("Lv."), 95, 1)
         + word(1, 185, 102, 30, 20, QStringLiteral("50"), 95, 2)
         + word(1, 250, 101, 220, 20, QStringLiteral("合成 副本"), 95, 3)
@@ -228,7 +281,7 @@ void ScreenshotImportParserTests::mobileAdjacentDateAndTimeBoxesKeepTheSourceTim
     QFETCH(QString, time);
     // 检测框的外扩可能吞掉原图中的日期/时间间距；完整字段仍须保留结构分隔。
     // 同张卡片里拆成相邻框的数字颜文字则必须继续合成 030，不能普遍补空格。
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"), 96, 1)
         + word(2, 150, 140, 10, 20, QStringLiteral("0"), 96, 2)
         + word(2, 160, 140, 20, 20, QStringLiteral("30"), 96, 3)
@@ -243,7 +296,7 @@ void ScreenshotImportParserTests::mobileAdjacentDateAndTimeBoxesKeepTheSourceTim
 
 void ScreenshotImportParserTests::ignoresDeleteAndPagingAndDoesNotInventRunFacts()
 {
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 60, 30, 180, 20, QStringLiteral("返回首页"))
         + word(2, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"))
         + word(3, 150, 140, 340, 20, QStringLiteral("合成正文"))
@@ -267,13 +320,12 @@ void ScreenshotImportParserTests::ignoresDeleteAndPagingAndDoesNotInventRunFacts
 
 void ScreenshotImportParserTests::timestampAndCardBorderKeepAMissedTitleSeparate()
 {
-    QImage image = screenshot();
+    QImage image = cardScreenshot();
     {
         QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
         painter.fillRect(QRect(30, 320, 540, 180), QColor(85, 45, 45));
     }
-    const QByteArray tsv = kTsvHeader() + card(100)
+    const QByteArray tsv = ocrTsvHeader() + card(100)
         + word(10, 150, 350, 300, 20, QStringLiteral("unrecognised header"), 0)
         + word(11, 150, 390, 260, 20, QStringLiteral("合成第二卡正文"))
         + word(12, 380, 450, 190, 15, QStringLiteral("2026-10-01 12:30:00"));
@@ -295,7 +347,7 @@ void ScreenshotImportParserTests::blueDutyIconIsNotTitleText()
         QPainter painter(&image);
         painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
     }
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 65, 20, QStringLiteral("Lv.50"))
         + word(1, 225, 100, 30, 20, QStringLiteral("(A)"), 40, 1, 2)
         + word(1, 270, 100, 200, 20, QStringLiteral("合成副本"), 96, 1, 3)
@@ -308,7 +360,7 @@ void ScreenshotImportParserTests::blueDutyIconIsNotTitleText()
 
 void ScreenshotImportParserTests::clippedCardStaysVisibleForCorrection()
 {
-    const QByteArray tsv = kTsvHeader() + card(100)
+    const QByteArray tsv = ocrTsvHeader() + card(100)
         + word(10, 150, 640, 280, 20, QStringLiteral("Lv.59 合成裁切副本"))
         + word(11, 150, 690, 350, 20, QStringLiteral("10/page 1 of 72"))
         + word(12, 180, 740, 350, 20, QStringLiteral("dlog.luyulight.cn"));
@@ -324,7 +376,7 @@ void ScreenshotImportParserTests::clippedCardStaysVisibleForCorrection()
 
 void ScreenshotImportParserTests::invalidDateAndLowConfidenceRequireCorrection()
 {
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"), 30)
         + word(2, 150, 140, 260, 20, QStringLiteral("合成正文"), 20)
         + word(3, 380, 200, 190, 15, QStringLiteral("2026-02-30 25:61:00"), 20);
@@ -341,24 +393,24 @@ void ScreenshotImportParserTests::boundedInputsRejectWholeBatch()
 {
     QString error;
     const QImage image = screenshot();
-    QVERIFY(mr::ScreenshotImportParser::parse({}, kTsvHeader() + card(100), {}, &error).isEmpty());
+    QVERIFY(mr::ScreenshotImportParser::parse({}, ocrTsvHeader() + card(100), {}, &error).isEmpty());
     QVERIFY(!error.isEmpty());
     // Mono storage keeps this 50,010,000-pixel limit test small in memory.
     const QImage tooLarge(10'000, 5001, QImage::Format_Mono);
     QVERIFY(!tooLarge.isNull());
-    QVERIFY(mr::ScreenshotImportParser::parse(tooLarge, kTsvHeader() + card(100), {}, &error).isEmpty());
+    QVERIFY(mr::ScreenshotImportParser::parse(tooLarge, ocrTsvHeader() + card(100), {}, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("5000")));
     QVERIFY(mr::ScreenshotImportParser::parse(image, QByteArray(mr::ScreenshotImportParser::MaxTsvBytes + 1, 'x'), {}, &error).isEmpty());
     QVERIFY(!error.isEmpty());
     QVERIFY(mr::ScreenshotImportParser::parse(image, QByteArray("not-tsv"), {}, &error).isEmpty());
     QVERIFY(!error.isEmpty());
-    QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader() + card(100)
+    QVERIFY(mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + card(100)
                                                + word(10, 590, 600, 40, 20, QStringLiteral("越界")), {}, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("文字位置超出原图范围")));
-    QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader() + card(100)
+    QVERIFY(mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + card(100)
                                                + word(10, 150, 600, 40, 20, QStringLiteral("非法分值"), 101), {}, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("文字评分异常")));
-    QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader() + word(1, 150, 100, 200, 20, QStringLiteral("无卡片正文")), {}, &error).isEmpty());
+    QVERIFY(mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + word(1, 150, 100, 200, 20, QStringLiteral("无卡片正文")), {}, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("没有识别到带副本等级和名称，或完整记录时间的卡片")));
 }
 
@@ -366,7 +418,7 @@ void ScreenshotImportParserTests::candidateLimitRejectsWholeBatch()
 {
     QImage image(600, 50'000, QImage::Format_RGB32);
     image.fill(Qt::white);
-    QByteArray tsv = kTsvHeader();
+    QByteArray tsv = ocrTsvHeader();
     for (int i = 0; i <= mr::ScreenshotImportParser::MaxCandidates; ++i)
         tsv += word(i + 1, 150, 10 + (i * 40), 280, 20, QStringLiteral("Lv.50 合成副本"));
     QString error;
@@ -380,31 +432,17 @@ void ScreenshotImportParserTests::localTemplateMatchRemainsReviewable()
     // personal classifier builds reuse the corresponding existing icon resource.
     if (!QFile::exists(QStringLiteral(":/resources/icons/manifest.json")))
         QSKIP("The host test target must link the existing mr_icons resource.");
-    QTemporaryDir localData;
-    QVERIFY(localData.isValid());
-    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
-    QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
-    QImage icon(56, 56, QImage::Format_ARGB32);
-    icon.fill(Qt::transparent);
-    {
-        QPainter painter(&icon);
-        painter.fillRect(QRect(8, 8, 8, 40), QColor(220, 185, 75));
-        painter.fillRect(QRect(8, 40, 40, 8), QColor(220, 185, 75));
-        painter.fillRect(QRect(40, 20, 8, 28), QColor(220, 185, 75));
-        painter.fillRect(QRect(24, 8, 8, 12), QColor(220, 185, 75));
-    }
-    if (mr::JobIconClassifier().isAvailable()) {
-        icon = QImage(QStringLiteral(":/resources/icons/jobs/19.png"));
-        QVERIFY(!icon.isNull());
-    }
-    QVERIFY(icon.save(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs/19.png")));
-    QImage image = screenshot();
+    const LocalJobIcons localIcons;
+    QVERIFY(localIcons.isValid());
+    const QImage icon = templateIcon19();
+    QVERIFY(!icon.isNull());
+    QVERIFY(localIcons.save(19, icon));
+    QImage image = cardScreenshot();
     {
         QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
         painter.drawImage(QRect(50, 110, 72, 72), icon);
     }
-    const QVariantList rows = mr::ScreenshotImportParser::parse(image, kTsvHeader() + card(100), {});
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + card(100), {});
     QCOMPARE(rows.size(), 1);
     const QVariantMap row = rows[0].toMap();
     QCOMPARE(row.value(QStringLiteral("job_id")).toInt(), 19);
@@ -420,14 +458,13 @@ void ScreenshotImportParserTests::localTemplateMatchRemainsReviewable()
 
 void ScreenshotImportParserTests::differentGoldArtworkRemainsUnknown()
 {
-    QImage image = screenshot();
+    QImage image = cardScreenshot();
     {
         QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
         // A solid rectangle is intentionally unlike a job glyph.
         painter.fillRect(QRect(50, 110, 72, 72), QColor(220, 185, 75));
     }
-    const QVariantList rows = mr::ScreenshotImportParser::parse(image, kTsvHeader() + card(100), {});
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + card(100), {});
     QCOMPARE(rows.size(), 1);
     QVERIFY(rows[0].toMap().value(QStringLiteral("job_id")).isNull());
     // 已知输出低分时可以给出待核对候选，但不能变成可靠职业。
@@ -447,10 +484,8 @@ void ScreenshotImportParserTests::jobTemplatesExcludeBaseCraftingAndLimitedJobs(
 {
     if (!QFile::exists(QStringLiteral(":/resources/icons/manifest.json")))
         QSKIP("The host test target must link the existing mr_icons resource.");
-    QTemporaryDir localData;
-    QVERIFY(localData.isValid());
-    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
-    QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
+    const LocalJobIcons localIcons;
+    QVERIFY(localIcons.isValid());
     QImage icon(56, 56, QImage::Format_ARGB32);
     icon.fill(Qt::transparent);
     {
@@ -462,14 +497,13 @@ void ScreenshotImportParserTests::jobTemplatesExcludeBaseCraftingAndLimitedJobs(
     }
     // 即使非导随职业的本地图标与截图完全一致，也不能进入候选排名。
     for (int excluded : {1, 8, 36, 43})
-        QVERIFY(icon.save(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs/%1.png").arg(excluded)));
-    QImage image = screenshot();
+        QVERIFY(localIcons.save(excluded, icon));
+    QImage image = cardScreenshot();
     {
         QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
         painter.drawImage(QRect(50, 110, 72, 72), icon);
     }
-    const QVariantList rows = mr::ScreenshotImportParser::parse(image, kTsvHeader() + card(100), {});
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, ocrTsvHeader() + card(100), {});
     QCOMPARE(rows.size(), 1);
     QSet<int> eligible;
     for (const QVariant &job : mr::JobCatalog().battleJobs())
@@ -484,15 +518,14 @@ void ScreenshotImportParserTests::jobTemplatesExcludeBaseCraftingAndLimitedJobs(
 
 void ScreenshotImportParserTests::missingLevelPrefixRequiresCardAndBlueIconAtTheTop()
 {
-    const QByteArray missingTitle = kTsvHeader()
+    const QByteArray missingTitle = ocrTsvHeader()
         + word(1, 150, 100, 65, 20, QStringLiteral("v.55"))
         + word(1, 225, 98, 30, 25, QStringLiteral("(A)"), 40, 1, 2)
         + word(1, 270, 100, 200, 20, QStringLiteral("合成副本"), 96, 1, 3)
         + word(2, 150, 140, 260, 20, QStringLiteral("裁切正文"));
-    QImage bounded = screenshot();
+    QImage bounded = cardScreenshot();
     {
         QPainter painter(&bounded);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
         painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
     }
     const QVariantList rows = mr::ScreenshotImportParser::parse(bounded, missingTitle, {});
@@ -509,21 +542,16 @@ void ScreenshotImportParserTests::missingLevelPrefixRequiresCardAndBlueIconAtThe
         painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
     }
     QVERIFY(mr::ScreenshotImportParser::parse(noCard, missingTitle, {}).isEmpty());
-    QImage noBlue = screenshot();
-    {
-        QPainter painter(&noBlue);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
-    }
+    const QImage noBlue = cardScreenshot();
     QVERIFY(mr::ScreenshotImportParser::parse(noBlue, missingTitle, {}).isEmpty());
 
     // 正文即使有类似前缀和蓝色图形，远离卡片上沿也不能分裂出新记录。
-    QImage bodyImage = screenshot();
+    QImage bodyImage = cardScreenshot(250);
     {
         QPainter painter(&bodyImage);
-        painter.fillRect(QRect(30, 70, 540, 250), QColor(85, 45, 45));
         painter.fillRect(QRect(225, 228, 30, 25), QColor(15, 180, 230));
     }
-    const QByteArray bodyPrefix = kTsvHeader()
+    const QByteArray bodyPrefix = ocrTsvHeader()
         + word(1, 150, 100, 280, 20, QStringLiteral("Lv.55 合成副本"))
         + word(2, 150, 230, 65, 20, QStringLiteral("v.90"))
         + word(2, 225, 228, 30, 25, QStringLiteral("(A)"), 40, 1, 2)
@@ -538,15 +566,12 @@ void ScreenshotImportParserTests::dutyCandidatesRequireUniqueSameLevelChineseMat
 {
     QVERIFY(QFile::exists(QStringLiteral(":/data/duties/cn.2026-09-04.json")));
     const auto parseTitle = [](const QString &name, int level, bool hasBlue = true, bool hasCard = true) {
-        QImage image = screenshot();
-        {
+        QImage image = hasCard ? cardScreenshot() : screenshot();
+        if (hasBlue) {
             QPainter painter(&image);
-            if (hasCard)
-                painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
-            if (hasBlue)
-                painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
+            painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
         }
-        const QByteArray tsv = kTsvHeader()
+        const QByteArray tsv = ocrTsvHeader()
             + word(1, 150, 100, 65, 20, QStringLiteral("Lv.%1").arg(level))
             + word(1, 225, 98, 30, 25, QStringLiteral("(A)"), 40, 1, 2)
             + word(1, 270, 100, 280, 20, name, 96, 1, 3)
@@ -597,7 +622,7 @@ void ScreenshotImportParserTests::webRowsSplitLevelDutyTimeAndNoteIntoColumns()
     paintTypeIcon(image, QRect(222, 39, 30, 30), QColor(136, 245, 251));
     paintTypeIcon(image, QRect(222, 147, 30, 30), QColor(70, 172, 176));
     paintTypeIcon(image, QRect(222, 255, 30, 30), QColor(220, 70, 50));
-    QByteArray tsv = kTsvHeader();
+    QByteArray tsv = ocrTsvHeader();
     tsv += inked(image, QRect(145, 47, 44, 15), QStringLiteral("Lv.90"), 1);
     tsv += inked(image, QRect(286, 44, 171, 20), QStringLiteral("最终幻想未世终迹"), 2);
     tsv += inked(image, QRect(484, 46, 103, 15), QStringLiteral("2024-09-21"), 3);
@@ -681,7 +706,7 @@ void ScreenshotImportParserTests::webRowColumnsSpanWrappedLines()
     QImage image = webPage(1848, 330, {QRect(7, 20, 1900, 151), QRect(7, 190, 1900, 131)});
     paintTypeIcon(image, QRect(280, 75, 30, 30), QColor(220, 70, 50));
     paintTypeIcon(image, QRect(280, 240, 30, 30), QColor(136, 245, 251));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 83, 44, 15, QStringLiteral("Lv.50"), 96, 1)
         + word(1, 330, 60, 126, 20, QStringLiteral("究极神兵假想"), 96, 2)
         + word(1, 330, 100, 42, 20, QStringLiteral("作战"), 96, 3)
@@ -762,7 +787,7 @@ void ScreenshotImportParserTests::webRowAutoWrapDoesNotBecomeANoteLineBreak()
     QFETCH(bool, joined);
     // 标题和时间各占两条物理行；心得沿列右缘折行，三个字段不能相互拼接。
     QImage image = webPage(1422, 160, {QRect(4, 15, 1414, 134)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 217, 28, 135, 21, QStringLiteral("最终决战天幕魔导"), 96, 1)
         + word(1, 375, 30, 88, 19, QStringLiteral("2026-10-01"), 96, 2)
         + word(1, 532, 28, firstRight - 532 + 1, 24, first, 96, 3)
@@ -786,7 +811,7 @@ void ScreenshotImportParserTests::webRowAutoWrapKeepsPhysicalOrderAcrossFragment
 {
     QImage image = webPage(1422, 160, {QRect(4, 15, 1414, 134)});
     // TSV 顺序与画面相反，第二物理行也被分成两个框；连续折行不能按框号或横坐标串错。
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 105, 42, 45, 21, QStringLiteral("Lv.50"), 96, 1)
         + word(1, 217, 40, 135, 21, QStringLiteral("合成副本标题"), 96, 2)
         + word(1, 375, 30, 88, 19, QStringLiteral("2026-10-01"), 96, 3)
@@ -807,7 +832,7 @@ void ScreenshotImportParserTests::webRowColumnsFollowVisualLinesNotOcrLineNumber
     // 分区识别可能把两行文字或居中的删除叉号编进同一 OCR 行；列内顺序仍按画面上下行排列。
     QImage image = webPage(1848, 200, {QRect(7, 20, 1823, 151)});
     paintTypeIcon(image, QRect(280, 75, 30, 30), QColor(220, 70, 50));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 83, 44, 15, QStringLiteral("Lv.50"), 96, 1, 1)
         + word(1, 330, 100, 42, 20, QStringLiteral("作战"), 96, 1, 2)
         + word(1, 330, 60, 126, 20, QStringLiteral("究极神兵假想"), 96, 1, 3)
@@ -831,7 +856,7 @@ void ScreenshotImportParserTests::webRowDeleteMarkIsNeverNoteText()
 {
     // 行尾白色叉号是删除按钮。心得紧贴叉号时提示遮挡；短心得不提示，叉号都不进入正文。
     QImage image = webPage(1848, 230, {QRect(7, 10, 1823, 93), QRect(7, 120, 1823, 93)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 50, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 330, 48, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 520, 50, 106, 15, QStringLiteral("2024-09-19"), 96, 3)
@@ -874,30 +899,17 @@ void ScreenshotImportParserTests::webRowJobIconLeftOfLevelIsMatched()
     QFETCH(int, width);
     if (!QFile::exists(QStringLiteral(":/resources/icons/manifest.json")))
         QSKIP("The host test target must link the existing mr_icons resource.");
-    QTemporaryDir localData;
-    QVERIFY(localData.isValid());
-    const mrtest::ScopedEnvironmentVariable localAppData("LOCALAPPDATA", localData.path().toUtf8());
-    QVERIFY(QDir().mkpath(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs")));
-    QImage icon(56, 56, QImage::Format_ARGB32);
-    icon.fill(Qt::transparent);
-    {
-        QPainter painter(&icon);
-        painter.fillRect(QRect(8, 8, 8, 40), QColor(220, 185, 75));
-        painter.fillRect(QRect(8, 40, 40, 8), QColor(220, 185, 75));
-        painter.fillRect(QRect(40, 20, 8, 28), QColor(220, 185, 75));
-        painter.fillRect(QRect(24, 8, 8, 12), QColor(220, 185, 75));
-    }
-    if (mr::JobIconClassifier().isAvailable()) {
-        icon = QImage(QStringLiteral(":/resources/icons/jobs/19.png"));
-        QVERIFY(!icon.isNull());
-    }
-    QVERIFY(icon.save(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs/19.png")));
+    const LocalJobIcons localIcons;
+    QVERIFY(localIcons.isValid());
+    const QImage icon = templateIcon19();
+    QVERIFY(!icon.isNull());
+    QVERIFY(localIcons.save(19, icon));
     QImage image = webPage(width, 120, {QRect(7, 7, width + 50, 93)}, true);
     {
         QPainter painter(&image);
         painter.drawImage(QRect(32, 18, 72, 72), icon);
     }
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 47, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 286, 44, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 484, 46, 103, 15, QStringLiteral("2024-09-19"), 96, 3)
@@ -917,7 +929,7 @@ void ScreenshotImportParserTests::rowFieldsBoundEachColumnOfAWebRow()
 {
     QImage image = webPage(1848, 200, {QRect(7, 20, 1823, 151)});
     paintTypeIcon(image, QRect(280, 75, 30, 30), QColor(220, 70, 50));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 83, 44, 15, QStringLiteral("Lv.50"), 96, 1)
         + word(1, 330, 60, 126, 20, QStringLiteral("究极神兵假想"), 96, 2)
         + word(1, 330, 100, 42, 20, QStringLiteral("作战"), 96, 3)
@@ -946,7 +958,7 @@ void ScreenshotImportParserTests::rowFieldsBoundEachColumnOfAWebRow()
     QVERIFY2(row.body.right() >= 859 && row.body.right() < 1790, qPrintable(QString::number(row.body.right())));
     QVERIFY(row.body.top() <= 60 && row.body.bottom() >= 119);
 
-    QVERIFY(mr::ScreenshotImportParser::rowFields(screenshot(), kTsvHeader() + card(100)).isEmpty());
+    QVERIFY(mr::ScreenshotImportParser::rowFields(screenshot(), ocrTsvHeader() + card(100)).isEmpty());
     QVERIFY(mr::ScreenshotImportParser::rowFields(image, QByteArray("not-tsv")).isEmpty());
     QVERIFY(mr::ScreenshotImportParser::rowFields({}, tsv).isEmpty());
 }
@@ -954,12 +966,8 @@ void ScreenshotImportParserTests::rowFieldsBoundEachColumnOfAWebRow()
 void ScreenshotImportParserTests::mobileCardWithCloseFooterIsNotAWebRow()
 {
     // 手机卡片即使正文为空、页脚日期紧接标题，也不按网页单行记录拆列。
-    QImage image = screenshot();
-    {
-        QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 120), QColor(85, 45, 45));
-    }
-    const QByteArray tsv = kTsvHeader()
+    const QImage image = cardScreenshot(120);
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 65, 20, QStringLiteral("Lv.50"))
         + word(1, 225, 100, 200, 20, QStringLiteral("合成副本"), 96, 1, 2)
         + word(2, 380, 150, 190, 15, QStringLiteral("2026-10-01 12:34:56"));
@@ -975,7 +983,7 @@ void ScreenshotImportParserTests::webRowsTouchingTheTopOrBottomEdgeAreKept()
 {
     // 截图从某一行中间开始、在另一行中间结束：两行都保留，并提示接近截图边缘。
     QImage image = webPage(1428, 200, {QRect(7, 0, 1500, 80), QRect(7, 108, 1500, 92)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 33, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 286, 30, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 484, 32, 103, 15, QStringLiteral("2024-09-19"), 96, 3)
@@ -1002,7 +1010,7 @@ void ScreenshotImportParserTests::webRowWithMisreadDateOrLevelIsKept()
 {
     // 日期或等级数字被读错一个字形时仍按单行记录保留，交给提示与分区重读修正，不能整行丢失。
     QImage image = webPage(1428, 230, {QRect(7, 7, 1500, 93), QRect(7, 115, 1500, 93)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 47, 44, 15, QStringLiteral("Lv.9O"), 96, 1)
         + word(1, 286, 44, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 484, 46, 103, 15, QStringLiteral("2024-09-2l"), 96, 3)
@@ -1036,7 +1044,7 @@ void ScreenshotImportParserTests::webRowTypeIconIgnoresColourNoise()
     QImage image = webPage(1428, 120, {QRect(7, 7, 1500, 93)});
     paintTypeIcon(image, QRect(222, 39, 30, 30), QColor(136, 245, 251));
     const QString name = QStringLiteral("最终幻想末世终迹");
-    QByteArray tsv = kTsvHeader() + word(1, 145, 47, 44, 15, QStringLiteral("Lv.90"), 96, 1);
+    QByteArray tsv = ocrTsvHeader() + word(1, 145, 47, 44, 15, QStringLiteral("Lv.90"), 96, 1);
     {
         QPainter painter(&image);
         for (int i = 0; i < name.size(); ++i) {
@@ -1072,7 +1080,7 @@ void ScreenshotImportParserTests::webRowIconWordIsExcludedByComponentOrByRatio()
         painter.fillRect(QRect(224, 41, 26, 26), QColor(45, 69, 38));
         painter.fillRect(QRect(205, 131, 64, 64), QColor(220, 70, 50));
     }
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 47, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 220, 37, 34, 34, QStringLiteral("@"), 60, 2)
         + word(1, 286, 44, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 3)
@@ -1097,7 +1105,7 @@ void ScreenshotImportParserTests::webRowDeleteMarkFusedWithTheLastGlyphIsStrippe
     // × 本身不会是字母；末尾的 X 只有其后确有叉号笔画时才去掉（第二行画出了按钮）。
     QImage image = webPage(1848, 230, {QRect(7, 10, 1823, 93), QRect(7, 120, 1823, 93)});
     paintDeleteMark(image, QRect(1775, 159, 17, 17));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 50, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 330, 48, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 520, 50, 106, 15, QStringLiteral("2024-09-19"), 96, 3)
@@ -1122,7 +1130,7 @@ void ScreenshotImportParserTests::webRowDeleteWordNearTheRowEndOnANarrowPage()
 {
     // 网页内容区较窄时行尾不在截图右侧 83% 之外；行尾的叉号仍按删除按钮处理。
     QImage image = webPage(1848, 120, {QRect(7, 10, 1093, 93)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 50, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 330, 48, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 96, 2)
         + word(1, 520, 50, 106, 15, QStringLiteral("2024-09-19"), 96, 3)
@@ -1143,7 +1151,7 @@ void ScreenshotImportParserTests::rowFieldsLeaveColumnsWithoutRoomEmpty()
     // 日期紧跟类型图标、叉号紧跟时间时，标题列与心得列没有空间，不能被翻转成一条窄条。
     QImage image = webPage(600, 120, {QRect(7, 7, 450, 93)});
     paintTypeIcon(image, QRect(200, 39, 30, 30), QColor(220, 70, 50));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 47, 44, 15, QStringLiteral("Lv.90"), 96, 1)
         + word(1, 236, 46, 103, 15, QStringLiteral("2024-09-21"), 96, 2)
         + word(1, 350, 46, 72, 15, QStringLiteral("13:18:11"), 96, 3)
@@ -1159,7 +1167,7 @@ void ScreenshotImportParserTests::webRowNoteLinesStaySeparateUnderATallOcrBox()
 {
     // 一个上下伸出的高识别框不能把两行心得并成一行。
     QImage image = webPage(1848, 200, {QRect(7, 20, 1823, 151)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 145, 83, 44, 15, QStringLiteral("Lv.50"), 96, 1)
         + word(1, 330, 60, 126, 20, QStringLiteral("究极神兵假想"), 96, 2)
         + word(1, 330, 100, 42, 20, QStringLiteral("作战"), 96, 3)
@@ -1176,12 +1184,8 @@ void ScreenshotImportParserTests::webRowNoteLinesStaySeparateUnderATallOcrBox()
 void ScreenshotImportParserTests::mobileCardWithFooterRightUnderTheTitleIsNotAWebRow()
 {
     // 手机卡片正文为空、页脚日期距标题不到一个等级字高：日期不与等级或副本名称同行，仍是卡片。
-    QImage image = screenshot();
-    {
-        QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 100), QColor(85, 45, 45));
-    }
-    const QByteArray tsv = kTsvHeader()
+    const QImage image = cardScreenshot(100);
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 65, 20, QStringLiteral("Lv.50"))
         + word(1, 225, 100, 200, 20, QStringLiteral("合成副本"), 96, 1, 2)
         + word(2, 380, 125, 190, 15, QStringLiteral("2026-10-01 12:34:56"));
@@ -1195,12 +1199,8 @@ void ScreenshotImportParserTests::mobileCardWithFooterRightUnderTheTitleIsNotAWe
 void ScreenshotImportParserTests::mobileBodyLineStartingWithLevelAndDateIsNotAWebRow()
 {
     // 手机卡片正文恰好以「Lv.70 … 日期」开头：同一卡片底色内已有标题等级，这一行仍是正文。
-    QImage image = screenshot();
-    {
-        QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
-    }
-    const QByteArray tsv = kTsvHeader()
+    const QImage image = cardScreenshot();
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"))
         + word(2, 150, 140, 65, 20, QStringLiteral("Lv.70"))
         + word(2, 225, 140, 60, 20, QStringLiteral("打完"), 96, 1, 2)
@@ -1218,12 +1218,8 @@ void ScreenshotImportParserTests::mobileBodyLineStartingWithLevelAndDateIsNotAWe
 void ScreenshotImportParserTests::mobileWatermarkLookingLikeALevelIsNotText()
 {
     // 卡片左侧水印被识别成「V8」这类等级字样时仍是图像证据，不能把两行正文并成一行。
-    QImage image = screenshot();
-    {
-        QPainter painter(&image);
-        painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
-    }
-    const QByteArray tsv = kTsvHeader() + card(100) + word(9, 40, 130, 60, 80, QStringLiteral("V8"), 60, 9);
+    const QImage image = cardScreenshot();
+    const QByteArray tsv = ocrTsvHeader() + card(100) + word(9, 40, 130, 60, 80, QStringLiteral("V8"), 60, 9);
     const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
     QCOMPARE(rows.size(), 1);
     QCOMPARE(rows[0].toMap().value(QStringLiteral("reflection_text")).toString(),
@@ -1234,7 +1230,7 @@ void ScreenshotImportParserTests::webRowWithANoteCoveringEverySampleColumnIsKept
 {
     // 样例二 Lv.87 一行：等级、副本名、时间与长心得盖住行中线上每个固定比例取样点，行底色仍须找到。
     QImage image = webPage(1845, 120, {QRect(2, 10, 1829, 92)});
-    QByteArray tsv = kTsvHeader();
+    QByteArray tsv = ocrTsvHeader();
     tsv += inked(image, QRect(140, 50, 44, 15), QStringLiteral("Lv.87"), 1);
     tsv += inked(image, QRect(281, 47, 192, 20), QStringLiteral("创造环境极北造物院"), 2);
     tsv += inked(image, QRect(500, 49, 105, 15), QStringLiteral("2024-09-13"), 3);
@@ -1260,7 +1256,7 @@ void ScreenshotImportParserTests::webRowDutyLeftOfTheWatermarkCutOffIsKept()
     QImage image = webPage(1845, 240, {QRect(2, 7, 1829, 92), QRect(2, 130, 1829, 92)});
     paintTypeIcon(image, QRect(215, 39, 33, 33), QColor(70, 172, 176));
     paintTypeIcon(image, QRect(215, 160, 33, 33), QColor(220, 70, 50));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 140, 47, 44, 15, QStringLiteral("Lv.50"), 92, 1)
         + word(1, 215, 37, 33, 34, QStringLiteral("a"), 85, 2)
         + word(1, 281, 44, 31, 20, QStringLiteral("剑"), 93, 3, 1)
@@ -1315,7 +1311,7 @@ void ScreenshotImportParserTests::webRowDeleteMarkIsFoundByPixelsEvenWhenTouchin
     }
     paintDeleteMark(image, QRect(1779, 45, 17, 17));
     paintDeleteMark(image, QRect(1781, 153, 17, 17));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 140, 47, 44, 15, QStringLiteral("Lv.50"), 92, 1)
         + word(1, 281, 44, 209, 20, QStringLiteral("剑斗领域日影地修炼所"), 93, 2)
         + word(1, 521, 46, 105, 15, QStringLiteral("2024-09-13"), 97, 3)
@@ -1323,10 +1319,7 @@ void ScreenshotImportParserTests::webRowDeleteMarkIsFoundByPixelsEvenWhenTouchin
         + word(1, 1700, 43, 60, 20, QStringLiteral("我是天"), 97, 5, 1)
         + word(1, 1765, 43, 14, 20, QStringLiteral("才"), 93, 5, 2)
         + word(1, 1781, 45, 17, 17, QStringLiteral("Y"), 83, 5, 3)
-        + word(1, 140, 155, 44, 15, QStringLiteral("Lv.44"), 92, 6)
-        + word(1, 281, 152, 188, 20, QStringLiteral("山中战线泽梅尔要塞"), 93, 7)
-        + word(1, 500, 154, 103, 15, QStringLiteral("2024-09-11"), 91, 8)
-        + word(1, 613, 154, 76, 15, QStringLiteral("19:54:56"), 90, 9)
+        + rowHead(115, QStringLiteral("Lv.44"), 6)
         + word(1, 720, 151, 40, 20, QStringLiteral("伤心"), 93, 10, 1)
         + word(1, 1781, 153, 17, 17, QStringLiteral("Y"), 83, 10, 2);
     const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
@@ -1362,14 +1355,9 @@ void ScreenshotImportParserTests::webRowCrossReadAsAGlyphAtTheRowEndIsNotNoteTex
         painter.fillRect(QRect(1783, 157, 13, 2), QColor(235, 240, 235));
         painter.fillRect(QRect(1781, 166, 17, 2), QColor(235, 240, 235));
     }
-    QByteArray tsv = kTsvHeader();
-    for (int i = 0; i < 4; ++i) {
-        const int top = 7 + (108 * i);
-        tsv += word(1, 140, top + 40, 44, 15, QStringLiteral("Lv.44"), 92, (10 * i) + 1)
-            + word(1, 281, top + 37, 188, 20, QStringLiteral("山中战线泽梅尔要塞"), 93, (10 * i) + 2)
-            + word(1, 500, top + 39, 103, 15, QStringLiteral("2024-09-11"), 91, (10 * i) + 3)
-            + word(1, 613, top + 39, 76, 15, QStringLiteral("19:54:56"), 90, (10 * i) + 4);
-    }
+    QByteArray tsv = ocrTsvHeader();
+    for (int i = 0; i < 4; ++i)
+        tsv += rowHead(7 + (108 * i), QStringLiteral("Lv.44"), (10 * i) + 1);
     tsv += word(1, 720, 44, 40, 20, QStringLiteral("伤心"), 93, 5, 1) + word(1, 1781, 45, 17, 17, QStringLiteral("义"), 83, 5, 2);
     tsv += word(1, 720, 152, 20, 20, QStringLiteral("第"), 93, 15, 1) + word(1, 1781, 153, 17, 17, QStringLiteral("二"), 93, 15, 2);
     tsv += word(1, 720, 260, 20, 20, QStringLiteral("好"), 93, 25, 1) + word(1, 1781, 261, 17, 17, QStringLiteral("久"), 93, 25, 2);
@@ -1391,11 +1379,7 @@ void ScreenshotImportParserTests::webRowEndGlyphThatIsNotACrossStaysNoteText()
         QPainter painter(&image);
         painter.fillRect(QRect(1781, 45, 17, 17), QColor(225, 232, 224));
     }
-    const QByteArray tsv = kTsvHeader()
-        + word(1, 140, 47, 44, 15, QStringLiteral("Lv.44"), 92, 1)
-        + word(1, 281, 44, 188, 20, QStringLiteral("山中战线泽梅尔要塞"), 93, 2)
-        + word(1, 500, 46, 103, 15, QStringLiteral("2024-09-11"), 91, 3)
-        + word(1, 613, 46, 76, 15, QStringLiteral("19:54:56"), 90, 4)
+    const QByteArray tsv = ocrTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
         + word(1, 720, 43, 40, 20, QStringLiteral("伤心"), 93, 5, 1)
         + word(1, 1781, 45, 17, 17, QStringLiteral("口"), 90, 5, 2);
     const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
@@ -1405,25 +1389,12 @@ void ScreenshotImportParserTests::webRowEndGlyphThatIsNotACrossStaysNoteText()
     QVERIFY(mr::ScreenshotImportParser::rowFields(image, tsv).value(0).deleteMark.isNull());
 }
 
-namespace {
-
-/** @brief 1845 宽网页的一条单行记录（行 2..1830 × top..top+91），返回等级、副本、日期与时间单词。 */
-QByteArray rowHead(int top, const QString &level, int block)
-{
-    return word(1, 140, top + 40, 44, 15, level, 92, block)
-        + word(1, 281, top + 37, 188, 20, QStringLiteral("山中战线泽梅尔要塞"), 93, block + 1)
-        + word(1, 500, top + 39, 103, 15, QStringLiteral("2024-09-11"), 91, block + 2)
-        + word(1, 613, top + 39, 76, 15, QStringLiteral("19:54:56"), 90, block + 3);
-}
-
-} // namespace
-
 void ScreenshotImportParserTests::webRowThinAntialiasedDeleteMarkIsFound()
 {
     // 浏览器缩小或截图缩放后叉号笔画只有约 1.2 像素：亮色笔画只在对角方向相连，仍须认出整个叉号。
     QImage image = webPage(1845, 120, {QRect(2, 7, 1829, 92)});
     paintDeleteMark(image, QRect(1781, 45, 17, 17), 1.2);
-    const QByteArray tsv = kTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
+    const QByteArray tsv = ocrTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
         + word(1, 720, 44, 40, 20, QStringLiteral("伤心"), 93, 10, 1)
         + word(1, 1781, 45, 17, 17, QStringLiteral("Y"), 83, 10, 2);
     const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
@@ -1438,7 +1409,7 @@ void ScreenshotImportParserTests::webRowLatinXIsStrippedOnlyWithAButtonBehindIt(
     // 有删除按钮且识别成「thx×」时只去掉 ×，不再把 x 也当成叉号去掉。
     QImage image = webPage(1845, 230, {QRect(2, 7, 1829, 92), QRect(2, 115, 1829, 92)});
     paintDeleteMark(image, QRect(1781, 153, 17, 17));
-    const QByteArray tsv = kTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
+    const QByteArray tsv = ocrTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
         + word(1, 720, 44, 40, 20, QStringLiteral("很好"), 93, 10, 1)
         + word(1, 1745, 45, 40, 17, QStringLiteral("thx"), 90, 10, 2)
         + rowHead(115, QStringLiteral("Lv.44"), 20)
@@ -1468,7 +1439,7 @@ void ScreenshotImportParserTests::webRowLiteralCrossBesideAPixelLocatedButtonIsP
     // 既要保留正文符号，也要剔除真正的按钮，不能只看右缘位置或字符形状。
     QImage image = webPage(1845, 120, {QRect(2, 7, 1829, 92)});
     paintDeleteMark(image, QRect(1810, 45, 17, 17));
-    const QByteArray tsv = kTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
+    const QByteArray tsv = ocrTsvHeader() + rowHead(7, QStringLiteral("Lv.44"), 1)
         + word(1, 720, 44, 40, 20, QStringLiteral("正文"), 93, 10)
         + word(1, 1770, 45, 17, 17, literal, 93, 11)
         + word(1, 1810, 45, 17, 17, QStringLiteral("X"), 90, 12);
@@ -1514,7 +1485,7 @@ void ScreenshotImportParserTests::fragmentedAsciiAndPunctuationKeepSourceSpacing
     // 同一正文在网页行和手机卡片两种布局里都不应因 OCR 分块而改变内容。
     for (const bool web : {true, false}) {
         QImage image = web ? webPage(1845, 120, {QRect(2, 7, 1829, 92)}) : screenshot(300);
-        QByteArray tsv = kTsvHeader();
+        QByteArray tsv = ocrTsvHeader();
         if (web) {
             tsv += rowHead(7, QStringLiteral("Lv.44"), 1);
         } else {
@@ -1541,7 +1512,7 @@ void ScreenshotImportParserTests::webRowExtentIgnoresANoteLineAboveTheLevel()
     // 行尾的删除叉号就落在行外。
     QImage image = webPage(1845, 120, {QRect(2, 10, 1829, 92)});
     paintDeleteMark(image, QRect(1781, 48, 17, 17));
-    QByteArray tsv = kTsvHeader() + rowHead(10, QStringLiteral("Lv.44"), 1);
+    QByteArray tsv = ocrTsvHeader() + rowHead(10, QStringLiteral("Lv.44"), 1);
     tsv += inked(image, QRect(720, 22, 200, 20), QStringLiteral("第一行心得"), 10);
     tsv += word(1, 720, 60, 120, 20, QStringLiteral("第二行"), 93, 11);
     tsv += word(1, 1781, 48, 17, 17, QStringLiteral("Y"), 83, 12);
@@ -1559,7 +1530,7 @@ void ScreenshotImportParserTests::webRowCroppedThroughTheJobIconUsesTheStripRigh
     // 截图从职业图标中间裁起：等级离左缘不足一个字高，改在等级右侧（与类型图标之间）的留白取行底色。
     QImage image = webPage(1300, 120, {QRect(0, 7, 1400, 93)});
     paintTypeIcon(image, QRect(85, 39, 30, 30), QColor(136, 245, 251));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + word(1, 8, 47, 44, 15, QStringLiteral("Lv.90"), 92, 1)
         + word(1, 150, 44, 140, 20, QStringLiteral("间歇灵泉哈姆岛"), 93, 2)
         + word(1, 350, 46, 103, 15, QStringLiteral("2024-09-19"), 91, 3)
@@ -1578,7 +1549,7 @@ void ScreenshotImportParserTests::webRowLevelTokenToleratesFurtherMisreads()
     // 前缀「Lv」与分隔符齐全时，两位数字都被读成形近字母（Lv.lO）也按等级读取；逗号分隔符照常；
     // 超出副本目录最高等级的「Lvl90」去掉开头的形近字母读作 90。形近读取都提示核对等级。
     QImage image = webPage(1845, 340, {QRect(2, 7, 1829, 92), QRect(2, 115, 1829, 92), QRect(2, 223, 1829, 92)});
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + rowHead(7, QStringLiteral("Lv.lO"), 1) + word(1, 720, 44, 40, 20, QStringLiteral("一"), 93, 10)
         + rowHead(115, QStringLiteral("Lv,90"), 20) + word(1, 720, 152, 40, 20, QStringLiteral("二"), 93, 30)
         + rowHead(223, QStringLiteral("Lvl90"), 40) + word(1, 720, 260, 40, 20, QStringLiteral("三"), 93, 50);
@@ -1602,7 +1573,7 @@ void ScreenshotImportParserTests::unrecognisedWideGoldStrokeDoesNotTrimWebRow()
         painter.fillRect(QRect(117, 17, 3, 10), QColor(220, 185, 75));
     }
     paintTypeIcon(image, QRect(219, 32, 34, 34), QColor(15, 180, 230));
-    const QByteArray tsv = kTsvHeader()
+    const QByteArray tsv = ocrTsvHeader()
         + inked(image, QRect(144, 40, 50, 27), QStringLiteral("Lv.90"), 1)
         + inked(image, QRect(282, 40, 177, 27), QStringLiteral("合成副本名称"), 2)
         + inked(image, QRect(479, 41, 198, 23), QStringLiteral("2026-10-01 13:10:22"), 3)
@@ -1619,7 +1590,7 @@ void ScreenshotImportParserTests::neuralTextBoxesAndElevatedTypeIconDoNotSplitWe
     // 整段 OCR 框较高，类型图标的顶端高于文字；旧扫描线碰到类型图标后
     // 把行截成短条，来源时间又被手机卡片兜底重复保留，并串到了下一条时间。
     QImage image = webPage(1851, 225, {QRect(7, 7, 1829, 92), QRect(7, 115, 1829, 92)}, true);
-    QByteArray tsv = kTsvHeader();
+    QByteArray tsv = ocrTsvHeader();
     for (int i = 0; i < 2; ++i) {
         const int top = 7 + (i * 108);
         paintTypeIcon(image, QRect(219, top + 25, 34, 34), QColor(15, 180, 230));

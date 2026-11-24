@@ -20,13 +20,14 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "CapturePageScene.h"
+#include "PlayerVocabulary.h"
 #include "SharedCalibrationTestSupport.h"
 #include "TestFonts.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CalibrationController.h"
-#include "Formatters.h"
 #include "MockBackend.h"
 #include "SharedCalibrationController.h"
 
@@ -41,10 +42,8 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QRegularExpression>
-#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTest>
-#include <QTranslator>
 
 #include <memory>
 
@@ -62,35 +61,11 @@ const QStringList &kButtons()
 
 using mrtest::findVisualItem;
 
-void collectVisibleText(QQuickItem *item, QStringList &texts)
-{
-    if (!item || !item->isVisible())
-        return;
-    const QVariant text = item->property("text");
-    if (text.isValid() && !text.toString().isEmpty())
-        texts.append(text.toString());
-    for (auto *child : item->childItems())
-        collectVisibleText(child, texts);
-}
-
 void verifyPlayerCopy(const QStringList &texts)
 {
-    static const QStringList words{
-        QString::fromUtf8("开始捕获"), QString::fromUtf8("开始验证"), QString::fromUtf8("停止捕获"),
-        QString::fromUtf8("维护者工具"), QString::fromUtf8("对照核对"), QStringLiteral("opcode"),
-        QStringLiteral("0x"), QStringLiteral("67ef1bb97e65"), QStringLiteral("REPLY_STATE"),
-        QStringLiteral("QUEUE_REQUEST"), QStringLiteral("CONTRADICTED"), QStringLiteral("GITHUB_RAW"),
-        QStringLiteral("INDEX_UNAVAILABLE"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
-        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral(".shared"),
-        QStringLiteral("PUBLISHED"), QStringLiteral("IMPORTED"), QStringLiteral("audit_pending"),
-        // The share-code basis and the candidate marks (plans/shared-calibration.md §20).
-        QStringLiteral("PROVEN"), QStringLiteral("CALIBRATED"), QStringLiteral("basis"),
-        QStringLiteral("shape_prior"), QStringLiteral("disputed"), QStringLiteral("preferred"),
-        QStringLiteral("CONTENT_FINDER_POP"), QStringLiteral("ZONE_INITIALIZATION"),
-        QStringLiteral("ZONE_TERRITORY"), QStringLiteral("PLAYER_JOB"), QStringLiteral("IN_USE"),
-        QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("LOCAL_CALIBRATION"),
-        QStringLiteral("GetCalibrationShareCode"), QStringLiteral("SHARED_NOT_PROVEN"),
-        QStringLiteral("sha")};
+    // The index outcomes, a contradicted candidate and a shared profile's id suffix.
+    static const QStringList words = mrtest::sharedCalibrationWords() + QStringList{
+        QStringLiteral("CONTRADICTED"), QStringLiteral("INDEX_UNAVAILABLE"), QStringLiteral(".shared")};
     // Any code's short id, not only the mock's: twelve hex digits in a row.
     static const QRegularExpression shortId(QStringLiteral("[0-9A-Fa-f]{12}"));
     for (const QString &text : texts) {
@@ -101,6 +76,14 @@ void verifyPlayerCopy(const QStringList &texts)
         QVERIFY2(!shortId.match(text).hasMatch(),
                  qPrintable(QStringLiteral("card leaks a short id: %1").arg(text)));
     }
+}
+
+/// verifyPlayerCopy() on every text shown under \a root.
+void verifyPlayerCopyOf(QQuickItem *root)
+{
+    QStringList texts;
+    collectVisibleText(root, texts);
+    verifyPlayerCopy(texts);
 }
 
 /// $defs/SharedCalibrationStatus as a Collector reports it when nothing is going on:
@@ -226,6 +209,13 @@ struct CardScene
         app.reset();
     }
 
+    /// The backend openOn() will be given instead of the mock.
+    template <typename Fake>
+    Fake *fake()
+    {
+        return installBackend<Fake>(other);
+    }
+
     bool open(const QString &fixture, int width)
     {
         backend->setSharedCalibrationFixture(fixture);
@@ -275,80 +265,19 @@ ApplicationWindow {
 };
 
 /// The whole 捕获诊断 page, so that 协议档案 - the one card that is never hidden -
-/// can be read exactly as a player sees it. The browser and the clipboard are
-/// replaced before anything is clicked: a test never opens github.com and never
-/// overwrites the developer's own clipboard.
-struct PageScene
+/// can be read exactly as a player sees it.
+using PageScene = CapturePageScene;
+
+/// One --mock-calibration state beside one --mock-shared state, as the screenshot
+/// targets take them; an empty state leaves the mock's own.
+bool openWith(PageScene &scene, const QString &calibration, const QString &shared)
 {
-    std::unique_ptr<mr::MockBackend> backend = std::make_unique<mr::MockBackend>();
-    std::unique_ptr<mr::IBackend> other;
-    std::unique_ptr<mr::AppController> app;
-    std::unique_ptr<mr::Formatters> formatters;
-    std::unique_ptr<QQmlEngine> engine;
-    std::unique_ptr<QObject> root;
-    QQuickItem *page = nullptr;
-    QStringList opened;
-    QString copied;
-
-    ~PageScene()
-    {
-        root.reset();
-        engine.reset();
-        app.reset();
-    }
-
-    /// One --mock-calibration state beside one --mock-shared state, as the
-    /// screenshot targets take them.
-    bool open(const QString &calibration, const QString &shared, int width = 1180)
-    {
-        if (!calibration.isEmpty())
-            backend->setCalibrationFixture(calibration);
-        if (!shared.isEmpty())
-            backend->setSharedCalibrationFixture(shared);
-        return openOn(backend.get(), width);
-    }
-
-    bool openOn(mr::IBackend *source, int width)
-    {
-        app = std::make_unique<mr::AppController>(source, nullptr);
-        formatters = std::make_unique<mr::Formatters>();
-        engine = std::make_unique<QQmlEngine>();
-        engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
-        engine->rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters.get());
-        engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(engine.get());
-        component.setData(QStringLiteral(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: %1; height: 900; visible: true
-    color: Theme.surface
-    CapturePage { objectName: "capturePage"; anchors.fill: parent; anchors.margins: 16 }
-})").arg(width).toUtf8(), QUrl());
-        root.reset(component.create());
-        if (!root) {
-            qWarning("%s", qPrintable(component.errorString()));
-            return false;
-        }
-        page = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("capturePage")));
-        if (!page)
-            return false;
-        shared()->setUrlOpener([this](const QUrl &url) {
-            opened.append(url.toString());
-            return true;
-        });
-        shared()->setClipboardWriter([this](const QString &text) { copied = text; });
-        return true;
-    }
-
-    mr::SharedCalibrationController *shared() const { return app->calibration()->shared(); }
-    QQuickItem *item(const QString &name) const { return findVisualItem(page, name); }
-    bool shows(const QString &name) const
-    {
-        auto *found = item(name);
-        return found && found->isVisible();
-    }
-};
+    if (!calibration.isEmpty())
+        scene.mock->setCalibrationFixture(calibration);
+    if (!shared.isEmpty())
+        scene.mock->setSharedCalibrationFixture(shared);
+    return scene.open();
+}
 
 } // namespace
 
@@ -440,9 +369,7 @@ private Q_SLOTS:
             QVERIFY2(button, qPrintable(name));
             QCOMPARE(button->isVisible(), buttons.contains(name));
         }
-        QStringList texts;
-        collectVisibleText(scene.card, texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.card);
     }
 
     void theConsentViewStillOffersImporting()
@@ -537,9 +464,7 @@ private Q_SLOTS:
         scene.expandOtherWays();
         QVERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
 
-        QStringList texts;
-        collectVisibleText(scene.card, texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.card);
     }
 
     void aVerifiedSharedProfileWithoutAnAuditKeepsThePlainSentence()
@@ -561,30 +486,9 @@ private Q_SLOTS:
         // looking for the real match message underneath it, so the Collector reports OBSERVING
         // with that profile's id as local_profile_id. The card says it records and is still
         // improving (the provisional wording), and the shared section names where it came from.
-        auto fake = std::make_unique<CaptureBackend>();
-        const QJsonObject shared{{QStringLiteral("phase"), QStringLiteral("VERIFIED")},
-                                 {QStringLiteral("candidates"), QJsonArray{}},
-                                 {QStringLiteral("last_fetch_status"), QStringLiteral("OK")},
-                                 {QStringLiteral("last_index_attempts"), QJsonArray{}},
-                                 {QStringLiteral("profile_id"), QStringLiteral("cn.2026.09.01.0000.0000.shared")},
-                                 {QStringLiteral("bound_at_utc"), QJsonValue::Null},
-                                 {QStringLiteral("last_refusal"), QJsonValue::Null},
-                                 {QStringLiteral("rejected_candidates"), 0},
-                                 {QStringLiteral("user_rejected"), false}};
-        fake->capture = {{QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("profile_origin"), QStringLiteral("SHARED_CALIBRATION")},
-                         {QStringLiteral("calibration"), QJsonObject{
-                              {QStringLiteral("state"), QStringLiteral("OBSERVING")},
-                              {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-                              {QStringLiteral("local_profile_id"), QStringLiteral("cn.2026.09.01.0000.0000.shared")},
-                              {QStringLiteral("blockers"), QJsonArray{}},
-                              {QStringLiteral("events"), QJsonArray{}},
-                              {QStringLiteral("shared"), shared}}}};
         CardScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithSharedInUse();
         QVERIFY(scene.openOn(source, 760));
         QTRY_VERIFY(scene.app->calibration()->provisional());
         QTRY_VERIFY(scene.shared()->inUse());
@@ -600,9 +504,7 @@ private Q_SLOTS:
         QVERIFY(!scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
         scene.expandOtherWays();
         QVERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
-        QStringList texts;
-        collectVisibleText(scene.card, texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.card);
     }
 
     void importShowsTheRefusalAndClosesOnSuccess()
@@ -729,14 +631,8 @@ private Q_SLOTS:
         QFETCH(QString, language);
         QFETCH(int, width);
         QFETCH(bool, dark);
-        QTranslator translator;
-        if (language != QLatin1String("zh_CN")) {
-            const QString qm = QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
-            QVERIFY2(translator.load(qm), qPrintable(qm));
-            QCoreApplication::installTranslator(&translator);
-        }
-        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+        const ScopedCatalogue catalogue(language);
+        QVERIFY2(catalogue.loaded(), qPrintable(catalogue.path()));
         CardScene scene;
         QVERIFY(scene.open(QStringLiteral("verifying"), width));
         if (scene.app->isDark() != dark)
@@ -808,16 +704,14 @@ private Q_SLOTS:
         // was started again, the local profile records, calibration is IDLE and its card -
         // the other place 分享给其他玩家 appears - is not on the page at all.
         PageScene scene;
-        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QVERIFY(openWith(scene, QStringLiteral("idle"), QStringLiteral("share")));
         QTRY_VERIFY(scene.shared()->canShare());
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolShareButton")));
         QVERIFY(scene.shows(QStringLiteral("protocolShareHint")));
         QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
         QVERIFY(!scene.shows(QStringLiteral("sharedShareButton")));
 
-        QStringList texts;
-        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
     }
 
     void onlyOneShareButtonIsEverOnScreen()
@@ -826,7 +720,7 @@ private Q_SLOTS:
         // just finished, so it keeps the button; the protocol card steps aside rather than
         // putting a second identical button on the same screen.
         PageScene scene;
-        QVERIFY(scene.open(QStringLiteral("done"), QStringLiteral("share")));
+        QVERIFY(openWith(scene, QStringLiteral("done"), QStringLiteral("share")));
         QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
         QTRY_VERIFY(scene.shows(QStringLiteral("sharedShareButton")));
         QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
@@ -836,13 +730,13 @@ private Q_SLOTS:
     void bothShareButtonsTakeTheSamePath()
     {
         PageScene restarted;
-        QVERIFY(restarted.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QVERIFY(openWith(restarted, QStringLiteral("idle"), QStringLiteral("share")));
         QTRY_VERIFY(restarted.shows(QStringLiteral("protocolShareButton")));
         QVERIFY(QMetaObject::invokeMethod(restarted.item(QStringLiteral("protocolShareButton")), "clicked"));
         QTRY_COMPARE(restarted.opened.size(), 1);
 
         PageScene calibrated;
-        QVERIFY(calibrated.open(QStringLiteral("done"), QStringLiteral("share")));
+        QVERIFY(openWith(calibrated, QStringLiteral("done"), QStringLiteral("share")));
         QTRY_VERIFY(calibrated.shows(QStringLiteral("sharedShareButton")));
         QVERIFY(QMetaObject::invokeMethod(calibrated.item(QStringLiteral("sharedShareButton")), "clicked"));
         QTRY_COMPARE(calibrated.opened.size(), 1);
@@ -881,9 +775,7 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.item(QStringLiteral("sharedShareButton"))->isVisible());
         QCOMPARE(scene.item(QStringLiteral("sharedShareButton"))->property("text").toString(), button);
         QCOMPARE(scene.item(QStringLiteral("sharedShareHint"))->property("text").toString(), hint);
-        QStringList texts;
-        collectVisibleText(scene.card, texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.card);
     }
 
     void aProvenSharedProfileStillReadsAsTheProfileInUse()
@@ -907,7 +799,7 @@ private Q_SLOTS:
         // After a restart calibration is IDLE and its card is gone; the profile in force is the
         // proven shared one, and the 协议档案 card carries the button with its own words.
         PageScene scene;
-        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("verified-proven")));
+        QVERIFY(openWith(scene, QStringLiteral("idle"), QStringLiteral("verified-proven")));
         QTRY_COMPARE(scene.shared()->shareKind(), QStringLiteral("verified"));
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolShareButton")));
         QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
@@ -919,9 +811,7 @@ private Q_SLOTS:
                  mr::SharedCalibrationController::verifiedShareHint());
         // A shared profile is stopped through 改为本机校准, never through 重新校准.
         QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateButton")));
-        QStringList texts;
-        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
 
         QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolShareButton")), "clicked"));
         QTRY_COMPARE(scene.opened.size(), 1);
@@ -936,7 +826,7 @@ private Q_SLOTS:
         // The calibration card is up (calibration finished on the shared profile): it carries the
         // button, and the protocol card steps aside, exactly as for this machine's own calibration.
         PageScene scene;
-        QVERIFY(scene.open(QString(), QStringLiteral("verified-proven")));
+        QVERIFY(openWith(scene, QString(), QStringLiteral("verified-proven")));
         QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
         QTRY_VERIFY(scene.shows(QStringLiteral("sharedShareButton")));
         QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
@@ -953,8 +843,8 @@ private Q_SLOTS:
         PageScene scene;
         // No duty in flight: the mock's own default is one, and retiring the profile would
         // close it (recalibrationWaitsForTheDutyToEnd pins that case).
-        scene.backend->setLiveMode(mr::MockBackend::LiveMode::None);
-        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        scene.mock->setLiveMode(mr::MockBackend::LiveMode::None);
+        QVERIFY(openWith(scene, QStringLiteral("idle"), QStringLiteral("share")));
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateButton")));
         QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
         QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("IDLE"));
@@ -964,20 +854,20 @@ private Q_SLOTS:
         auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("protocolRecalibrateDialog"));
         QVERIFY(dialog);
         QVERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(scene.backend->discardCalibrationCount(), 0);
+        QCOMPARE(scene.mock->discardCalibrationCount(), 0);
 
         // Opening it sends nothing: the player is told what stopping the profile costs before
         // anything at all happens to it.
         QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolRecalibrateButton")), "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
-        QCOMPARE(scene.backend->discardCalibrationCount(), 0);
+        QCOMPARE(scene.mock->discardCalibrationCount(), 0);
 
         auto *confirm = dialog->findChild<QQuickItem *>(QStringLiteral("protocolRecalibrateConfirm"));
         QVERIFY(confirm);
         QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
 
-        QTRY_COMPARE(scene.backend->discardCalibrationCount(), 1);
-        QVERIFY(scene.backend->lastDiscardCalibration()
+        QTRY_COMPARE(scene.mock->discardCalibrationCount(), 1);
+        QVERIFY(scene.mock->lastDiscardCalibration()
                     .value(QStringLiteral("retire_local_profile")).toBool());
     }
 
@@ -986,8 +876,8 @@ private Q_SLOTS:
         // Retiring the profile closes the run in flight the way a stopped capture does, which
         // would cost the player the duty they are sitting in. The button says so and waits.
         PageScene scene;
-        scene.backend->setLiveMode(mr::MockBackend::LiveMode::Matched);
-        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        scene.mock->setLiveMode(mr::MockBackend::LiveMode::Matched);
+        QVERIFY(openWith(scene, QStringLiteral("idle"), QStringLiteral("share")));
         QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateButton")));
 
@@ -996,9 +886,7 @@ private Q_SLOTS:
         QCOMPARE(scene.item(QStringLiteral("protocolRecalibrateHint"))->property("text").toString(),
                  QString::fromUtf8("副本进行中，结束后再试"));
 
-        QStringList texts;
-        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
     }
 
     // -- 协议档案 card: 恢复上一份本机校准 ------------------------------------
@@ -1027,12 +915,10 @@ private Q_SLOTS:
         QFETCH(bool, rollback);
         QFETCH(bool, recalibrate);
 
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(origin, retiredAvailable);
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(origin, retiredAvailable);
+        QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->calibration()->retiredLocalProfileAvailable(), retiredAvailable);
 
         QCOMPARE(scene.shows(QStringLiteral("protocolRestoreButton")), rollback);
@@ -1040,21 +926,16 @@ private Q_SLOTS:
         // The two are opposites and must never share a screen.
         QVERIFY(!(rollback && recalibrate));
 
-        if (rollback) {
-            QStringList texts;
-            collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-            verifyPlayerCopy(texts);
-        }
+        if (rollback)
+            verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
     }
 
     void theRollbackDialogAsksFirstAndThenSendsTheFlag()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(QString(), true);
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(QString(), true);
+        QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
         QVERIFY(scene.item(QStringLiteral("protocolRestoreButton"))->property("enabled").toBool());
 
@@ -1078,14 +959,12 @@ private Q_SLOTS:
 
     void aRefusedRollbackShowsTheCollectorsOwnSentence()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(QString(), true);
-        fake->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
-        fake->discardErrorMessage = QString::fromUtf8("上一份本机校准已经无法使用，请重新校准。");
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(QString(), true);
+        source->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+        source->discardErrorMessage = QString::fromUtf8("上一份本机校准已经无法使用，请重新校准。");
+        QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
 
         scene.app->calibration()->restoreLocalProfile();
@@ -1094,9 +973,7 @@ private Q_SLOTS:
         QCOMPARE(scene.item(QStringLiteral("protocolCalibrationError"))->property("text").toString(),
                  source->discardErrorMessage);
         // The error token itself never reaches the page.
-        QStringList texts;
-        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
     }
 
     // CS8-D1：恢复的那份本机校准放回来了，但这一版游戏另有排在它前面的档案，所以采集服务
@@ -1107,20 +984,18 @@ private Q_SLOTS:
     {
         const QString answer = QString::fromUtf8(
             "上一份本机校准已经放回，但这一版游戏已有随软件附带的档案，所以继续用它记录。");
-        auto fake = std::make_unique<CaptureBackend>();
+        PageScene scene;
+        auto *source = scene.fake<CaptureBackend>();
         // The game is closed (the installed build is known), so the recording poll is slow
         // and cannot stand in for the re-read the answer must cause.
-        fake->capture = captureWithRollback(QStringLiteral("SHIPPED"), true, QStringLiteral("IDLE"));
-        fake->capture.insert(QStringLiteral("ffxiv_running"), false);
-        fake->captureAfterDiscard =
-            captureWithRollback(QStringLiteral("SHIPPED"), false, QStringLiteral("IDLE"));
-        fake->captureAfterDiscard.insert(QStringLiteral("ffxiv_running"), false);
-        fake->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
-        fake->discardErrorMessage = answer;
-        PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        source->capture = captureWithRollback(QStringLiteral("SHIPPED"), true, QStringLiteral("IDLE"));
+        source->capture.insert(QStringLiteral("ffxiv_running"), false);
+        source->captureAfterDiscard =
+              captureWithRollback(QStringLiteral("SHIPPED"), false, QStringLiteral("IDLE"));
+        source->captureAfterDiscard.insert(QStringLiteral("ffxiv_running"), false);
+        source->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+        source->discardErrorMessage = answer;
+        QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
         const int reads = source->captureStatusReads;
 
@@ -1139,9 +1014,7 @@ private Q_SLOTS:
         QCOMPARE(notice->property("text").toString(), answer);
         QCOMPARE(notice->property("color"),
                  scene.item(QStringLiteral("protocolProfileExplanation"))->property("color"));
-        QStringList texts;
-        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.item(QStringLiteral("protocolProfileCard")));
 
         // It speaks of the profile in force on this build; once another build is in force
         // it would no longer be true, and it goes.
@@ -1155,13 +1028,11 @@ private Q_SLOTS:
     void theRollbackWaitsForTheDutyToEnd()
     {
         // Putting the old profile back closes the run in flight, exactly as retiring does.
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(QString(), true);
-        fake->currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(QString(), true);
+        source->currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
+        QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
         QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
 
@@ -1205,12 +1076,10 @@ private Q_SLOTS:
         QFETCH(QString, confirm);
         QFETCH(QString, runState);
 
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(origin, retiredAvailable);
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(origin, retiredAvailable);
+        QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(button));
         QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("IDLE"));
         QTRY_VERIFY(scene.item(button)->property("enabled").toBool());
@@ -1237,12 +1106,10 @@ private Q_SLOTS:
         // Trigger A: a shared profile records its first duty while calibration stays OBSERVING,
         // so the card - and 改为本机校准 - stays on screen during that duty. Stopping the shared
         // profile closes the run the way a stopped capture does.
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithSharedInUse();
-        fake->currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
         CardScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithSharedInUse();
+        source->currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
         QVERIFY(scene.openOn(source, 760));
         QTRY_VERIFY(scene.shared()->inUse());
         QTRY_VERIFY(scene.shared()->canReject());
@@ -1269,9 +1136,7 @@ private Q_SLOTS:
         QVERIFY(!confirm->property("enabled").toBool());
         QVERIFY(!source->requestTypes.contains(QStringLiteral("RejectSharedCalibration")));
 
-        QStringList texts;
-        collectVisibleText(scene.card, texts);
-        verifyPlayerCopy(texts);
+        verifyPlayerCopyOf(scene.card);
     }
 
     void aSharedCodeThatDoesNotRecordYetCanStillBeRefusedDuringADuty()
@@ -1294,11 +1159,9 @@ private Q_SLOTS:
 
     void anOpenSharedRejectDialogClosesWhenADutyStarts()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithSharedInUse();
         CardScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithSharedInUse();
         QVERIFY(scene.openOn(source, 760));
         QTRY_VERIFY(scene.shared()->canReject());
         QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("IDLE"));
@@ -1343,24 +1206,22 @@ private Q_SLOTS:
     {
         QFETCH(QString, origin);
 
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("profile_status"),
-                          origin.isEmpty() ? QStringLiteral("UNSUPPORTED_BUILD")
-                                           : QStringLiteral("VERIFIED")},
-                         {QStringLiteral("calibration"), QJsonObject{
-                              {QStringLiteral("state"), QStringLiteral("IDLE")},
-                              {QStringLiteral("blockers"), QJsonArray{}},
-                              {QStringLiteral("events"), QJsonArray{}},
-                              {QStringLiteral("shared"), sharedNone()}}}};
-        if (!origin.isEmpty())
-            fake->capture.insert(QStringLiteral("profile_origin"), origin);
-
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = {{QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("state"), QStringLiteral("RUNNING")},
+                           {QStringLiteral("profile_status"),
+                            origin.isEmpty() ? QStringLiteral("UNSUPPORTED_BUILD")
+                                             : QStringLiteral("VERIFIED")},
+                           {QStringLiteral("calibration"), QJsonObject{
+                                {QStringLiteral("state"), QStringLiteral("IDLE")},
+                                {QStringLiteral("blockers"), QJsonArray{}},
+                                {QStringLiteral("events"), QJsonArray{}},
+                                {QStringLiteral("shared"), sharedNone()}}}};
+        if (!origin.isEmpty())
+            source->capture.insert(QStringLiteral("profile_origin"), origin);
+
+        QVERIFY(scene.open());
         QTRY_VERIFY(scene.shared()->available());
         QVERIFY(!scene.shared()->canShare());
         QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
@@ -1394,12 +1255,10 @@ private Q_SLOTS:
         QFETCH(QString, origin);
         QFETCH(QString, explanation);
 
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = captureWithRollback(origin, false, QStringLiteral("IDLE"));
         PageScene scene;
-        auto *source = fake.get();
-        scene.other = std::move(fake);
-        QVERIFY(scene.openOn(source, 1180));
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = captureWithRollback(origin, false, QStringLiteral("IDLE"));
+        QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("profile_origin")).toString(), origin);
 
         auto *text = scene.item(QStringLiteral("protocolProfileExplanation"));

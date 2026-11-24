@@ -3,7 +3,6 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CandidateReviewController.h"
-#include "CaptureValidationController.h"
 #include "IBackend.h"
 #include "MockBackend.h"
 #include "TtsService.h"
@@ -82,22 +81,6 @@ public:
                                    {QStringLiteral("event_type"), QStringLiteral("CandidateObserved")}}); }
 };
 
-class CaptureHost final : public mr::CaptureValidationController::Host
-{
-public:
-    bool candidate = true;
-    void setCandidateEnabled(bool enabled) { candidate = enabled; }
-    bool running = false;
-    bool formalCapturing() const override { return running; }
-    bool candidateValidationEnabled() const override { return candidate; }
-    quint64 formalCaptureRevision() const override { return 0; }
-    QString captureProfileStatus() const override { return QStringLiteral("UNSUPPORTED_BUILD"); }
-    void applyFormalCaptureStatus(const QVariantMap &status) override
-    { running = status.value(QStringLiteral("state")).toString() == QLatin1String("RUNNING"); }
-    void refreshStatus() override {}
-    void showToast(const QString &) override {}
-};
-
 QJsonObject row(int id, const QString &session = QStringLiteral("session-a"),
                 const QString &connection = QStringLiteral("connection-a"), bool anchor = false)
 {
@@ -141,6 +124,15 @@ QStringList observationIds(const QVariantList &timeline)
     for (const auto &value : timeline)
         result.append(value.toMap().value(QStringLiteral("observation_id")).toString());
     return result;
+}
+
+/// Hands \a controller the backend and reads the whole index; false unless it completed
+/// within \a timeout milliseconds.
+bool indexed(mr::CandidateReviewController &controller, mr::IBackend &backend, int timeout = 5000)
+{
+    controller.setBackend(&backend);
+    controller.refresh();
+    return QTest::qWaitFor([&controller] { return controller.indexComplete(); }, timeout);
 }
 
 QJsonObject completedMockPayload(mr::BackendReply *reply)
@@ -388,83 +380,6 @@ ApplicationWindow {
         }
     }
 
-    void candidateButtonStartsPassiveLedgerAndNeverFallsBackToLegacyTrace()
-    {
-        TestBackend backend;
-        backend.automatic = false;
-        CaptureHost host;
-        mr::CaptureValidationController controller(&host);
-        controller.setBackend(&backend);
-        controller.refreshProfile();
-        backend.calls.last().reply->succeed({{QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD")}});
-        controller.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
-        QVERIFY(controller.actionEnabled());
-        QCOMPARE(controller.actionLabel(), QStringLiteral("开始候选捕获"));
-        controller.toggle();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StartCapture"));
-        host.setCandidateEnabled(false); // A changed setting cannot change the in-flight command's meaning.
-        backend.calls.last().reply->fail(QStringLiteral("ERR_PROFILE_UNSUPPORTED"), QStringLiteral("候选启动失败"));
-        QCOMPARE(backend.count("StartCaptureValidation"), 0);
-        QCOMPARE(controller.error(), QStringLiteral("候选启动失败"));
-        QVERIFY(!controller.commandBusy());
-        host.setCandidateEnabled(true);
-        controller.toggle();
-        backend.calls.last().reply->succeed({{QStringLiteral("state"), QStringLiteral("RUNNING")}});
-        QCOMPARE(controller.actionLabel(), QStringLiteral("停止捕获"));
-        QCOMPARE(controller.modeStatusText(), QStringLiteral("候选观测中；VERIFIED 解析可独立生成正式记录"));
-        QCOMPARE(controller.modeCompactText(), QStringLiteral("候选观测中"));
-        host.setCandidateEnabled(false);
-        QCOMPARE(controller.modeStatusText(), QStringLiteral("被动监听（不自动记录）"));
-        QCOMPARE(controller.modeCompactText(), QStringLiteral("被动监听中"));
-        controller.toggle();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StopCapture"));
-    }
-
-    // 审查 OI-7：协议档案查询一直失败、验证状态却一直有回应时，退避也必须用尽。
-    // 状态的回应不能把档案查询的失败次数清零，否则会以基础间隔永远轮询下去。
-    void aFailingProfileQueryStopsRetryingWhileTheStatusAnswers()
-    {
-        TestBackend backend;
-        backend.automatic = false;
-        CaptureHost host;
-        host.setCandidateEnabled(false);
-        mr::CaptureValidationController controller(&host);
-        controller.setBackend(&backend);
-        // The poll timer's own order: profile first, then status.
-        for (int round = 0; round < 8; ++round) {
-            controller.refreshProfile();
-            const auto profile = backend.calls.last();
-            QCOMPARE(profile.type, QStringLiteral("GetProtocolProfileStatus"));
-            controller.refreshStatusSnapshot();
-            const auto status = backend.calls.last();
-            QCOMPARE(status.type, QStringLiteral("GetCaptureValidationStatus"));
-            profile.reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("timeout"));
-            status.reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
-        }
-        QCOMPARE(controller.actionLabel(), QStringLiteral("状态未确认"));
-
-        // One answer from the profile query is a recovery.
-        controller.refreshProfile();
-        backend.calls.last().reply->succeed({{QStringLiteral("status"), QStringLiteral("VERIFIED")}});
-        QVERIFY(controller.actionLabel() != QStringLiteral("状态未确认"));
-    }
-
-    void activeLegacyTraceRetainsItsStopPrecedence()
-    {
-        TestBackend backend;
-        backend.automatic = false;
-        CaptureHost host;
-        host.running = true;
-        mr::CaptureValidationController controller(&host);
-        controller.setBackend(&backend);
-        controller.refreshStatusSnapshot();
-        backend.calls.last().reply->succeed({{QStringLiteral("state"), QStringLiteral("RECORDING")}});
-        controller.toggle();
-        QCOMPARE(backend.calls.last().type, QStringLiteral("StopCaptureValidation"));
-        QCOMPARE(backend.count("StopCapture"), 0);
-    }
-
     void delayedOrdinarySettingsReplyPreservesNewCandidateConsent()
     {
         TestBackend backend;
@@ -495,9 +410,7 @@ ApplicationWindow {
         TestBackend backend;
         for (int i = 0; i < 20000; ++i) backend.rows.append(row(i, QStringLiteral("session-a"), QStringLiteral("connection-a"), i == 0 || i == 19999));
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY_WITH_TIMEOUT(controller.indexComplete(), 10000);
+        QVERIFY(indexed(controller, backend, 10000));
         QCOMPARE(controller.indexLoadedCount(), 20000);
         QCOMPARE(controller.rows().size(), 50);
         QCOMPARE(controller.total(), 20000);
@@ -522,9 +435,7 @@ ApplicationWindow {
         backend.rows = {row(0, "s1", "c1", true), row(1, "s1", "c2", true),
                         row(2, "s2", "c1", true), row(3, "s1", "c1", true)};
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         QCOMPARE(controller.sessions().size(), 2);
         QVERIFY(controller.anchorPairs().isEmpty());
         // Three connections, three logins; s1/c1 has a second burst (id 0, later t_ms).
@@ -549,9 +460,7 @@ ApplicationWindow {
                         eventAt(4, "ZONE_LOAD", 207000), eventAt(5, "ZONE_LOAD", 767000),
                         eventAt(6, "ZONE_LOAD", 900000)};
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         // Newest first.
         QCOMPARE(kinds(controller.timeline()), QStringList({"zone", "duty_leave", "duty_enter", "finder", "queue", "login"}));
         const auto finder = controller.timeline()[3].toMap();
@@ -604,9 +513,7 @@ ApplicationWindow {
             backend.rows.append(value);
         }
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         // Capture order (t_ms 1..4) wins over the corrected wall clock: id 0 is the login,
         // the rest follow in monotonic order, newest first.
         QStringList ids;
@@ -630,9 +537,7 @@ ApplicationWindow {
             TestBackend backend;
             for (const auto index : order) backend.rows.append(events[index]);
             mr::CandidateReviewController controller;
-            controller.setBackend(&backend);
-            controller.refresh();
-            QTRY_VERIFY(controller.indexComplete());
+            QVERIFY(indexed(controller, backend));
             // Mixing connection-local t_ms and cross-connection display UTC formed a cycle:
             // zone > finder by t_ms, finder > queue by UTC, queue > zone by cluster-first UTC.
             QCOMPARE(observationIds(controller.timeline()), QStringList({"10", "11", "12"}));
@@ -659,9 +564,7 @@ ApplicationWindow {
         TestBackend backend;
         backend.rows = {oldQueue, newLogin, oldLogin, newQueue};
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         // Different sessions have independent uptime offsets. A wall-clock correction on
         // either connection must not split a session or reorder its shared monotonic clock.
         QCOMPARE(observationIds(controller.timeline()), QStringList({"21", "20", "11", "10"}));
@@ -685,9 +588,7 @@ ApplicationWindow {
             TestBackend backend;
             for (const auto index : order) backend.rows.append(events[index]);
             mr::CandidateReviewController controller;
-            controller.setBackend(&backend);
-            controller.refresh();
-            QTRY_VERIFY(controller.indexComplete());
+            QVERIFY(indexed(controller, backend));
             QCOMPARE(observationIds(controller.timeline()), QStringList({"4", "5", "8", "2"}));
             QCOMPARE(controller.sessions()[0].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s1"));
             QCOMPARE(controller.sessions()[1].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s2"));
@@ -711,9 +612,7 @@ ApplicationWindow {
             eventAt(3, "FINDER_STATE_NOTIFICATION", 300000), cluster(4, 317000, 320000),
             cluster(5, 897000, 900000)};
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         // The first cluster starts before the three-minute limit but establishes its anchor
         // after it. Only the later, fresh finder notification can produce a duty entry.
         QCOMPARE(kinds(controller.timeline()), QStringList({"duty_leave", "duty_enter", "finder", "zone", "finder", "login"}));
@@ -884,9 +783,7 @@ ApplicationWindow {
         mr::MockBackend backend;
         backend.setCandidateFixture();
         mr::CandidateReviewController controller;
-        controller.setBackend(&backend);
-        controller.refresh();
-        QTRY_VERIFY(controller.indexComplete());
+        QVERIFY(indexed(controller, backend));
         QVERIFY(controller.total() > 200);
         QCOMPARE(controller.sessions().size(), 2);
         QVERIFY(!controller.anchorPairs().isEmpty());

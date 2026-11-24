@@ -14,11 +14,14 @@
 //     for a kind this build does not know;
 //   * a player's page carries no opcode, hex or ERR_ token and no maintainer text.
 //
-// The page is loaded with App, Fmt and ReduceMotion only - the same context
-// SharedCalibrationCardTests uses - so it must not need Settings.
+// The page is loaded with App, Fmt, Jobs, Roles and ReduceMotion only - the scene of
+// support/CapturePageScene.h, which SharedCalibrationCardTests uses too - so it must not
+// need Settings.
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "CapturePageScene.h"
+#include "PlayerVocabulary.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
@@ -26,9 +29,7 @@
 #include "CollectorTextTestSupport.h"
 #include "Formatters.h"
 #include "IBackend.h"
-#include "JobCatalog.h"
 #include "MockBackend.h"
-#include "RoleCatalog.h"
 
 #include <QDir>
 #include <QGuiApplication>
@@ -36,35 +37,18 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QQmlComponent>
-#include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QRegularExpression>
-#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QSignalSpy>
 #include <QTest>
-#include <QTranslator>
-
-#include <memory>
 
 namespace {
 
 using mrtest::findVisualItem;
-
-void collectVisibleText(QQuickItem *item, QStringList &texts)
-{
-    if (!item || !item->isVisible())
-        return;
-    const QVariant text = item->property("text");
-    if (text.isValid() && !text.toString().isEmpty())
-        texts.append(text.toString());
-    for (auto *child : item->childItems())
-        collectVisibleText(child, texts);
-}
+using PageScene = CapturePageScene;
 
 /// Answers GetStatus / GetCaptureStatus with one hand-written capture status;
 /// everything else succeeds empty.
@@ -170,77 +154,6 @@ public:
             reply->succeed({});
 }
         return reply;
-    }
-};
-
-/// The whole page on one backend, torn down in dependency order.
-struct PageScene
-{
-    std::unique_ptr<mr::MockBackend> mock = std::make_unique<mr::MockBackend>();
-    std::unique_ptr<mr::IBackend> other;
-    std::unique_ptr<mr::AppController> app;
-    std::unique_ptr<mr::Formatters> formatters;
-    mr::JobCatalog jobs;
-    mr::RoleCatalog roles;
-    std::unique_ptr<QQmlEngine> engine;
-    std::unique_ptr<QObject> root;
-    QQuickItem *page = nullptr;
-    QString pageType = QStringLiteral("CapturePage");
-
-    ~PageScene()
-    {
-        root.reset();
-        engine.reset();
-        app.reset();
-    }
-
-    bool open(bool maintainer = false) { return openOn(other ? other.get() : mock.get(), maintainer); }
-
-    bool openOn(mr::IBackend *source, bool maintainer)
-    {
-        app = std::make_unique<mr::AppController>(source, nullptr);
-        app->setMaintainerToolsVisible(maintainer);
-        formatters = std::make_unique<mr::Formatters>();
-        engine = std::make_unique<QQmlEngine>();
-        engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
-        engine->rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters.get());
-        engine->rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        engine->rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
-        engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        QQmlComponent component(engine.get());
-        component.setData(QStringLiteral(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 1180; height: 900; visible: true
-    color: Theme.surface
-    %1 { objectName: "capturePage"; anchors.fill: parent; anchors.margins: 16 }
-})").arg(pageType).toUtf8(), QUrl());
-        root.reset(component.create());
-        if (!root) {
-            qWarning("%s", qPrintable(component.errorString()));
-            return false;
-        }
-        page = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("capturePage")));
-        return page != nullptr;
-    }
-
-    QQuickItem *item(const QString &name) const { return findVisualItem(page, name); }
-    bool shows(const QString &name) const
-    {
-        auto *found = item(name);
-        return found && found->isVisible();
-    }
-    QString text(const QString &name) const
-    {
-        auto *found = item(name);
-        return found ? found->property("text").toString() : QString();
-    }
-    QStringList visibleTexts() const
-    {
-        QStringList texts;
-        collectVisibleText(page, texts);
-        return texts;
     }
 };
 
@@ -385,41 +298,33 @@ private slots:
     {
         QFETCH(bool, dark);
         QFETCH(QString, language);
-        QTranslator translator;
-        if (language != QLatin1String("zh_CN")) {
-            const QString qm = QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
-            QVERIFY2(translator.load(qm), qPrintable(qm));
-            QCoreApplication::installTranslator(&translator);
-        }
-        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{"state", "STARTING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 8544}, {"npcap_installed", true},
-                         {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
-                         {"game_build", "2026.10.06.0000.0000"},
-                         {"messages_decoded", 0}, {"decode_errors", 0},
-                         {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
-                         {"last_error_code", "ERR_INTERNAL"},
-                         {"hint", QString::fromUtf8("请重新登录游戏。")},
-                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}, {"attempts", 1}, {"retry_after_ms", 15000}}},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
-                              {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}},
-                         {"calibration", QJsonObject{{"state", "OBSERVING"},
-                              {"game_build", "2026.10.06.0000.0000"},
-                              {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
-                              {"shared", QJsonObject{{"phase", "VERIFYING"},
-                                   {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
-                                        {"provenance", "PUBLISHED"}}}}}},
-                              {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
-        fake->adapters = {{"adapters", QJsonArray{
-            QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
-                        {"is_loopback", false}, {"recommended", false}},
-            QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
-                        {"is_loopback", false}}}}};
+        const ScopedCatalogue catalogue(language);
+        QVERIFY2(catalogue.loaded(), qPrintable(catalogue.path()));
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "STARTING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 8544}, {"npcap_installed", true},
+                            {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"},
+                            {"messages_decoded", 0}, {"decode_errors", 0},
+                            {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
+                            {"last_error_code", "ERR_INTERNAL"},
+                            {"hint", QString::fromUtf8("请重新登录游戏。")},
+                            {"path_recovery", QJsonObject{{"state", "RECOVERING"}, {"attempts", 1}, {"retry_after_ms", 15000}}},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                 {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}},
+                            {"calibration", QJsonObject{{"state", "OBSERVING"},
+                                 {"game_build", "2026.10.06.0000.0000"},
+                                 {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
+                                 {"shared", QJsonObject{{"phase", "VERIFYING"},
+                                      {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
+                                           {"provenance", "PUBLISHED"}}}}}},
+                                 {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
+        backend->adapters = {{"adapters", QJsonArray{
+               QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
+                           {"is_loopback", false}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
+                           {"is_loopback", false}}}}};
         QVERIFY(scene.open());
         if (scene.app->isDark() != dark) scene.app->toggleTheme();
         auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
@@ -495,16 +400,14 @@ private slots:
     }
     void dashboardRecoveryDefersTheHealthAction()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
-                         {"npcap_installed", true}, {"profile_status", "VERIFIED"},
-                         {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
-                         {"hint", QString::fromUtf8("请重新登录游戏。")},
-                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
         PageScene scene;
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
+                            {"npcap_installed", true}, {"profile_status", "VERIFIED"},
+                            {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
+                            {"hint", QString::fromUtf8("请重新登录游戏。")},
+                            {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
         scene.pageType = QStringLiteral("DashboardPage");
-        scene.other = std::move(fake);
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.app->recording()->recovering());
         QVERIFY(scene.shows(QStringLiteral("dashboardCaptureHealth")));
@@ -526,16 +429,15 @@ private slots:
     void recoveryDoesNotHideIndependentPrerequisites()
     {
         QFETCH(QString, prerequisite);
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 123}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"}, {"silent_reason", "MIDSTREAM"},
-                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
-        if (prerequisite == QLatin1String("npcap")) fake->capture["npcap_installed"] = false;
-        if (prerequisite == QLatin1String("profile")) fake->capture["profile_status"] = "UNSUPPORTED_BUILD";
-        if (prerequisite == QLatin1String("database")) fake->capture["last_error_code"] = "ERR_DB_INTEGRITY";
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 123}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"}, {"silent_reason", "MIDSTREAM"},
+                            {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
+        if (prerequisite == QLatin1String("npcap")) backend->capture["npcap_installed"] = false;
+        if (prerequisite == QLatin1String("profile")) backend->capture["profile_status"] = "UNSUPPORTED_BUILD";
+        if (prerequisite == QLatin1String("database")) backend->capture["last_error_code"] = "ERR_DB_INTEGRITY";
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.app->recording()->blocked());
         QVERIFY(!scene.app->recording()->recovering());
@@ -560,23 +462,22 @@ private slots:
         QFETCH(QString, recovery);
         QFETCH(bool, actions);
         QFETCH(bool, maintainer);
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 123}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"}, {"silent_reason", "NONE"},
-                         {"adapter_id", "old"},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
-                              {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}}};
-        if (!recovery.isEmpty()) fake->capture["path_recovery"] = QJsonObject{{"state", recovery}};
-        // A remembered preference is not evidence that this run was started manually.
-        fake->settings["adapter_id"] = "old";
-        fake->adapters = {{"adapters", QJsonArray{
-            QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
-                        {"is_loopback", false}, {"recommended", false}},
-            QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
-                        {"is_loopback", false}}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 123}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"}, {"silent_reason", "NONE"},
+                            {"adapter_id", "old"},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                 {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}}};
+        if (!recovery.isEmpty()) backend->capture["path_recovery"] = QJsonObject{{"state", recovery}};
+        // A remembered preference is not evidence that this run was started manually.
+        backend->settings["adapter_id"] = "old";
+        backend->adapters = {{"adapters", QJsonArray{
+               QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
+                           {"is_loopback", false}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
+                           {"is_loopback", false}}}}};
         QVERIFY(scene.open(maintainer));
         QTRY_COMPARE(scene.shows(QStringLiteral("useRecommendedAdapterButton")), actions);
         QCOMPARE(scene.shows(QStringLiteral("rescanAdaptersButton")), actions);
@@ -641,17 +542,15 @@ private slots:
         QFETCH(QString, region);
         QFETCH(bool, readable);
         QFETCH(bool, expected);
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), running},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
-                         {QStringLiteral("region"), region},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
-                         {QStringLiteral("install_path_readable"), readable}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), running},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                            {QStringLiteral("region"), region},
+                            {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
+                            {QStringLiteral("install_path_readable"), readable}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->ffxivRunning(), running);
         QTRY_COMPARE(scene.shows(QStringLiteral("openRegionSettingsButton")), expected);
@@ -696,20 +595,18 @@ private slots:
         const QString mismatch = QString::fromUtf8(
             "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。"
             "若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
-                         {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
-                         {QStringLiteral("install_path_readable"), true}};
-        fake->extras = {{QStringLiteral("warnings"), QJsonArray{mismatch}},
-                        {QStringLiteral("warning_refs"), QJsonArray{QJsonObject{
-                             {QStringLiteral("key"), QStringLiteral("capture.game.region_override_mismatch")}}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                            {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
+                            {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
+                            {QStringLiteral("install_path_readable"), true}};
+        backend->extras = {{QStringLiteral("warnings"), QJsonArray{mismatch}},
+                           {QStringLiteral("warning_refs"), QJsonArray{QJsonObject{
+                                {QStringLiteral("key"), QStringLiteral("capture.game.region_override_mismatch")}}}}};
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("openRegionSettingsButton")));
         QTRY_COMPARE(scene.text(QStringLiteral("protocolProfileExplanation")), mismatch);
@@ -831,14 +728,13 @@ private slots:
     {
         QFETCH(QJsonValue, path);
         QFETCH(QString, expected);
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"}};
-        if (!path.isUndefined())
-            fake->capture.insert(QStringLiteral("network_path"), path);
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"}};
+        if (!path.isUndefined())
+            backend->capture.insert(QStringLiteral("network_path"), path);
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")), expected);
         QCOMPARE(scene.shows(QStringLiteral("captureNetworkPathSummary")), !expected.isEmpty());
@@ -851,15 +747,13 @@ private slots:
 
     void networkPathSummaryUpdatesAndClearsWithCollectorFacts()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
-                                                       {"kind", "LOOPBACK"}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                          {"kind", "LOOPBACK"}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")),
                      QString::fromUtf8("网络路径：游戏通过本机回环连接转接。"));
@@ -876,17 +770,15 @@ private slots:
 
     void networkPathFactsDisappearWhenCollectorDisconnects()
     {
-        auto fake = std::make_unique<UnreadableBackend>();
-        auto *backend = fake.get();
-        fake->connected = true;
-        fake->statusReadable = true;
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
-                                                       {"kind", "LOCAL"}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<UnreadableBackend>();
+        backend->connected = true;
+        backend->statusReadable = true;
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                          {"kind", "LOCAL"}}}};
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("captureNetworkPathSummary")));
         backend->setConnected(false);
@@ -911,23 +803,16 @@ private slots:
     {
         QFETCH(bool, dark);
         QFETCH(QString, language);
-        QTranslator translator;
-        if (language != QLatin1String("zh_CN")) {
-            const QString qm = QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
-            QVERIFY2(translator.load(qm), qPrintable(qm));
-            QCoreApplication::installTranslator(&translator);
-        }
-        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
-                         {"profile_status", "VERIFIED"},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
-                                                       {"kind", "LOOPBACK"}, {"capture_open_failures", 1},
-                                                       {"candidate_limit_reached", true}}}};
+        const ScopedCatalogue catalogue(language);
+        QVERIFY2(catalogue.loaded(), qPrintable(catalogue.path()));
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                            {"profile_status", "VERIFIED"},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                          {"kind", "LOOPBACK"}, {"capture_open_failures", 1},
+                                                          {"candidate_limit_reached", true}}}};
         QVERIFY(scene.open());
         if (scene.app->isDark() != dark)
             scene.app->toggleTheme();
@@ -979,6 +864,32 @@ private slots:
         QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
         QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
         QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("自动记录已开启，正在读取游戏数据"));
+    }
+
+    // The profile column names where a recording profile came from: this machine's own
+    // calibration or another player's (CaptureChainModel.profileValue).
+    void calibratedProfilesAreLabelledInTheChain_data()
+    {
+        QTest::addColumn<bool>("shared");
+        QTest::addColumn<QString>("origin");
+        QTest::addColumn<QString>("label");
+        QTest::newRow("local") << false << "LOCAL_CALIBRATION" << QString::fromUtf8("本机校准");
+        QTest::newRow("shared") << true << "SHARED_CALIBRATION" << QString::fromUtf8("共享校准");
+    }
+
+    void calibratedProfilesAreLabelledInTheChain()
+    {
+        QFETCH(bool, shared);
+        QFETCH(QString, origin);
+        QFETCH(QString, label);
+        PageScene scene;
+        if (shared)
+            scene.mock->setSharedCalibrationFixture(QStringLiteral("verified"));
+        else
+            scene.mock->setCalibrationFixture(QStringLiteral("done"));
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("profile_origin")).toString(), origin);
+        QTRY_COMPARE(chainValue(scene, "profile"), label);
     }
 
     void maintainerSeesSelectionReasonWithoutAutomaticRecording_data()
@@ -1073,18 +984,17 @@ private slots:
     void aClosedGameWithNothingToChooseIsOrdinaryWaiting()
     {
         QFETCH(QString, reason);
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), false},
-                         {QStringLiteral("ffxiv_process_id"), QJsonValue::Null},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
-                         {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
-                         {QStringLiteral("game_selection_required"), true},
-                         {QStringLiteral("game_selection_reason"), reason},
-                         {QStringLiteral("game_processes"), QJsonArray()}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), false},
+                            {QStringLiteral("ffxiv_process_id"), QJsonValue::Null},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                            {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
+                            {QStringLiteral("game_selection_required"), true},
+                            {QStringLiteral("game_selection_reason"), reason},
+                            {QStringLiteral("game_processes"), QJsonArray()}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("waiting"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("等待游戏启动"));
@@ -1208,9 +1118,8 @@ private slots:
     // and 需手动记录, sending the player to reinstall a driver for an unrelated problem.
     void aCollectorWithoutAPipeIsNotAMissingNpcap()
     {
-        auto fake = std::make_unique<UnreadableBackend>();
         PageScene scene;
-        scene.other = std::move(fake);
+        scene.fake<UnreadableBackend>();
         QVERIFY(scene.open());
         QVERIFY(!scene.app->backendConnected());
         expectNothingClaimedAboutNpcap(scene, QString::fromUtf8("正在连接自动记录服务…"));
@@ -1218,10 +1127,9 @@ private slots:
 
     void aFailedStatusReadIsNotAMissingNpcap()
     {
-        auto fake = std::make_unique<UnreadableBackend>();
-        fake->connected = true;
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<UnreadableBackend>();
+        backend->connected = true;
         QVERIFY(scene.open());
         QVERIFY(scene.app->backendConnected());
         expectNothingClaimedAboutNpcap(scene, QString::fromUtf8("正在获取自动记录状态…"));
@@ -1229,17 +1137,15 @@ private slots:
 
     void aCollectorThatGoesAwayLeavesNpcapUnknown()
     {
-        auto fake = std::make_unique<UnreadableBackend>();
-        fake->connected = true;
-        fake->statusReadable = true;
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("npcap_version"), QStringLiteral("1.79")},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
-        auto *source = fake.get();
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *source = scene.fake<UnreadableBackend>();
+        source->connected = true;
+        source->statusReadable = true;
+        source->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                           {QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("npcap_installed"), true},
+                           {QStringLiteral("npcap_version"), QStringLiteral("1.79")},
+                           {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
         QVERIFY(scene.open());
         QTRY_COMPARE(chainValue(scene, "npcap"), QStringLiteral("v1.79"));
 
@@ -1253,18 +1159,16 @@ private slots:
         // The recording controller keeps an incident when the pipe goes (a disconnect is no
         // evidence of recovery), and the sidebar keeps saying 无法自动记录. The page says the
         // same - and still claims nothing about Npcap.
-        auto fake = std::make_unique<UnreadableBackend>();
-        fake->connected = true;
-        fake->statusReadable = true;
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("last_error_code"), QStringLiteral("ERR_DB_BUSY")}};
-        auto *source = fake.get();
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *source = scene.fake<UnreadableBackend>();
+        source->connected = true;
+        source->statusReadable = true;
+        source->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                           {QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("ffxiv_process_id"), 18244},
+                           {QStringLiteral("npcap_installed"), true},
+                           {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                           {QStringLiteral("last_error_code"), QStringLiteral("ERR_DB_BUSY")}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("无法自动记录"));
@@ -1283,17 +1187,15 @@ private slots:
     // without a status the page hides those steps; the hero keeps the verdict, not the pointer.
     void aKeptNpcapIncidentDoesNotPointAtHiddenSteps()
     {
-        auto fake = std::make_unique<UnreadableBackend>();
-        fake->connected = true;
-        fake->statusReadable = true;
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), false},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
-        auto *source = fake.get();
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *source = scene.fake<UnreadableBackend>();
+        source->connected = true;
+        source->statusReadable = true;
+        source->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                           {QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("ffxiv_process_id"), 18244},
+                           {QStringLiteral("npcap_installed"), false},
+                           {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QVERIFY(scene.app->recording()->message().contains(QString::fromUtf8("中的说明安装")));
@@ -1314,14 +1216,13 @@ private slots:
     void aLibpcapVersionIsNotPrefixedWithAV()
     {
         for (const bool maintainer : {false, true}) {
-            auto fake = std::make_unique<CaptureBackend>();
-            fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                             {QStringLiteral("ffxiv_running"), true},
-                             {QStringLiteral("npcap_installed"), true},
-                             {QStringLiteral("npcap_version"), QStringLiteral("libpcap 1.10.6")},
-                             {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
             PageScene scene;
-            scene.other = std::move(fake);
+            auto *backend = scene.fake<CaptureBackend>();
+            backend->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                                {QStringLiteral("ffxiv_running"), true},
+                                {QStringLiteral("npcap_installed"), true},
+                                {QStringLiteral("npcap_version"), QStringLiteral("libpcap 1.10.6")},
+                                {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
             QVERIFY(scene.open(maintainer));
             QTRY_COMPARE(chainValue(scene, "npcap"), QStringLiteral("libpcap 1.10.6"));
             if (maintainer)
@@ -1348,33 +1249,31 @@ private slots:
         QFETCH(bool, maintainer);
         const QString adapterId = QStringLiteral("\\Device\\NPF_{0B7E3C1A-5D2F-4E6B-9A10-2C4D6E8F0A1B}");
         const QString sha = QStringLiteral("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
-                         {QStringLiteral("region"), QStringLiteral("GLOBAL")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
-        fake->validation = {{QStringLiteral("active"), false},
-                            {QStringLiteral("state"), QStringLiteral("FAILED")},
-                            {QStringLiteral("reason"), QStringLiteral("START_FAILED")},
-                            {QStringLiteral("message"), QString()},
-                            {QStringLiteral("error_code"), QStringLiteral("ERR_CAPTURE_START_FAILED")},
-                            {QStringLiteral("trace_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl")},
-                            {QStringLiteral("sha256_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl.sha256")},
-                            {QStringLiteral("sha256"), sha}};
-        fake->adapters = {{QStringLiteral("npcap_installed"), true},
-                          {QStringLiteral("adapters"), QJsonArray{QJsonObject{
-                               {QStringLiteral("adapter_id"), adapterId},
-                               {QStringLiteral("description"), QStringLiteral("Intel(R) Ethernet Controller")},
-                               {QStringLiteral("friendly_name"), QString::fromUtf8("以太网")},
-                               {QStringLiteral("is_loopback"), false},
-                               {QStringLiteral("is_up"), true},
-                               {QStringLiteral("recommended"), true}}}}};
-        auto *source = fake.get();
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                           {QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("ffxiv_process_id"), 18244},
+                           {QStringLiteral("npcap_installed"), true},
+                           {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                           {QStringLiteral("region"), QStringLiteral("GLOBAL")},
+                           {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        source->validation = {{QStringLiteral("active"), false},
+                              {QStringLiteral("state"), QStringLiteral("FAILED")},
+                              {QStringLiteral("reason"), QStringLiteral("START_FAILED")},
+                              {QStringLiteral("message"), QString()},
+                              {QStringLiteral("error_code"), QStringLiteral("ERR_CAPTURE_START_FAILED")},
+                              {QStringLiteral("trace_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl")},
+                              {QStringLiteral("sha256_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl.sha256")},
+                              {QStringLiteral("sha256"), sha}};
+        source->adapters = {{QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("adapters"), QJsonArray{QJsonObject{
+                                 {QStringLiteral("adapter_id"), adapterId},
+                                 {QStringLiteral("description"), QStringLiteral("Intel(R) Ethernet Controller")},
+                                 {QStringLiteral("friendly_name"), QString::fromUtf8("以太网")},
+                                 {QStringLiteral("is_loopback"), false},
+                                 {QStringLiteral("is_up"), true},
+                                 {QStringLiteral("recommended"), true}}}}};
         QVERIFY(scene.open(maintainer));
         QTRY_VERIFY(scene.app->capturing());
         QTRY_COMPARE(scene.app->validationState(), QStringLiteral("FAILED"));
@@ -1445,19 +1344,18 @@ private slots:
 
     void anUnknownEventKindLeavesTheTimeAlone()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        const QString at = QStringLiteral("2026-09-17T13:38:04.000Z");
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("parse_ok_count"), 10},
-                         {QStringLiteral("parse_fail_count"), 0},
-                         {QStringLiteral("duplicate_count"), 0},
-                         {QStringLiteral("last_valid_event_at_utc"), at},
-                         {QStringLiteral("last_valid_event_kind"), QStringLiteral("BRAND_NEW_KIND")}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        const QString at = QStringLiteral("2026-09-17T13:38:04.000Z");
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                            {QStringLiteral("parse_ok_count"), 10},
+                            {QStringLiteral("parse_fail_count"), 0},
+                            {QStringLiteral("duplicate_count"), 0},
+                            {QStringLiteral("last_valid_event_at_utc"), at},
+                            {QStringLiteral("last_valid_event_kind"), QStringLiteral("BRAND_NEW_KIND")}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureParseValue_lastEvent")), mr::Formatters::localTime(at));
         QVERIFY(!scene.text(QStringLiteral("captureParseValue_lastEvent")).contains(QStringLiteral("BRAND")));
@@ -1467,11 +1365,10 @@ private slots:
 
     void withoutParseCountersThePanelSaysSo()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                            {QStringLiteral("ffxiv_running"), true}};
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.shows(QStringLiteral("captureParseUnavailable")));
         QVERIFY(!scene.shows(QStringLiteral("captureParseSuccessRate")));
@@ -1497,26 +1394,24 @@ private slots:
         const QVariantMap hintRef = mrtest::textRef("capture.hint.no_ownership");
         const QString hint = mr::collector_text::chinese(hintRef);
         QVERIFY(!hint.isEmpty());
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
-                         {"ffxiv_process_id", 8544}, {"npcap_installed", true},
-                         {"adapter_id", "issue38-adapter"}, {"adapter_name", QString::fromUtf8("以太网")},
-                         {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
-                         {"game_build", "2026.10.06.0000.0000"},
-                         {"messages_decoded", 0}, {"decode_errors", 0},
-                         {"raw_packets_observed", 1763421}, {"uptime_ms", 6428057},
-                         {"silent_reason", "NO_STREAM_OWNERSHIP"}, {"hint", hint},
-                         {"hint_ref", QJsonObject::fromVariantMap(hintRef)},
-                         {"calibration", QJsonObject{{"state", "OBSERVING"},
-                              {"game_build", "2026.10.06.0000.0000"},
-                              {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
-                              {"shared", QJsonObject{{"phase", "VERIFYING"},
-                                   {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
-                                        {"provenance", provenance}}}}}},
-                              {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                            {"ffxiv_process_id", 8544}, {"npcap_installed", true},
+                            {"adapter_id", "issue38-adapter"}, {"adapter_name", QString::fromUtf8("以太网")},
+                            {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"},
+                            {"messages_decoded", 0}, {"decode_errors", 0},
+                            {"raw_packets_observed", 1763421}, {"uptime_ms", 6428057},
+                            {"silent_reason", "NO_STREAM_OWNERSHIP"}, {"hint", hint},
+                            {"hint_ref", QJsonObject::fromVariantMap(hintRef)},
+                            {"calibration", QJsonObject{{"state", "OBSERVING"},
+                                 {"game_build", "2026.10.06.0000.0000"},
+                                 {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
+                                 {"shared", QJsonObject{{"phase", "VERIFYING"},
+                                      {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
+                                           {"provenance", provenance}}}}}},
+                                 {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
         QVERIFY(scene.open());
         if (scene.app->isDark() != dark) scene.app->toggleTheme();
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("listening_silent"));
@@ -1564,24 +1459,23 @@ private slots:
     // this build has no wording for never reaches the page.
     void aCaptureErrorOutranksAFinishedCalibrationAndNamesNoCode()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("profile_origin"), QStringLiteral("LOCAL_CALIBRATION")},
-                         {QStringLiteral("region"), QStringLiteral("CN")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-                         {QStringLiteral("last_error_code"), QStringLiteral("ERR_BRAND_NEW_CODE")},
-                         {QStringLiteral("calibration"), QJsonObject{
-                              {QStringLiteral("state"), QStringLiteral("DONE")},
-                              {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-                              {QStringLiteral("blockers"), QJsonArray()},
-                              {QStringLiteral("events"), QJsonArray()},
-                              {QStringLiteral("progress"), QJsonObject()}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("ffxiv_process_id"), 18244},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                            {QStringLiteral("profile_origin"), QStringLiteral("LOCAL_CALIBRATION")},
+                            {QStringLiteral("region"), QStringLiteral("CN")},
+                            {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                            {QStringLiteral("last_error_code"), QStringLiteral("ERR_BRAND_NEW_CODE")},
+                            {QStringLiteral("calibration"), QJsonObject{
+                                 {QStringLiteral("state"), QStringLiteral("DONE")},
+                                 {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                                 {QStringLiteral("blockers"), QJsonArray()},
+                                 {QStringLiteral("events"), QJsonArray()},
+                                 {QStringLiteral("progress"), QJsonObject()}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("无法自动记录"));
@@ -1655,14 +1549,8 @@ private slots:
         QFETCH(QString, language);
         QFETCH(QString, message);
         QFETCH(QString, expected);
-        QTranslator translator;
-        if (language != QLatin1String("zh_CN")) {
-            const QString qm = QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
-            QVERIFY2(translator.load(qm), qPrintable(qm));
-            QCoreApplication::installTranslator(&translator);
-        }
-        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+        const ScopedCatalogue catalogue(language);
+        QVERIFY2(catalogue.loaded(), qPrintable(catalogue.path()));
         PageScene scene;
         QVERIFY(scene.open());
         auto *hero = scene.item(QStringLiteral("captureHeroPanel"));
@@ -1715,26 +1603,25 @@ private slots:
         QFETCH(QString, summary);
         QFETCH(QString, reasonKey);
         const QString build = QStringLiteral("2026.09.01.0000.0000");
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), profile},
-                         {QStringLiteral("region"), region},
-                         {QStringLiteral("game_build"), build}};
+        PageScene scene;
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("ffxiv_process_id"), 18244},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), profile},
+                            {QStringLiteral("region"), region},
+                            {QStringLiteral("game_build"), build}};
         if (!reasonKey.isEmpty())
-            fake->profile = {{QStringLiteral("status"), profile},
+            backend->profile = {{QStringLiteral("status"), profile},
                              {QStringLiteral("region"), region},
                              {QStringLiteral("game_build"), build},
                              {QStringLiteral("message"), QString::fromUtf8("采集服务的说明。")},
                              {QStringLiteral("message_ref"), QJsonObject{{QStringLiteral("key"), reasonKey}}}};
-        fake->validation = {{QStringLiteral("active"), true},
-                            {QStringLiteral("state"), QStringLiteral("RECORDING")},
-                            {QStringLiteral("reason"), QStringLiteral("RECORDING")},
-                            {QStringLiteral("session_id"), QStringLiteral("round-observing")}};
-        PageScene scene;
-        scene.other = std::move(fake);
+        backend->validation = {{QStringLiteral("active"), true},
+                               {QStringLiteral("state"), QStringLiteral("RECORDING")},
+                               {QStringLiteral("reason"), QStringLiteral("RECORDING")},
+                               {QStringLiteral("session_id"), QStringLiteral("round-observing")}};
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.app->validationActive());
         scene.app->recording()->setUserObservation(true);
@@ -1770,23 +1657,22 @@ private slots:
         QFETCH(QString, region);
         QFETCH(bool, regionIsTheReason);
         const QString build = QStringLiteral("2026.09.01.0000.0000");
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
-                         {QStringLiteral("region"), region},
-                         {QStringLiteral("game_build"), build}};
+        PageScene scene;
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("ffxiv_process_id"), 18244},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                            {QStringLiteral("region"), region},
+                            {QStringLiteral("game_build"), build}};
         const QString key = regionIsTheReason ? QStringLiteral("profile.unavailable.region_unsupported")
                                               : QStringLiteral("profile.unavailable.build_unsupported");
-        fake->profile = {{QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD")},
-                         {QStringLiteral("region"), region},
-                         {QStringLiteral("game_build"), build},
-                         {QStringLiteral("message"), QString::fromUtf8("采集服务的说明。")},
-                         {QStringLiteral("message_ref"), QJsonObject{{QStringLiteral("key"), key}}}};
-        PageScene scene;
-        scene.other = std::move(fake);
+        backend->profile = {{QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                            {QStringLiteral("region"), region},
+                            {QStringLiteral("game_build"), build},
+                            {QStringLiteral("message"), QString::fromUtf8("采集服务的说明。")},
+                            {QStringLiteral("message_ref"), QJsonObject{{QStringLiteral("key"), key}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.app->regionUnsupported(), regionIsTheReason);
@@ -1824,18 +1710,17 @@ private slots:
     // Review K2-4: a verified build the recording controller has blocked is not 「正在启动监听…」.
     void aBlockedVerifiedBuildIsNotStartingToListen()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("region"), QStringLiteral("CN")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
-        // Follow-the-game is off and the Collector does not take it: the controller blocks.
-        fake->settings = {{QStringLiteral("follow_game"), false}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("ffxiv_process_id"), 18244},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                            {QStringLiteral("region"), QStringLiteral("CN")},
+                            {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        // Follow-the-game is off and the Collector does not take it: the controller blocks.
+        backend->settings = {{QStringLiteral("follow_game"), false}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
@@ -1849,19 +1734,18 @@ private slots:
     // this page too, and keeps the other way out.
     void aSilentCaptureDoesNotPointAtItsOwnPage()
     {
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
-                         {QStringLiteral("ffxiv_running"), true},
-                         {QStringLiteral("ffxiv_process_id"), 18244},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("adapter_id"), QStringLiteral("silent-adapter")},
-                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
-                         {QStringLiteral("region"), QStringLiteral("CN")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
-                         {QStringLiteral("messages_decoded"), 0},
-                         {QStringLiteral("decode_errors"), 7}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                            {QStringLiteral("ffxiv_running"), true},
+                            {QStringLiteral("ffxiv_process_id"), 18244},
+                            {QStringLiteral("npcap_installed"), true},
+                            {QStringLiteral("adapter_id"), QStringLiteral("silent-adapter")},
+                            {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                            {QStringLiteral("region"), QStringLiteral("CN")},
+                            {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                            {QStringLiteral("messages_decoded"), 0},
+                            {QStringLiteral("decode_errors"), 7}};
         QVERIFY(scene.open());
         QTRY_VERIFY(scene.app->captureSilent());
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")),
@@ -1889,17 +1773,15 @@ private slots:
                                {QStringLiteral("sha256"), hash.isEmpty() ? null : QJsonValue(hash)}};
         };
         const QString trace = QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl");
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
-                         {QStringLiteral("ffxiv_running"), false},
-                         {QStringLiteral("npcap_installed"), true},
-                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
-                         {QStringLiteral("region"), QStringLiteral("GLOBAL")},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
-        fake->validation = completed(QStringLiteral("CANCELLED"), QString(), QString());
-        auto *source = fake.get();
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *source = scene.fake<CaptureBackend>();
+        source->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                           {QStringLiteral("ffxiv_running"), false},
+                           {QStringLiteral("npcap_installed"), true},
+                           {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                           {QStringLiteral("region"), QStringLiteral("GLOBAL")},
+                           {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        source->validation = completed(QStringLiteral("CANCELLED"), QString(), QString());
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->validationState(), QStringLiteral("COMPLETED"));
         auto *row = scene.item(QStringLiteral("templateObservationGuideRow"));
@@ -1981,27 +1863,25 @@ private slots:
         const QVariantMap ref = mrtest::textRef("capture.start.adapter_undetermined");
         const QString sentence = mr::collector_text::render(ref, QString());
         QVERIFY(!sentence.isEmpty());
-        auto fake = std::make_unique<CaptureBackend>();
-        auto *backend = fake.get();
-        fake->acceptWrites = true;
-        fake->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 8544},
-                         {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
-                         {"game_build", "2026.10.06.0000.0000"}, {"adapter_id", QJsonValue(QJsonValue::Null)},
-                         {"last_error_code", "ERR_BAD_REQUEST"},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "UNMAPPED"}}}};
-        if (withSentence) {
-            fake->capture["last_error_text"] = mr::collector_text::chinese(ref);
-            fake->capture["last_error_ref"] = QJsonObject::fromVariantMap(ref);
-        }
-        fake->adapters = {{"npcap_installed", true}, {"adapters", QJsonArray{
-            QJsonObject{{"adapter_id", "\\Device\\NPF_{HOUSE}"}, {"friendly_name", QString::fromUtf8("以太网")},
-                        {"description", "Intel(R) Ethernet Connection"}, {"ipv4_addresses", QJsonArray{"192.168.1.x"}},
-                        {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
-            QJsonObject{{"adapter_id", "\\Device\\NPF_{TAP}"}, {"friendly_name", QString::fromUtf8("以太网 2")},
-                        {"description", "TAP-Windows Adapter V9"}, {"ipv4_addresses", QJsonArray{"10.8.0.x"}},
-                        {"is_loopback", false}, {"is_up", true}, {"recommended", false}}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->acceptWrites = true;
+        backend->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 8544},
+                            {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"}, {"adapter_id", QJsonValue(QJsonValue::Null)},
+                            {"last_error_code", "ERR_BAD_REQUEST"},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "UNMAPPED"}}}};
+        if (withSentence) {
+            backend->capture["last_error_text"] = mr::collector_text::chinese(ref);
+            backend->capture["last_error_ref"] = QJsonObject::fromVariantMap(ref);
+        }
+        backend->adapters = {{"npcap_installed", true}, {"adapters", QJsonArray{
+               QJsonObject{{"adapter_id", "\\Device\\NPF_{HOUSE}"}, {"friendly_name", QString::fromUtf8("以太网")},
+                           {"description", "Intel(R) Ethernet Connection"}, {"ipv4_addresses", QJsonArray{"192.168.1.x"}},
+                           {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "\\Device\\NPF_{TAP}"}, {"friendly_name", QString::fromUtf8("以太网 2")},
+                           {"description", "TAP-Windows Adapter V9"}, {"ipv4_addresses", QJsonArray{"10.8.0.x"}},
+                           {"is_loopback", false}, {"is_up", true}, {"recommended", false}}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
@@ -2045,19 +1925,18 @@ private slots:
         QFETCH(QString, recovery);
         QFETCH(bool, stale);
         QFETCH(bool, picker);
-        auto fake = std::make_unique<CaptureBackend>();
-        fake->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
-                         {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
-                         {"game_build", "2026.10.06.0000.0000"},
-                         {"path_recovery", QJsonObject{{"state", recovery}, {"attempts", 0}, {"retry_after_ms", 0}}},
-                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", kind}}}};
-        fake->adapters = {{"adapters", QJsonArray{
-            QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", stale},
-                        {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
-            QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", stale},
-                        {"is_loopback", false}, {"is_up", true}}}}};
         PageScene scene;
-        scene.other = std::move(fake);
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
+                            {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"},
+                            {"path_recovery", QJsonObject{{"state", recovery}, {"attempts", 0}, {"retry_after_ms", 0}}},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", kind}}}};
+        backend->adapters = {{"adapters", QJsonArray{
+               QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", stale},
+                           {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", stale},
+                           {"is_loopback", false}, {"is_up", true}}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->captureAdapters().size(), 2);
         QTRY_COMPARE(scene.shows(QStringLiteral("captureAdapterPicker")), picker);
@@ -2073,10 +1952,7 @@ private slots:
         QTRY_VERIFY(scene.item(QStringLiteral("captureParseFailureText")));
         const QStringList texts = scene.visibleTexts();
         QVERIFY(texts.contains(QString::fromUtf8("游戏数据的格式不符合预期，已跳过")));
-        static const QStringList words{
-            QString::fromUtf8("开始捕获"), QString::fromUtf8("停止捕获"), QString::fromUtf8("开始验证"),
-            QString::fromUtf8("维护者工具"), QString::fromUtf8("对照核对"), QStringLiteral("opcode"),
-            QStringLiteral("0x"), QStringLiteral("ERR_"), QStringLiteral("VERIFIED"),
+        static const QStringList words = mrtest::maintainerWords() + QStringList{
             QStringLiteral("S2C"), QStringLiteral("profile"), QStringLiteral("cn/2026"),
             QStringLiteral("LIVE_CAPTURE_STATUS"), QStringLiteral("ExportDiagnosticsReport")};
         // Review OK-8: the refusal code (E_LEN_MISMATCH …) is a token like any other.

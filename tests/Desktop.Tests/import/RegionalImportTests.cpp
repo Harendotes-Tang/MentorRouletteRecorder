@@ -27,6 +27,14 @@ void answerPreview(RegionalImportBackend &backend, const QJsonArray &rows)
         {"summary", QJsonObject{{"total", rows.size()}, {"new", rows.size()}}}});
 }
 
+/// Pastes a one-duty table and answers its preview with \a rows; true once the preview is valid.
+bool readPreview(mr::ImportRecordsController &controller, RegionalImportBackend &backend, const QJsonArray &rows)
+{
+    controller.importText(QStringLiteral("副本\n合成副本"));
+    answerPreview(backend, rows);
+    return QTest::qWaitFor([&controller] { return controller.previewValid(); });
+}
+
 class RegionalImportTests final : public QObject
 {
     Q_OBJECT
@@ -99,9 +107,8 @@ private Q_SLOTS:
         controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
             QVariantMap{{"region", "TC"}, {"baseline_completed_count", 1}},
             QVariantMap{{"region", "UNKNOWN"}, {"baseline_completed_count", 0}}});
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        answerPreview(backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "TC"), previewRow(4, "UNKNOWN")});
-        QTRY_VERIFY(controller.previewValid());
+        QVERIFY(readPreview(controller, backend,
+                            {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "TC"), previewRow(4, "UNKNOWN")}));
         QCOMPARE(controller.contributingSelectedCount(), 4);
         QCOMPARE(controller.baselineDeductionPreview(), 2);
         QVERIFY(controller.baselineChoiceOffered());
@@ -128,9 +135,7 @@ private Q_SLOTS:
         controller.setBackend(&backend);
         controller.setBaselineLoaded(true);
         controller.setAchievements({QVariantMap{{"region", "TC"}, {"baseline_completed_count", 7}}});
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        answerPreview(backend, {previewRow(1, "TC")});
-        QTRY_VERIFY(controller.previewValid());
+        QVERIFY(readPreview(controller, backend, {previewRow(1, "TC")}));
         controller.setOwnRecordsConfirmed(true);
         QVERIFY(controller.canCommit());
 
@@ -173,9 +178,7 @@ private Q_SLOTS:
             controller.setBackend(&backend);
             controller.setBaselineCount(100);
             controller.setBaselineLoaded(true);
-            controller.importText(QStringLiteral("副本\n合成副本"));
-            answerPreview(backend, {previewRow(1, region)});
-            QTRY_VERIFY(controller.previewValid());
+            QVERIFY(readPreview(controller, backend, {previewRow(1, region)}));
             controller.setOwnRecordsConfirmed(true);
             QCOMPARE(controller.waitingForBaseline(), region != QLatin1String("CN"));
             QCOMPARE(controller.canCommit(), region == QLatin1String("CN"));
@@ -196,9 +199,7 @@ private Q_SLOTS:
         RegionalImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        answerPreview(backend, {previewRow(1, "CN")});
-        QTRY_VERIFY(controller.previewValid());
+        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN")}));
         controller.updateCandidate(0, {{"region", "TC"}});
         const QVariantMap candidate = controller.currentCandidate();
         QCOMPARE(candidate.value("region").toString(), QStringLiteral("TC"));
@@ -216,9 +217,7 @@ private Q_SLOTS:
         RegionalImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        answerPreview(backend, {previewRow(1, "CN"), previewRow(2, "GLOBAL")});
-        QTRY_VERIFY(controller.previewValid());
+        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "GLOBAL")}));
         controller.setRowSelected(1, false);
         controller.batchUpdateSelected({{"region", "TC"}});
         const QJsonArray rows = backend.last().payload.value("rows").toArray();
@@ -240,9 +239,7 @@ private Q_SLOTS:
         controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
             QVariantMap{{"region", "TC"}, {"baseline_completed_count", 1}},
             QVariantMap{{"region", "UNKNOWN"}, {"baseline_completed_count", 3}}});
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        answerPreview(backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "UNKNOWN")});
-        QTRY_VERIFY(controller.previewValid());
+        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "UNKNOWN")}));
         QStringList shown;
         for (const QVariant &value : controller.baselinePreviews())
             shown.append(value.toMap().value("label").toString());
@@ -339,9 +336,7 @@ private Q_SLOTS:
             unset.setBackend(&plain);
             unset.setDefaultRegion(none);
             QCOMPARE(unset.defaultRegion(), QString());
-            unset.importText(QStringLiteral("副本\n合成副本"));
-            answerPreview(plain, {readRow(1, QJsonValue::Undefined)});
-            QTRY_VERIFY(unset.previewValid());
+            QVERIFY(readPreview(unset, plain, {readRow(1, QJsonValue::Undefined)}));
             QCOMPARE(plain.calls.size(), 1);
         }
     }

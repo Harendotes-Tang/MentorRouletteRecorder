@@ -25,6 +25,12 @@ QQuickItem *roundCard(const EvidenceScene &scene)
     return scene.item(QStringLiteral("candidateRoundCard"));
 }
 
+/// The phase the round card is in (running, exported, retry, recover).
+QString phase(const EvidenceScene &scene)
+{
+    return roundCard(scene)->property("phase").toString();
+}
+
 bool roundVisible(const EvidenceScene &scene)
 {
     auto *card = roundCard(scene);
@@ -61,7 +67,7 @@ bool startRound(EvidenceScene &scene)
     if (!QTest::qWaitFor([&scene] { return scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled(); })
         || !scene.click(QStringLiteral("candidateRoundStartButton")))
         return false;
-    return QTest::qWaitFor([&scene] { return roundCard(scene)->property("phase").toString() == QLatin1String("running"); });
+    return QTest::qWaitFor([&scene] { return phase(scene) == QLatin1String("running"); });
 }
 
 QString answer(const EvidenceScene &scene, const char *key)
@@ -181,7 +187,7 @@ private Q_SLOTS:
                                        QStringLiteral("identity"), QStringLiteral("zone_load")};
         QVERIFY(groups == everyGroup);
 
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("running"));
         for (int task = 1; task <= 4; ++task)
             QVERIFY(scene.item(QStringLiteral("candidateRoundTask_%1").arg(task))->isVisible());
         QVERIFY(!scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
@@ -245,16 +251,12 @@ private Q_SLOTS:
         scene.app->candidates()->setTargetOverride(target.path());
         int opened = 0;
         scene.app->candidates()->setOpenUrl([&opened](const QUrl &) { ++opened; return true; });
-        QTRY_VERIFY(roundVisible(scene));
-        QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
-        QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled());
-        QVERIFY(scene.click(QStringLiteral("candidateRoundStartButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QVERIFY(startRound(scene));
 
         // QTRY_* evaluates its expression once more after it holds: wait first, click once.
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundFinishButton"))->isEnabled());
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         QVERIFY(!scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool());
         QVERIFY(scene.app->captureSettings().value(QStringLiteral("research_payload_opcodes")).toList().isEmpty());
 
@@ -322,7 +324,7 @@ private Q_SLOTS:
 
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundFinishButton"))->isEnabled());
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         const QJsonObject sent{{QStringLiteral("first_roulette"), QString::fromUtf8("编号 999")},
                                {QStringLiteral("job_before"), QString::fromUtf8("战士")},
                                {QStringLiteral("job_after"), QString::fromUtf8("学者")},
@@ -343,7 +345,7 @@ private Q_SLOTS:
         QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
         QTRY_VERIFY(roundCard(scene)->property("canStart").toBool());
         QVERIFY(scene.click(QStringLiteral("candidateRoundStartButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("running"));
         QVERIFY(scene.app->candidates()->roundId() != completedRoundId);
         QVERIFY(scene.app->candidates()->roundAnswers().isEmpty());
         QVERIFY(!edited(scene, "job_after"));
@@ -371,7 +373,7 @@ private Q_SLOTS:
 
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundFinishButton"))->isEnabled());
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         const QJsonObject request = scene.backend.lastCandidateExportRequest();
         QCOMPARE(request.keys(), (QStringList{QStringLiteral("candidate_round_id"), QStringLiteral("target_path")}));
         QCOMPARE(request.value(QStringLiteral("candidate_round_id")).toString(), scene.app->candidates()->roundId());
@@ -402,7 +404,7 @@ private Q_SLOTS:
         QVERIFY(controller->finishPending());
         QCOMPARE(controller->roundAnswers().value(QStringLiteral("job_after")).toString(), QStringLiteral("verified answer"));
         QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("retry"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("retry"));
         QVERIFY(!scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
         auto *retry = scene.item(QStringLiteral("candidateRoundExportAgainButton"));
         QVERIFY(retry && retry->isVisible() && !retry->isEnabled());
@@ -418,7 +420,7 @@ private Q_SLOTS:
         QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
 
         QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 1);
         const QJsonObject exported = scene.backend.lastCandidateExportRequest();
         QCOMPARE(exported.value(QStringLiteral("candidate_round_id")).toString(), roundId);
@@ -431,7 +433,7 @@ private Q_SLOTS:
             scene.backend.setMaintainerRound(false);
             scene.app->refreshCaptureSettings();
             QTRY_VERIFY(!scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool());
-            QCOMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+            QCOMPARE(phase(scene), QStringLiteral("exported"));
             QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());
         }
         QCOMPARE(scene.warnings->size(), 0);
@@ -460,7 +462,7 @@ private Q_SLOTS:
         QCOMPARE(scene.app->candidates()->roundAnswers().value(QStringLiteral("job_after")).toString(),
                  QStringLiteral("keep after restart"));
         QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), roundId);
         QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("round_answers")).toObject()
                      .value(QStringLiteral("job_after")).toString(), QStringLiteral("keep after restart"));
@@ -468,11 +470,11 @@ private Q_SLOTS:
 
         scene.close();
         QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("recover"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("recover"));
         QVERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
         QVERIFY(scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
         QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), roundId);
         QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("round_answers")));
         QCOMPARE(scene.warnings->size(), 0);
@@ -514,7 +516,7 @@ private Q_SLOTS:
             QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
         }
         QTRY_COMPARE(scene.app->candidates()->roundId(), newId);
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("running"));
         QVERIFY(scene.settings->candidateRoundFinishDraft().isEmpty());
         QVERIFY(scene.app->candidates()->roundAnswers().isEmpty());
         // A status reading with the previous round's nonempty guesses still reaches the card.
@@ -541,7 +543,7 @@ private Q_SLOTS:
         QVERIFY(scene.open(QStringLiteral("IDLE")));
         QVERIFY(startRound(scene));
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         const QVariantMap previous = scene.app->candidates()->roundExportResult();
         QVERIFY(!previous.value(QStringLiteral("target_path")).toString().isEmpty());
 
@@ -588,7 +590,7 @@ private Q_SLOTS:
         scene.backend.legacyCandidateRounds = true;
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
-        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("retry"));
+        QTRY_COMPARE(phase(scene), QStringLiteral("retry"));
         QTRY_VERIFY(scene.app->captureSettingsLoaded());
         QVERIFY(!scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundDiscardFinishButton"))->isVisible());

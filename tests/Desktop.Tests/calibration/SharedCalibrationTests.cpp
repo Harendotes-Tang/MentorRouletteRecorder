@@ -14,12 +14,13 @@
 //     toast that follows the basis the Collector names;
 //   * 导入校准码 shows the Collector's own message and never sends empty text;
 //   * 立即检查 / consent / 不用共享的 send empty requests and re-read the status;
-//   * shared_calibration_enabled passes the AppController's settings whitelist;
 //   * the mock's --mock-shared fixtures project to the states they are named for.
-// The card itself, in shipping QML, is SharedCalibrationCardTests.cpp.
+// The card itself, in shipping QML, is SharedCalibrationCardTests.cpp; the settings switch
+// (shared_calibration_enabled) is CalibrationTests' captureSettingSwitchesReachTheCollector.
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "PlayerVocabulary.h"
 #include "SharedCalibrationTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
@@ -106,8 +107,7 @@ QJsonObject sharedStatus(const QString &phase, bool userRejected = false,
     return status;
 }
 
-QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shared,
-                        const QString &origin = QString(), const QString &profileStatus = QString())
+QJsonObject calibrationWith(const QString &calibrationState, const QJsonObject &shared)
 {
     QJsonObject calibration{{QStringLiteral("state"), calibrationState},
                             {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
@@ -115,7 +115,13 @@ QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shar
                             {QStringLiteral("events"), QJsonArray{}}};
     if (!shared.isEmpty())
         calibration.insert(QStringLiteral("shared"), shared);
-    QJsonObject capture{{QStringLiteral("calibration"), calibration}};
+    return calibration;
+}
+
+QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shared,
+                        const QString &origin = QString(), const QString &profileStatus = QString())
+{
+    QJsonObject capture{{QStringLiteral("calibration"), calibrationWith(calibrationState, shared)}};
     if (!origin.isEmpty())
         capture.insert(QStringLiteral("profile_origin"), origin);
     if (!profileStatus.isEmpty())
@@ -128,23 +134,11 @@ void verifyPlayerCopy(const QString &text, bool mayBeEmpty = false)
 {
     if (!mayBeEmpty)
         QVERIFY2(!text.isEmpty(), "no sentence at all");
-    static const QStringList words{
-        QString::fromUtf8("开始捕获"), QString::fromUtf8("开始验证"), QString::fromUtf8("停止捕获"),
-        QString::fromUtf8("维护者工具"), QString::fromUtf8("对照核对"), QStringLiteral("opcode"),
-        QStringLiteral("0x"), QStringLiteral("67ef1bb97e65"), QStringLiteral("sha"),
-        QStringLiteral("WRITE_FAILED"), QStringLiteral("REPLY_STATE"), QStringLiteral("QUEUE_REQUEST"),
-        QStringLiteral("GITHUB_RAW"), QStringLiteral("TIMEOUT"), QStringLiteral("FETCHING"),
-        QStringLiteral("VERIFYING"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
-        QStringLiteral("REJECTED"), QStringLiteral("UNAVAILABLE"), QStringLiteral("NONE_FOR_BUILD"),
-        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral("PUBLISHED"),
-        QStringLiteral("IMPORTED"), QStringLiteral("audit_pending"),
-        // The share-code basis and the candidate marks (plans/shared-calibration.md §20).
-        QStringLiteral("PROVEN"), QStringLiteral("CALIBRATED"), QStringLiteral("basis"),
-        QStringLiteral("shape_prior"), QStringLiteral("disputed"), QStringLiteral("preferred"),
-        QStringLiteral("CONTENT_FINDER_POP"), QStringLiteral("ZONE_INITIALIZATION"),
-        QStringLiteral("ZONE_TERRITORY"), QStringLiteral("PLAYER_JOB"), QStringLiteral("IN_USE"),
-        QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("LOCAL_CALIBRATION"),
-        QStringLiteral("GetCalibrationShareCode"), QStringLiteral("SHARED_NOT_PROVEN")};
+    // The refusal token kept for diagnostics, the index outcome and the phases by name.
+    static const QStringList words = mrtest::sharedCalibrationWords() + QStringList{
+        QStringLiteral("WRITE_FAILED"), QStringLiteral("TIMEOUT"), QStringLiteral("FETCHING"),
+        QStringLiteral("VERIFYING"), QStringLiteral("REJECTED"), QStringLiteral("UNAVAILABLE"),
+        QStringLiteral("NONE_FOR_BUILD")};
     for (const QString &word : words) {
         QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
                  qPrintable(QStringLiteral("player copy leaks \"%1\": %2").arg(word, text)));
@@ -282,6 +276,21 @@ QString lastNotice(const QSignalSpy &spy)
 {
     return spy.isEmpty() ? QString() : spy.last().at(0).toString();
 }
+
+/// 分享给其他玩家 on SharedBackend: the controller, its browser and clipboard seams and its notices.
+struct ShareBench
+{
+    SharedBackend backend;
+    mr::SharedCalibrationController c;
+    Seams seams;
+    QSignalSpy notices{&c, &mr::SharedCalibrationController::notice};
+
+    ShareBench()
+    {
+        c.setBackend(&backend);
+        seams.attach(c);
+    }
+};
 
 } // namespace
 
@@ -853,62 +862,52 @@ private Q_SLOTS:
 
     void shareOpensTheIssueAndCopiesTheCode()
     {
-        SharedBackend backend;
+        ShareBench bench;
         const QString url = QStringLiteral(
             "https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/issues/new?template=share-calibration.yml&code=")
             + QLatin1String(kVectorCode);
-        backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
+        bench.backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
                                {QStringLiteral("code_sha256"), QString(64, QLatin1Char('a'))},
                                {QStringLiteral("issue_url"), url},
                                {QStringLiteral("code_in_url"), true}};
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
 
-        c.share();
-        QCOMPARE(backend.calls, QStringList{QStringLiteral("GetCalibrationShareCode")});
-        QVERIFY(backend.payloads.first().isEmpty());
-        QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
-        QCOMPARE(seams.opened.size(), 1);
-        QCOMPARE(seams.opened.first(), QUrl(url));
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("浏览器")));
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("剪贴板")));
-        verifyPlayerCopy(lastNotice(notices));
+        bench.c.share();
+        QCOMPARE(bench.backend.calls, QStringList{QStringLiteral("GetCalibrationShareCode")});
+        QVERIFY(bench.backend.payloads.first().isEmpty());
+        QCOMPARE(bench.seams.copied, QStringList{QLatin1String(kVectorCode)});
+        QCOMPARE(bench.seams.opened.size(), 1);
+        QCOMPARE(bench.seams.opened.first(), QUrl(url));
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("浏览器")));
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("剪贴板")));
+        verifyPlayerCopy(lastNotice(bench.notices));
 
         // No browser at all: the code is still on the clipboard, and the toast says so.
-        seams.setOpenResult(false);
-        c.share();
-        QCOMPARE(seams.copied.size(), 2);
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("没能打开浏览器")));
+        bench.seams.setOpenResult(false);
+        bench.c.share();
+        QCOMPARE(bench.seams.copied.size(), 2);
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("没能打开浏览器")));
     }
 
     void shareOnlyCopiesWhenTheCodeDidNotFitTheUrl()
     {
-        SharedBackend backend;
-        backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
+        ShareBench bench;
+        bench.backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
                                {QStringLiteral("code_sha256"), QString(64, QLatin1Char('a'))},
                                {QStringLiteral("issue_url"),
                                 QStringLiteral("https://github.com/x/y/issues/new?template=share-calibration.yml")},
                                {QStringLiteral("code_in_url"), false}};
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
 
-        c.share();
-        QVERIFY(seams.opened.isEmpty());
-        QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("剪贴板")));
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("无法自动打开 GitHub 分享页面")));
+        bench.c.share();
+        QVERIFY(bench.seams.opened.isEmpty());
+        QCOMPARE(bench.seams.copied, QStringList{QLatin1String(kVectorCode)});
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("剪贴板")));
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("无法自动打开 GitHub 分享页面")));
         // Review K2-5: the import button is 手动导入校准码 inside the folded 其他方式 now; the
         // sentence the other player follows names it where it is.
-        QCOMPARE(lastNotice(notices),
+        QCOMPARE(lastNotice(bench.notices),
                  QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。"
                                    "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。"));
-        verifyPlayerCopy(lastNotice(notices));
+        verifyPlayerCopy(lastNotice(bench.notices));
     }
 
     void shareNeverOpensAnAddressOutsideGithub()
@@ -919,19 +918,14 @@ private Q_SLOTS:
             QVERIFY2(!mr::SharedCalibrationController::isShareIssueUrl(QUrl(QString::fromLatin1(bad))), bad);
         }
 
-        SharedBackend backend;
-        backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
+        ShareBench bench;
+        bench.backend.shareResult = {{QStringLiteral("code"), QLatin1String(kVectorCode)},
                                {QStringLiteral("issue_url"), QStringLiteral("https://example.com/issues/new")},
                                {QStringLiteral("code_in_url"), true}};
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
-        c.share();
-        QVERIFY(seams.opened.isEmpty());
-        QCOMPARE(seams.copied.size(), 1);
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("分享页面地址有误")));
+        bench.c.share();
+        QVERIFY(bench.seams.opened.isEmpty());
+        QCOMPARE(bench.seams.copied.size(), 1);
+        QVERIFY(lastNotice(bench.notices).contains(QString::fromUtf8("分享页面地址有误")));
     }
 
     void theNoticeFollowsTheBasisOfTheCode_data()
@@ -956,19 +950,14 @@ private Q_SLOTS:
     {
         QFETCH(QString, basis);
         QFETCH(QString, notice);
-        SharedBackend backend;
-        backend.setShareResult(shareAnswer(basis));
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+        ShareBench bench;
+        bench.backend.setShareResult(shareAnswer(basis));
 
-        c.share();
-        QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
-        QCOMPARE(seams.opened.size(), 1);
-        QCOMPARE(lastNotice(notices), notice);
-        verifyPlayerCopy(lastNotice(notices));
+        bench.c.share();
+        QCOMPARE(bench.seams.copied, QStringList{QLatin1String(kVectorCode)});
+        QCOMPARE(bench.seams.opened.size(), 1);
+        QCOMPARE(lastNotice(bench.notices), notice);
+        verifyPlayerCopy(lastNotice(bench.notices));
     }
 
     void aVerifiedCodeThatCannotOpenThePageStillReadsRight()
@@ -976,36 +965,31 @@ private Q_SLOTS:
         // The code is the same length whoever shares it, so the long-code and wrong-address
         // fallbacks can meet a verified answer too. They keep their substance but talk about
         // "这份校准" and a GitHub page, not a sharing page the player did not ask for.
-        SharedBackend backend;
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+        ShareBench bench;
 
-        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), false));
-        c.share();
-        QVERIFY(seams.opened.isEmpty());
-        QCOMPARE(lastNotice(notices),
+        bench.backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), false));
+        bench.c.share();
+        QVERIFY(bench.seams.opened.isEmpty());
+        QCOMPARE(lastNotice(bench.notices),
                  QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
                                    "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。"));
-        verifyPlayerCopy(lastNotice(notices));
+        verifyPlayerCopy(lastNotice(bench.notices));
 
-        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/")));
-        c.share();
-        QVERIFY(seams.opened.isEmpty());
-        QCOMPARE(lastNotice(notices),
+        bench.backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/")));
+        bench.c.share();
+        QVERIFY(bench.seams.opened.isEmpty());
+        QCOMPARE(lastNotice(bench.notices),
                  QString::fromUtf8("校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；"
                                    "可以把这份校准直接发给其他玩家。"));
-        verifyPlayerCopy(lastNotice(notices));
+        verifyPlayerCopy(lastNotice(bench.notices));
 
         // No browser at all reads the same either way.
-        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED")));
-        seams.setOpenResult(false);
-        c.share();
-        QCOMPARE(seams.opened.size(), 1);
-        QCOMPARE(lastNotice(notices), QString::fromUtf8("没能打开浏览器。校准码已复制，可以直接发给其他玩家。"));
-        QCOMPARE(seams.copied.size(), 3);
+        bench.backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED")));
+        bench.seams.setOpenResult(false);
+        bench.c.share();
+        QCOMPARE(bench.seams.opened.size(), 1);
+        QCOMPARE(lastNotice(bench.notices), QString::fromUtf8("没能打开浏览器。校准码已复制，可以直接发给其他玩家。"));
+        QCOMPARE(bench.seams.copied.size(), 3);
     }
 
     void shareRefusalIsExplainedByReason_data()
@@ -1028,24 +1012,19 @@ private Q_SLOTS:
     {
         QFETCH(QString, reason);
         QFETCH(QString, needle);
-        SharedBackend backend;
-        backend.failType = QStringLiteral("GetCalibrationShareCode");
-        backend.errorCode = QStringLiteral("ERR_SHARE_CODE_UNAVAILABLE");
-        backend.errorMessage = QStringLiteral("profile file drifted: D:/data/cn.local.json");
+        ShareBench bench;
+        bench.backend.failType = QStringLiteral("GetCalibrationShareCode");
+        bench.backend.errorCode = QStringLiteral("ERR_SHARE_CODE_UNAVAILABLE");
+        bench.backend.errorMessage = QStringLiteral("profile file drifted: D:/data/cn.local.json");
         if (!reason.isEmpty())
-            backend.errorDetails = {{QStringLiteral("reason"), reason}};
-        mr::SharedCalibrationController c;
-        c.setBackend(&backend);
-        Seams seams;
-        seams.attach(c);
-        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+            bench.backend.errorDetails = {{QStringLiteral("reason"), reason}};
 
-        c.share();
-        QCOMPARE(lastNotice(notices), mr::SharedCalibrationController::shareRefusalMessage(reason));
-        QVERIFY2(lastNotice(notices).contains(needle), qPrintable(lastNotice(notices)));
-        verifyPlayerCopy(lastNotice(notices));
-        QVERIFY(seams.opened.isEmpty());
-        QVERIFY(seams.copied.isEmpty());
+        bench.c.share();
+        QCOMPARE(lastNotice(bench.notices), mr::SharedCalibrationController::shareRefusalMessage(reason));
+        QVERIFY2(lastNotice(bench.notices).contains(needle), qPrintable(lastNotice(bench.notices)));
+        verifyPlayerCopy(lastNotice(bench.notices));
+        QVERIFY(bench.seams.opened.isEmpty());
+        QVERIFY(bench.seams.copied.isEmpty());
     }
 
     void importShowsTheCollectorsMessageAsIs_data()
@@ -1265,26 +1244,6 @@ private Q_SLOTS:
 
     // -- application wiring -------------------------------------------------
 
-    void theSettingsSwitchReachesTheCollector()
-    {
-        mr::MockBackend backend;
-        mr::AppController app(&backend, nullptr);
-        QTRY_VERIFY(app.captureSettingsLoaded());
-        QVERIFY(app.captureSettings().value(QStringLiteral("shared_calibration_enabled")).toBool());
-
-        // Without the whitelist entry the write is dropped before the debounce.
-        app.updateCaptureSetting(QStringLiteral("shared_calibration_enabled"), false);
-        QVERIFY(!app.captureSettings().value(QStringLiteral("shared_calibration_enabled")).toBool());
-        QTest::qWait(1200);
-        QVERIFY(!app.captureSettings().value(QStringLiteral("shared_calibration_enabled")).toBool());
-        QVERIFY(app.captureSettingsError().isEmpty());
-
-        app.updateCaptureSetting(QStringLiteral("shared_calibration_enabled"), true);
-        QTest::qWait(1200);
-        QVERIFY(app.captureSettings().value(QStringLiteral("shared_calibration_enabled")).toBool());
-        QVERIFY(app.captureSettingsError().isEmpty());
-    }
-
     void outcomesBecomeToastsAndTheStatusIsReread()
     {
         SharedBackend backend;
@@ -1303,9 +1262,7 @@ private Q_SLOTS:
         backend.capture.insert(QStringLiteral("profile_status"), QStringLiteral("VERIFIED"));
         backend.capture.insert(QStringLiteral("profile_origin"), QStringLiteral("SHARED_CALIBRATION"));
         backend.capture.insert(QStringLiteral("calibration"),
-                               QJsonObject::fromVariantMap(captureWith(
-                                   QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("VERIFIED")))
-                                   .value(QStringLiteral("calibration")).toMap()));
+                               calibrationWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("VERIFIED"))));
         mr::AutomaticRecordingController recording(&backend);
         recording.refresh();
         QTRY_COMPARE(recording.state(), QStringLiteral("listening"));
@@ -1318,9 +1275,7 @@ private Q_SLOTS:
     {
         SharedBackend backend;
         backend.capture.insert(QStringLiteral("calibration"),
-                               QJsonObject::fromVariantMap(captureWith(
-                                   QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("AWAITING_CONSENT")))
-                                   .value(QStringLiteral("calibration")).toMap()));
+                               calibrationWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("AWAITING_CONSENT"))));
         mr::AutomaticRecordingController recording(&backend);
         recording.refresh();
         QTRY_COMPARE(recording.state(), QStringLiteral("calibrating"));
