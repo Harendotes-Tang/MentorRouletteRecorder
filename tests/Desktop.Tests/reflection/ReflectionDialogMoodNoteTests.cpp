@@ -81,10 +81,8 @@ private Q_SLOTS:
         fixture.backend.syntheticReflection = true;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         fixture.dialog()->setProperty("standalone", true);
-        auto run = finishedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 3);
-        run.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
-        run.insert(QStringLiteral("pending_review"), false);
-        QVERIFY(fixture.openForRun(run, QStringLiteral("刚刚完成")));
+        QVERIFY(fixture.openForRun(completedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 3),
+                                   QStringLiteral("刚刚完成")));
         QVERIFY(QTest::qWaitForWindowExposed(fixture.window()));
         // What a click on the 一般 face does (a Repeater's face has no QObject parent to find).
         fixture.dialog()->setProperty("mood", QStringLiteral("ok"));

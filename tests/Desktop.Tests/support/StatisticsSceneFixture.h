@@ -152,6 +152,12 @@ ApplicationWindow {
     QQuickWindow *mainWindow() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickWindow *floating() const { return root->findChild<QQuickWindow *>(QStringLiteral("statisticsFloatingWindow")); }
     mr::StatisticsOverlayController *overlay() const { return app->statisticsOverlay(); }
+    /// Shows the float and waits until its window is exposed.
+    bool showFloating() const
+    {
+        overlay()->show();
+        return QTest::qWaitForWindowExposed(floating());
+    }
     QQuickItem *item(const QString &name, bool requireVisible = false) const
     {
         // Repeater and Popup items may be visually parented outside their QObject subtree.

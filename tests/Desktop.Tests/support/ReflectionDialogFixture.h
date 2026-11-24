@@ -64,6 +64,23 @@ inline QVariantMap runFinishedEvent(const QVariantMap &run)
     };
 }
 
+/// A finished run that was cleared and waits for no review.
+inline QVariantMap completedRun(const QString &id, const QString &dutyName, int revision)
+{
+    QVariantMap run = finishedRun(id, dutyName, revision);
+    run.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    run.insert(QStringLiteral("pending_review"), false);
+    return run;
+}
+
+/// The run_finished event that announces \a run as cleared.
+inline QVariantMap completedEvent(const QVariantMap &run)
+{
+    QVariantMap event = runFinishedEvent(run);
+    event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
+    return event;
+}
+
 struct ObservedBackend : mr::MockBackend {
     QStringList commands;
     /// Every SetRunReflection payload, in order.

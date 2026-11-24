@@ -95,6 +95,27 @@ function(mr_desktop_suite_test target suite)
     add_test(NAME ${ARG_NAME} COMMAND ${command})
 endfunction()
 
+# mr_desktop_test_translations(<target> LRELEASE_TARGET <name> RESOURCE <name> FOLDER <dir>
+#                              LANGUAGES <suffix>...)
+# Compiles the shipping catalogues src/Desktop/i18n/mentor_recorder_<suffix>.ts into <target>
+# under :/i18n, for suites that switch the real interface language in place.
+function(mr_desktop_test_translations target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "LRELEASE_TARGET;RESOURCE;FOLDER" "LANGUAGES")
+    set(ts_files "")
+    foreach(language IN LISTS ARG_LANGUAGES)
+        list(APPEND ts_files "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_${language}.ts")
+    endforeach()
+    qt_add_lrelease(
+        TS_FILES ${ts_files}
+        LRELEASE_TARGET ${ARG_LRELEASE_TARGET}
+        QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${ARG_FOLDER}"
+        QM_FILES_OUTPUT_VARIABLE qm_files)
+    qt_add_resources(${target} ${ARG_RESOURCE}
+        PREFIX "/i18n"
+        BASE "${CMAKE_CURRENT_BINARY_DIR}/${ARG_FOLDER}"
+        FILES ${qm_files})
+endfunction()
+
 set(MR_QUICK_TEST_LIBRARIES Qt6::Quick Qt6::Qml Qt6::QuickControls2)
 set(MR_DESKTOP_ISOLATED_ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
@@ -146,8 +167,8 @@ endforeach()
 
 # ---------------------------------------------------------------------------
 # workflows/ - controllers and the flows behind them.
-# Desktop: IPC framing, formatting, paging models, job statistics, AppController, RunFormValidator.
-# WorkflowController / RunFormValidator / ExportFailure / RunListModel: review regressions.
+# Desktop: IPC framing, formatting, job statistics, the duty catalogue, AppController.
+# WorkflowController, ExportFailure (ExportController), RunFormValidator, RunListModel: their classes.
 # AutomaticRecording / GameSelection / Recovery: their controllers, without a Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
@@ -158,12 +179,14 @@ mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorReco
 foreach(suite IN ITEMS AutomaticRecording GameSelection)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite} NO_LOG)
 endforeach()
-mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
-mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests TrayRecordingNotification)
-foreach(suite IN ITEMS WorkflowController ExportFailure Recovery RunFormValidator RunListModel HistoryFilterFacets
-                       DailyBackupScheduler HistoryImageCleanupController AppLiveEvent)
+foreach(suite IN ITEMS RecordingWarning TrayRecordingNotification WorkflowController ExportFailure Recovery
+                       RunFormValidator RunListModel HistoryFilterFacets DailyBackupScheduler
+                       HistoryImageCleanupController AppLiveEvent)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()
+# Its image-cleanup tests build the whole AppController on the mock backend.
+set_tests_properties(MentorRecorderHistoryImageCleanupController
+    PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 
 # ---------------------------------------------------------------------------
 # shell/ - the main window, its dialogs, the history page and the QML runtime.
@@ -182,27 +205,18 @@ mr_desktop_test_executable(MentorRecorderDesktopShellTests
            CharacterProfilePages DutyCommunity
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 # The manual-record editor stays alive while the real interface language changes.
-qt_add_lrelease(
-    TS_FILES
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_zh_TW.ts"
-    LRELEASE_TARGET MentorRecorderShellTestTranslations
-    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
-    QM_FILES_OUTPUT_VARIABLE MR_SHELL_TEST_QM)
-qt_add_resources(MentorRecorderDesktopShellTests shell_test_i18n
-    PREFIX "/i18n"
-    BASE "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
-    FILES ${MR_SHELL_TEST_QM})
+mr_desktop_test_translations(MentorRecorderDesktopShellTests
+    LRELEASE_TARGET MentorRecorderShellTestTranslations RESOURCE shell_test_i18n FOLDER shell-i18n
+    LANGUAGES en ja zh_TW)
 foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
                        EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter
                        CharacterProfilePages DutyCommunity)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
-mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
-mr_desktop_suite_test(MentorRecorderDesktopShellTests HistorySelection)
-set_tests_properties(MentorRecorderHistoryBatch MentorRecorderHistorySelection
-    PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
+foreach(suite IN ITEMS HistoryBatch HistorySelection)
+    mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
+    set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
+endforeach()
 
 # ---------------------------------------------------------------------------
 # statistics/ - the statistics float, achievement progress and dungeon composition.
@@ -216,25 +230,16 @@ mr_desktop_test_executable(MentorRecorderDesktopStatisticsTests
     SUITES StatisticsOverlay StatisticsOverlayRange DungeonComposition DungeonChartDisplay AchievementProgress
            CharacterProfiles
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
-qt_add_lrelease(
-    TS_FILES
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_zh_TW.ts"
-    LRELEASE_TARGET MentorRecorderStatisticsTestTranslations
-    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/statistics-i18n"
-    QM_FILES_OUTPUT_VARIABLE MR_STATISTICS_TEST_QM)
-qt_add_resources(MentorRecorderDesktopStatisticsTests statistics_test_i18n
-    PREFIX "/i18n"
-    BASE "${CMAKE_CURRENT_BINARY_DIR}/statistics-i18n"
-    FILES ${MR_STATISTICS_TEST_QM})
+mr_desktop_test_translations(MentorRecorderDesktopStatisticsTests
+    LRELEASE_TARGET MentorRecorderStatisticsTestTranslations RESOURCE statistics_test_i18n FOLDER statistics-i18n
+    LANGUAGES en ja zh_TW)
 foreach(suite IN ITEMS StatisticsOverlay StatisticsOverlayRange AchievementProgress CharacterProfiles)
     mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests ${suite})
 endforeach()
-mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests DungeonComposition)
-mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests DungeonChartDisplay)
-set_tests_properties(MentorRecorderDungeonChartDisplay PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
-set_tests_properties(MentorRecorderDungeonComposition PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
+foreach(suite IN ITEMS DungeonComposition DungeonChartDisplay)
+    mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests ${suite})
+    set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
+endforeach()
 
 # ---------------------------------------------------------------------------
 # calibration/ - calibration, shared calibration, the capture page and candidate review.
@@ -274,17 +279,9 @@ mr_desktop_suite_test(MentorRecorderDesktopImportTests ImportImageOrientation NO
 mr_desktop_test_executable(MentorRecorderDesktopReflectionTests
     SUITES Reflection ReflectionLibrary ReflectionDateOrdering ReflectionShare ReflectionShareOrder ReflectionDialogBinding ReflectionDialogMoodNote
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
-qt_add_lrelease(
-    TS_FILES
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
-        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
-    LRELEASE_TARGET MentorRecorderShareTestTranslations
-    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/share-i18n"
-    QM_FILES_OUTPUT_VARIABLE MR_SHARE_TEST_QM)
-qt_add_resources(MentorRecorderDesktopReflectionTests reflection_share_test_i18n
-    PREFIX "/i18n"
-    BASE "${CMAKE_CURRENT_BINARY_DIR}/share-i18n"
-    FILES ${MR_SHARE_TEST_QM})
+mr_desktop_test_translations(MentorRecorderDesktopReflectionTests
+    LRELEASE_TARGET MentorRecorderShareTestTranslations RESOURCE reflection_share_test_i18n FOLDER share-i18n
+    LANGUAGES en ja)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests Reflection NAME MentorRecorderReflections NO_LOG)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogBinding)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogMoodNote)
@@ -296,7 +293,7 @@ if(WIN32)
     mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionShare
         NAME MentorRecorderReflectionShareBundledFonts)
     set_tests_properties(MentorRecorderReflectionShareBundledFonts PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_REFLECTION_SHARE_BUNDLED_FONTS_ONLY=1;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
+        ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT};MR_REFLECTION_SHARE_BUNDLED_FONTS_ONLY=1")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -358,113 +355,110 @@ endforeach()
 # below): a frame of the wrong page, or of a page whose bindings threw, is not
 # a pass (review OJ-7).
 # ---------------------------------------------------------------------------
-add_test(NAME MentorRecorderQmlLoad
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-smoke.png"
-        --mock-recording-state listening
-        --page 1
-        --theme dark
-        --screenshot-delay 150
-        --verify-text "完成趋势"
-        --verify-text "副本进行中")
+# mr_desktop_qml_test(<name> <argument>...): one smoke test of the shipping Desktop. Each is
+# remembered, so the TIMEOUT and FAIL_REGULAR_EXPRESSION below reach every one of them.
+function(mr_desktop_qml_test name)
+    add_test(NAME ${name} COMMAND $<TARGET_FILE:MentorRecorder.Desktop> ${ARGN})
+    set_property(DIRECTORY APPEND PROPERTY MR_QML_SMOKE_TESTS ${name})
+endfunction()
+
+mr_desktop_qml_test(MentorRecorderQmlLoad
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-smoke.png"
+    --mock-recording-state listening
+    --page 1
+    --theme dark
+    --screenshot-delay 150
+    --verify-text "完成趋势"
+    --verify-text "副本进行中")
 
 # Opens the history detail side panel on the first row.
-add_test(NAME MentorRecorderQmlDetailPanel
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-detail.png"
-        --mock-recording-state listening
-        --page 2
-        --theme dark
-        --mock-open-detail
-        --screenshot-delay 1500
-        --verify-text "修改记录")
+mr_desktop_qml_test(MentorRecorderQmlDetailPanel
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-detail.png"
+    --mock-recording-state listening
+    --page 2
+    --theme dark
+    --mock-open-detail
+    --screenshot-delay 1500
+    --verify-text "修改记录")
 
 # Opens the manual-correction dialog on top of that panel.
-add_test(NAME MentorRecorderQmlEditDialog
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-edit.png"
-        --mock-recording-state listening
-        --page 2
-        --theme dark
-        --mock-open-edit
-        --screenshot-delay 1700
-        --verify-text "修正结果与进度，原记录会保留")
+mr_desktop_qml_test(MentorRecorderQmlEditDialog
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-edit.png"
+    --mock-recording-state listening
+    --page 2
+    --theme dark
+    --mock-open-edit
+    --screenshot-delay 1700
+    --verify-text "修正结果与进度，原记录会保留")
 
 # The 新增遗漏记录 wizard on its 副本与职业 step starts in the dashboard's named region,
 # else 国服 (audit 2026-11-03 L1-1); the region choices are exercised in EditRunDialogBinding.
-add_test(NAME MentorRecorderQmlCreateWizard
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-create-wizard.png"
-        --mock-recording-state listening
-        --page 1
-        --theme light
-        --mock-open-create
-        --mock-wizard-step 2
-        --verify-text "共 380 个副本"
-        --verify-text "记录区服"
-        --verify-text "国服"
-        --screenshot-delay 1500)
+mr_desktop_qml_test(MentorRecorderQmlCreateWizard
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-create-wizard.png"
+    --mock-recording-state listening
+    --page 1
+    --theme light
+    --mock-open-create
+    --mock-wizard-step 2
+    --verify-text "共 380 个副本"
+    --verify-text "记录区服"
+    --verify-text "国服"
+    --screenshot-delay 1500)
 
 # A mock run's fixture records keep their images out of the install folder
 # (review OH-7): the wizard's time step names the scratch folder they go to.
-add_test(NAME MentorRecorderQmlMockNoteImageFolder
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-mock-note-images.png"
-        --mock-recording-state listening
-        --page 1
-        --theme light
-        --mock-open-create
-        --mock-wizard-step 3
-        --verify-text "MentorRecorder-mock-note-images"
-        --screenshot-delay 1500)
+mr_desktop_qml_test(MentorRecorderQmlMockNoteImageFolder
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-mock-note-images.png"
+    --mock-recording-state listening
+    --page 1
+    --theme light
+    --mock-open-create
+    --mock-wizard-step 3
+    --verify-text "MentorRecorder-mock-note-images"
+    --screenshot-delay 1500)
 
 # First-run baseline dialog. It opens at start-up, before the stored settings
 # are read; by the screenshot it shows them (the mock's 1374, unchanged). The mock
 # has recorded completions already, so the line under the fields previews the
 # progress they add on top of the baseline (B3-1; CS7-D3).
-add_test(NAME MentorRecorderQmlBaselineDialog
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-baseline.png"
-        --mock-recording-state listening
-        --page 1
-        --theme light
-        --mock-first-run
-        --screenshot-delay 1000
-        --verify-text "开始记录前，你已完成多少次导随？"
-        --verify-text "总进度 = 起始次数")
+mr_desktop_qml_test(MentorRecorderQmlBaselineDialog
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-baseline.png"
+    --mock-recording-state listening
+    --page 1
+    --theme light
+    --mock-first-run
+    --screenshot-delay 1000
+    --verify-text "开始记录前，你已完成多少次导随？"
+    --verify-text "总进度 = 起始次数")
 
 # CLI boundary. Each of these must exit with code 2 exactly *and* print the
 # refusal that names the option. WILL_FAIL would also accept a crash, a missing
 # Qt DLL or an unrelated exit 3, so they go through expect_exit.cmake instead.
-set(MR_EXPECT_EXIT "${CMAKE_CURRENT_SOURCE_DIR}/support/expect_exit.cmake")
+# mr_desktop_expect_exit(<name> CODE <exit code> OUTPUT <text> ARGS <argument>...)
+function(mr_desktop_expect_exit name)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "CODE;OUTPUT" "ARGS")
+    add_test(NAME ${name}
+        COMMAND ${CMAKE_COMMAND}
+            -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
+            "-DMR_ARGS=${ARG_ARGS}"
+            -DMR_EXPECT_CODE=${ARG_CODE}
+            "-DMR_EXPECT_OUTPUT=${ARG_OUTPUT}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/support/expect_exit.cmake")
+endfunction()
 
 # An unknown backend must never silently turn a requested live run into mock
 # data. The process rejects it before loading QML.
-add_test(NAME MentorRecorderDesktopRejectsInvalidBackend
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;invalid"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=invalid --backend value"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsInvalidBackend
+    CODE 2 OUTPUT "invalid --backend value" ARGS --backend invalid)
 
 # Mock-only knobs must not be accepted while the real IPC backend is selected,
 # or the test-only flags would be silently ignored.
-add_test(NAME MentorRecorderDesktopRejectsMockFlagsWithIpc
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;ipc;--mock-first-run"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=options require --backend mock"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsMockFlagsWithIpc
+    CODE 2 OUTPUT "options require --backend mock" ARGS --backend ipc --mock-first-run)
 
-add_test(NAME MentorRecorderDesktopRejectsValidationMockWithIpc
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;ipc;--mock-validation-state;recording;--mock-formal-running;--mock-validation-keyboard"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=options require --backend mock"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsValidationMockWithIpc
+    CODE 2 OUTPUT "options require --backend mock"
+    ARGS --backend ipc --mock-validation-state recording --mock-formal-running --mock-validation-keyboard)
 
 # Each state also asserts what the page actually says. Exit code 8 means the
 # expected text was not on screen; a zero exit alone would accept a FAILED
@@ -476,150 +470,137 @@ set(MR_VALIDATION_TEXT_completed "已保存")
 set(MR_VALIDATION_TEXT_failed    "ERR_TRACE_WRITE")
 
 foreach(MR_VALIDATION_STATE waiting recording stopping completed failed)
-    add_test(NAME MentorRecorderQmlValidation_${MR_VALIDATION_STATE}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-${MR_VALIDATION_STATE}.png"
-            --page 5
-            --theme dark
-            --screenshot-size 1100x720
-            --screenshot-delay 1000
-            --verify-text "${MR_VALIDATION_TEXT_${MR_VALIDATION_STATE}}"
-            --mock-validation-state ${MR_VALIDATION_STATE})
+    mr_desktop_qml_test(MentorRecorderQmlValidation_${MR_VALIDATION_STATE}
+        --backend mock
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-${MR_VALIDATION_STATE}.png"
+        --page 5
+        --theme dark
+        --screenshot-size 1100x720
+        --screenshot-delay 1000
+        --verify-text "${MR_VALIDATION_TEXT_${MR_VALIDATION_STATE}}"
+        --mock-validation-state ${MR_VALIDATION_STATE})
 endforeach()
 
 # 新区服采证 (evidence/EvidencePage.qml): the player's sub-page on its current
 # step while a round records, and the finished round's 回传说明 step.
-add_test(NAME MentorRecorderQmlEvidenceSteps
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-steps.png"
-        --page 5
-        --theme dark
-        --screenshot-size 1280x900
-        --screenshot-delay 1000
-        --mock-validation-state recording
-        --mock-open-evidence steps
-        --verify-text "排一把随机，按事件标记")
-add_test(NAME MentorRecorderQmlEvidenceReport
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-report.png"
-        --page 5
-        --theme light
-        --screenshot-size 1280x900
-        --screenshot-delay 1000
-        --mock-validation-state completed
-        --mock-open-evidence report
-        --verify-text "【导随记录器 · 新区服采证回报】")
+mr_desktop_qml_test(MentorRecorderQmlEvidenceSteps
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-steps.png"
+    --page 5
+    --theme dark
+    --screenshot-size 1280x900
+    --screenshot-delay 1000
+    --mock-validation-state recording
+    --mock-open-evidence steps
+    --verify-text "排一把随机，按事件标记")
+mr_desktop_qml_test(MentorRecorderQmlEvidenceReport
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-report.png"
+    --page 5
+    --theme light
+    --screenshot-size 1280x900
+    --screenshot-delay 1000
+    --mock-validation-state completed
+    --mock-open-evidence report
+    --verify-text "【导随记录器 · 新区服采证回报】")
 
 # The midstream banner: capture RUNNING, nothing decoded, decode errors rising.
 # docs/live-validation-guide.md section 6. Recording is otherwise possible (a
 # verified profile), so the 无法自动记录 notice on screen is the midstream one the
 # player sees in this situation, not an unrelated profile mismatch.
-add_test(NAME MentorRecorderQmlMidstreamBanner
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/capture-midstream.png"
-        --page 5
-        --theme dark
-        --screenshot-size 1100x900
-        --screenshot-delay 1000
-        --mock-midstream
-        --mock-recording-state listening
-        --verify-text "一直读不到有效数据")
+mr_desktop_qml_test(MentorRecorderQmlMidstreamBanner
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/capture-midstream.png"
+    --page 5
+    --theme dark
+    --screenshot-size 1100x900
+    --screenshot-delay 1000
+    --mock-midstream
+    --mock-recording-state listening
+    --verify-text "一直读不到有效数据")
 
 # The overview uses the shared pending-work projection, including drafts and notes.
-add_test(NAME MentorRecorderQmlPendingWorkCard
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/dashboard-pending-review.png"
-        --mock-recording-state listening
-        --page 1
-        --theme dark
-        --screenshot-size 1280x900
-        --screenshot-delay 1200
-        --verify-text "待处理 ·"
-        --verify-text "继续处理")
+mr_desktop_qml_test(MentorRecorderQmlPendingWorkCard
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/dashboard-pending-review.png"
+    --mock-recording-state listening
+    --page 1
+    --theme dark
+    --screenshot-size 1280x900
+    --screenshot-delay 1200
+    --verify-text "待处理 ·"
+    --verify-text "继续处理")
 
 # The 事件摘要 tab must render real GetRunEvents rows, never a placeholder. A
 # player reads the event by its Chinese name. The first history row is a match
 # cancelled before entry, so its trail is the pop (CONTENT_FINDER_POP = 匹配成功)
 # and the cancellation (MATCH_CANCELLED = 匹配取消), never a 副本结算.
-add_test(NAME MentorRecorderQmlRunEventsTab
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/history-events-tab.png"
-        --mock-recording-state listening
-        --page 2
-        --theme dark
-        --screenshot-size 1280x900
-        --screenshot-delay 1600
-        --mock-detail-tab events
-        --verify-text "匹配成功"
-        --verify-text "匹配取消")
+mr_desktop_qml_test(MentorRecorderQmlRunEventsTab
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/history-events-tab.png"
+    --mock-recording-state listening
+    --page 2
+    --theme dark
+    --screenshot-size 1280x900
+    --screenshot-delay 1600
+    --mock-detail-tab events
+    --verify-text "匹配成功"
+    --verify-text "匹配取消")
 
-add_test(NAME MentorRecorderQmlValidationDashboard
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-dashboard.png"
-        --page 1
-        --theme dark
-        --screenshot-size 1100x720
-        --screenshot-delay 1000
-        --mock-validation-state recording
-        --verify-text "查看验证状态")
+mr_desktop_qml_test(MentorRecorderQmlValidationDashboard
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-dashboard.png"
+    --page 1
+    --theme dark
+    --screenshot-size 1100x720
+    --screenshot-delay 1000
+    --mock-validation-state recording
+    --verify-text "查看验证状态")
 
 # A finished validation is history; the formal capture running beside it is what
 # the dashboard projects (its stop button).
-add_test(NAME MentorRecorderQmlValidationDashboardFormalRunning
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-dashboard-formal-running.png"
-        --page 1
-        --theme dark
-        --screenshot-size 1100x720
-        --screenshot-delay 1000
-        --mock-validation-state completed
-        --mock-formal-running
-        --verify-text "停止捕获")
+mr_desktop_qml_test(MentorRecorderQmlValidationDashboardFormalRunning
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-dashboard-formal-running.png"
+    --page 1
+    --theme dark
+    --screenshot-size 1100x720
+    --screenshot-delay 1000
+    --mock-validation-state completed
+    --mock-formal-running
+    --verify-text "停止捕获")
 
-add_test(NAME MentorRecorderQmlValidationKeyboard
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-marker-focus.png"
-        --page 5
-        --theme dark
-        --screenshot-size 1100x720
-        --screenshot-delay 1000
-        --mock-validation-state recording
-        --mock-validation-keyboard)
+mr_desktop_qml_test(MentorRecorderQmlValidationKeyboard
+    --backend mock
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/validation-marker-focus.png"
+    --page 5
+    --theme dark
+    --screenshot-size 1100x720
+    --screenshot-delay 1000
+    --mock-validation-state recording
+    --mock-validation-keyboard)
 
 foreach(MR_CANDIDATE_THEME dark light)
-    add_test(NAME MentorRecorderQmlCandidateReview_${MR_CANDIDATE_THEME}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-candidates --page 7 --theme ${MR_CANDIDATE_THEME}
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-review-${MR_CANDIDATE_THEME}.png"
-            --screenshot-size 1280x900 --screenshot-delay 1200
-            --verify-text "对照核对")
+    mr_desktop_qml_test(MentorRecorderQmlCandidateReview_${MR_CANDIDATE_THEME}
+        --backend mock --mock-candidates --page 7 --theme ${MR_CANDIDATE_THEME}
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-review-${MR_CANDIDATE_THEME}.png"
+        --screenshot-size 1280x900 --screenshot-delay 1200
+        --verify-text "对照核对")
 endforeach()
-add_test(NAME MentorRecorderQmlCandidateReview_compact
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-candidates --page 7 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-review-compact.png"
-        --screenshot-size 1100x720 --screenshot-delay 1200 --verify-text "对照核对")
-add_test(NAME MentorRecorderQmlCandidateCapture
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-candidates --page 5 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-capture.png"
-        --screenshot-size 1280x900 --screenshot-delay 1200 --verify-text "开始候选捕获"
-        --verify-text "排本登记" --verify-text "选用推荐")
-add_test(NAME MentorRecorderQmlCandidateDisclosure
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --show-disclosure --mock-recording-state listening --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-disclosure.png"
-        --screenshot-size 1100x720 --screenshot-delay 1200
-        --verify-text "运行顺序")
+mr_desktop_qml_test(MentorRecorderQmlCandidateReview_compact
+    --backend mock --mock-candidates --page 7 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-review-compact.png"
+    --screenshot-size 1100x720 --screenshot-delay 1200 --verify-text "对照核对")
+mr_desktop_qml_test(MentorRecorderQmlCandidateCapture
+    --backend mock --mock-candidates --page 5 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-capture.png"
+    --screenshot-size 1280x900 --screenshot-delay 1200 --verify-text "开始候选捕获"
+    --verify-text "排本登记" --verify-text "选用推荐")
+mr_desktop_qml_test(MentorRecorderQmlCandidateDisclosure
+    --backend mock --show-disclosure --mock-recording-state listening --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-disclosure.png"
+    --screenshot-size 1100x720 --screenshot-delay 1200
+    --verify-text "运行顺序")
 
 # 本机校准 in the shipping QML: the card on the capture page, the banner button
 # and the sidebar label, each asserted through text the player actually reads.
@@ -628,31 +609,24 @@ set(MR_CALIBRATION_TEXT_ready "核对并启用")
 set(MR_CALIBRATION_TEXT_blocked "校准遇到了问题")
 set(MR_CALIBRATION_TEXT_done "本机校准")
 foreach(MR_CALIBRATION_STATE observing ready blocked done)
-    add_test(NAME MentorRecorderQmlCalibration_${MR_CALIBRATION_STATE}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-calibration ${MR_CALIBRATION_STATE}
-            --mock-live none --page 5 --theme dark
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/calibration-${MR_CALIBRATION_STATE}.png"
-            --screenshot-size 1280x900 --screenshot-delay 1200
-            --verify-text "${MR_CALIBRATION_TEXT_${MR_CALIBRATION_STATE}}")
+    mr_desktop_qml_test(MentorRecorderQmlCalibration_${MR_CALIBRATION_STATE}
+        --backend mock --mock-calibration ${MR_CALIBRATION_STATE}
+        --mock-live none --page 5 --theme dark
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/calibration-${MR_CALIBRATION_STATE}.png"
+        --screenshot-size 1280x900 --screenshot-delay 1200
+        --verify-text "${MR_CALIBRATION_TEXT_${MR_CALIBRATION_STATE}}")
 endforeach()
 
 # The READY banner button lives on every page, including the dashboard.
-add_test(NAME MentorRecorderQmlCalibrationBanner
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-calibration ready --mock-live none --page 1 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/calibration-banner.png"
-        --screenshot-size 1280x800 --screenshot-delay 1200
-        --verify-text "核对并启用")
+mr_desktop_qml_test(MentorRecorderQmlCalibrationBanner
+    --backend mock --mock-calibration ready --mock-live none --page 1 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/calibration-banner.png"
+    --screenshot-size 1280x800 --screenshot-delay 1200
+    --verify-text "核对并启用")
 
 # --mock-calibration is a mock-only knob like every other --mock-* option.
-add_test(NAME MentorRecorderDesktopRejectsCalibrationMockWithIpc
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;ipc;--mock-calibration;ready"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=options require --backend mock"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsCalibrationMockWithIpc
+    CODE 2 OUTPUT "options require --backend mock" ARGS --backend ipc --mock-calibration ready)
 
 # 共享校准 on the capture page: the card's shared section in every state the
 # mock can take, each asserted through the sentence a player reads.
@@ -672,49 +646,37 @@ set(MR_SHARED_TEXT_none-for-build "暂时没有当前游戏版本的共享校准
 set(MR_SHARED_TEXT_share "分享给其他玩家")
 # 共享档案已在本机完整记录过一次（plans/shared-calibration.md §20.6）：按钮改为告诉其他玩家它好用。
 set(MR_SHARED_TEXT_verified-proven "这份校准好用，告诉其他玩家")
-set(MR_SHARED_QML_TESTS)
 foreach(MR_SHARED_STATE fetching verifying consent verified verified-auditing verified-proven
                         imported-published imported-unpublished rejected unavailable user-rejected
                         none-for-build share)
-    add_test(NAME MentorRecorderQmlSharedCalibration_${MR_SHARED_STATE}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-shared ${MR_SHARED_STATE}
-            --mock-live none --page 5 --theme dark
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-${MR_SHARED_STATE}.png"
-            --screenshot-size 1280x900 --screenshot-delay 1200
-            --verify-text "${MR_SHARED_TEXT_${MR_SHARED_STATE}}")
-    list(APPEND MR_SHARED_QML_TESTS MentorRecorderQmlSharedCalibration_${MR_SHARED_STATE})
+    mr_desktop_qml_test(MentorRecorderQmlSharedCalibration_${MR_SHARED_STATE}
+        --backend mock --mock-shared ${MR_SHARED_STATE}
+        --mock-live none --page 5 --theme dark
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-${MR_SHARED_STATE}.png"
+        --screenshot-size 1280x900 --screenshot-delay 1200
+        --verify-text "${MR_SHARED_TEXT_${MR_SHARED_STATE}}")
 endforeach()
 
 # 分享给其他玩家 after a restart: calibration is IDLE, its card is absent, and
 # the always-visible 协议档案 card carries the button (docs/ui-design.md §4.4.2).
-add_test(NAME MentorRecorderQmlSharedCalibration_share_after_restart
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-calibration idle --mock-shared share
-        --mock-live none --page 5 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-share-after-restart.png"
-        --screenshot-size 1280x900 --screenshot-delay 1200
-        --verify-text "分享给其他玩家")
-list(APPEND MR_SHARED_QML_TESTS MentorRecorderQmlSharedCalibration_share_after_restart)
+mr_desktop_qml_test(MentorRecorderQmlSharedCalibration_share_after_restart
+    --backend mock --mock-calibration idle --mock-shared share
+    --mock-live none --page 5 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-share-after-restart.png"
+    --screenshot-size 1280x900 --screenshot-delay 1200
+    --verify-text "分享给其他玩家")
 
 # The same after a restart for a proven shared profile: the 协议档案 card carries the
 # longer button text beside its sentence.
-add_test(NAME MentorRecorderQmlSharedCalibration_verified_proven_after_restart
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-calibration idle --mock-shared verified-proven
-        --mock-live none --page 5 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-verified-proven-after-restart.png"
-        --screenshot-size 1280x900 --screenshot-delay 1200
-        --verify-text "这份校准好用，告诉其他玩家")
-list(APPEND MR_SHARED_QML_TESTS MentorRecorderQmlSharedCalibration_verified_proven_after_restart)
+mr_desktop_qml_test(MentorRecorderQmlSharedCalibration_verified_proven_after_restart
+    --backend mock --mock-calibration idle --mock-shared verified-proven
+    --mock-live none --page 5 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-verified-proven-after-restart.png"
+    --screenshot-size 1280x900 --screenshot-delay 1200
+    --verify-text "这份校准好用，告诉其他玩家")
 
-add_test(NAME MentorRecorderDesktopRejectsSharedMockWithIpc
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;ipc;--mock-shared;consent"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=options require --backend mock"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsSharedMockWithIpc
+    CODE 2 OUTPUT "options require --backend mock" ARGS --backend ipc --mock-shared consent)
 
 # 设置 (docs/ui-design.md §4.5): each sub-page opened through --settings-tab in
 # the shipping QML, asserted through a line only that tab shows. The start-up
@@ -725,16 +687,13 @@ set(MR_SETTINGS_TEXT_tts "本地语音播报")
 set(MR_SETTINGS_TEXT_goal "起始次数：")
 set(MR_SETTINGS_TEXT_data "检查数据")
 set(MR_SETTINGS_TEXT_about "版权与来源")
-set(MR_SETTINGS_QML_TESTS)
 foreach(MR_SETTINGS_TAB general tts goal data about)
-    add_test(NAME MentorRecorderQmlSettings_${MR_SETTINGS_TAB}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
-            --settings-tab ${MR_SETTINGS_TAB}
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-${MR_SETTINGS_TAB}.png"
-            --screenshot-size 1280x800 --screenshot-delay 900
-            --verify-text "${MR_SETTINGS_TEXT_${MR_SETTINGS_TAB}}")
-    list(APPEND MR_SETTINGS_QML_TESTS MentorRecorderQmlSettings_${MR_SETTINGS_TAB})
+    mr_desktop_qml_test(MentorRecorderQmlSettings_${MR_SETTINGS_TAB}
+        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
+        --settings-tab ${MR_SETTINGS_TAB}
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-${MR_SETTINGS_TAB}.png"
+        --screenshot-size 1280x800 --screenshot-delay 900
+        --verify-text "${MR_SETTINGS_TEXT_${MR_SETTINGS_TAB}}")
 endforeach()
 # 开机启动 says why it cannot be switched here: a development build never registers itself
 # (it would replace the installed copy's login entry), and a test run of the distribution
@@ -744,14 +703,12 @@ if(MR_DEV_BUILD)
 else()
     set(MR_AUTOSTART_TEXT "测试运行不修改开机启动")
 endif()
-add_test(NAME MentorRecorderQmlSettings_autostart
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
-        --settings-tab general
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-general-autostart.png"
-        --screenshot-size 1280x800 --screenshot-delay 900
-        --verify-text "${MR_AUTOSTART_TEXT}")
-list(APPEND MR_SETTINGS_QML_TESTS MentorRecorderQmlSettings_autostart)
+mr_desktop_qml_test(MentorRecorderQmlSettings_autostart
+    --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
+    --settings-tab general
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-general-autostart.png"
+    --screenshot-size 1280x800 --screenshot-delay 900
+    --verify-text "${MR_AUTOSTART_TEXT}")
 
 # Only a distribution build embeds :/qt/etc/qt.conf (src/Desktop/CMakeLists.txt, audit 2026-11-03 Z4-1).
 if(MR_DEV_BUILD)
@@ -770,51 +727,32 @@ add_test(NAME MentorRecorderDesktopQtConfFollowsFlavour
 set(MR_SPEECH_TEXT_azure "播报文字会发送到 eastasia.azure-speech.invalid")
 set(MR_SPEECH_TEXT_openai "播报文字会发送到 api.example.com")
 set(MR_SPEECH_TEXT_unconfigured "在线语音 · 尚未配置")
-set(MR_SPEECH_QML_TESTS)
 foreach(MR_SPEECH_STATE azure openai unconfigured)
-    add_test(NAME MentorRecorderQmlSpeech_${MR_SPEECH_STATE}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
-            --settings-tab tts --mock-speech ${MR_SPEECH_STATE}
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-${MR_SPEECH_STATE}.png"
-            --screenshot-size 1280x800 --screenshot-delay 900
-            --verify-text "${MR_SPEECH_TEXT_${MR_SPEECH_STATE}}")
-    list(APPEND MR_SPEECH_QML_TESTS MentorRecorderQmlSpeech_${MR_SPEECH_STATE})
-endforeach()
-add_test(NAME MentorRecorderQmlSpeechConfirm
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme light
-        --settings-tab tts --mock-open-speech-confirm
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-confirm.png"
+    mr_desktop_qml_test(MentorRecorderQmlSpeech_${MR_SPEECH_STATE}
+        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
+        --settings-tab tts --mock-speech ${MR_SPEECH_STATE}
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-${MR_SPEECH_STATE}.png"
         --screenshot-size 1280x800 --screenshot-delay 900
-        --verify-text "改用在线语音播报？")
-list(APPEND MR_SPEECH_QML_TESTS MentorRecorderQmlSpeechConfirm)
+        --verify-text "${MR_SPEECH_TEXT_${MR_SPEECH_STATE}}")
+endforeach()
+mr_desktop_qml_test(MentorRecorderQmlSpeechConfirm
+    --backend mock --mock-recording-state listening --mock-live none --page 6 --theme light
+    --settings-tab tts --mock-open-speech-confirm
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-confirm.png"
+    --screenshot-size 1280x800 --screenshot-delay 900
+    --verify-text "改用在线语音播报？")
 
-add_test(NAME MentorRecorderDesktopRejectsSpeechMockWithIpc
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;ipc;--mock-speech;azure"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=options require --backend mock"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsSpeechMockWithIpc
+    CODE 2 OUTPUT "options require --backend mock" ARGS --backend ipc --mock-speech azure)
 
-add_test(NAME MentorRecorderDesktopRejectsInvalidSpeechMock
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;mock;--mock-speech;bogus"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=invalid --mock-speech value"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsInvalidSpeechMock
+    CODE 2 OUTPUT "invalid --mock-speech value" ARGS --backend mock --mock-speech bogus)
 
 # --speech-selftest needs an audio device to pass, so only its refusal is a
 # ctest; scripts/package.ps1 -Verify plays a real file from the unpacked build.
-add_test(NAME MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--speech-selftest;${CMAKE_CURRENT_BINARY_DIR}/no-such-speech.wav"
-        -DMR_EXPECT_CODE=3
-        "-DMR_EXPECT_OUTPUT=speech selftest: no such file"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
+    CODE 3 OUTPUT "speech selftest: no such file"
+    ARGS --speech-selftest "${CMAKE_CURRENT_BINARY_DIR}/no-such-speech.wav")
 
 # 下载并安装 (docs/privacy-boundary.md §8.6) in the three places that offer it,
 # one held state each, asserted through the line a player reads. The download
@@ -827,36 +765,22 @@ set(MR_UPDATE_DOWNLOAD_ARGS_ready --page 6 --settings-tab general)
 set(MR_UPDATE_DOWNLOAD_TEXT_ready "立即安装")
 set(MR_UPDATE_DOWNLOAD_ARGS_failed --page 6 --settings-tab about)
 set(MR_UPDATE_DOWNLOAD_TEXT_failed "在浏览器中下载")
-set(MR_UPDATE_QML_TESTS)
 foreach(MR_UPDATE_DOWNLOAD_STATE downloading verifying ready failed)
-    add_test(NAME MentorRecorderQmlUpdateDownload_${MR_UPDATE_DOWNLOAD_STATE}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-state listening --mock-live none --theme dark
-            --mock-update-download ${MR_UPDATE_DOWNLOAD_STATE}
-            ${MR_UPDATE_DOWNLOAD_ARGS_${MR_UPDATE_DOWNLOAD_STATE}}
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/update-download-${MR_UPDATE_DOWNLOAD_STATE}.png"
-            --screenshot-size 1280x800 --screenshot-delay 900
-            --verify-text "${MR_UPDATE_DOWNLOAD_TEXT_${MR_UPDATE_DOWNLOAD_STATE}}")
-    list(APPEND MR_UPDATE_QML_TESTS MentorRecorderQmlUpdateDownload_${MR_UPDATE_DOWNLOAD_STATE})
+    mr_desktop_qml_test(MentorRecorderQmlUpdateDownload_${MR_UPDATE_DOWNLOAD_STATE}
+        --backend mock --mock-recording-state listening --mock-live none --theme dark
+        --mock-update-download ${MR_UPDATE_DOWNLOAD_STATE}
+        ${MR_UPDATE_DOWNLOAD_ARGS_${MR_UPDATE_DOWNLOAD_STATE}}
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/update-download-${MR_UPDATE_DOWNLOAD_STATE}.png"
+        --screenshot-size 1280x800 --screenshot-delay 900
+        --verify-text "${MR_UPDATE_DOWNLOAD_TEXT_${MR_UPDATE_DOWNLOAD_STATE}}")
 endforeach()
 
-add_test(NAME MentorRecorderDesktopRejectsInvalidUpdateDownloadMock
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;mock;--mock-update-download;bogus"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=invalid --mock-update-download value"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsInvalidUpdateDownloadMock
+    CODE 2 OUTPUT "invalid --mock-update-download value" ARGS --backend mock --mock-update-download bogus)
 
-add_test(NAME MentorRecorderDesktopRejectsInvalidSettingsTab
-    COMMAND ${CMAKE_COMMAND}
-        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
-        "-DMR_ARGS=--backend;mock;--settings-tab;bogus"
-        -DMR_EXPECT_CODE=2
-        "-DMR_EXPECT_OUTPUT=invalid --settings-tab value"
-        -P "${MR_EXPECT_EXIT}")
+mr_desktop_expect_exit(MentorRecorderDesktopRejectsInvalidSettingsTab
+    CODE 2 OUTPUT "invalid --settings-tab value" ARGS --backend mock --settings-tab bogus)
 
-set(MR_PERSONAL_QML_TESTS)
 foreach(MR_PERSONAL_THEME dark light)
     foreach(MR_PERSONAL_VIEW Library Share Import)
         set(MR_PERSONAL_ARGS --page 8)
@@ -869,35 +793,30 @@ foreach(MR_PERSONAL_THEME dark light)
             set(MR_PERSONAL_TEXT "导入本人记录")
         endif()
         set(MR_PERSONAL_TEST MentorRecorderQml${MR_PERSONAL_VIEW}_${MR_PERSONAL_THEME})
-        add_test(NAME ${MR_PERSONAL_TEST}
-            COMMAND $<TARGET_FILE:MentorRecorder.Desktop> --backend mock --mock-recording-state listening
-                ${MR_PERSONAL_ARGS} --theme ${MR_PERSONAL_THEME}
-                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_PERSONAL_TEST}.png"
-                --screenshot-size 1100x720 --screenshot-delay 1200
-                --verify-text "${MR_PERSONAL_TEXT}")
-        list(APPEND MR_PERSONAL_QML_TESTS ${MR_PERSONAL_TEST})
+        mr_desktop_qml_test(${MR_PERSONAL_TEST}
+            --backend mock --mock-recording-state listening
+            ${MR_PERSONAL_ARGS} --theme ${MR_PERSONAL_THEME}
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_PERSONAL_TEST}.png"
+            --screenshot-size 1100x720 --screenshot-delay 1200
+            --verify-text "${MR_PERSONAL_TEXT}")
     endforeach()
 endforeach()
 
-set(MR_RELEASE_NOTES_QML_TESTS)
 foreach(MR_NOTES_STYLE classic eorzea harendotes)
     foreach(MR_NOTES_THEME dark light)
         set(MR_NOTES_TEST MentorRecorderQmlReleaseNotes_${MR_NOTES_STYLE}_${MR_NOTES_THEME})
-        add_test(NAME ${MR_NOTES_TEST}
-            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-                --backend mock --mock-recording-state listening --mock-live none
-                --mock-ui-style ${MR_NOTES_STYLE} --theme ${MR_NOTES_THEME}
-                --show-release-notes --screenshot-size 1100x720 --screenshot-delay 900
-                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_NOTES_TEST}.png"
-                --verify-text "本次更新" --verify-text "${MR_VERSION_FULL}")
-        list(APPEND MR_RELEASE_NOTES_QML_TESTS ${MR_NOTES_TEST})
+        mr_desktop_qml_test(${MR_NOTES_TEST}
+            --backend mock --mock-recording-state listening --mock-live none
+            --mock-ui-style ${MR_NOTES_STYLE} --theme ${MR_NOTES_THEME}
+            --show-release-notes --screenshot-size 1100x720 --screenshot-delay 900
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_NOTES_TEST}.png"
+            --verify-text "本次更新" --verify-text "${MR_VERSION_FULL}")
     endforeach()
 endforeach()
 
 # 界面语言: the compiled catalogues load (--ui-language) and the window shows
 # their text - the language card, the speech tab's 播报语言 row - and, in
 # English, a duty by its official English name (the record keeps the Chinese).
-set(MR_LANGUAGE_QML_TESTS)
 foreach(MR_LANG_CASE "en|en|Interface language|Announcement language"
                      "ja|ja|表示言語|読み上げ言語"
                      "zh-TW|zh_TW|介面語言|播報語言")
@@ -907,31 +826,25 @@ foreach(MR_LANG_CASE "en|en|Interface language|Announcement language"
     list(GET MR_LANG_FIELDS 2 MR_LANG_GENERAL_TEXT)
     list(GET MR_LANG_FIELDS 3 MR_LANG_SPEECH_TEXT)
     set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_general)
-    add_test(NAME ${MR_LANG_TEST}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-state listening --mock-live none
-            --ui-language ${MR_LANG_CODE} --page 6 --settings-tab general
-            --screenshot-delay 900
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
-            --verify-text "${MR_LANG_GENERAL_TEXT}" --verify-text "日本語")
-    list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+    mr_desktop_qml_test(${MR_LANG_TEST}
+        --backend mock --mock-recording-state listening --mock-live none
+        --ui-language ${MR_LANG_CODE} --page 6 --settings-tab general
+        --screenshot-delay 900
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+        --verify-text "${MR_LANG_GENERAL_TEXT}" --verify-text "日本語")
     set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_speech)
-    add_test(NAME ${MR_LANG_TEST}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-state listening --mock-live none
-            --ui-language ${MR_LANG_CODE} --page 6 --settings-tab tts
-            --screenshot-delay 900
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
-            --verify-text "${MR_LANG_SPEECH_TEXT}")
-    list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+    mr_desktop_qml_test(${MR_LANG_TEST}
+        --backend mock --mock-recording-state listening --mock-live none
+        --ui-language ${MR_LANG_CODE} --page 6 --settings-tab tts
+        --screenshot-delay 900
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+        --verify-text "${MR_LANG_SPEECH_TEXT}")
 endforeach()
-add_test(NAME MentorRecorderQmlLanguage_en_dutyName
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-recording-state listening --mock-live entered
-        --ui-language en --page 1 --screenshot-delay 900
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlLanguage_en_dutyName.png"
-        --verify-text "Overview" --verify-text "Pharos Sirius")
-list(APPEND MR_LANGUAGE_QML_TESTS MentorRecorderQmlLanguage_en_dutyName)
+mr_desktop_qml_test(MentorRecorderQmlLanguage_en_dutyName
+    --backend mock --mock-recording-state listening --mock-live entered
+    --ui-language en --page 1 --screenshot-delay 900
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlLanguage_en_dutyName.png"
+    --verify-text "Overview" --verify-text "Pharos Sirius")
 
 # The Collector's own sentences (contracts/collector-texts.md) in the interface
 # language: the mock backend sends them with their catalogue keys, exactly as
@@ -958,41 +871,14 @@ foreach(MR_LANG_CASE "en|en" "ja|ja" "zh-TW|zh_TW")
     list(GET MR_LANG_FIELDS 1 MR_LANG_NAME)
     foreach(MR_COLLECTOR_TEXT_CASE midstream blocked download)
         set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_collector_${MR_COLLECTOR_TEXT_CASE})
-        add_test(NAME ${MR_LANG_TEST}
-            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-                --backend mock --theme dark --ui-language ${MR_LANG_CODE}
-                ${MR_COLLECTOR_TEXT_ARGS_${MR_COLLECTOR_TEXT_CASE}}
-                --screenshot-delay 1200
-                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
-                --verify-text "${MR_COLLECTOR_TEXT_${MR_LANG_NAME}_${MR_COLLECTOR_TEXT_CASE}}")
-        list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+        mr_desktop_qml_test(${MR_LANG_TEST}
+            --backend mock --theme dark --ui-language ${MR_LANG_CODE}
+            ${MR_COLLECTOR_TEXT_ARGS_${MR_COLLECTOR_TEXT_CASE}}
+            --screenshot-delay 1200
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+            --verify-text "${MR_COLLECTOR_TEXT_${MR_LANG_NAME}_${MR_COLLECTOR_TEXT_CASE}}")
     endforeach()
 endforeach()
-
-set(MR_QML_TESTS
-    ${MR_LANGUAGE_QML_TESTS}
-    ${MR_RELEASE_NOTES_QML_TESTS}
-    ${MR_PERSONAL_QML_TESTS}
-    ${MR_SHARED_QML_TESTS}
-    ${MR_SETTINGS_QML_TESTS}
-    ${MR_SPEECH_QML_TESTS}
-    ${MR_UPDATE_QML_TESTS}
-    MentorRecorderQmlLoad
-    MentorRecorderQmlCalibration_observing
-    MentorRecorderQmlCalibration_ready
-    MentorRecorderQmlCalibration_blocked
-    MentorRecorderQmlCalibration_done
-    MentorRecorderQmlCalibrationBanner
-    MentorRecorderQmlCandidateReview_dark
-    MentorRecorderQmlCandidateReview_light
-    MentorRecorderQmlCandidateReview_compact
-    MentorRecorderQmlCandidateCapture
-    MentorRecorderQmlCandidateDisclosure
-    MentorRecorderQmlDetailPanel
-    MentorRecorderQmlEditDialog
-    MentorRecorderQmlCreateWizard
-    MentorRecorderQmlMockNoteImageFolder
-    MentorRecorderQmlBaselineDialog)
 
 get_target_property(MR_QT_CORE_LIBRARY Qt6::Core IMPORTED_LOCATION_RELEASE)
 if(NOT MR_QT_CORE_LIBRARY)
@@ -1001,7 +887,6 @@ endif()
 get_filename_component(MR_QT_RUNTIME_DIR "${MR_QT_CORE_LIBRARY}" DIRECTORY)
 get_filename_component(MR_CXX_RUNTIME_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 
-set(MR_RECORDING_QML_TESTS)
 set(MR_RECORDING_TEXT_waiting "等待游戏启动")
 set(MR_RECORDING_TEXT_checking "检查中")
 set(MR_RECORDING_TEXT_listening "自动监听中")
@@ -1010,23 +895,19 @@ set(MR_RECORDING_TEXT_multiple "检测到多个游戏客户端")
 set(MR_RECORDING_TEXT_multiple-exited "所选游戏已退出")
 foreach(MR_RECORDING_STYLE classic eorzea)
     set(MR_ALERT_TEST MentorRecorderQmlAlertFlow_${MR_RECORDING_STYLE})
-    add_test(NAME ${MR_ALERT_TEST}
-        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-recording-alert-flow --mock-live none
-            --mock-ui-style ${MR_RECORDING_STYLE} --page 1 --theme dark
-            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_ALERT_TEST}.png"
-            --screenshot-size 1100x720 --screenshot-delay 900)
-    list(APPEND MR_RECORDING_QML_TESTS ${MR_ALERT_TEST})
+    mr_desktop_qml_test(${MR_ALERT_TEST}
+        --backend mock --mock-recording-alert-flow --mock-live none
+        --mock-ui-style ${MR_RECORDING_STYLE} --page 1 --theme dark
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_ALERT_TEST}.png"
+        --screenshot-size 1100x720 --screenshot-delay 900)
     foreach(MR_RECORDING_STATE waiting checking listening blocked multiple multiple-exited)
         set(MR_RECORDING_TEST MentorRecorderQmlRecording_${MR_RECORDING_STYLE}_${MR_RECORDING_STATE})
-        add_test(NAME ${MR_RECORDING_TEST}
-            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-                --backend mock --mock-recording-state ${MR_RECORDING_STATE}
-                --mock-ui-style ${MR_RECORDING_STYLE} --mock-live none --page 1 --theme dark
-                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_RECORDING_TEST}.png"
-                --screenshot-size 1100x720 --screenshot-delay 900
-                --verify-text "${MR_RECORDING_TEXT_${MR_RECORDING_STATE}}")
-        list(APPEND MR_RECORDING_QML_TESTS ${MR_RECORDING_TEST})
+        mr_desktop_qml_test(${MR_RECORDING_TEST}
+            --backend mock --mock-recording-state ${MR_RECORDING_STATE}
+            --mock-ui-style ${MR_RECORDING_STYLE} --mock-live none --page 1 --theme dark
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_RECORDING_TEST}.png"
+            --screenshot-size 1100x720 --screenshot-delay 900
+            --verify-text "${MR_RECORDING_TEXT_${MR_RECORDING_STATE}}")
     endforeach()
 endforeach()
 
@@ -1040,27 +921,23 @@ foreach(MR_CLOSED_GAME_STATE waiting-verified waiting-calibrating)
     foreach(MR_CLOSED_GAME_THEME light dark)
         set(MR_CLOSED_GAME_TEST
             MentorRecorderQmlClosedGame_${MR_CLOSED_GAME_THEME}_${MR_CLOSED_GAME_STATE})
-        add_test(NAME ${MR_CLOSED_GAME_TEST}
-            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-                --backend mock --mock-recording-state ${MR_CLOSED_GAME_STATE}
-                --mock-live none --page 5 --theme ${MR_CLOSED_GAME_THEME}
-                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_CLOSED_GAME_TEST}.png"
-                --screenshot-size 1280x900 --screenshot-delay 900
-                --verify-text "${MR_CLOSED_GAME_TEXT_${MR_CLOSED_GAME_STATE}}"
-                --verify-text "已安装版本 2026.09.01")
-        list(APPEND MR_RECORDING_QML_TESTS ${MR_CLOSED_GAME_TEST})
+        mr_desktop_qml_test(${MR_CLOSED_GAME_TEST}
+            --backend mock --mock-recording-state ${MR_CLOSED_GAME_STATE}
+            --mock-live none --page 5 --theme ${MR_CLOSED_GAME_THEME}
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_CLOSED_GAME_TEST}.png"
+            --screenshot-size 1280x900 --screenshot-delay 900
+            --verify-text "${MR_CLOSED_GAME_TEXT_${MR_CLOSED_GAME_STATE}}"
+            --verify-text "已安装版本 2026.09.01")
     endforeach()
 endforeach()
 
 # 共享校准正在获取时，链路不另下「需要重新校准」的结论，而是指向下方的共享校准面板。
-add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
-    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-recording-state waiting-calibrating --mock-shared fetching
-        --mock-live none --page 5 --theme dark
-        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlClosedGame_dark_shared-fetching.png"
-        --screenshot-size 1280x900 --screenshot-delay 900
-        --verify-text "等待游戏启动 · 请查看「共享校准」中的进度")
-list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
+mr_desktop_qml_test(MentorRecorderQmlClosedGame_dark_shared-fetching
+    --backend mock --mock-recording-state waiting-calibrating --mock-shared fetching
+    --mock-live none --page 5 --theme dark
+    --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlClosedGame_dark_shared-fetching.png"
+    --screenshot-size 1280x900 --screenshot-delay 900
+    --verify-text "等待游戏启动 · 请查看「共享校准」中的进度")
 
 # Regression: mock/screenshot preferences must never touch the user's Run key.
 # Compile the real implementation against a settings audit adapter in this target only.
@@ -1086,20 +963,6 @@ set_target_properties(MentorRecorderAppSettingsIsolationTests PROPERTIES AUTOMOC
 mr_use_ascii_autogen_dir(MentorRecorderAppSettingsIsolationTests)
 add_test(NAME MentorRecorderAppSettingsIsolation COMMAND MentorRecorderAppSettingsIsolationTests)
 
-set(MR_VALIDATION_QML_TESTS
-    MentorRecorderQmlEvidenceSteps
-    MentorRecorderQmlEvidenceReport
-    MentorRecorderQmlMidstreamBanner
-    MentorRecorderQmlPendingWorkCard
-    MentorRecorderQmlRunEventsTab
-    MentorRecorderQmlValidation_waiting
-    MentorRecorderQmlValidation_recording
-    MentorRecorderQmlValidation_stopping
-    MentorRecorderQmlValidation_completed
-    MentorRecorderQmlValidation_failed
-    MentorRecorderQmlValidationDashboard
-    MentorRecorderQmlValidationDashboardFormalRunning
-    MentorRecorderQmlValidationKeyboard)
 # Derive the common runtime from registered tests so a new suite cannot miss it.
 if(WIN32)
     # Exercise the native Windows glyph path at the DPI where 一 disappeared.
@@ -1130,7 +993,8 @@ set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT
     "MR_COLLECTOR_PATH=${CMAKE_CURRENT_BINARY_DIR}/no-such-collector/MentorRecorder.Collector.exe"
     "MR_DATA_DIR=${CMAKE_CURRENT_BINARY_DIR}/no-collector-data")
 
-set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS} PROPERTIES TIMEOUT 30)
+get_property(MR_QML_SMOKE_TESTS DIRECTORY PROPERTY MR_QML_SMOKE_TESTS)
+set_tests_properties(${MR_QML_SMOKE_TESTS} PROPERTIES TIMEOUT 30)
 
 # The offscreen plugin otherwise probes the SDK's nonexistent lib/fonts.
 # Screenshot and CLI fixtures use the same bundled files as the application.
@@ -1147,8 +1011,7 @@ endif()
 # and teardown diagnostics. The application's QML counter remains a second net.
 # No "\\[" in front: CTest's regex engine then misparses the following group.
 set(MR_QML_WARNING_REGEX "(warning|critical|fatal)\\]")
-set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS}
-    PROPERTIES FAIL_REGULAR_EXPRESSION "${MR_QML_WARNING_REGEX}")
+set_tests_properties(${MR_QML_SMOKE_TESTS} PROPERTIES FAIL_REGULAR_EXPRESSION "${MR_QML_WARNING_REGEX}")
 
 set_property(TEST ${MR_ALL_DESKTOP_TESTS} PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR}"
@@ -1163,8 +1026,7 @@ if(NOT MR_DEV_BUILD)
         "QML_IMPORT_PATH=set:${MR_QT_PREFIX_DIR}/qml")
 endif()
 
-set_property(TEST MentorRecorderAppSettingsIsolation MentorRecorderToggleSwitch
-    MentorRecorderImportImageOrientation APPEND PROPERTY ENVIRONMENT
+set_property(TEST MentorRecorderToggleSwitch MentorRecorderImportImageOrientation APPEND PROPERTY ENVIRONMENT
     "QT_QUICK_BACKEND=software")
 
 if(WIN32)
@@ -1195,7 +1057,7 @@ mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTestSupport)
 
 mr_desktop_suite_test(MentorRecorderDesktopShellTests QmlRuntime NO_LOG)
 set_tests_properties(MentorRecorderQmlRuntime PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1"
+    ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}"
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR};PATH=path_list_prepend:${MR_CXX_RUNTIME_DIR}")
 
 get_property(mr_desktop_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)

@@ -36,6 +36,8 @@
 新增套件时，把文件放进对应目录，把原来的 `int main(...)` 写成 `MR_DESKTOP_TEST_SUITE(<名称>)`
 （`support/DesktopTestRunner.h`），再在 `CMakeLists.txt` 中把套件名加入该目录测试程序的 `SUITES`，
 并用 `mr_desktop_suite_test` 登记 CTest 项。
+对桌面端程序本身截图的冒烟用例用 `mr_desktop_qml_test` 登记，它们由此统一获得 30 秒超时与 QML 告警检查；
+检查命令行拒绝参数的用例用 `mr_desktop_expect_exit` 登记。
 
 ## 运行
 
