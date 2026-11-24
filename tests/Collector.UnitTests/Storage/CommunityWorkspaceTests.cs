@@ -142,6 +142,77 @@ public sealed class CommunityWorkspaceTests
     }
 
     [Fact]
+    public async Task PublicationSwitchesToTheMirrorWhenGithubIsSlow()
+    {
+        var urls = new List<string>();
+        var github = new TaskCompletionSource<byte[]?>();
+        var githubCancelled = false;
+        var result = await CommunityHttp.GetPublicationAsync(new string('a', 40), "snapshot.json", (url, token) =>
+        {
+            urls.Add(url);
+            if (urls.Count > 1)
+                return Task.FromResult<byte[]?>("mirror"u8.ToArray());
+            token.Register(() => githubCancelled = true);
+            return github.Task;
+        }, TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        Assert.Equal("mirror"u8.ToArray(), result);
+        Assert.Equal(new[]
+        {
+            $"{CommunityHttp.RawRoot}{new string('a', 40)}/community/v1/snapshot.json",
+            $"{CommunityHttp.MirrorRoot}community/v1/snapshot.json?ref={new string('a', 40)}",
+        }, urls);
+        Assert.True(githubCancelled);
+    }
+
+    // A slow GitHub still wins when the mirror has not synchronised the file or cannot be reached.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublicationWaitsForSlowGithubWhenTheMirrorHasNothing(bool mirrorFails)
+    {
+        var github = new TaskCompletionSource<byte[]?>();
+        var calls = 0;
+        var pending = CommunityHttp.GetPublicationAsync("main", "index.json", (_, _) =>
+        {
+            if (++calls == 1)
+                return github.Task;
+            github.SetResult("github"u8.ToArray());
+            return mirrorFails ? Task.FromException<byte[]?>(new HttpRequestException()) : Task.FromResult<byte[]?>(null);
+        }, TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        Assert.Equal("github"u8.ToArray(), await pending);
+        Assert.Equal(2, calls);
+    }
+
+    [Theory]
+    [InlineData("content", "unused", "content", 1)]
+    [InlineData("failure", "content", "content", 2)]
+    [InlineData("missing", "content", "content", 2)]
+    [InlineData("missing", "missing", "missing", 2)]
+    [InlineData("missing", "failure", "failure", 2)]
+    [InlineData("failure", "missing", "failure", 2)]
+    public async Task PublicationAsksTheMirrorOnlyWhenPromptGithubHasNoContent(string github, string mirror,
+        string expected, int expectedCalls)
+    {
+        var calls = 0;
+        Task<byte[]?> Answer(string kind) => kind switch
+        {
+            "content" => Task.FromResult<byte[]?>("content"u8.ToArray()),
+            "missing" => Task.FromResult<byte[]?>(null),
+            _ => Task.FromException<byte[]?>(new HttpRequestException()),
+        };
+        Task<byte[]?> Fetch() => CommunityHttp.GetPublicationAsync("main", "index.json",
+            (_, _) => Answer(++calls == 1 ? github : mirror), TimeSpan.FromMinutes(1), CancellationToken.None);
+
+        if (expected == "failure")
+            await Assert.ThrowsAsync<HttpRequestException>(Fetch);
+        else
+            Assert.Equal(expected == "missing" ? null : "content"u8.ToArray(), await Fetch());
+        Assert.Equal(expectedCalls, calls);
+    }
+
+    [Fact]
     public async Task DeviceFlowUsesOnlyThePlayerTokenAndRefreshesItWithoutASecret()
     {
         using var fixture = new TestDatabase();

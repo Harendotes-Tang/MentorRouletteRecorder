@@ -10,6 +10,8 @@ internal sealed class CommunityHttp
     internal const string Repository = "Harendotes-Tang/MentorRecorder-Calibrations";
     internal const string Api = "https://api.github.com/repos/" + Repository;
     internal const string Github = "https://github.com";
+    internal const string RawRoot = "https://raw.githubusercontent.com/" + Repository + "/";
+    internal const string MirrorRoot = "https://api.gitcode.com/api/v5/repos/" + Repository + "/raw/";
     private static readonly HttpClient Client = new(new HttpClientHandler
     {
         AllowAutoRedirect = false,
@@ -18,38 +20,63 @@ internal sealed class CommunityHttp
         DefaultProxyCredentials = null,
     }) { Timeout = TimeSpan.FromSeconds(12) };
 
-    internal static async Task<byte[]?> GetPublicationAsync(string revision, string file, int maxBytes,
-        CancellationToken cancellationToken)
+    // GitHub that has not answered within this time no longer holds a refresh back: the GitCode
+    // mirror is asked as well and whichever delivers the file first is used.
+    private static readonly TimeSpan SlowAfter = TimeSpan.FromSeconds(3);
+
+    internal static Task<byte[]?> GetPublicationAsync(string revision, string file, int maxBytes,
+        CancellationToken cancellationToken) =>
+        GetPublicationAsync(revision, file,
+            (url, token) => SendAsync(HttpMethod.Get, url, null, null, maxBytes, token), SlowAfter, cancellationToken);
+
+    /// <summary>Returns the file, or null only when both GitHub and the mirror report it missing.</summary>
+    internal static async Task<byte[]?> GetPublicationAsync(string revision, string file,
+        Func<string, CancellationToken, Task<byte[]?>> send, TimeSpan slowAfter, CancellationToken cancellationToken)
     {
         // Raw GitHub and GitCode receive only a fixed path and a ref. The same download path
         // never accepts an authorization token even if user authentication is active.
-        string[] roots =
-        [
-            $"https://raw.githubusercontent.com/{Repository}/{revision}/",
-            $"https://api.gitcode.com/api/v5/repos/{Repository}/raw/",
-        ];
-        var primaryMissing = false;
-        var lastMissing = false;
-        for (var i = 0; i < roots.Length; i++)
+        var path = "community/v1/" + file;
+        using var abandoned = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        try
         {
-            try
+            var github = send($"{RawRoot}{revision}/{path}", abandoned.Token);
+            Task<byte[]?>? mirror = null;
+            Task<byte[]?> Mirror() => mirror ??= send($"{MirrorRoot}{path}?ref={revision}", abandoned.Token);
+
+            var first = github;
+            if (await Task.WhenAny(github, Task.Delay(slowAfter, abandoned.Token)).ConfigureAwait(false) != github)
             {
-                var url = roots[i] + "community/v1/" + file + (i == 1 ? "?ref=" + revision : "");
-                var response = await SendAsync(HttpMethod.Get, url,
-                    null, null, maxBytes, cancellationToken).ConfigureAwait(false);
-                if (response is not null)
-                    return response;
-                if (i == 0)
-                    primaryMissing = true;
-                lastMissing = true;
+                cancellationToken.ThrowIfCancellationRequested();
+                first = await Task.WhenAny(github, Mirror()).ConfigureAwait(false);
             }
-            catch (Exception error) when (error is HttpRequestException or IOException ||
-                                          error is OperationCanceledException && !cancellationToken.IsCancellationRequested)
-            {
-                // Try the mirror when the primary is unavailable.
-            }
+            var (content, missing) = await Outcome(first, cancellationToken).ConfigureAwait(false);
+            if (content is not null)
+                return content;
+            // The mirror when GitHub had nothing, GitHub when the mirror answered first without the file.
+            var (other, otherMissing) = await Outcome(first == github ? Mirror() : github, cancellationToken)
+                .ConfigureAwait(false);
+            return other ?? (missing && otherMissing ? null : throw new HttpRequestException());
         }
-        return primaryMissing && lastMissing ? null : throw new HttpRequestException();
+        finally
+        {
+            // Stops the slower request and the pending delay.
+            await abandoned.CancelAsync().ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<(byte[]? Content, bool Missing)> Outcome(Task<byte[]?> request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var content = await request.ConfigureAwait(false);
+            return (content, content is null);
+        }
+        catch (Exception error) when (error is HttpRequestException or IOException ||
+                                      error is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return (null, false);
+        }
     }
 
     internal static async Task<JsonObject> GithubAsync(HttpMethod method, string url, string? token,
