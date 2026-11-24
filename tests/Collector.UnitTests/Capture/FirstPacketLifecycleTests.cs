@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Protocol.Decoded;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -108,7 +107,7 @@ public sealed class FirstPacketLifecycleTests
         using var source = new MachinaCaptureSource(options => monitor = new FirstPacketMonitor(options,
             (_, _, _, _) => { }, _ => { }, reader, () => Array.Empty<Machina.Infrastructure.TCPConnection>(),
             () => throw new IOException("synthetic Oodle initialization failure")));
-        Assert.ThrowsAny<Exception>(() => source.Start(Options, new Observer()));
+        Assert.ThrowsAny<Exception>(() => source.Start(Options, new NullCaptureObserver()));
         Assert.False(source.IsRunning);
         Assert.True(reader.Disposed);
         var reads = reader.Reads;
@@ -130,7 +129,7 @@ public sealed class FirstPacketLifecycleTests
         using var source = new MachinaCaptureSource(_ => monitor,
             (_, _) => { openWhenCounted = monitor.Prepared; return 3; });
 
-        source.Start(Options, new Observer());
+        source.Start(Options, new NullCaptureObserver());
 
         Assert.True(openWhenCounted);
         Assert.Equal(3, source.PreexistingTcpConnections);
@@ -158,12 +157,12 @@ public sealed class FirstPacketLifecycleTests
         var source = new MachinaCaptureSource(_ => monitor);
         try
         {
-            source.Start(Options, new Observer());
+            source.Start(Options, new NullCaptureObserver());
             Assert.True(entered.Wait(TimeSpan.FromSeconds(2)));
             Assert.Throws<TimeoutException>(source.Stop);
             Assert.True(source.IsRunning);
             Assert.False(reader.Disposed);
-            Assert.ThrowsAny<Exception>(() => source.Start(Options, new Observer()));
+            Assert.ThrowsAny<Exception>(() => source.Start(Options, new NullCaptureObserver()));
         }
         finally { release.Set(); source.Dispose(); }
         Assert.False(source.IsRunning);
@@ -373,12 +372,5 @@ public sealed class FirstPacketLifecycleTests
             OnEmpty?.Invoke(); return false;
         }
         public void Dispose() => Disposed = true;
-    }
-
-    private sealed class Observer : ICaptureSourceObserver
-    {
-        public void OnMessage(DecodedMessage message) { }
-        public void OnDecodeError() { }
-        public void OnFault(string reason, Exception? error) { }
     }
 }

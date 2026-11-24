@@ -7,6 +7,7 @@ using Machina.Infrastructure;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.TraceSinkTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -31,19 +32,13 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var path = Path.Combine(directory.Path, "blocked-trace.jsonl");
-        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 1234);
         var source = new FakeCaptureSource();
         BlockingTraceWriter? writer = null;
         var run = Task.Run(() => CaptureTraceRunner.Run(new CaptureTraceOptions(path, DurationSeconds: 1, AdapterId: "adapter"),
-            new CaptureTraceServices
+            TraceServices(source, processes: Client(executable: null), files: new FakeGameFileReader(),
+                tcp: new FakeProcessTcpTable()) with
             {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, new FakeGameFileReader()),
-                Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"), new FakeProcessTcpTable()),
-                SourceFactory = () => source,
                 TraceWriterFactory = output => writer = new BlockingTraceWriter(output),
-                Markers = new StringReader(string.Empty),
-                Output = new StringWriter(), Status = new StringWriter(), InstallCancelHandler = false,
             }));
         Assert.True(SpinWait.SpinUntil(() => source.IsRunning, 5000));
         source.PushOpcode(1);
@@ -120,7 +115,7 @@ public sealed class CaptureTraceTests
         var sink = NewSink(writer);
         sink.WriteHeader(Header());
 
-        using var source = Started(sink);
+        using var source = Started(sink, StartOptions());
         for (var i = 0; i < 3; i++)
         {
             source.PushRaw(Message(PlantedOpcode, 32, fill: 0xAB));
@@ -146,7 +141,7 @@ public sealed class CaptureTraceTests
         var sink = NewSink(writer);
         sink.WriteHeader(Header());
 
-        using (var source = Started(sink))
+        using (var source = Started(sink, StartOptions()))
         {
             source.PushRaw(Message(PlantedOpcode, 64, fill: 0xDE));
         }
@@ -177,7 +172,7 @@ public sealed class CaptureTraceTests
         var sink = NewSink(writer);
         sink.WriteHeader(Header());
 
-        using (var source = Started(sink))
+        using (var source = Started(sink, StartOptions()))
         {
             source.PushOpcode(NoiseOpcode);
             CaptureTraceMarkerPump.PumpAll(new StringReader("pop\n\n   \nentered\n"), sink);
@@ -256,30 +251,15 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "marker-write-failure.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            "2026.08.05.0000.0000");
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var source = new RecordingTraceSource(faultOnStart: false);
         var output = new StringWriter();
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, AdapterId: "adapter"),
-            new CaptureTraceServices
+            TraceServices(source, output) with
             {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
                 Markers = new StringReader("pop\nentered\n"),
-                Output = output,
-                Status = new StringWriter(),
                 TraceWriterFactory = path => new MarkerFailingFileWriter(path),
-                InstallCancelHandler = false,
             });
 
         Assert.Equal(1, result);
@@ -307,12 +287,7 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, clientExits ? "exits.jsonl" : "listing-fails.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            "2026.08.05.0000.0000");
+        var processes = Client();
         var source = new StartHookTraceSource(() =>
         {
             if (clientExits)
@@ -328,20 +303,11 @@ public sealed class CaptureTraceTests
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, DurationSeconds: 1, AdapterId: "adapter"),
-            new CaptureTraceServices
+            TraceServices(source, processes: processes) with
             {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(
-                    new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"),
-                    new FakeProcessTcpTable().With(1234, "10.0.0.2")),
-                SourceFactory = () => source,
-                Markers = new StringReader(string.Empty),
-                Output = new StringWriter(),
                 Status = status,
                 StatusInterval = TimeSpan.FromMilliseconds(50),
                 TcpConnectionCounter = (_, _) => 0,
-                InstallCancelHandler = false,
             });
 
         Assert.Equal(0, result);
@@ -392,36 +358,15 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "candidate-opt-in.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        const string gameBuild = "2026.08.05.0000.0000";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            gameBuild);
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var source = new RecordingTraceSource();
 
-        var result = CaptureTraceRunner.Run(
-            new CaptureTraceOptions(tracePath),
-            new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
-                Markers = new StringReader(string.Empty),
-                Output = new StringWriter(),
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
-            });
+        var result = CaptureTraceRunner.Run(new CaptureTraceOptions(tracePath), TraceServices(source));
 
         // The source deliberately reports a fault to end the otherwise unbounded trace.
         Assert.Equal(1, result);
         var options = Assert.IsType<CaptureStartOptions>(source.LastOptions);
         Assert.Equal(Region.Cn, options.Region);
-        Assert.Equal(gameBuild, options.GameBuild);
+        Assert.Equal(ClientBuild, options.GameBuild);
         Assert.True(options.AllowCandidateOodleSignature);
         Assert.Equal(OodleMode.FfxivTcp, options.Oodle);
     }
@@ -436,33 +381,17 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "identity-gate.jsonl");
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader();
-        if (executablePath is not null && gameBuild is not null)
-        {
-            files.With(
-                Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-                gameBuild);
-        }
-
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
+        var files = executablePath is not null && gameBuild is not null
+            ? VersionOf(executablePath, gameBuild)
+            : new FakeGameFileReader();
         var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
         var output = new StringWriter();
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, AdapterId: "adapter"),
-            new CaptureTraceServices
+            TraceServices(source, output, Client(executablePath), files, new FakeProcessTcpTable()) with
             {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, new FakeProcessTcpTable()),
-                SourceFactory = () => source,
                 TcpConnectionCounter = (_, _) => 0,
-                Markers = new StringReader(string.Empty),
-                Output = output,
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
             });
 
         Assert.Equal(1, result); // The ready source reports a fault to end the test run.
@@ -508,19 +437,9 @@ public sealed class CaptureTraceTests
             var output = new StringWriter();
             var result = CaptureTraceRunner.Run(
                 new CaptureTraceOptions(Path.Combine(directory.Path, name), AdapterId: "adapter", Region: region),
-                new CaptureTraceServices
+                TraceServices(source, output, Client(exe), files, new FakeProcessTcpTable()) with
                 {
-                    Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                    Game = new GameProcessLocator(new FakeGameProcessProvider()
-                        .Add(GameProcessLocator.Dx11ProcessName, 1234, path: exe), files),
-                    Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"),
-                        new FakeProcessTcpTable()),
-                    SourceFactory = () => source,
                     TcpConnectionCounter = (_, _) => 0,
-                    Markers = new StringReader(string.Empty),
-                    Output = output,
-                    Status = new StringWriter(),
-                    InstallCancelHandler = false,
                 });
             return (result, output.ToString(), source);
         }
@@ -557,32 +476,12 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "midstream-refused.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        const string gameBuild = "2026.08.05.0000.0000";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            gameBuild);
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var output = new StringWriter();
         var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, AdapterId: "adapter"),
-            new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
-                TcpConnectionCounter = (_, _) => 2,
-                Markers = new StringReader(string.Empty),
-                Output = output,
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
-            });
+            TraceServices(source, output) with { TcpConnectionCounter = (_, _) => 2 });
 
         Assert.Equal(1, result);
         Assert.Null(source.LastOptions);
@@ -627,34 +526,21 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "missing-bind-address.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            "2026.08.05.0000.0000");
-        var adapters = new FakeAdapterProvider().Add("adapter", "No IPv4 adapter");
         var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
         var output = new StringWriter();
         var counterCalled = false;
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, AdapterId: "adapter"),
-            new CaptureTraceServices
+            TraceServices(source, output) with
             {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, new FakeProcessTcpTable()),
-                SourceFactory = () => source,
+                Adapters = new AdapterEnumerator(
+                    new FakeAdapterProvider().Add("adapter", "No IPv4 adapter"), new FakeProcessTcpTable()),
                 TcpConnectionCounter = (_, _) =>
                 {
                     counterCalled = true;
                     return 0;
                 },
-                Markers = new StringReader(string.Empty),
-                Output = output,
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
             });
 
         Assert.Equal(1, result);
@@ -675,28 +561,9 @@ public sealed class CaptureTraceTests
         var blocker = Path.Combine(directory.Path, "not-a-directory");
         File.WriteAllText(blocker, "blocks Directory.CreateDirectory", new UTF8Encoding(false));
         var tracePath = Path.Combine(blocker, "trace.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            "2026.08.05.0000.0000");
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var source = new RecordingTraceSource();
 
-        Assert.ThrowsAny<IOException>(() => CaptureTraceRunner.Run(
-            new CaptureTraceOptions(tracePath),
-            new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
-                Output = new StringWriter(),
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
-            }));
+        Assert.ThrowsAny<IOException>(() => CaptureTraceRunner.Run(new CaptureTraceOptions(tracePath), TraceServices(source)));
 
         Assert.True(source.Disposed);
     }
@@ -708,28 +575,9 @@ public sealed class CaptureTraceTests
         var tracePath = Path.Combine(directory.Path, "existing.jsonl");
         const string original = "existing evidence\n";
         File.WriteAllText(tracePath, original, new UTF8Encoding(false));
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            "2026.08.05.0000.0000");
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var source = new RecordingTraceSource();
 
-        Assert.Throws<IOException>(() => CaptureTraceRunner.Run(
-            new CaptureTraceOptions(tracePath),
-            new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
-                Output = new StringWriter(),
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
-            }));
+        Assert.Throws<IOException>(() => CaptureTraceRunner.Run(new CaptureTraceOptions(tracePath), TraceServices(source)));
 
         Assert.Equal(original, File.ReadAllText(tracePath));
         Assert.Null(source.LastOptions);
@@ -743,7 +591,7 @@ public sealed class CaptureTraceTests
         var sink = NewSink(writer, maxLines: 3);
         sink.WriteHeader(Header());
 
-        using (var source = Started(sink))
+        using (var source = Started(sink, StartOptions()))
         {
             for (var i = 0; i < 10; i++)
             {
@@ -947,28 +795,44 @@ public sealed class CaptureTraceTests
         return writer.ToString();
     }
 
-    private static CaptureTraceSink NewSink(TextWriter writer, int maxLines = 1000)
-    {
-        var elapsed = TimeSpan.Zero;
-        return new CaptureTraceSink(
-            writer,
-            new TestClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
-            () => elapsed += TimeSpan.FromMilliseconds(10),
-            maxLines);
-    }
-
-    private static CaptureTraceHeader Header() => new(
-        new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
-        "1.79",
-        "2026.01.01.0000.0000",
-        Region.Cn,
-        "0123456789ab",
-        "0.1.0",
-        OodleMode.FfxivTcp,
-        Synthetic: false);
-
     private static CaptureStartOptions StartOptions() =>
         new("trace-test", 1234, null, "adapter", OodleMode.FfxivTcp, null, null);
+
+    private const int ClientPid = 1234;
+    private const string ClientExecutable = @"D:\sdo\game\ffxiv_dx11.exe";
+    private const string ClientBuild = "2026.08.05.0000.0000";
+
+    /// <summary>The DX11 client at pid 1234, running <paramref name="executable"/> (unknown when null).</summary>
+    private static FakeGameProcessProvider Client(string? executable = ClientExecutable) =>
+        new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, ClientPid, path: executable);
+
+    /// <summary>The build file beside <paramref name="executable"/>.</summary>
+    private static FakeGameFileReader VersionOf(string executable, string build = ClientBuild) =>
+        new FakeGameFileReader().With(
+            Path.Combine(Path.GetDirectoryName(executable)!, GameProcessLocator.VersionFileName), build);
+
+    /// <summary>
+    /// A trace run on a declared machine: healthy Npcap, the CN client <see cref="Client"/> with its build file,
+    /// its traffic on the adapter "adapter" (10.0.0.2), no marker typed, nothing printed to the console.
+    /// </summary>
+    private static CaptureTraceServices TraceServices(
+        ICaptureSource source,
+        TextWriter? output = null,
+        IGameProcessProvider? processes = null,
+        IGameFileReader? files = null,
+        IProcessTcpTable? tcp = null) => new()
+    {
+        Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
+        Game = new GameProcessLocator(processes ?? Client(), files ?? VersionOf(ClientExecutable)),
+        Adapters = new AdapterEnumerator(
+            new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"),
+            tcp ?? new FakeProcessTcpTable().With(ClientPid, "10.0.0.2")),
+        SourceFactory = () => source,
+        Markers = new StringReader(string.Empty),
+        Output = output ?? new StringWriter(),
+        Status = new StringWriter(),
+        InstallCancelHandler = false,
+    };
 
     [Theory]
     [InlineData(2)]
@@ -977,32 +841,12 @@ public sealed class CaptureTraceTests
     {
         using var directory = new TempDirectory("Trace");
         var tracePath = Path.Combine(directory.Path, "midstream-allowed.jsonl");
-        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
-        const string gameBuild = "2026.08.05.0000.0000";
-        var processes = new FakeGameProcessProvider()
-            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
-        var files = new FakeGameFileReader().With(
-            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
-            gameBuild);
-        var adapters = new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2");
-        var tcpTable = new FakeProcessTcpTable().With(1234, "10.0.0.2");
         var output = new StringWriter();
         var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
 
         var result = CaptureTraceRunner.Run(
             new CaptureTraceOptions(tracePath, AdapterId: "adapter", AllowMidstream: connectionCount.HasValue),
-            new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(processes, files),
-                Adapters = new AdapterEnumerator(adapters, tcpTable),
-                SourceFactory = () => source,
-                TcpConnectionCounter = (_, _) => connectionCount,
-                Markers = new StringReader(string.Empty),
-                Output = output,
-                Status = new StringWriter(),
-                InstallCancelHandler = false,
-            });
+            TraceServices(source, output) with { TcpConnectionCounter = (_, _) => connectionCount });
 
         // The recording source faults on start to end the run; what matters is that the source
         // was started at all and that the evidence file records the midstream join.
@@ -1060,17 +904,9 @@ public sealed class CaptureTraceTests
         Assert.DoesNotContain("aaaaaaaaaaaaaaaa", writer.ToString(), StringComparison.Ordinal);
     }
 
-    /// <summary>Starts a fake source whose messages land in the sink through the real observer path.</summary>
-    private static FakeCaptureSource Started(CaptureTraceSink sink)
-    {
-        var source = new FakeCaptureSource();
-        source.Start(StartOptions(), new SinkObserver(sink));
-        return source;
-    }
-
     private static void Drive(CaptureTraceSink sink, params (ushort Opcode, int Length)[] messages)
     {
-        using var source = Started(sink);
+        using var source = Started(sink, StartOptions());
         foreach (var (opcode, length) in messages)
         {
             source.PushRaw(Message(opcode, length, fill: 0x7F));
@@ -1128,18 +964,6 @@ public sealed class CaptureTraceTests
         }
 
         return node.ContainsKey("marker") ? "marker" : "message";
-    }
-
-    /// <summary>Forwards a fake source's callbacks into the trace sink, as the runner does.</summary>
-    private sealed class SinkObserver(CaptureTraceSink sink) : ICaptureSourceObserver
-    {
-        public void OnMessage(DecodedMessage message) => sink.Accept(message);
-
-        public void OnDecodeError() => sink.CountDecodeError();
-
-        public void OnFault(string reason, Exception? error)
-        {
-        }
     }
 
     private sealed class ThrowingTextReader : TextReader

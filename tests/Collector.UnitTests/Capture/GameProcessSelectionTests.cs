@@ -1,11 +1,10 @@
 using MentorRecorder.Collector.Capture;
+using static MentorRecorder.Collector.UnitTests.ScriptedGameProcesses;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class GameProcessSelectionTests
 {
-    private const string GamePath = @"D:\SdoA\game\ffxiv_dx11.exe";
-
     [Fact]
     public void UnreadableStartTimeCannotGrantOwnership()
     {
@@ -43,7 +42,7 @@ public sealed class GameProcessSelectionTests
     [InlineData(true, true)]
     public void ASoleRestartFromTheSameInstallationContinuesWithAFreshToken(bool reusedPid, bool observedExit)
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         var old = Assert.Single(selection.Refresh().Processes);
         selection.Select(old.ProcessId, old.Token);
@@ -69,7 +68,7 @@ public sealed class GameProcessSelectionTests
     [InlineData(true)]
     public void AnotherClientAlreadySeenWhileSelectedNeverInheritsTheSelection(bool initiallyUnidentified)
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(42, 0), Client(99, 1) with
@@ -88,7 +87,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void ExplicitChoiceAmongMultipleClientsDoesNotMakeItsExistingPeerAReplacement()
     {
-        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var processes = new ScriptedGameProcesses(Client(42, 0), Client(99, 1));
         var selection = Selector(processes);
         var original = selection.Refresh().Processes.Single(p => p.ProcessId == 42);
         selection.Select(original.ProcessId, original.Token);
@@ -100,7 +99,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void MultipleRestartCandidatesStayPausedAfterOneExits()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(43, 1), Client(44, 2) with { ExecutablePath = @"D:\Other\ffxiv_dx11.exe" });
@@ -122,7 +121,7 @@ public sealed class GameProcessSelectionTests
     [InlineData("original_path_unknown")]
     public void AnUnconfirmedRestartKeepsWaiting(string reason)
     {
-        var processes = new Processes(Client(42, 0) with
+        var processes = new ScriptedGameProcesses(Client(42, 0) with
         {
             ExecutablePath = reason == "original_path_unknown" ? null : GamePath,
         });
@@ -151,7 +150,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void APathLearnedAfterStartupAllowsTheNextSingleClientRestart()
     {
-        var processes = new Processes(Client(42, 0) with { ExecutablePath = null });
+        var processes = new ScriptedGameProcesses(Client(42, 0) with { ExecutablePath = null });
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(42, 0));
@@ -163,7 +162,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void ValidationCanStillSelectOneNewClientBesideAnExistingPeerAfterAnOrdinaryRescan()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(42, 0), Client(99, 1));
@@ -178,7 +177,7 @@ public sealed class GameProcessSelectionTests
     [InlineData(true)]
     public void ValidationRemembersAmbiguousNewClientsSeenByAnOrdinaryRescan(bool unknownPath)
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         var previous = selection.Refresh();
         processes.Set(Client(43, 1), Client(44, 2) with { ExecutablePath = unknownPath ? null : GamePath });
@@ -193,7 +192,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void TwoClientsThatBothCloseLeaveNothingToChooseAndTheNextSoleClientIsLocked()
     {
-        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var processes = new ScriptedGameProcesses(Client(42, 0), Client(99, 1));
         var selection = Selector(processes);
         Assert.Equal("MULTIPLE", selection.Refresh().SelectionReason);
 
@@ -213,7 +212,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void AnAmbiguousRestartIsForgottenOnceEveryClientHasClosed()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(43, 1), Client(44, 2));
@@ -235,7 +234,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void AnExitWithNoClientLeftAsksForNoChoiceAndAnotherInstallationStillWaits()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set();
@@ -252,7 +251,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void AFailedListingKeepsTheSelectionAndTheLastAnswer()
     {
-        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var processes = new ScriptedGameProcesses(Client(42, 0), Client(99, 1));
         var selection = Selector(processes);
         var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 42);
         selection.Select(choice.ProcessId, choice.Token);
@@ -276,7 +275,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void TheSelectedIncarnationReappearingAfterAMissIsSelectedAgain()
     {
-        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var processes = new ScriptedGameProcesses(Client(42, 0), Client(99, 1));
         var selection = Selector(processes);
         var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 42);
         selection.Select(choice.ProcessId, choice.Token);
@@ -293,7 +292,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void APinnedClientWhoseStartTimeIsMomentarilyUnreadableStaysSelected()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         var pinned = selection.Refresh();
 
@@ -314,7 +313,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void APeerSeenWithoutAStartTimeIsForgottenOnceItsProcessIdIsGone()
     {
-        var processes = new Processes(Client(42, 0));
+        var processes = new ScriptedGameProcesses(Client(42, 0));
         var selection = Selector(processes);
         selection.Refresh();
         processes.Set(Client(42, 0), Client(99, 1) with { StartedAtUtc = null });
@@ -344,7 +343,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void ASelectionTokenIsAcceptedWhateverItsLetterCase()
     {
-        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var processes = new ScriptedGameProcesses(Client(42, 0), Client(99, 1));
         var selection = Selector(processes);
         var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 99);
         selection.Select(choice.ProcessId, choice.Token.ToUpperInvariant());
@@ -354,7 +353,7 @@ public sealed class GameProcessSelectionTests
     [Fact]
     public void ALoneClientWhoseStartTimeBecomesReadableIsLockedWithoutAChoice()
     {
-        var processes = new Processes(Client(42, 0) with { StartedAtUtc = null });
+        var processes = new ScriptedGameProcesses(Client(42, 0) with { StartedAtUtc = null });
         var selection = Selector(processes);
         Assert.Equal("IDENTITY_UNAVAILABLE", selection.Refresh().SelectionReason);
 
@@ -367,19 +366,6 @@ public sealed class GameProcessSelectionTests
 
     private static GameProcessSelection Selector(IGameProcessProvider processes) =>
         new(new GameProcessLocator(processes, new FakeGameFileReader()));
-
-    private static GameProcessCandidate Client(int pid, int minute) => new(
-        pid, GameProcessLocator.Dx11ProcessName, DateTimeOffset.UnixEpoch.AddMinutes(minute), GamePath, false);
-
-    private sealed class Processes(params GameProcessCandidate[] clients) : IGameProcessProvider
-    {
-        private GameProcessCandidate[] _clients = clients;
-        public bool Fails { get; set; }
-        public void Set(params GameProcessCandidate[] clients) => _clients = clients;
-        public IReadOnlyList<GameProcessCandidate> ByName(string name) =>
-            Fails ? throw new InvalidOperationException("simulated process listing failure")
-            : name == GameProcessLocator.Dx11ProcessName ? _clients : [];
-    }
 
     /// <summary>Empty for the first listing (two names), a client from then on.</summary>
     private sealed class AppearsOnSecondListing : IGameProcessProvider

@@ -45,6 +45,7 @@ public sealed class CandidateLiveEventTests
         Assert.Null(status["candidate_profile_id"]);
         Assert.Equal(0, status["candidate_observation_count"]!.GetValue<int>());
         Assert.Equal("NONE", status["profile_status"]!.GetValue<string>());
+        Assert.Empty(status["candidate_hypotheses"]!.AsArray());
     }
 
     [Fact]
@@ -73,16 +74,6 @@ public sealed class CandidateLiveEventTests
         Assert.True(first["research_eligible"]!.GetValue<bool>());
         // Display data only: switching validation on is a separate reading.
         Assert.False(status["candidate_validation_enabled"]!.GetValue<bool>());
-    }
-
-    [Fact]
-    public void CaptureStatusCandidateHypothesesDefaultToEmpty()
-    {
-        using var capture = new CaptureController(InertCapture.Services());
-
-        var status = CaptureWire.CaptureStatus(capture.Snapshot());
-
-        Assert.Empty(status["candidate_hypotheses"]!.AsArray());
     }
 
     [Fact]

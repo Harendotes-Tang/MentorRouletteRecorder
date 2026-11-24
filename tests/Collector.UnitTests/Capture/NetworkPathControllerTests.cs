@@ -3,7 +3,6 @@ using System.Net;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -183,39 +182,31 @@ public sealed class NetworkPathControllerTests
         internal Fixture(IProcessNetworkConnectionProvider? connections = null, TimeProvider? time = null,
             string? logDirectory = null)
         {
-            var settings = _database.Settings();
             Processes.Add(GameProcessLocator.Dx11ProcessName, FirstPid, DateTimeOffset.UnixEpoch,
-                @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+                DeclaredCapture.CnExecutable);
             var adapters = new FakeAdapterProvider().Add("wifi", "Wi-Fi", addresses: "192.0.2.10");
             var tcp = new FakeProcessTcpTable().With(FirstPid, "192.0.2.10").With(SecondPid, "192.0.2.10");
+            var files = new FakeGameFileReader()
+                .With(DeclaredCapture.CnVersionFile, DeclaredCapture.CnBuild)
+                .With(@"D:\SdoA\Other\game\ffxivgame.ver", DeclaredCapture.CnBuild);
             Log = logDirectory is null
                 ? RotatingFileLogger.Disabled
                 : new RotatingFileLogger(logDirectory, _database.Clock);
-            Controller = new CaptureController(new CaptureServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(Processes, new FakeGameFileReader()
-                    .With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")
-                    .With(@"D:\SdoA\Other\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-                Adapters = new AdapterEnumerator(adapters, tcp),
-                NetworkPaths = new NetworkPathInspector(adapters, connections ?? Connections, time),
-                Logger = Log,
-                SourceFactory = () =>
+            Controller = new CaptureController(
+                DeclaredCapture.Services(_database, _database.Settings(), Processes, adapters, tcp, CreateSource, files) with
                 {
-                    var source = new FakeCaptureSource { PreexistingTcpConnections = 0 };
-                    Sources.Add(source);
-                    return source;
-                },
-                Profile = Profile,
-                Clock = _database.Clock,
-                Uptime = () => TimeSpan.Zero,
-                Settings = settings,
-                Sessions = new CaptureSessionRepository(_database.Database),
-                Database = _database.Database,
-                CollectorVersion = "0.1.0",
-                DetectionTtl = TimeSpan.Zero,
-                EnableFollowTimer = false,
-            });
+                    NetworkPaths = new NetworkPathInspector(adapters, connections ?? Connections, time),
+                    Logger = Log,
+                    Profile = Profile,
+                    Uptime = () => TimeSpan.Zero,
+                });
+        }
+
+        private ICaptureSource CreateSource()
+        {
+            var source = new FakeCaptureSource { PreexistingTcpConnections = 0 };
+            Sources.Add(source);
+            return source;
         }
 
         public void Dispose()
@@ -233,62 +224,36 @@ public sealed class NetworkPathControllerTests
 
     private sealed class GatedProfile : IProfileStatusProvider, IDisposable
     {
-        private readonly ManualResetEventSlim _release = new(true);
-        private int _pauseNext;
-        internal readonly ManualResetEventSlim Entered = new();
-
-        internal void PauseNextRead()
-        {
-            Entered.Reset();
-            _release.Reset();
-            Interlocked.Exchange(ref _pauseNext, 1);
-        }
-
-        internal void Release() => _release.Set();
+        private readonly NextReadGate _gate = new();
+        internal ManualResetEventSlim Entered => _gate.Entered;
+        internal void PauseNextRead() => _gate.PauseNextRead();
+        internal void Release() => _gate.Release();
 
         public ProfileStatusSnapshot Current
         {
             get
             {
-                if (Interlocked.Exchange(ref _pauseNext, 0) == 1)
-                {
-                    Entered.Set();
-                    if (!_release.Wait(TimeSpan.FromSeconds(20)))
-                        throw new TimeoutException("the synthetic profile boundary was not released");
-                }
+                _gate.Pass("the synthetic profile boundary");
                 return new ProfileStatusSnapshot(ProfileStatus.Verified, null, Region.Unknown, null, null, null, null);
             }
         }
 
-        public void Dispose() { Entered.Dispose(); _release.Dispose(); }
+        public void Dispose() => _gate.Dispose();
     }
 
     private sealed class GatedConnections : IProcessNetworkConnectionProvider, IDisposable
     {
-        private readonly ManualResetEventSlim _release = new(true);
+        private readonly NextReadGate _gate = new();
         private readonly ConcurrentQueue<int> _requested = new();
-        private int _pauseNext;
-        internal readonly ManualResetEventSlim Entered = new();
+        internal ManualResetEventSlim Entered => _gate.Entered;
         internal int[] RequestedPids => _requested.ToArray();
-
-        internal void PauseNextRead()
-        {
-            Entered.Reset();
-            _release.Reset();
-            Interlocked.Exchange(ref _pauseNext, 1);
-        }
-
-        internal void Release() => _release.Set();
+        internal void PauseNextRead() => _gate.PauseNextRead();
+        internal void Release() => _gate.Release();
 
         public ProcessNetworkConnectionTables Read(int processId)
         {
             _requested.Enqueue(processId);
-            if (Interlocked.Exchange(ref _pauseNext, 0) == 1)
-            {
-                Entered.Set();
-                if (!_release.Wait(TimeSpan.FromSeconds(20)))
-                    throw new TimeoutException("the synthetic connection query was not released");
-            }
+            _gate.Pass("the synthetic connection query");
             var count = processId == Fixture.SecondPid ? 2 : 1;
             var connections = Enumerable.Range(0, count).Select(index => new ProcessNetworkConnection(
                 IPAddress.Parse("192.0.2.10"), (ushort)(41000 + index),
@@ -297,6 +262,6 @@ public sealed class NetworkPathControllerTests
                 new(NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>()));
         }
 
-        public void Dispose() { Entered.Dispose(); _release.Dispose(); }
+        public void Dispose() => _gate.Dispose();
     }
 }

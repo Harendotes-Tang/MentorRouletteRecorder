@@ -161,4 +161,81 @@ public sealed class OodleTempOwnershipTests : IDisposable
         Assert.False(File.Exists(removed));
         Assert.Equal(new[] { kept }, OodleTempCopyCleaner.ReadManifest(manifest));
     }
+
+    /// <summary>
+    /// A registered temp copy must survive this process's death, since being killed is the
+    /// ordinary way it ends. The manifest lets the next Collector finish the deletion
+    /// (review finding H-2).
+    /// </summary>
+    [Fact]
+    public void RegisteredTempCopiesArePersistedAndReclaimedByTheNextStart()
+    {
+        var manifest = _directory.Combine("oodle-temp.json");
+        var temp = _directory.Combine("temp");
+        var machinaTemp = Path.Combine(temp, OodleTempCopyCleaner.MachinaTempFolderName);
+        Directory.CreateDirectory(machinaTemp);
+        var copy = Path.Combine(machinaTemp, Guid.NewGuid().ToString("N") + ".exe");
+        File.WriteAllBytes(copy, new byte[2048]);
+
+        var cleaner = new OodleTempCopyCleaner(temp, manifestPath: manifest);
+        cleaner.Arm(@"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        cleaner.RememberPathField(new PathHolder(copy), typeof(PathHolder).GetField("Path"));
+
+        // Written the moment the path is known, not at shutdown: shutdown is the step that
+        // cannot be relied on.
+        Assert.Equal(new[] { copy }, OodleTempCopyCleaner.ReadManifest(manifest));
+
+        var reading = OodleTempCopyCleaner.InspectManifest(manifest);
+        Assert.Equal(1, reading.Present);
+        Assert.Equal(2048, reading.Bytes);
+        Assert.Equal(0, reading.Missing);
+
+        // A new process with no memory of the first: the manifest is its only evidence, and
+        // it is sufficient.
+        Assert.Equal(1, OodleTempCopyCleaner.SweepManifest(manifest, temp));
+        Assert.False(File.Exists(copy));
+        Assert.Empty(OodleTempCopyCleaner.ReadManifest(manifest));
+        Assert.Equal(OodleTempManifestReading.Empty, OodleTempCopyCleaner.InspectManifest(manifest));
+    }
+
+    /// <summary>
+    /// A manifest entry outside Machina's own temp subdirectory is never deleted, whatever the
+    /// manifest says. The manifest establishes what this software created; it does not license
+    /// deleting an arbitrary path (docs/privacy-boundary.md section 4.2).
+    /// </summary>
+    [Fact]
+    public void SweepRefusesAnyRegisteredPathOutsideMachinasOwnTempFolder()
+    {
+        var manifest = _directory.Combine("oodle-temp.json");
+        var elsewhere = _directory.Combine("important.exe");
+        File.WriteAllBytes(elsewhere, new byte[16]);
+        File.WriteAllText(
+            manifest,
+            "{\"version\":1,\"paths\":[" +
+            System.Text.Json.JsonSerializer.Serialize(elsewhere) + "]}");
+
+        Assert.Equal(0, OodleTempCopyCleaner.SweepManifest(manifest, _directory.Combine("temp")));
+        Assert.True(File.Exists(elsewhere));
+    }
+
+    /// <summary>A missing or malformed manifest reads as nothing, and deletes nothing.</summary>
+    [Fact]
+    public void AnUnreadableManifestIsSilentlyEmpty()
+    {
+        var missing = _directory.Combine("absent.json");
+        Assert.Empty(OodleTempCopyCleaner.ReadManifest(missing));
+        Assert.Equal(0, OodleTempCopyCleaner.SweepManifest(missing));
+        Assert.Equal(OodleTempManifestReading.Empty, OodleTempCopyCleaner.InspectManifest(missing));
+
+        var garbage = _directory.Combine("garbage.json");
+        File.WriteAllText(garbage, "not json at all");
+        Assert.Empty(OodleTempCopyCleaner.ReadManifest(garbage));
+        Assert.Equal(0, OodleTempCopyCleaner.SweepManifest(garbage));
+    }
+
+    /// <summary>Field holder used to hand the cleaner one exact path, as Machina's native object does.</summary>
+    private sealed class PathHolder(string path)
+    {
+        public string Path = path;
+    }
 }

@@ -1,7 +1,6 @@
 using System.Globalization;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Contracts.Texts;
-using MentorRecorder.Collector.Domain;
+using static MentorRecorder.Collector.UnitTests.CaptureValidationTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -89,23 +88,9 @@ public sealed class TraceRetentionTests
         return Directory.CreateDirectory(Path.Combine(controller.TraceDirectory, name)).FullName;
     }
 
-    private static CaptureValidationServices Services(TestClock clock) => new()
+    private static CaptureValidationServices Services(TestClock clock)
     {
-        LocateGame = () => new GameProcessDetection(true, 42, "ffxiv_dx11", DateTimeOffset.UnixEpoch, Region.Cn,
-            "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>()),
-        PollInterval = TimeSpan.FromMilliseconds(10),
-        Trace = new CaptureTraceServices
-        {
-            Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-            Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"),
-                new FakeProcessTcpTable()),
-            SourceFactory = () => new FakeCaptureSource(),
-            TcpConnectionCounter = (_, _) => 0,
-            Clock = clock,
-        },
-    };
-
-    private static void Until(CaptureValidationController controller, string field, string value) =>
-        Assert.True(SpinWait.SpinUntil(() => controller.Snapshot()[field]!.GetValue<string>() == value, 5000),
-            controller.Snapshot().ToJsonString());
+        var services = CaptureValidationTestKit.Services();
+        return services with { Trace = services.Trace with { Clock = clock } };
+    }
 }

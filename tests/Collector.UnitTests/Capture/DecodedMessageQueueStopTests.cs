@@ -60,7 +60,7 @@ public sealed class DecodedMessageQueueStopTests
     {
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        var queue = new DecodedMessageQueue(new BlockingSink(entered, release));
+        var queue = new DecodedMessageQueue(new GatedSink(entered, release));
         queue.Offer(new DecodedMessage(
             "s", MessageDirection.Inbound, DateTimeOffset.UnixEpoch, TimeSpan.Zero, 0, 0, 0x1234,
             new byte[] { 1 }, "c"));
@@ -82,14 +82,5 @@ public sealed class DecodedMessageQueueStopTests
     private sealed class NullSink : IDecodedMessageSink
     {
         public void Accept(DecodedMessage message) { }
-    }
-
-    private sealed class BlockingSink(ManualResetEventSlim entered, ManualResetEventSlim release) : IDecodedMessageSink
-    {
-        public void Accept(DecodedMessage message)
-        {
-            entered.Set();
-            release.Wait();
-        }
     }
 }

@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.TraceSinkTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -277,7 +277,7 @@ public sealed class CaptureIdentityProbeTests
     public void Sink_WithoutAProbe_WritesNothingAboutIdentity()
     {
         var writer = new StringWriter();
-        var sink = NewSink(writer, probe: null);
+        var sink = NewSink(writer);
         sink.WriteHeader(Header());
         Push(sink, Message(LoginOpcode, Payload(0x1122_3344_5566_7788, 32), Self, Self));
         sink.WriteSummary(dropped: 0);
@@ -291,7 +291,7 @@ public sealed class CaptureIdentityProbeTests
         static string Trace(uint source, uint target, int maxLines)
         {
             var writer = new StringWriter();
-            var sink = NewSink(writer, probe: null, maxLines);
+            var sink = NewSink(writer, maxLines);
             sink.WriteHeader(Header());
 
             // Straight into the sink with fixed timestamps: a fake source would stamp its own clock.
@@ -309,7 +309,7 @@ public sealed class CaptureIdentityProbeTests
     public void Sink_WithAProbe_WritesIdentityLinesAndSummary_ButNoIdentifier()
     {
         var writer = new StringWriter();
-        var sink = NewSink(writer, new CaptureIdentityProbe(KeyA));
+        var sink = NewSink(writer, probe: new CaptureIdentityProbe(KeyA));
         sink.WriteHeader(Header());
         Push(sink,
             Message(LoginOpcode, Payload(0x1122_3344_5566_7788, 32), Self, Self),
@@ -345,7 +345,7 @@ public sealed class CaptureIdentityProbeTests
     public void Sink_KeepsWritingIdentityLinesAfterTheMessageCap()
     {
         var writer = new StringWriter();
-        var sink = NewSink(writer, new CaptureIdentityProbe(KeyA), maxLines: 1);
+        var sink = NewSink(writer, maxLines: 1, probe: new CaptureIdentityProbe(KeyA));
         sink.WriteHeader(Header());
         Push(sink,
             Message(0x0100, new byte[0], Other, Self),
@@ -367,7 +367,7 @@ public sealed class CaptureIdentityProbeTests
         var probe = new CaptureIdentityProbe(KeyA);
         using (var file = new StreamWriter(path))
         {
-            var sink = NewSink(file, probe);
+            var sink = NewSink(file, probe: probe);
             sink.WriteHeader(Header());
             Push(sink, Message(LoginOpcode, Payload(0x1122_3344_5566_7788, 32), Other, Self));
             sink.WriteSummary(dropped: 0);
@@ -532,7 +532,8 @@ public sealed class CaptureIdentityProbeTests
     private static JsonObject Prefix(IReadOnlyList<JsonObject> lines) =>
         lines.Single(line => (string)line["identity"]! == CaptureIdentityProbe.PayloadPrefixKind);
 
-    private static byte[] Payload(ulong prefix, int length)
+    /// <summary>A payload of <paramref name="length"/> bytes led by the eight bytes of <paramref name="prefix"/>.</summary>
+    internal static byte[] Payload(ulong prefix, int length)
     {
         var payload = new byte[length];
         BinaryPrimitives.WriteUInt64LittleEndian(payload, prefix);
@@ -543,7 +544,8 @@ public sealed class CaptureIdentityProbeTests
     private static DecodedMessage Inbound(ushort opcode, uint target, byte[] payload) =>
         Decoded(MessageDirection.Inbound, opcode, source: target, target, payload);
 
-    private static DecodedMessage Decoded(
+    /// <summary>An IPC message of session "identity-test" stamped 2026-01-01, on a connection never written.</summary>
+    internal static DecodedMessage Decoded(
         MessageDirection direction, ushort opcode, uint source, uint target, byte[] payload) =>
         new(
             "identity-test",
@@ -561,7 +563,7 @@ public sealed class CaptureIdentityProbeTests
         };
 
     /// <summary>A well-formed IPC message with both header actors and the given payload.</summary>
-    private static byte[] Message(ushort opcode, byte[] payload, uint source, uint target)
+    internal static byte[] Message(ushort opcode, byte[] payload, uint source, uint target)
     {
         var message = FakeCaptureSource.BuildIpcMessage(opcode, payload.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(4), source);
@@ -572,8 +574,7 @@ public sealed class CaptureIdentityProbeTests
 
     private static void Push(CaptureTraceSink sink, params byte[][] messages)
     {
-        using var source = new FakeCaptureSource();
-        source.Start(StartOptions(), new SinkObserver(sink));
+        using var source = Started(sink, StartOptions());
         foreach (var message in messages)
         {
             source.PushRaw(message);
@@ -582,38 +583,6 @@ public sealed class CaptureIdentityProbeTests
 
     private static CaptureStartOptions StartOptions() =>
         new("identity-test", 1234, null, "adapter", OodleMode.FfxivTcp, null, null);
-
-    private static CaptureTraceSink NewSink(TextWriter writer, CaptureIdentityProbe? probe, int maxLines = 1000)
-    {
-        var elapsed = TimeSpan.Zero;
-        return new CaptureTraceSink(
-            writer,
-            new TestClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
-            () => elapsed += TimeSpan.FromMilliseconds(10),
-            maxLines,
-            probe);
-    }
-
-    private static CaptureTraceHeader Header() => new(
-        new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
-        "1.79",
-        "2026.01.01.0000.0000",
-        Region.Cn,
-        "0123456789ab",
-        "0.1.0",
-        OodleMode.FfxivTcp,
-        Synthetic: false);
-
-    private sealed class SinkObserver(CaptureTraceSink sink) : ICaptureSourceObserver
-    {
-        public void OnMessage(DecodedMessage message) => sink.Accept(message);
-
-        public void OnDecodeError() => sink.CountDecodeError();
-
-        public void OnFault(string reason, Exception? error)
-        {
-        }
-    }
 
     /// <summary>Stores what it is given, so a test can plant a well-formed blob of the wrong content.</summary>
     private sealed class PlainProtector : Speech.ISecretProtector

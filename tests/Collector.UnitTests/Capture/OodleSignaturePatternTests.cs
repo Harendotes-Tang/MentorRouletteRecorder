@@ -7,7 +7,8 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>Checks the byte grammar and the exact offsets reported by the CN finder run.</summary>
 public sealed class OodleSignaturePatternTests
 {
-    private static readonly IReadOnlyDictionary<SignatureType, (string Pattern, int Target)> Known =
+    /// <summary>The ten upstream signatures: each pattern and the call target (RVA) the CN finder run reported.</summary>
+    internal static readonly IReadOnlyDictionary<SignatureType, (string Pattern, int Target)> Known =
         new Dictionary<SignatureType, (string, int)>
         {
             [SignatureType.OodleNetwork1_Shared_Size] =

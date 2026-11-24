@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Machina.FFXIV.Memory;
 using MentorRecorder.Collector.Capture;
 
@@ -44,5 +45,13 @@ internal static class OodleSignatureTestFiles
 
         // 仅复用规范化哈希与 UTF-8 写盘；Oodle schema 不包含协议档案的 profile_id。
         return ProfileTestFiles.Write(directory, id, document, stamp, rewriteId: false);
+    }
+
+    /// <summary>写入已签名的合成签名档案，绑定到 <paramref name="executable"/> 当前内容的 SHA-256 与大小。</summary>
+    public static string WriteFor(string directory, string id, string gameBuild, string executable, int resolvedRva = 0x10)
+    {
+        var bytes = File.ReadAllBytes(executable);
+        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        return Write(directory, id, gameBuild, hash, bytes.LongLength, resolvedRva);
     }
 }

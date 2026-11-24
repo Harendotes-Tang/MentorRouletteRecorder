@@ -1,4 +1,3 @@
-using System.Text;
 using Machina.FFXIV;
 using Machina.FFXIV.Memory;
 using MentorRecorder.Collector.Capture;
@@ -23,19 +22,7 @@ public sealed class OodleSignatureShippedProfileTests
     /// project's own derivation and have no upstream value to be compared with.
     /// </summary>
     private static readonly IReadOnlyDictionary<SignatureType, int> KnownMachinaOffsets =
-        new Dictionary<SignatureType, int>
-        {
-            [SignatureType.OodleNetwork1_Shared_Size] = 0x01E4C930,
-            [SignatureType.OodleNetwork1_Shared_SetWindow] = 0x01E4C800,
-            [SignatureType.OodleNetwork1UDP_Decode] = 0x01E4A910,
-            [SignatureType.OodleNetwork1UDP_State_Size] = 0x01E4AFB0,
-            [SignatureType.OodleNetwork1UDP_Encode] = 0x01E445E0,
-            [SignatureType.OodleMalloc] = 0x028E69C8,
-            [SignatureType.OodleFree] = 0x028E69D0,
-            [SignatureType.OodleNetwork1TCP_State_Size] = 0x01E4A7B0,
-            [SignatureType.OodleNetwork1TCP_Decode] = 0x01E4A770,
-            [SignatureType.OodleNetwork1TCP_Encode] = 0x01E43FD0,
-        };
+        OodleSignaturePatternTests.Known.ToDictionary(pair => pair.Key, pair => pair.Value.Target);
 
     private static string SignatureDirectory =>
         Path.Combine(AppContext.BaseDirectory, ProfileCatalog.DirectoryName, OodleSignatureProfile.DirectoryName);
@@ -123,30 +110,4 @@ public sealed class OodleSignatureShippedProfileTests
         Assert.Equal(OodleSignatureRuntime.SupportedMachinaVersion, version?.ToString());
     }
 
-    [Fact]
-    public void MachinaDecodeFailureTraceContractIsPinnedToTheReferencedPackage()
-    {
-        // decode_error_count is derived from Machina's own debug trace text: 2.4.8.3 reports a
-        // failed bundle decompression by writing a line and returning null rather than by
-        // raising the message. A reworded string would leave the counter at 0 for ever with
-        // every test still green, and docs/live-validation-guide.md section 3.5.3 treats "zero
-        // decode errors" as evidence for promoting a signature profile to VERIFIED, so the
-        // literals are pinned against the referenced assembly. Managed string literals live in
-        // the metadata #US heap as UTF-16 and no reflection API exposes a method body's string
-        // constants, hence the search over the file's bytes (review finding H-3).
-        var location = typeof(FFXIVNetworkMonitor).Assembly.Location;
-        Assert.True(File.Exists(location), location);
-
-        var assembly = File.ReadAllBytes(location);
-        foreach (var marker in MachinaCaptureSource.DecodeFailureTraceMarkers)
-        {
-            Assert.True(
-                Contains(assembly, Encoding.Unicode.GetBytes(marker)),
-                $"Machina no longer contains the trace text '{marker}'. decode_error_count " +
-                "would silently stay at 0; re-derive the markers before upgrading the package.");
-        }
-    }
-
-    private static bool Contains(ReadOnlySpan<byte> haystack, ReadOnlySpan<byte> needle) =>
-        haystack.IndexOf(needle) >= 0;
 }

@@ -106,8 +106,7 @@ public sealed class LoopbackPacketTests
         var ended = new List<TCPConnection>();
         var messages = new List<(bool Inbound, ushort Opcode)>();
         var buffer = new FirstPacketBuffer(Array.Empty<uint>(), 42,
-            connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) =>
-                messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
+            FirstPacketTests.Decoding(messages),
             ownedStreamEnded: ended.Add, includeLoopback: true);
         Handshake(buffer, owned, gameInitiates: false);
         buffer.Offer(Packet(owned, true, 501, 24, FirstPacketTests.Bundle(1)), 101);
@@ -127,8 +126,7 @@ public sealed class LoopbackPacketTests
         var now = TimeSpan.Zero;
         var messages = new List<(bool Inbound, ushort Opcode)>();
         var buffer = new FirstPacketBuffer(Array.Empty<uint>(), 42,
-            connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) =>
-                messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
+            FirstPacketTests.Decoding(messages),
             new FirstPacketLimits(OwnershipAge: TimeSpan.FromSeconds(2)), () => now, includeLoopback: true);
         Handshake(buffer, owned, gameInitiates: false);
         buffer.Offer(Packet(owned, true, 501, 24, FirstPacketTests.Bundle(7)), 101);
@@ -172,8 +170,7 @@ public sealed class LoopbackPacketTests
         // Exactly enough for the two SYN packets and one real bundle: a duplicate admitted
         // even once would evict the unowned stream and lose its cold prefix.
         var buffer = new FirstPacketBuffer(new[] { FirstPacketTests.Local }, 42,
-            connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) =>
-                messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
+            FirstPacketTests.Decoding(messages),
             new FirstPacketLimits(Bytes: 196, Packets: 3, Tuples: 1), includeLoopback: localEndpoints);
         Handshake(buffer, owned, gameInitiates: false);
         buffer.Offer(Packet(owned, true, 501, 24, FirstPacketTests.Bundle(9)), 101);
@@ -294,8 +291,7 @@ public sealed class LoopbackPacketTests
         var ended = new List<TCPConnection>();
         var messages = new List<(bool Inbound, ushort Opcode)>();
         var buffer = new FirstPacketBuffer(Array.Empty<uint>(), 42,
-            connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) =>
-                messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
+            FirstPacketTests.Decoding(messages),
             ownedStreamEnded: ended.Add, directionDamaged: (connection, inbound) => damaged.Add((connection, inbound)),
             includeLoopback: true);
         Handshake(buffer, owned, gameInitiates: false);
@@ -359,9 +355,7 @@ public sealed class LoopbackPacketTests
 
     private static FirstPacketBuffer RealBuffer(IReadOnlyCollection<uint> localIPs,
         List<(bool Inbound, ushort Opcode)> messages, bool includeLoopback = false) =>
-        new(localIPs, 42, connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) =>
-            messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
-            includeLoopback: includeLoopback);
+        new(localIPs, 42, FirstPacketTests.Decoding(messages), includeLoopback: includeLoopback);
 
     private static TCPConnection Connection(uint local, uint remote, ushort localPort = 41000) => new()
     { LocalIP = local, RemoteIP = remote, LocalPort = localPort, RemotePort = 55000, ProcessId = 42 };

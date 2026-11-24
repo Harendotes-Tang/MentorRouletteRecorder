@@ -37,7 +37,7 @@ public sealed class FirstPacketTests
         buffer.Pump(new[] { Owned() });
         Assert.Single(messages);
         Assert.True(messages[0].Inbound);
-        Assert.Equal((ushort)0x1234, BinaryPrimitives.ReadUInt16LittleEndian(messages[0].Bytes.AsSpan(18)));
+        Assert.Equal((ushort)0x1234, Opcode(messages[0].Bytes));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, messages[0].Bytes[32..]);
         // Retransmission cannot duplicate an IPC event.
         buffer.Offer(Packet(true, 501, 24, bundle, link), link);
@@ -53,7 +53,7 @@ public sealed class FirstPacketTests
         var messages = new List<(ushort Port, bool Inbound, ushort Opcode)>();
         var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
             (connection, _, bytes, inbound) => messages.Add((connection.LocalPort, inbound,
-                BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))));
+                Opcode(bytes)))));
         foreach (var port in new ushort[] { 41000, 41001 })
         {
             buffer.Offer(Packet(false, 100, 2, port: port), 101);
@@ -216,8 +216,7 @@ public sealed class FirstPacketTests
         // same five seconds that tolerate a lost packet.
         var time = TimeSpan.Zero;
         var messages = new List<ushort>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))), clock: () => time);
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages), clock: () => time);
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(false, 101, 24, Bundle(7)), 101);
 
@@ -243,8 +242,7 @@ public sealed class FirstPacketTests
     {
         var time = TimeSpan.Zero;
         var messages = new List<ushort>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))), clock: () => time);
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages), clock: () => time);
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(false, 101, 24, Bundle(7)), 101);
         buffer.Offer(Packet(false, 300, 2, port: 41001), 101); // somebody else's
@@ -341,9 +339,7 @@ public sealed class FirstPacketTests
         // hole is given up, and it is counted.
         var time = TimeSpan.Zero;
         var messages = new List<(bool Inbound, ushort Opcode)>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, inbound) => messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))),
-            clock: () => time);
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages), clock: () => time);
         buffer.Offer(Packet(false, 100, 2), 101);  // outbound SYN
         buffer.Offer(Packet(true, 500, 18), 101);  // inbound SYN/ACK
         buffer.Pump(new[] { Owned() });
@@ -381,7 +377,7 @@ public sealed class FirstPacketTests
         var reports = new List<string>();
         var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
             (_, _, bytes, inbound) => reports.Add(
-                (inbound ? "in " : "out ") + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+                (inbound ? "in " : "out ") + Opcode(bytes))),
             clock: () => time,
             directionDamaged: (connection, inbound) => reports.Add(
                 "damaged " + connection.LocalPort + (inbound ? " in" : " out")));
@@ -417,7 +413,7 @@ public sealed class FirstPacketTests
     {
         var reports = new List<string>();
         var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => reports.Add("message " + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            (_, _, bytes, _) => reports.Add("message " + Opcode(bytes))),
             ownedStreamEnded: connection => reports.Add("ended " + connection.LocalPort));
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
@@ -443,7 +439,7 @@ public sealed class FirstPacketTests
         var reconnected = false;
         FirstPacketBuffer? buffer = null;
         buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => reports.Add("message " + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            (_, _, bytes, _) => reports.Add("message " + Opcode(bytes))),
             ownedStreamEnded: connection =>
             {
                 reports.Add("ended " + connection.LocalPort);
@@ -475,8 +471,7 @@ public sealed class FirstPacketTests
     public void ClosedAndReusedTuplesDiscardOldState(byte closeFlag)
     {
         var messages = new List<ushort>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))));
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages));
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(false, 101, 24, Bundle(1)[..20]), 101);
         buffer.Pump(new[] { Owned() });
@@ -522,8 +517,7 @@ public sealed class FirstPacketTests
         var time = TimeSpan.Zero;
         var messages = new List<ushort>();
         var ended = 0;
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages),
             clock: () => time, ownedStreamEnded: _ => ended++);
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
@@ -585,8 +579,7 @@ public sealed class FirstPacketTests
     public void AnotherProgramsWrappingOrFastOpenTrafficNeverEndsTheCapture()
     {
         var messages = new List<ushort>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))));
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages));
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(true, 500, 18), 101);
         buffer.Pump(new[] { Owned() });
@@ -648,8 +641,7 @@ public sealed class FirstPacketTests
     {
         var messages = new List<ushort>();
         var ended = 0;
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages),
             ownedStreamEnded: _ => ended++);
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Pump(new[] { Owned() });
@@ -754,8 +746,7 @@ public sealed class FirstPacketTests
     {
         var messages = new List<ushort>();
         var ended = 0;
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages),
             ownedStreamEnded: _ => ended++);
         buffer.Offer(Packet(false, 100, 2), 101);
         if (conflictingSyn) buffer.Offer(Packet(true, 500, 18), 101);
@@ -785,8 +776,7 @@ public sealed class FirstPacketTests
     public void AGameDirectionCrossingTheSequenceWrapKeepsDecoding()
     {
         var messages = new List<(bool Inbound, ushort Opcode)>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, inbound) => messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))));
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages));
         const uint syn = uint.MaxValue - 50;
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Offer(Packet(true, syn, 18), 101);
@@ -1001,8 +991,7 @@ public sealed class FirstPacketTests
         // since the game's own stream is the one with the decoder.
         var time = TimeSpan.Zero;
         var messages = new List<ushort>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+        var buffer = new FirstPacketBuffer(Local, 42, Decoding(messages),
             new FirstPacketLimits(Tuples: 2), clock: () => time);
 
         // The game's connection, confirmed and decoding.
@@ -1025,6 +1014,17 @@ public sealed class FirstPacketTests
         buffer.Pump(new[] { Owned() });
         Assert.Equal(new ushort[] { 5 }, messages);
     }
+
+    /// <summary>The IPC opcode of one delivered message.</summary>
+    internal static ushort Opcode(byte[] message) => BinaryPrimitives.ReadUInt16LittleEndian(message.AsSpan(18));
+
+    /// <summary>Real Machina decoders that record the opcode of every message they deliver.</summary>
+    internal static Func<TCPConnection, IFirstPacketDecoder> Decoding(List<ushort> opcodes) =>
+        connection => new FirstPacketDecoder(connection, (_, _, bytes, _) => opcodes.Add(Opcode(bytes)));
+
+    /// <summary>Real Machina decoders that record the direction and opcode of every message they deliver.</summary>
+    internal static Func<TCPConnection, IFirstPacketDecoder> Decoding(List<(bool Inbound, ushort Opcode)> messages) =>
+        connection => new FirstPacketDecoder(connection, (_, _, bytes, inbound) => messages.Add((inbound, Opcode(bytes))));
 
     internal sealed class Sink : IFirstPacketDecoder
     {

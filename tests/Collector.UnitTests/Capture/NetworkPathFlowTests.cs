@@ -1,8 +1,6 @@
 using System.Net;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Contracts.Texts;
-using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.CaptureValidationTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -24,15 +22,15 @@ public sealed class NetworkPathFlowTests
     public void PlannedConnectionCountDeduplicatesFullTuplesAcrossSharedAddressesAndIncludesLoopbackRange()
     {
         var tuple = Connection("192.0.2.10");
-        var provider = new ConnectionProvider(new(Complete(tuple, tuple,
+        var provider = new ScriptedConnections(Complete(tuple, tuple,
             tuple with { RemotePort = 55001 }, Connection("10.8.0.2"),
-            Connection("127.0.0.8", remote: "127.0.0.1"), Connection("198.51.100.3")), Complete()));
+            Connection("127.0.0.8", remote: "127.0.0.1"), Connection("198.51.100.3")), Complete());
         var plan = Plan(Binding("physical", "192.0.2.10"), Binding("virtual", "10.8.0.2", "192.0.2.10"),
             Binding(CapturePathPlan.LoopbackDeviceId));
 
         Assert.Equal(4, GameTcpConnectionProbe.TryCountPaths(42, plan, provider));
         Assert.Equal(1, provider.Reads);
-        Assert.Equal(42, provider.RequestedProcessId);
+        Assert.Equal(42, provider.LastProcessId);
     }
 
     [Theory]
@@ -42,8 +40,8 @@ public sealed class NetworkPathFlowTests
     [InlineData(NetworkQueryStatus.Success, NetworkQueryStatus.Unmeasured)]
     public void IncompleteFamilyNeverClaimsZeroExistingConnections(NetworkQueryStatus ipv4, NetworkQueryStatus ipv6)
     {
-        var provider = new ConnectionProvider(new(new(ipv4, Array.Empty<ProcessNetworkConnection>()),
-            new(ipv6, Array.Empty<ProcessNetworkConnection>())));
+        var provider = new ScriptedConnections(new(ipv4, Array.Empty<ProcessNetworkConnection>()),
+            new(ipv6, Array.Empty<ProcessNetworkConnection>()));
         Assert.Null(GameTcpConnectionProbe.TryCountPaths(42, Plan(Binding("physical", "192.0.2.10")), provider));
         // Only an unreadable IPv4 table is worth waiting for; with IPv4 read, an IPv6 table that
         // cannot be read leaves the count unknown and the validation starts (audit 2026-11-10, A2-1).
@@ -54,7 +52,7 @@ public sealed class NetworkPathFlowTests
     [Fact]
     public void Ipv6OnlyIsUnknownForTheIpv4ColdStartGuard()
     {
-        var provider = new ConnectionProvider(new(Complete(), Complete(Connection("::1", remote: "::1"))));
+        var provider = new ScriptedConnections(Complete(), Complete(Connection("::1", remote: "::1")));
         Assert.Null(GameTcpConnectionProbe.TryCountPaths(42, Plan(Binding("physical", "192.0.2.10")), provider));
     }
 
@@ -62,9 +60,9 @@ public sealed class NetworkPathFlowTests
     public void CompleteEmptyQueriesAreZeroAndAProviderFailureRemainsUnknown()
     {
         var plan = Plan(Binding("physical", "192.0.2.10"));
-        var provider = new ConnectionProvider(new(Complete(), Complete()));
+        var provider = new ScriptedConnections(Complete(), Complete());
         Assert.Equal(0, GameTcpConnectionProbe.TryCountPaths(42, plan, provider));
-        provider.Fail = true;
+        provider.Failure = new InvalidOperationException("synthetic query failure");
         Assert.Null(GameTcpConnectionProbe.TryCountPaths(42, plan, provider));
         Assert.Null(GameTcpConnectionProbe.TryCountPaths(0, plan, provider));
         Assert.Equal(2, provider.Reads);
@@ -73,7 +71,7 @@ public sealed class NetworkPathFlowTests
     [Fact]
     public void ManualPlanDoesNotCountConnectionsOnUnselectedInterfaces()
     {
-        var provider = new ConnectionProvider(new(Complete(Connection("192.0.2.10"), Connection("10.8.0.2")), Complete()));
+        var provider = new ScriptedConnections(Complete(Connection("192.0.2.10"), Connection("10.8.0.2")), Complete());
         var manual = new CapturePathPlan(new[] { Binding("physical", "192.0.2.10") }, false, false);
         Assert.Equal(1, GameTcpConnectionProbe.TryCountPaths(42, manual, provider));
     }
@@ -141,8 +139,8 @@ public sealed class NetworkPathFlowTests
     {
         using var db = new TestDatabase();
         var source = new FakeCaptureSource();
-        var provider = new ConnectionProvider(new(
-            virtualConnected ? Complete(Connection("10.8.0.2")) : Complete(), Complete()));
+        var provider = new ScriptedConnections(
+            virtualConnected ? Complete(Connection("10.8.0.2")) : Complete(), Complete());
         var queried = new List<CapturePathPlan>();
         using var controller = new CaptureValidationController(db.Path, new(), ValidationServices(source) with
         {
@@ -223,9 +221,9 @@ public sealed class NetworkPathFlowTests
     [InlineData(false)]
     public void ValidationProceedsWithAnUnknownCountWhenTheTablesCannotAnswer(bool ipv6)
     {
-        var provider = new ConnectionProvider(ipv6
-            ? new(Complete(), Complete(Connection("2001:db8::2", remote: "2001:db8::1")))
-            : new(new(NetworkQueryStatus.Truncated, Array.Empty<ProcessNetworkConnection>()), Complete()));
+        var provider = new ScriptedConnections(ipv6
+            ? new ProcessNetworkConnectionTables(Complete(), Complete(Connection("2001:db8::2", remote: "2001:db8::1")))
+            : new ProcessNetworkConnectionTables(new(NetworkQueryStatus.Truncated, Array.Empty<ProcessNetworkConnection>()), Complete()));
         using var db = new TestDatabase();
         var source = new FakeCaptureSource();
         using var controller = new CaptureValidationController(db.Path, new(), ValidationServices(source) with
@@ -247,7 +245,7 @@ public sealed class NetworkPathFlowTests
         Assert.Null(header["preexisting_connections"]);
         Assert.Null(header["midstream"]);
 
-        provider.Fail = true;
+        provider.Failure = new InvalidOperationException("synthetic query failure");
         controller.Start();
         Until(controller, "reason", "WAITING_CONNECTION_CHECK");
         controller.Stop();
@@ -264,10 +262,10 @@ public sealed class NetworkPathFlowTests
     [InlineData(NetworkQueryStatus.Truncated)]
     public void AnIpv4ConnectionBesideIpv6StillAsksForARestart(NetworkQueryStatus ipv6)
     {
-        var provider = new ConnectionProvider(new(Complete(Connection("192.0.2.10")),
+        var provider = new ScriptedConnections(Complete(Connection("192.0.2.10")),
             new(ipv6, ipv6 == NetworkQueryStatus.Success
                 ? new[] { Connection("2001:db8::2", remote: "2001:db8::1") }
-                : Array.Empty<ProcessNetworkConnection>())));
+                : Array.Empty<ProcessNetworkConnection>()));
         using var db = new TestDatabase();
         var source = new FakeCaptureSource();
         using var controller = new CaptureValidationController(db.Path, new(), ValidationServices(source) with
@@ -300,7 +298,7 @@ public sealed class NetworkPathFlowTests
             calls++;
             return 3;
         });
-        source.Start(Options(plan), new Observer());
+        source.Start(Options(plan), new NullCaptureObserver());
         Assert.Equal(1, calls);
         Assert.Equal(3, source.PreexistingTcpConnections);
         Assert.Equal(monitor.PathStatus, source.PathStatus);
@@ -318,7 +316,7 @@ public sealed class NetworkPathFlowTests
             Assert.Equal(IPAddress.Parse("192.0.2.10"), address);
             return 2;
         }, (_, _) => throw new InvalidOperationException("legacy injection is authoritative"));
-        source.Start(Options(Plan(Binding("physical", "192.0.2.10"))), new Observer());
+        source.Start(Options(Plan(Binding("physical", "192.0.2.10"))), new NullCaptureObserver());
         Assert.Equal(2, source.PreexistingTcpConnections);
     }
 
@@ -340,26 +338,8 @@ public sealed class NetworkPathFlowTests
 
     private static CaptureValidationServices ValidationServices(ICaptureSource source) => new()
     {
-        Trace = TraceServices(source), PollInterval = TimeSpan.FromMilliseconds(10),
-        LocateGame = () => new(true, 42, "ffxiv_dx11", DateTimeOffset.UnixEpoch, Region.Cn, "2026.01", 1,
-            @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>()),
+        Trace = TraceServices(source), PollInterval = TimeSpan.FromMilliseconds(10), LocateGame = () => Game(),
     };
-
-    private static void Until(CaptureValidationController controller, string field, string value) =>
-        Assert.True(SpinWait.SpinUntil(() => controller.Snapshot()[field]!.GetValue<string>() == value, 5000),
-            controller.Snapshot().ToJsonString());
-
-    private sealed class ConnectionProvider(ProcessNetworkConnectionTables tables) : IProcessNetworkConnectionProvider
-    {
-        public int Reads, RequestedProcessId;
-        public bool Fail;
-        public ProcessNetworkConnectionTables Read(int processId)
-        {
-            Reads++;
-            RequestedProcessId = processId;
-            return Fail ? throw new InvalidOperationException("synthetic query failure") : tables;
-        }
-    }
 
     private sealed class TraceSource : ICaptureSource
     {
@@ -386,12 +366,5 @@ public sealed class NetworkPathFlowTests
         public void Stop() { }
         public void DetachCallbacks() { }
         public void Dispose() { }
-    }
-
-    private sealed class Observer : ICaptureSourceObserver
-    {
-        public void OnMessage(DecodedMessage message) { }
-        public void OnDecodeError() { }
-        public void OnFault(string reason, Exception? error) { }
     }
 }

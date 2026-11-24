@@ -3,7 +3,6 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -767,7 +766,7 @@ public sealed class NetworkRecoveryTests
             {
                 fixture.Processes.Clear();
                 fixture.Processes.Add(GameProcessLocator.Dx11ProcessName, Fixture.FirstPid,
-                    DateTimeOffset.UnixEpoch.AddMinutes(1), @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+                    DateTimeOffset.UnixEpoch.AddMinutes(1), DeclaredCapture.CnExecutable);
             }
             else
             {
@@ -900,7 +899,7 @@ public sealed class NetworkRecoveryTests
         var restartedAt = DateTimeOffset.UnixEpoch.AddMinutes(1);
         fixture.Processes.Clear();
         fixture.Processes.Add(GameProcessLocator.Dx11ProcessName, Fixture.FirstPid,
-            restartedAt, @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            restartedAt, DeclaredCapture.CnExecutable);
 
         fixture.Tick(2_100);
 
@@ -975,52 +974,44 @@ public sealed class NetworkRecoveryTests
 
         internal Fixture(bool subscriptionFails = false)
         {
-            var settings = _database.Settings();
             Adapters.Add("wifi", "192.0.2.10");
             Tcp.With(FirstPid, "192.0.2.10").With(SecondPid, "192.0.2.10");
             Processes.Add(GameProcessLocator.Dx11ProcessName, FirstPid, DateTimeOffset.UnixEpoch,
-                @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
-            Controller = new CaptureController(new CaptureServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Game = new GameProcessLocator(Processes, new FakeGameFileReader()
-                    .With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")
-                    .With(@"D:\SdoA\Other\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-                Adapters = new AdapterEnumerator(Adapters, Tcp),
-                // Keep diagnostics independent of the pausable discovery boundary.
-                NetworkPaths = new NetworkPathInspector(new FakeAdapterProvider(), new EmptyConnections()),
-                SubscribeNetworkChanges = callback =>
+                DeclaredCapture.CnExecutable);
+            var files = new FakeGameFileReader()
+                .With(DeclaredCapture.CnVersionFile, DeclaredCapture.CnBuild)
+                .With(@"D:\SdoA\Other\game\ffxivgame.ver", DeclaredCapture.CnBuild);
+            Controller = new CaptureController(
+                DeclaredCapture.Services(_database, _database.Settings(), Processes, Adapters, Tcp, CreateSource, files) with
                 {
-                    SubscriptionCount++;
-                    if (subscriptionFails) throw new InvalidOperationException("synthetic subscription unavailable");
-                    NetworkChanged = callback;
-                    return new CallbackSubscription(() => UnsubscriptionCount++);
-                },
-                SourceFactory = () =>
-                {
-                    FactoryAttempts++;
-                    if (FactoryFails) throw new InvalidOperationException("synthetic source factory unavailable");
-                    var source = new SourceDouble { OpenFailures = NewSourceOpenFailures };
-                    source.Inner.PreexistingTcpConnections = NewSourcePreexisting;
-                    if (NewSourceStartFails) source.Inner.StartFailure = new CollectorException(
-                        ErrorCodes.Internal, "synthetic source start unavailable");
-                    Sources.Add(source);
-                    return source;
-                },
-                Profile = new FakeProfileStatusProvider(ProfileStatus.Verified),
-                Lifecycle = Lifecycle,
-                RunState = () => CurrentRunState,
-                RunUnderWay = () => ParkedQueue || CurrentRunState is RunState.MentorMatched or RunState.EnteredDuty,
-                Clock = _database.Clock,
-                Uptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),
-                ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),
-                Settings = settings,
-                Sessions = new CaptureSessionRepository(_database.Database),
-                Database = _database.Database,
-                CollectorVersion = "0.1.0",
-                DetectionTtl = TimeSpan.Zero,
-                EnableFollowTimer = false,
-            });
+                    // Keep diagnostics independent of the pausable discovery boundary.
+                    NetworkPaths = new NetworkPathInspector(new FakeAdapterProvider(), new ScriptedConnections(
+                        new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>()))),
+                    SubscribeNetworkChanges = callback =>
+                    {
+                        SubscriptionCount++;
+                        if (subscriptionFails) throw new InvalidOperationException("synthetic subscription unavailable");
+                        NetworkChanged = callback;
+                        return new CallbackSubscription(() => UnsubscriptionCount++);
+                    },
+                    Lifecycle = Lifecycle,
+                    RunState = () => CurrentRunState,
+                    RunUnderWay = () => ParkedQueue || CurrentRunState is RunState.MentorMatched or RunState.EnteredDuty,
+                    Uptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),
+                    ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),
+                });
+        }
+
+        private ICaptureSource CreateSource()
+        {
+            FactoryAttempts++;
+            if (FactoryFails) throw new InvalidOperationException("synthetic source factory unavailable");
+            var source = new SourceDouble { OpenFailures = NewSourceOpenFailures };
+            source.Inner.PreexistingTcpConnections = NewSourcePreexisting;
+            if (NewSourceStartFails) source.Inner.StartFailure = new CollectorException(
+                ErrorCodes.Internal, "synthetic source start unavailable");
+            Sources.Add(source);
+            return source;
         }
 
         internal void Start(string? adapterId = null) => Controller.Start(adapterId);
@@ -1091,9 +1082,8 @@ public sealed class NetworkRecoveryTests
     {
         private readonly object _gate = new();
         private readonly List<AdapterInfo> _values = new();
-        private readonly ManualResetEventSlim _release = new(true);
-        private int _pauseNext;
-        internal readonly ManualResetEventSlim Entered = new();
+        private readonly NextReadGate _nextRead = new();
+        internal ManualResetEventSlim Entered => _nextRead.Entered;
         internal bool Failure;
 
         internal void Add(string id, params string[] addresses)
@@ -1125,36 +1115,19 @@ public sealed class NetworkRecoveryTests
             }
         }
 
-        internal void PauseNextRead()
-        {
-            Entered.Reset();
-            _release.Reset();
-            Interlocked.Exchange(ref _pauseNext, 1);
-        }
+        internal void PauseNextRead() => _nextRead.PauseNextRead();
 
-        internal void Release() => _release.Set();
+        internal void Release() => _nextRead.Release();
 
         public IReadOnlyList<AdapterInfo> List()
         {
             AdapterInfo[] result;
             lock (_gate) result = _values.ToArray();
-            if (Interlocked.Exchange(ref _pauseNext, 0) == 1)
-            {
-                Entered.Set();
-                if (!_release.Wait(TimeSpan.FromSeconds(20)))
-                    throw new TimeoutException("synthetic discovery boundary was not released");
-            }
+            _nextRead.Pass("synthetic discovery boundary");
             return Failure ? throw new InvalidOperationException("synthetic adapter query unavailable") : result;
         }
 
-        public void Dispose() { Entered.Dispose(); _release.Dispose(); }
-    }
-
-    private sealed class EmptyConnections : IProcessNetworkConnectionProvider
-    {
-        public ProcessNetworkConnectionTables Read(int processId) => new(
-            new(NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>()),
-            new(NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>()));
+        public void Dispose() => _nextRead.Dispose();
     }
 
     private sealed class CallbackSubscription(Action dispose) : IDisposable

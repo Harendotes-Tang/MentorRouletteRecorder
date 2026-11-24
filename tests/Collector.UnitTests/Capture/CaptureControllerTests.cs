@@ -8,6 +8,7 @@ using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 using LiveProtocolPipeline = MentorRecorder.Collector.Protocol.Pipeline.LiveProtocolPipeline;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.DeclaredCapture;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -344,11 +345,6 @@ public sealed class CaptureControllerTests : IDisposable
     }
 
     /// <summary>
-    /// Audit 2026-10-03, OB-4. A connection table that cannot be read says nothing about the
-    /// game, so it is not "no connection yet": the game may well be talking on another card.
-    /// Nothing is guessed, and the follow poll asks again on its next tick.
-    /// </summary>
-    /// <summary>
     /// The route lookup itself, on this machine: one interface at most can be the route, and
     /// it is one that is up and has an address to bind to. A machine with no route has none.
     /// </summary>
@@ -366,6 +362,11 @@ public sealed class CaptureControllerTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OB-4. A connection table that cannot be read says nothing about the
+    /// game, so it is not "no connection yet": the game may well be talking on another card.
+    /// Nothing is guessed, and the follow poll asks again on its next tick.
+    /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)] // What Machina's ProcessTCPInfo throws when GetExtendedTcpTable fails.
@@ -637,7 +638,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         _settings.SetSetting(
             CaptureController.QueueCapacitySetting,
             DecodedMessageQueue.MinCapacity.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -649,8 +650,7 @@ public sealed class CaptureControllerTests : IDisposable
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
             for (var i = 0; i < DecodedMessageQueue.MinCapacity + 50; i++) Source.PushOpcode(2);
 
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (_lifecycle.DroppedTotal == 0 && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            WaitUntil(() => _lifecycle.DroppedTotal != 0);
 
             Assert.True(_lifecycle.DroppedTotal > 0, "an overflow inside a live session must be reported at once");
             Assert.Equal(CaptureControllerState.Running, controller.State);
@@ -675,8 +675,7 @@ public sealed class CaptureControllerTests : IDisposable
 
         Source.PushConnectionClosed();
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains("connection_lost"));
         Assert.Contains("connection_lost", _lifecycle.Events);
 
         // The capture itself carries on: the client may open a new connection.
@@ -702,13 +701,12 @@ public sealed class CaptureControllerTests : IDisposable
         _processes.Clear();
         if (pidReused)
             _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
-                @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+                CnExecutable);
         Source.PushConnectionClosed();
 
         // Long enough for the marker to travel the queue and be refused; the negative is what
         // matters, so it is given the same budget the positive case gets.
-        var deadline = DateTime.UtcNow.AddSeconds(2);
-        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains("connection_lost"), seconds: 2);
 
         Assert.DoesNotContain("connection_lost", _lifecycle.Events);
         controller.Stop();
@@ -758,8 +756,7 @@ public sealed class CaptureControllerTests : IDisposable
         Thread.Sleep(200);
         Assert.DoesNotContain("connection_lost", _lifecycle.Events);
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains("connection_lost"));
         Assert.Contains("connection_lost", _lifecycle.Events);
         Assert.Equal(CaptureControllerState.Running, controller.State);
         controller.Stop();
@@ -777,7 +774,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         using var controller = Build();
         try
         {
@@ -797,8 +794,7 @@ public sealed class CaptureControllerTests : IDisposable
             release.Set();
         }
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains("connection_lost"));
         Assert.Contains("connection_lost", _lifecycle.Events);
         controller.Stop();
     }
@@ -815,7 +811,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         using var controller = Build();
         string expected;
         try
@@ -837,8 +833,7 @@ public sealed class CaptureControllerTests : IDisposable
             release.Set();
         }
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!_lifecycle.Events.Contains(expected) && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains(expected));
         Assert.Contains(expected, _lifecycle.Events);
         Assert.Equal(CaptureControllerState.Running, controller.State);
         controller.Stop();
@@ -861,8 +856,7 @@ public sealed class CaptureControllerTests : IDisposable
         // The in-flight callback that arrives after teardown. Nobody is listening any more, so
         // the count is neither reported nor cleared -- it simply stays.
         controller.NoteDroppedFromRetiredSession(7, generation: long.MaxValue);
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (controller.PendingDroppedCount != 7 && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => controller.PendingDroppedCount == 7, seconds: 5);
         Assert.Equal(7, controller.PendingDroppedCount);
         Assert.Equal(0, _lifecycle.DroppedTotal);
 
@@ -991,7 +985,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         _settings.SetSetting(CaptureController.QueueCapacitySetting,
             DecodedMessageQueue.MinCapacity.ToString(System.Globalization.CultureInfo.InvariantCulture));
         using var controller = new CaptureController(Services() with
@@ -1455,7 +1449,7 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(CaptureControllerState.Idle, controller.State);
 
         _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         Assert.False(controller.Snapshot().Game.SelectionRequired);
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
@@ -1496,7 +1490,7 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(CaptureControllerState.Running, controller.State);
 
         _processes.Clear();
-        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, path: @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, path: CnExecutable,
             startUnreadable: true);
         controller.Poll();
 
@@ -1518,8 +1512,7 @@ public sealed class CaptureControllerTests : IDisposable
         _processes.Fails = true;
         Source.PushConnectionClosed();
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        WaitUntil(() => _lifecycle.Events.Contains("connection_lost"));
         Assert.Contains("connection_lost", _lifecycle.Events);
         _processes.Fails = false;
         controller.Stop();
@@ -1834,7 +1827,7 @@ public sealed class CaptureControllerTests : IDisposable
         var nextPid = reusedPid ? 4321 : 4322;
         _processes.Clear();
         _processes.Add(GameProcessLocator.Dx11ProcessName, nextPid, DateTimeOffset.UnixEpoch.AddMinutes(1),
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         _tcp.With(nextPid, "192.168.31.77");
         if (refreshFirst) Assert.Equal(nextPid, controller.Snapshot().Game.ProcessId);
         controller.Poll();
@@ -1869,7 +1862,7 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal("EXITED", controller.Snapshot().Game.SelectionReason);
         controller.Poll();
         _processes.Add(GameProcessLocator.Dx11ProcessName, 4322, DateTimeOffset.UnixEpoch.AddMinutes(1),
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         _tcp.With(4322, "192.168.31.77");
         controller.Poll();
         Assert.False(controller.Snapshot().Game.SelectionRequired);
@@ -1976,7 +1969,7 @@ public sealed class CaptureControllerTests : IDisposable
             GameProcessLocator.Dx11ProcessName,
             4321,
             DateTimeOffset.UnixEpoch,
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         if (withTraffic)
         {
             _tcp.With(4321, "192.168.31.77");
@@ -2039,26 +2032,15 @@ public sealed class CaptureControllerTests : IDisposable
         return source;
     }
 
-    private CaptureServices Services() => new()
-    {
-        Npcap = new NpcapDetector(_npcap),
-        Game = new GameProcessLocator(
-            _processes,
-            new FakeGameFileReader().With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-        Adapters = new AdapterEnumerator(_adapters, _tcp),
-        SourceFactory = CreateSource,
-        Sink = _sink,
-        Profile = _profile,
-        Lifecycle = _lifecycle,
-        StatusListener = _status,
-        Clock = _database.Clock,
-        Settings = _settings,
-        Sessions = new CaptureSessionRepository(_database.Database),
-        Database = _database.Database,
-        CollectorVersion = "0.1.0",
-        DetectionTtl = TimeSpan.Zero,
-        EnableFollowTimer = false,
-    };
+    private CaptureServices Services() =>
+        DeclaredCapture.Services(_database, _settings, _processes, _adapters, _tcp, CreateSource) with
+        {
+            Npcap = new NpcapDetector(_npcap),
+            Profile = _profile,
+            Sink = _sink,
+            Lifecycle = _lifecycle,
+            StatusListener = _status,
+        };
 
     private sealed class AlwaysThrowingSink : IDecodedMessageSink
     {
@@ -2087,7 +2069,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         var services = Services();
         using var controller = new CaptureController(services);
         var started = controller.Start();
@@ -2123,7 +2105,7 @@ public sealed class CaptureControllerTests : IDisposable
         await SharedCalibrationTestBed.Idle(pipeline);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         var services = Services() with
         {
             Lifecycle = pipeline,
@@ -2135,7 +2117,7 @@ public sealed class CaptureControllerTests : IDisposable
                 return source;
             },
             Game = new GameProcessLocator(_processes, new FakeGameFileReader().With(
-                @"D:\SdoA\FFXIV\game\ffxivgame.ver", SharedCalibrationTestBed.Build)),
+                CnVersionFile, SharedCalibrationTestBed.Build)),
         };
         using var controller = new CaptureController(services);
         var started = controller.Start();
@@ -2164,11 +2146,6 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(recorded.PendingReview, afterStop.PendingReview);
         Assert.Equal(CaptureEndReason.UserStop,
             new CaptureSessionRepository(_database.Database).Get(session)!.EndReason);
-    }
-
-    private sealed class WaitingSink(ManualResetEventSlim entered, ManualResetEventSlim release) : IDecodedMessageSink
-    {
-        public void Accept(DecodedMessage message) { entered.Set(); release.Wait(); }
     }
 
     [Theory]
@@ -2238,7 +2215,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         var services = Services();
         using var controller = new CaptureController(services);
         var started = controller.Start();
@@ -2267,7 +2244,7 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.NotNull(new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndedAtUtc);
 
         _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
         Assert.Equal(2, StartCount);
@@ -2311,7 +2288,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         var services = Services() with { FaultRetryInterval = TimeSpan.FromHours(1) };
         using var controller = new CaptureController(services);
         controller.Start();
@@ -2350,7 +2327,7 @@ public sealed class CaptureControllerTests : IDisposable
         WithGame();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _sink = new WaitingSink(entered, release);
+        _sink = new GatedSink(entered, release);
         var services = Services() with { FaultRetryInterval = TimeSpan.FromHours(1) };
         using var controller = new CaptureController(services);
         var started = controller.Start();
@@ -2445,22 +2422,11 @@ public sealed class CaptureControllerTests : IDisposable
         }
     }
 
-    private static CaptureDiagnosticsSnapshot WaitFor(
-        CaptureController controller, Func<CaptureDiagnosticsSnapshot, bool> predicate)
+    /// <summary>Waits up to <paramref name="seconds"/> for <paramref name="condition"/>, checking every 10 ms; the caller asserts.</summary>
+    private static void WaitUntil(Func<bool> condition, int seconds = 10)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var snapshot = controller.Snapshot();
-            if (predicate(snapshot))
-            {
-                return snapshot;
-            }
-
-            Thread.Sleep(10);
-        }
-
-        throw new TimeoutException("the capture controller never reached the expected state");
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
+        while (!condition() && DateTime.UtcNow < deadline) Thread.Sleep(10);
     }
 
     public void Dispose()

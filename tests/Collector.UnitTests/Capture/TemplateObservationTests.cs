@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.CaptureValidationTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -155,24 +156,16 @@ public sealed class TemplateObservationTests
         var elapsed = TimeSpan.Zero;
         var game = new GameProcessDetection(true, 42, "ffxiv_dx11", DateTimeOffset.UnixEpoch, Region.Global,
             "2026.10.15.0000.0000", 1, @"D:\Game\ffxiv_dx11.exe", Array.Empty<UserText>());
-        using var controller = new CaptureValidationController(db.Path, new(), new CaptureValidationServices
-        {
-            LocateGame = () => game, PollInterval = TimeSpan.FromMilliseconds(10), Elapsed = () => elapsed,
-            Trace = new CaptureTraceServices
-            {
-                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-                Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"), new FakeProcessTcpTable()),
-                SourceFactory = () => source, TcpConnectionCounter = (_, _) => 0,
-            },
-        });
+        using var controller = new CaptureValidationController(db.Path, new(),
+            Services(() => game, source) with { Elapsed = () => elapsed });
         Assert.False(controller.GetTemplateObservation()["available"]!.GetValue<bool>());
         controller.Start("wifi");
-        Assert.True(SpinWait.SpinUntil(() => controller.Snapshot()["state"]!.GetValue<string>() == "RECORDING", 5000));
+        Until(controller, "state", "RECORDING");
         Assert.Equal("OBSERVATION_ACTIVE", controller.GetTemplateObservation()["reason"]!.GetValue<string>());
         source.PushOpcode(0xabcd);
         controller.AddMarker("pop");
         controller.Stop();
-        Assert.True(SpinWait.SpinUntil(() => controller.Snapshot()["state"]!.GetValue<string>() == "COMPLETED", 5000));
+        Until(controller, "state", "COMPLETED");
         var first = controller.GetTemplateObservation();
         Assert.True(first["available"]!.GetValue<bool>(), first.ToJsonString());
         Assert.Equal(first.ToJsonString(), controller.GetTemplateObservation().ToJsonString());

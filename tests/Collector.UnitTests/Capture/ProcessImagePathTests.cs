@@ -14,28 +14,15 @@ public sealed class ProcessImagePathTests
 
     private static string? Lookup(string drive) => Drives.GetValueOrDefault(drive);
 
-    [Fact]
-    public void MapsTheDevicePrefixBackToItsDriveLetter()
+    [Theory]
+    [InlineData(@"\Device\HarddiskVolume1\Games\FF14\game\ffxiv_dx11.exe", @"C:\Games\FF14\game\ffxiv_dx11.exe")]
+    // A longer volume number is not claimed by its prefix.
+    [InlineData(@"\Device\HarddiskVolume10\最终幻想XIV\game\ffxiv_dx11.exe", @"D:\最终幻想XIV\game\ffxiv_dx11.exe")]
+    // The device comparison ignores case.
+    [InlineData(@"\device\harddiskvolume1\x\ffxiv_dx11.exe", @"C:\x\ffxiv_dx11.exe")]
+    public void MapsTheDevicePrefixBackToItsDriveLetter(string ntPath, string expected)
     {
-        var path = ProcessImagePath.ToDosPath(@"\Device\HarddiskVolume1\Games\FF14\game\ffxiv_dx11.exe", Lookup);
-
-        Assert.Equal(@"C:\Games\FF14\game\ffxiv_dx11.exe", path);
-    }
-
-    [Fact]
-    public void ALongerVolumeNumberIsNotClaimedByItsPrefix()
-    {
-        var path = ProcessImagePath.ToDosPath(@"\Device\HarddiskVolume10\最终幻想XIV\game\ffxiv_dx11.exe", Lookup);
-
-        Assert.Equal(@"D:\最终幻想XIV\game\ffxiv_dx11.exe", path);
-    }
-
-    [Fact]
-    public void DeviceComparisonIgnoresCase()
-    {
-        var path = ProcessImagePath.ToDosPath(@"\device\harddiskvolume1\x\ffxiv_dx11.exe", Lookup);
-
-        Assert.Equal(@"C:\x\ffxiv_dx11.exe", path);
+        Assert.Equal(expected, ProcessImagePath.ToDosPath(ntPath, Lookup));
     }
 
     [Theory]

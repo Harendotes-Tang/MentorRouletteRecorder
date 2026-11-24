@@ -91,7 +91,7 @@ public sealed class CandidateSettingsAtomicityTests
         }
         finally
         {
-            clock.Release.Set();
+            clock.Release();
             await first.WaitAsync(TimeSpan.FromSeconds(10));
             if (second is not null) await second.WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -109,29 +109,20 @@ public sealed class CandidateSettingsAtomicityTests
 
     private sealed class PausingLogClock(IClock source) : IClock, IDisposable
     {
-        private int _pauseNext;
-        public ManualResetEventSlim Entered { get; } = new();
-        public ManualResetEventSlim Release { get; } = new();
-        public void PauseNextRead() => Volatile.Write(ref _pauseNext, 1);
+        private readonly NextReadGate _gate = new();
+        public ManualResetEventSlim Entered => _gate.Entered;
+        public void PauseNextRead() => _gate.PauseNextRead();
+        public void Release() => _gate.Release();
         public TimeSpan Elapsed => source.Elapsed;
         public DateTimeOffset UtcNow
         {
             get
             {
-                if (Interlocked.Exchange(ref _pauseNext, 0) != 0)
-                {
-                    Entered.Set();
-                    if (!Release.Wait(TimeSpan.FromSeconds(30)))
-                        throw new TimeoutException("The settings application was not released.");
-                }
+                _gate.Pass("the settings application", TimeSpan.FromSeconds(30));
                 return source.UtcNow;
             }
         }
-        public void Dispose()
-        {
-            Entered.Dispose();
-            Release.Dispose();
-        }
+        public void Dispose() => _gate.Dispose();
     }
 
     [Theory]

@@ -7,18 +7,13 @@ using System.Text.Json;
 using Machina.FFXIV.Memory;
 using Machina.FFXIV.Oodle;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
-
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class MachinaOodleRuntimeCollection
-{
-    public const string Name = "Machina Oodle runtime";
-}
 
 /// <summary>
 /// Exercises the unmanaged-image and Machina-static-state failure boundaries without reading
@@ -75,17 +70,12 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [Fact]
     public void FailedInstallClearsMachinaNative_WhenValidPeHasNoProfileSignatures()
     {
-        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
-        Assert.True(File.Exists(nativeFixture), "The x64 test output must contain e_sqlite3.dll.");
-        var image = File.ReadAllBytes(nativeFixture);
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var executable = NativeFixtureAsExecutable().Executable;
         WriteProfileForExecutable(executable);
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, Build,
             AllowCandidateOodleSignature: true);
-        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
-            _root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var logger = NewLogger();
         using var runtime = OodleSignatureRuntime.TryCreate(options, _root.Path, logger);
         Assert.NotNull(runtime);
 
@@ -121,7 +111,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         var profile = LoadProfileForBytes([0]);
         var runtime = (OodleSignatureRuntime)Activator.CreateInstance(typeof(OodleSignatureRuntime),
             BindingFlags.Instance | BindingFlags.NonPublic, null,
-            new object?[] { "synthetic", OodleImplementation.FfxivTcp, profile, MentorRecorder.Collector.Diagnostics.RotatingFileLogger.Disabled, null }, null)!;
+            new object?[] { "synthetic", OodleImplementation.FfxivTcp, profile, RotatingFileLogger.Disabled, null }, null)!;
         var native = DispatchProxy.Create<IOodleNative, FailingNative>();
         var proxy = (FailingNative)native;
         var args = new object?[] { null, null };
@@ -166,7 +156,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     {
         var runtime = (OodleSignatureRuntime)Activator.CreateInstance(typeof(OodleSignatureRuntime),
             BindingFlags.Instance | BindingFlags.NonPublic, null,
-            new object?[] { "synthetic", OodleImplementation.FfxivTcp, LoadProfileForBytes([0]), MentorRecorder.Collector.Diagnostics.RotatingFileLogger.Disabled, null }, null)!;
+            new object?[] { "synthetic", OodleImplementation.FfxivTcp, LoadProfileForBytes([0]), RotatingFileLogger.Disabled, null }, null)!;
         var native = DispatchProxy.Create<IOodleNative, FailingNative>();
         var proxy = (FailingNative)native;
         var originalImplementation = ReadImplementation();
@@ -187,10 +177,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [Fact]
     public void ANewBuildWithoutItsOwnProfileBorrowsTheNewestVerifiedPatterns()
     {
-        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
-        var image = File.ReadAllBytes(nativeFixture);
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var (image, executable) = NativeFixtureAsExecutable();
         // The donor is bound to another executable (hash of other bytes) on an older build,
         // and each of its patterns occurs exactly once in this image.
         WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
@@ -208,10 +195,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [Fact]
     public void ACandidateDonorOrAPatternThatDoesNotFitFallsBackToBuiltin()
     {
-        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
-        var image = File.ReadAllBytes(nativeFixture);
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var (image, executable) = NativeFixtureAsExecutable();
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, "2026.09.01.0000.0000");
 
@@ -235,10 +219,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [Fact]
     public void ARegionWithoutAnyProfileIsSearchedOnlyWhereACandidateIsAllowed()
     {
-        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
-        var image = File.ReadAllBytes(nativeFixture);
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var (image, executable) = NativeFixtureAsExecutable();
         WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
         var recording = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000");
@@ -263,14 +244,11 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [Fact]
     public void CodeExcerptsAreLoggedOnlyWhenTheSearchCouldNotSettleEverySignature()
     {
-        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll"));
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var (image, executable) = NativeFixtureAsExecutable();
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000",
             AllowCandidateOodleSignature: true);
-        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
-            _root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var logger = NewLogger();
 
         WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
         using (var found = OodleSignatureRuntime.TryCreate(options, _root.Path, logger))
@@ -326,12 +304,11 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     [InlineData(true)]
     public void ADiscoveredSetThatReadNoIpcLogsTheCodeAroundItsCallSitesWhenTheRoundStops(bool ipcRead)
     {
-        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
-            _root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var logger = NewLogger();
         using var runtime = DiscoveredRuntime(logger);
         var source = new MachinaCaptureSource(_ => new MachinaCleanupTests.NativeMonitor());
         source.Start(new CaptureStartOptions("synthetic", 42, null, null, OodleMode.LibraryTcp, null, null),
-            new SilentObserver());
+            new NullCaptureObserver());
         typeof(MachinaCaptureSource).GetField("_oodleSignatureRuntime", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(source, runtime);
         var onMessage = typeof(MachinaCaptureSource).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -369,8 +346,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     public void ADiscoveredSetWhoseRoundDidNotStopCleanlyIsNeverUsedAgain()
     {
         var data = _root.Combine("data");
-        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
-            _root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var logger = NewLogger();
         var options = DiscoveryOptions();
         var hash = GameExecutableHash.Compute(options.GameExecutablePath)!;
         var marker = OodleSignatureRuntime.CrashSentinelPath(data, hash)!;
@@ -386,7 +362,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
             Assert.Equal(hash, File.ReadAllText(marker).Trim());
             var source = new MachinaCaptureSource(_ => new MachinaCleanupTests.NativeMonitor());
             source.Start(new CaptureStartOptions("synthetic", 42, null, null, OodleMode.LibraryTcp, null, null),
-                new SilentObserver());
+                new NullCaptureObserver());
             typeof(MachinaCaptureSource).GetField("_oodleSignatureRuntime", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(source, runtime);
             source.Stop();
@@ -460,8 +436,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         var marker = OodleSignatureRuntime.CrashSentinelPath(data, hash)!;
         Directory.CreateDirectory(data);
         File.WriteAllText(marker, hash + Environment.NewLine);
-        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
-            _root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var logger = NewLogger();
         // Should the marker be missed, the discovered set's install stops at this probe instead of
         // initialising anything, and the assertions below fail.
         var native = DispatchProxy.Create<IOodleNative, FailingNative>();
@@ -474,7 +449,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
             oodleTempManifestPath: Path.Combine(data, "oodle-temp-copies.json"));
         try
         {
-            source.Start(options, new SilentObserver());
+            source.Start(options, new NullCaptureObserver());
 
             Assert.Equal(OodleSignatureUse.Builtin, source.SignatureUse);
             Assert.Contains(File.ReadAllLines(logger.CurrentPath), line =>
@@ -495,16 +470,29 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     /// <summary>A Global client with only a CN donor: the search finds all twelve in e_sqlite3.dll.</summary>
     private CaptureStartOptions DiscoveryOptions()
     {
-        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll"));
-        var executable = _root.Combine("ffxiv_dx11.exe");
-        File.WriteAllBytes(executable, image);
+        var (image, executable) = NativeFixtureAsExecutable();
         WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
         return new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000",
             AllowCandidateOodleSignature: true);
     }
 
-    private OodleSignatureRuntime DiscoveredRuntime(MentorRecorder.Collector.Diagnostics.RotatingFileLogger logger)
+    /// <summary>The test output's e_sqlite3.dll, a real x64 PE image, copied in as the client executable.</summary>
+    private (byte[] Image, string Executable) NativeFixtureAsExecutable()
+    {
+        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
+        Assert.True(File.Exists(nativeFixture), "The x64 test output must contain e_sqlite3.dll.");
+        var image = File.ReadAllBytes(nativeFixture);
+        var executable = _root.Combine("ffxiv_dx11.exe");
+        File.WriteAllBytes(executable, image);
+        return (image, executable);
+    }
+
+    /// <summary>A log under the test root, on a clock in 2026.</summary>
+    private RotatingFileLogger NewLogger() =>
+        new(_root.Combine("logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+
+    private OodleSignatureRuntime DiscoveredRuntime(RotatingFileLogger logger)
     {
         var runtime = OodleSignatureRuntime.TryCreate(DiscoveryOptions(), _root.Path, logger);
         Assert.NotNull(runtime);
@@ -519,13 +507,6 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0, 4), (uint)length);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(12, 2), segmentType);
         return bytes;
-    }
-
-    private sealed class SilentObserver : ICaptureSourceObserver
-    {
-        public void OnMessage(DecodedMessage message) { }
-        public void OnDecodeError() { }
-        public void OnFault(string reason, Exception? error) { }
     }
 
     /// <summary>
@@ -620,15 +601,8 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
                ?? throw new InvalidOperationException(reason);
     }
 
-    private string WriteProfileForExecutable(string executable)
-    {
-        var directory = _root.Combine(OodleSignatureProfile.DirectoryName);
-        Directory.CreateDirectory(directory);
-        var bytes = File.ReadAllBytes(executable);
-        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        return OodleSignatureTestFiles.Write(
-            directory, Guid.NewGuid().ToString("N"), Build, hash, bytes.LongLength);
-    }
+    private string WriteProfileForExecutable(string executable) => OodleSignatureTestFiles.WriteFor(
+        _root.Combine(OodleSignatureProfile.DirectoryName), Guid.NewGuid().ToString("N"), Build, executable);
 
     private static byte[] BuildMalformedPe(string malformedCase)
     {

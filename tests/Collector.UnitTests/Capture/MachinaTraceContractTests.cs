@@ -12,7 +12,9 @@ namespace MentorRecorder.Collector.UnitTests;
 /// nothing downstream can count the failure and <c>decode_error_count</c> is derived from the
 /// text of those lines. An upgrade that rewords one string must fail here; otherwise the
 /// counter stays at zero with every test still green, and a session that was nothing but
-/// failures reads as clean evidence (Codex review finding H-3).
+/// failures reads as clean evidence (Codex review finding H-3) - the evidence
+/// docs/live-validation-guide.md section 3.5.3 accepts ("zero decode errors") for promoting a
+/// signature profile to VERIFIED.
 ///
 /// The check runs against the assembly on disk rather than by provoking a decode failure: the
 /// strings live in the assembly's UTF-16 user-string heap whether or not this machine has
@@ -91,26 +93,5 @@ public sealed class MachinaTraceContractTests
     /// <summary>Plain byte search; the user-string heap is UTF-16 and not compressed.</summary>
     /// <param name="haystack">Whole assembly image.</param>
     /// <param name="needle">UTF-16 bytes of the marker.</param>
-    private static bool Contains(byte[] haystack, byte[] needle)
-    {
-        for (var start = 0; start + needle.Length <= haystack.Length; start++)
-        {
-            var matched = true;
-            for (var offset = 0; offset < needle.Length; offset++)
-            {
-                if (haystack[start + offset] != needle[offset])
-                {
-                    matched = false;
-                    break;
-                }
-            }
-
-            if (matched)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool Contains(byte[] haystack, byte[] needle) => haystack.AsSpan().IndexOf(needle) >= 0;
 }

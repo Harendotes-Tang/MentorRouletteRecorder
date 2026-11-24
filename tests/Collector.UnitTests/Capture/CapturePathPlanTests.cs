@@ -79,12 +79,10 @@ public sealed class CapturePathPlanTests
     [Fact]
     public void EnumeratorPreservesAllLocalAddressesPrivatelyAndRecognizesLoopbackCarriers()
     {
-        var enumerator = new AdapterEnumerator(new Adapters(new[] {
-            new AdapterInfo(CapturePathPlan.LoopbackDeviceId, "Any name", "Any description", true, true,
-                new[] { IPAddress.Loopback }),
-            new AdapterInfo("multi", "Any other name", "Any description", true, false,
-                new[] { IPAddress.Parse("192.0.2.1"), IPAddress.Parse("192.0.2.2") }) }),
-            new Tcp(new[] { IPAddress.Parse("127.0.0.2") }));
+        var enumerator = new AdapterEnumerator(new FakeAdapterProvider()
+                .Add(CapturePathPlan.LoopbackDeviceId, "Any name", isLoopback: true, addresses: "127.0.0.1")
+                .Add("multi", "Any other name", addresses: new[] { "192.0.2.1", "192.0.2.2" }),
+            new FakeProcessTcpTable().With(42, "127.0.0.2"));
 
         var views = enumerator.List(42);
         Assert.True(views[0].CarriesGameTraffic);
@@ -119,15 +117,5 @@ public sealed class CapturePathPlanTests
         return new CaptureAdapterView(id, "same display name", "same driver description", true, false,
             raw.Select(AdapterEnumerator.Mask).ToArray(), false, false)
         { BindAddress = raw.FirstOrDefault(), LocalAddresses = raw };
-    }
-
-    private sealed class Adapters(IReadOnlyList<AdapterInfo> adapters) : IAdapterProvider
-    {
-        public IReadOnlyList<AdapterInfo> List() => adapters;
-    }
-
-    private sealed class Tcp(IReadOnlyList<IPAddress> addresses) : IProcessTcpTable
-    {
-        public IReadOnlyList<IPAddress> LocalAddresses(int processId) => addresses;
     }
 }

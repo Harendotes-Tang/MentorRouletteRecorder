@@ -374,7 +374,7 @@ public sealed class CapturePipelineTests
         using var release = new ManualResetEventSlim();
         var reported = 0L;
         var queue = new DecodedMessageQueue(
-            new SignallingSink(entered, release), 512, onDropped: count => Interlocked.Add(ref reported, count));
+            new GatedSink(entered, release), 512, onDropped: count => Interlocked.Add(ref reported, count));
         try
         {
             queue.Offer(Message(1));
@@ -406,7 +406,7 @@ public sealed class CapturePipelineTests
         using var release = new ManualResetEventSlim();
         var reported = 0L;
         using var queue = new DecodedMessageQueue(
-            new SignallingSink(entered, release),
+            new GatedSink(entered, release),
             DecodedMessageQueue.MinCapacity,
             onDropped: count => Interlocked.Add(ref reported, count));
         try
@@ -464,11 +464,6 @@ public sealed class CapturePipelineTests
             entered.Set();
             if (message.Opcode == 1) release.Wait();
         }
-    }
-
-    private sealed class SignallingSink(ManualResetEventSlim entered, ManualResetEventSlim release) : IDecodedMessageSink
-    {
-        public void Accept(DecodedMessage message) { entered.Set(); release.Wait(); }
     }
 
     private sealed class CountingCaptureObserver : ICaptureSourceObserver

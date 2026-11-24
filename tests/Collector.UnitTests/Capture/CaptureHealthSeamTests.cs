@@ -1,5 +1,4 @@
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -29,7 +28,7 @@ public sealed class CaptureHealthSeamTests : IDisposable
         _settings = _database.Settings();
         _settings.SetSetting(CaptureController.FollowGameSetting, "false");
         _adapters.Add("wifi", "Wi-Fi", addresses: "192.168.31.77");
-        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch, @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch, DeclaredCapture.CnExecutable);
         _tcp.With(4321, "192.168.31.77");
     }
 
@@ -147,31 +146,20 @@ public sealed class CaptureHealthSeamTests : IDisposable
         controller.Stop();
     }
 
-    private CaptureController Build(ICaptureHealthListener? health = null, IDecodedMessageSink? sink = null) => new(new CaptureServices
-    {
-        Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-        Game = new GameProcessLocator(
-            _processes,
-            new FakeGameFileReader().With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-        Adapters = new AdapterEnumerator(_adapters, _tcp),
-        SourceFactory = () =>
+    private CaptureController Build(ICaptureHealthListener? health = null, IDecodedMessageSink? sink = null) => new(
+        DeclaredCapture.Services(_database, _settings, _processes, _adapters, _tcp, CreateSource) with
         {
-            var source = new FakeCaptureSource { PreexistingTcpConnections = _preexisting };
-            _sources.Add(source);
-            return source;
-        },
-        Profile = new FakeProfileStatusProvider(ProfileStatus.Verified),
-        Health = health ?? _health,
-        Sink = sink,
-        Clock = _database.Clock,
-        Uptime = () => _uptime,
-        Settings = _settings,
-        Sessions = new CaptureSessionRepository(_database.Database),
-        Database = _database.Database,
-        CollectorVersion = "0.1.0",
-        DetectionTtl = TimeSpan.Zero,
-        EnableFollowTimer = false,
-    });
+            Health = health ?? _health,
+            Sink = sink,
+            Uptime = () => _uptime,
+        });
+
+    private ICaptureSource CreateSource()
+    {
+        var source = new FakeCaptureSource { PreexistingTcpConnections = _preexisting };
+        _sources.Add(source);
+        return source;
+    }
 
     private sealed class RecordingHealthListener : ICaptureHealthListener
     {

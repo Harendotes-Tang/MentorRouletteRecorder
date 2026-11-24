@@ -3,34 +3,12 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.CaptureValidationTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class CaptureValidationTests
 {
-    private static GameProcessDetection Game(int pid = 42) => new(true, pid, "ffxiv_dx11", DateTimeOffset.UnixEpoch,
-        Region.Cn, "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>());
-
-    private static CaptureValidationServices Services(Func<GameProcessDetection> game, ICaptureSource? source = null,
-        Func<int, System.Net.IPAddress?, int?>? tcp = null, FakeAdapterProvider? adapters = null,
-        Func<string, TextWriter>? writer = null) => new()
-    {
-        LocateGame = game,
-        PollInterval = TimeSpan.FromMilliseconds(10),
-        Trace = new CaptureTraceServices
-        {
-            Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-            Adapters = new AdapterEnumerator(adapters ?? new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"), new FakeProcessTcpTable()),
-            SourceFactory = () => source ?? new FakeCaptureSource(),
-            TcpConnectionCounter = tcp ?? ((_, _) => 0),
-            TraceWriterFactory = writer,
-        },
-    };
-
-    private static void Until(CaptureValidationController controller, string field, string value) =>
-        Assert.True(SpinWait.SpinUntil(() => controller.Snapshot()[field]!.GetValue<string>() == value, 5000), controller.Snapshot().ToJsonString());
-
     [Theory]
     [InlineData("WAITING_GAME")]
     [InlineData("WAITING_IDENTITY")]
@@ -360,15 +338,7 @@ public sealed class CaptureValidationTests
         using var db = new TestDatabase();
         using var source = new BlockingSource { BlockStart = true };
         var ownership = new CaptureOwnership();
-        var processes = new FakeGameProcessProvider().Add("ffxiv_dx11", 42, path: @"D:\SdoA\game\ffxiv_dx11.exe");
-        using var formal = new CaptureController(new CaptureServices
-        {
-            Ownership = ownership, EnableFollowTimer = false,
-            Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-            Game = new GameProcessLocator(processes, new FakeGameFileReader()),
-            Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"), new FakeProcessTcpTable()),
-            Profile = new FakeProfileStatusProvider(ProfileStatus.Verified), SourceFactory = () => source,
-        });
+        using var formal = new CaptureController(FormalServices(source, ownership));
         var starting = Task.Run(() => formal.Start("wifi"));
         Assert.True(source.Starting.Wait(5000));
         try
@@ -537,8 +507,7 @@ public sealed class CaptureValidationTests
         using var db = new TestDatabase();
         var ownership = new CaptureOwnership();
         var source = new FakeCaptureSource();
-        var settings = new MentorRecorder.Collector.Storage.Repositories.SettingsRepository(db.Database, db.Clock);
-        settings.EnsureDefaults();
+        var settings = db.Settings();
         settings.SetSetting(CaptureController.FollowGameSetting, "true");
         settings.SetSetting(CaptureController.AdapterSetting, "\"wifi\"");
         using var formal = new CaptureController(FormalServices(source, ownership) with { Settings = settings });

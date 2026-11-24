@@ -257,7 +257,7 @@ public sealed class NetworkPathDiagnosticsTests
     [Fact]
     public void NoPidIsUnmeasuredAndDoesNotReadHostTables()
     {
-        var connections = new FakeConnections(Tables());
+        var connections = new ScriptedConnections(Tables());
         var adapters = new ThrowingAdapters();
         var inspector = new NetworkPathInspector(adapters, connections);
 
@@ -389,7 +389,7 @@ public sealed class NetworkPathDiagnosticsTests
     public void FailedOrTruncatedInterfaceEnumerationIsUnknownRatherThanUnmapped()
     {
         var tables = Tables(v4: new[] { Connection("192.0.2.2", "203.0.113.20") });
-        var failed = new NetworkPathInspector(new ThrowingAdapters(), new FakeConnections(tables)).Inspect(GamePid, "physical");
+        var failed = new NetworkPathInspector(new ThrowingAdapters(), new ScriptedConnections(tables)).Inspect(GamePid, "physical");
         Assert.Equal(NetworkQueryStatus.Failed, failed.QueryAdapters);
         Assert.Equal(NetworkPathKind.Unknown, failed.Kind);
         Assert.Null(failed.UnmappedIPv4Connections);
@@ -400,7 +400,7 @@ public sealed class NetworkPathDiagnosticsTests
             tooMany.Add("card-" + index, "arbitrary display", addresses: "192.0.2.2");
         }
 
-        var truncated = new NetworkPathInspector(tooMany, new FakeConnections(tables)).Inspect(GamePid, "physical");
+        var truncated = new NetworkPathInspector(tooMany, new ScriptedConnections(tables)).Inspect(GamePid, "physical");
         Assert.Equal(NetworkQueryStatus.Truncated, truncated.QueryAdapters);
         Assert.Null(truncated.MatchingInterfaces);
     }
@@ -410,7 +410,7 @@ public sealed class NetworkPathDiagnosticsTests
     {
         var adapter = new FakeAdapterProvider().Add("card", "arbitrary",
             addresses: Enumerable.Repeat("192.0.2.2", NetworkPathInspector.MaxAddressesPerInterface + 1).ToArray());
-        var tooManyAddresses = new NetworkPathInspector(adapter, new FakeConnections(Tables())).Inspect(GamePid, "card");
+        var tooManyAddresses = new NetworkPathInspector(adapter, new ScriptedConnections(Tables())).Inspect(GamePid, "card");
         Assert.Equal(NetworkQueryStatus.Truncated, tooManyAddresses.QueryAdapters);
 
         var tables = Tables(v4: Enumerable.Repeat(Connection("192.0.2.2", "203.0.113.20"),
@@ -424,7 +424,7 @@ public sealed class NetworkPathDiagnosticsTests
     public void CacheExpiresAtOneSecondChangesPidAndRefreshesCaptureFactsEveryCall()
     {
         var time = new ManualTimeProvider();
-        var provider = new FakeConnections(Tables(v4: new[] { Connection("192.0.2.2", "203.0.113.20") }));
+        var provider = new ScriptedConnections(Tables(v4: new[] { Connection("192.0.2.2", "203.0.113.20") }));
         var inspector = new NetworkPathInspector(Adapters(), provider, time);
         var initial = inspector.Inspect(GamePid, "physical", new CapturePathStatus(3, 2, 1, false, true));
         time.Advance(999);
@@ -452,7 +452,7 @@ public sealed class NetworkPathDiagnosticsTests
     public void CachedRawFactsAreFrozenRatherThanAliasedToInjectableMutableLists()
     {
         var rows = new List<ProcessNetworkConnection> { Connection("192.0.2.2", "203.0.113.20") };
-        var provider = new FakeConnections(Tables(v4: rows));
+        var provider = new ScriptedConnections(Tables(v4: rows));
         var inspector = new NetworkPathInspector(Adapters(), provider);
         inspector.Inspect(GamePid, "physical");
         rows.Clear();
@@ -483,7 +483,7 @@ public sealed class NetworkPathDiagnosticsTests
             Assert.DoesNotContain(secret, json, StringComparison.Ordinal);
         }
 
-        var failed = new FakeConnections(raw) { Failure = new InvalidOperationException("private-host C:\\Users\\private-user 10.1.2.3:5000") };
+        var failed = new ScriptedConnections(raw) { Failure = new InvalidOperationException("private-host C:\\Users\\private-user 10.1.2.3:5000") };
         var failedJson = NetworkPathWire.ToJson(new NetworkPathInspector(adapters, failed).Inspect(GamePid, null)).ToJsonString();
         Assert.DoesNotContain("private-host", failedJson, StringComparison.Ordinal);
         Assert.DoesNotContain("10.1.2.3", failedJson, StringComparison.Ordinal);
@@ -539,7 +539,7 @@ public sealed class NetworkPathDiagnosticsTests
         Assert.Null(NetworkPathWire.ToJson(Inspect(Tables()))["query_ipv4_detail"]);
 
         var thrown = new NetworkPathInspector(Adapters(),
-            new FakeConnections(tables) { Failure = new InvalidOperationException("private-host 10.1.2.3:5000") })
+            new ScriptedConnections(tables) { Failure = new InvalidOperationException("private-host 10.1.2.3:5000") })
             .Inspect(GamePid, "physical");
         Assert.Equal("provider_exception", thrown.QueryIPv4Detail);
         Assert.Equal("provider_exception", thrown.QueryIPv6Detail);
@@ -569,7 +569,7 @@ public sealed class NetworkPathDiagnosticsTests
 
     private static NetworkPathDiagnosticsSnapshot Inspect(
         ProcessNetworkConnectionTables tables, IAdapterProvider? adapters = null, string? selected = "physical") =>
-        new NetworkPathInspector(adapters ?? Adapters(), new FakeConnections(tables)).Inspect(GamePid, selected);
+        new NetworkPathInspector(adapters ?? Adapters(), new ScriptedConnections(tables)).Inspect(GamePid, selected);
 
     private static FakeAdapterProvider Adapters() => new FakeAdapterProvider()
         .Add("physical", "arbitrary hardware", addresses: "192.0.2.2")
@@ -625,18 +625,6 @@ public sealed class NetworkPathDiagnosticsTests
         BinaryPrimitives.WriteUInt32LittleEndian(row.AsSpan(48), state);
         BinaryPrimitives.WriteUInt32LittleEndian(row.AsSpan(52), (uint)pid);
         return row;
-    }
-
-    private sealed class FakeConnections(ProcessNetworkConnectionTables tables) : IProcessNetworkConnectionProvider
-    {
-        public int Reads { get; private set; }
-        public Exception? Failure { get; init; }
-
-        public ProcessNetworkConnectionTables Read(int processId)
-        {
-            Reads++;
-            return Failure is { } failure ? throw failure : tables;
-        }
     }
 
     private sealed class ThrowingAdapters : IAdapterProvider

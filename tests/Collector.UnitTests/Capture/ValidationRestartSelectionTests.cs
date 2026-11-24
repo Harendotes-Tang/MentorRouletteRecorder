@@ -1,12 +1,11 @@
 using MentorRecorder.Collector.Capture;
+using static MentorRecorder.Collector.UnitTests.ScriptedGameProcesses;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>Exercises the actual sticky selector together with validation's exclusive lease.</summary>
 public sealed class ValidationRestartSelectionTests
 {
-    private const string GamePath = @"D:\SdoA\game\ffxiv_dx11.exe";
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -96,23 +95,12 @@ public sealed class ValidationRestartSelectionTests
         Assert.Null(fixture.Capture.RescanGame().ProcessId);
     }
 
-    private static GameProcessCandidate Client(int pid, int minute) => new(
-        pid, GameProcessLocator.Dx11ProcessName, DateTimeOffset.UnixEpoch.AddMinutes(minute), GamePath, false);
-
-    private sealed class Processes : IGameProcessProvider
-    {
-        private GameProcessCandidate[] _clients = [Client(42, 0)];
-        public void Set(params GameProcessCandidate[] clients) => Volatile.Write(ref _clients, clients);
-        public IReadOnlyList<GameProcessCandidate> ByName(string name) =>
-            name == GameProcessLocator.Dx11ProcessName ? Volatile.Read(ref _clients) : [];
-    }
-
     private sealed class Fixture : IDisposable
     {
         private readonly TestDatabase _db = new();
         private int _connections = 1, _polls;
         public int Connections { set => Volatile.Write(ref _connections, value); }
-        public readonly Processes Processes = new();
+        public readonly ScriptedGameProcesses Processes = new(Client(42, 0));
         public readonly CaptureOwnership Ownership = new();
         public readonly FakeCaptureSource Source = new();
         public readonly CaptureController Capture;

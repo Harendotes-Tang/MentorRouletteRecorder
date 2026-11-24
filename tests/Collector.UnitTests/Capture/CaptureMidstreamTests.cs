@@ -1,6 +1,6 @@
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.DeclaredCapture;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -33,7 +33,7 @@ public sealed class CaptureMidstreamTests : IDisposable
             GameProcessLocator.Dx11ProcessName,
             4321,
             DateTimeOffset.UnixEpoch,
-            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+            CnExecutable);
         _tcp.With(4321, "192.168.31.77");
     }
 
@@ -620,26 +620,13 @@ public sealed class CaptureMidstreamTests : IDisposable
         _database.Dispose();
     }
 
-    private CaptureController Build(IAdapterProvider? adapters = null) => new(new CaptureServices
-    {
-        Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-        Game = new GameProcessLocator(
-            _processes,
-            new FakeGameFileReader().With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-        Adapters = new AdapterEnumerator(adapters ?? _adapters, _tcp),
-        SourceFactory = CreateSource,
-        Profile = new FakeProfileStatusProvider(ProfileStatus.Verified),
-        StatusListener = _status,
-        Clock = _database.Clock,
-        Uptime = () => _uptime,
-        ProcessUptime = () => _uptime,
-        Settings = _settings,
-        Sessions = new CaptureSessionRepository(_database.Database),
-        Database = _database.Database,
-        CollectorVersion = "0.1.0",
-        DetectionTtl = TimeSpan.Zero,
-        EnableFollowTimer = false,
-    });
+    private CaptureController Build(IAdapterProvider? adapters = null) => new(
+        Services(_database, _settings, _processes, adapters ?? _adapters, _tcp, CreateSource) with
+        {
+            StatusListener = _status,
+            Uptime = () => _uptime,
+            ProcessUptime = () => _uptime,
+        });
 
     /// <summary>
     /// Turns off the follow poll's own reaction to a silent capture, so a test can inspect
@@ -669,23 +656,5 @@ public sealed class CaptureMidstreamTests : IDisposable
         }
 
         Assert.Fail("the midstream verdict never reached a status listener");
-    }
-
-    private static CaptureDiagnosticsSnapshot WaitFor(
-        CaptureController controller, Func<CaptureDiagnosticsSnapshot, bool> predicate)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var snapshot = controller.Snapshot();
-            if (predicate(snapshot))
-            {
-                return snapshot;
-            }
-
-            Thread.Sleep(10);
-        }
-
-        throw new TimeoutException("the capture controller never reached the expected state");
     }
 }

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Machina.FFXIV.Memory;
 using MentorRecorder.Collector.Capture;
 
@@ -84,11 +83,9 @@ public sealed class OodleSignatureInstallGateTests : IDisposable
     {
         var executable = _root.Combine(Guid.NewGuid().ToString("N") + ".exe");
         File.WriteAllBytes(executable, [0x4d, 0x5a]);
-        var bytes = File.ReadAllBytes(executable);
-        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var path = OodleSignatureTestFiles.Write(
+        var path = OodleSignatureTestFiles.WriteFor(
             _root.Combine(OodleSignatureProfile.DirectoryName),
-            Guid.NewGuid().ToString("N"), Build, hash, bytes.LongLength, resolvedRva: DeclaredRva);
+            Guid.NewGuid().ToString("N"), Build, executable, resolvedRva: DeclaredRva);
 
         return OodleSignatureProfile.TryLoad(path, out var reason)
             ?? throw new InvalidOperationException(reason);

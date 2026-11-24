@@ -1,11 +1,9 @@
-using System.Buffers.Binary;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
-using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
+using static MentorRecorder.Collector.UnitTests.CaptureValidationTestKit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -331,7 +329,7 @@ public sealed class CaptureIdentityCheckpointTests
     {
         using var db = new TestDatabase();
         var source = new FakeCaptureSource();
-        using var controller = new CaptureValidationController(db.Path, new(), Services(source));
+        using var controller = new CaptureValidationController(db.Path, new(), Services(source: source));
         Assert.False((bool)controller.Snapshot()["identity_probe"]!);
         Assert.Null(controller.Snapshot()["identity_result"]);
         Assert.Null(controller.Snapshot()["identity_steps"]);
@@ -418,7 +416,7 @@ public sealed class CaptureIdentityCheckpointTests
     public void AValidationSession_StartedWithoutIt_SaysSo()
     {
         using var db = new TestDatabase();
-        using var controller = new CaptureValidationController(db.Path, new(), Services(new FakeCaptureSource()));
+        using var controller = new CaptureValidationController(db.Path, new(), Services(source: new FakeCaptureSource()));
 
         controller.Start("wifi");
         Until(controller, "state", "RECORDING");
@@ -465,25 +463,12 @@ public sealed class CaptureIdentityCheckpointTests
 
     /// <summary>A server-to-client message about <paramref name="actor"/>, led by eight chosen bytes.</summary>
     private static DecodedMessage About(
-        uint actor, ushort opcode, ulong prefix, string connectionKey = "connection-not-written")
-    {
-        var payload = new byte[32];
-        BinaryPrimitives.WriteUInt64LittleEndian(payload, prefix);
-        return new DecodedMessage(
-            "identity-test",
-            MessageDirection.Inbound,
-            new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
-            TimeSpan.Zero,
-            0,
-            FfxivFraming.SegmentTypeIpc,
-            opcode,
-            payload,
-            connectionKey)
+        uint actor, ushort opcode, ulong prefix, string connectionKey = "connection-not-written") =>
+        CaptureIdentityProbeTests.Decoded(
+            MessageDirection.Inbound, opcode, actor, actor, CaptureIdentityProbeTests.Payload(prefix, 32)) with
         {
-            SourceActor = actor,
-            TargetActor = actor,
+            ConnectionKey = connectionKey,
         };
-    }
 
     /// <summary>A connection key whose eight-character tag differs per step.</summary>
     private static string ConnectionOf(string marker) =>
@@ -491,38 +476,8 @@ public sealed class CaptureIdentityCheckpointTests
 
     private static byte[] Raw(uint actor)
     {
-        var message = FakeCaptureSource.BuildIpcMessage(SharedOpcode, 16);
-        BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(4), actor);
-        BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(8), actor);
-        message[FfxivFraming.HeaderBytes] = 1;
-        return message;
+        var payload = new byte[16];
+        payload[0] = 1;
+        return CaptureIdentityProbeTests.Message(SharedOpcode, payload, actor, actor);
     }
-
-    private static GameProcessDetection Game() => new(true, 42, "ffxiv_dx11", DateTimeOffset.UnixEpoch,
-        Region.Cn, "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>());
-
-    /// <param name="source">The source every session gets; a fresh one per session when null.</param>
-    private static CaptureValidationServices Services(ICaptureSource? source = null) => new()
-    {
-        LocateGame = Game,
-        PollInterval = TimeSpan.FromMilliseconds(10),
-        Trace = new CaptureTraceServices
-        {
-            Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
-            Adapters = new AdapterEnumerator(
-                new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"), new FakeProcessTcpTable()),
-            SourceFactory = () => source ?? new FakeCaptureSource(),
-            TcpConnectionCounter = (_, _) => 0,
-        },
-    };
-
-    private static void Until(CaptureValidationController controller, string field, string value) =>
-        Assert.True(
-            SpinWait.SpinUntil(() => controller.Snapshot()[field]!.GetValue<string>() == value, 5000),
-            controller.Snapshot().ToJsonString());
-
-    private static void Until(CaptureValidationController controller, string field, long value) =>
-        Assert.True(
-            SpinWait.SpinUntil(() => controller.Snapshot()[field]?.GetValue<long>() == value, 5000),
-            controller.Snapshot().ToJsonString());
 }

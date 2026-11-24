@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -68,13 +67,11 @@ public sealed class OodleSignatureProfileTests : IDisposable
     [Fact]
     public void FindsOnlyTheProfileWhoseExecutableHashMatches()
     {
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
-        WriteProfile("cn.good", directory, new string('c', 64));
-        WriteProfile("cn.other", directory, new string('d', 64));
+        WriteProfile("cn.good", new string('c', 64));
+        WriteProfile("cn.other", new string('d', 64));
 
         var match = OodleSignatureProfile.FindForExecutable(
-            directory,
+            SignatureDirectory,
             Region.Cn,
             Build,
             new string('c', 64),
@@ -89,13 +86,11 @@ public sealed class OodleSignatureProfileTests : IDisposable
     [Fact]
     public void RefusesDuplicateProfilesClaimingOneExecutable()
     {
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
-        WriteProfile("cn.first", directory, new string('e', 64));
-        WriteProfile("cn.second", directory, new string('e', 64));
+        WriteProfile("cn.first", new string('e', 64));
+        WriteProfile("cn.second", new string('e', 64));
 
         var match = OodleSignatureProfile.FindForExecutable(
-            directory,
+            SignatureDirectory,
             Region.Cn,
             Build,
             new string('e', 64),
@@ -111,13 +106,9 @@ public sealed class OodleSignatureProfileTests : IDisposable
     {
         var executable = _root.Combine("ffxiv_dx11.exe");
         File.WriteAllText(executable, "not the real game, only deterministic bytes", new UTF8Encoding(false));
-        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).ToLowerInvariant();
 
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
-        var length = new FileInfo(executable).Length;
-        WriteProfile("cn.match", directory, hash, exeSize: length);
-        WriteProfile("cn.miss", directory, new string('f', 64), exeSize: length);
+        OodleSignatureTestFiles.WriteFor(SignatureDirectory, "cn.match", Build, executable);
+        WriteProfile("cn.miss", new string('f', 64), exeSize: new FileInfo(executable).Length);
 
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, Build,
@@ -133,10 +124,7 @@ public sealed class OodleSignatureProfileTests : IDisposable
     {
         var executable = _root.Combine("ffxiv_dx11.exe");
         File.WriteAllText(executable, "candidate opt-in boundary", new UTF8Encoding(false));
-        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).ToLowerInvariant();
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
-        WriteProfile("cn.candidate", directory, hash, exeSize: new FileInfo(executable).Length);
+        OodleSignatureTestFiles.WriteFor(SignatureDirectory, "cn.candidate", Build, executable);
 
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, Build);
@@ -148,13 +136,11 @@ public sealed class OodleSignatureProfileTests : IDisposable
     [Fact]
     public void SelectionRefusesWrongBuildEvenWhenExecutableHashMatches()
     {
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
         var hash = new string('1', 64);
-        WriteProfile("cn.build", directory, hash);
+        WriteProfile("cn.build", hash);
 
         var match = OodleSignatureProfile.FindForExecutable(
-            directory, Region.Cn, "2026.08.06.0000.0000", hash,
+            SignatureDirectory, Region.Cn, "2026.08.06.0000.0000", hash,
             ProfileExecutableSize, out var problems);
 
         Assert.Null(match);
@@ -164,13 +150,11 @@ public sealed class OodleSignatureProfileTests : IDisposable
     [Fact]
     public void SelectionRefusesWrongSizeEvenWhenExecutableHashMatches()
     {
-        var directory = _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
-        Directory.CreateDirectory(directory);
         var hash = new string('2', 64);
-        WriteProfile("cn.size", directory, hash);
+        WriteProfile("cn.size", hash);
 
         var match = OodleSignatureProfile.FindForExecutable(
-            directory, Region.Cn, Build, hash, ProfileExecutableSize + 1, out _);
+            SignatureDirectory, Region.Cn, Build, hash, ProfileExecutableSize + 1, out _);
 
         Assert.Null(match);
     }
@@ -208,6 +192,8 @@ public sealed class OodleSignatureProfileTests : IDisposable
 
         Assert.NotNull(profile);
         Assert.Equal(string.Empty, reason);
+        // It has no reproduction field, as a profile written before the finder recorded one.
+        Assert.Null(profile!.Reproduction);
     }
 
     [Theory]
@@ -264,16 +250,6 @@ public sealed class OodleSignatureProfileTests : IDisposable
         Assert.NotNull(profile);
         Assert.Equal(string.Empty, reason);
         Assert.Equal(reproduction, profile!.Reproduction);
-    }
-
-    [Fact]
-    public void AProfileWrittenBeforeTheFinderRecordedReproductionStillLoads()
-    {
-        var profile = OodleSignatureProfile.TryLoad(Write(Valid()), out var reason);
-
-        Assert.NotNull(profile);
-        Assert.Equal(string.Empty, reason);
-        Assert.Null(profile!.Reproduction);
     }
 
     [Fact]
@@ -366,13 +342,14 @@ public sealed class OodleSignatureProfileTests : IDisposable
 
     public void Dispose() => _root.Dispose();
 
+    /// <summary>The catalog's signature folder under the test root, where every profile here is written.</summary>
+    private string SignatureDirectory => _root.Combine(ProfileCatalog.OodleSignatureDirectoryName);
+
     private string WriteProfile(
         string id,
-        string? directory = null,
         string? exeSha256 = null,
         bool stamp = true,
         long exeSize = ProfileExecutableSize) =>
         OodleSignatureTestFiles.Write(
-            directory ?? _root.Combine(OodleSignatureProfile.DirectoryName),
-            id, Build, exeSha256 ?? new string('0', 64), exeSize, stamp: stamp);
+            SignatureDirectory, id, Build, exeSha256 ?? new string('0', 64), exeSize, stamp: stamp);
 }

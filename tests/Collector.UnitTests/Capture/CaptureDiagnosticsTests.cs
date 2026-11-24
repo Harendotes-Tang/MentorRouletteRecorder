@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
@@ -26,12 +27,14 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void SanitizedReportCarriesNoAddressNoPathAndNoPayload()
     {
-        var json = SanitizedDiagnosticsReport
-            .Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch)
-            .ToJsonString();
+        var json = Report().ToJsonString();
 
         Assert.DoesNotMatch(IPv4Pattern, json);
         Assert.DoesNotMatch(WindowsPathPattern, json);
+
+        // Warnings are free text assembled from several places. The report whitelists fields
+        // instead of filtering them, so a warning that happens to carry a path cannot leak.
+        Assert.DoesNotContain("warnings", json, StringComparison.OrdinalIgnoreCase);
 
         // Not even the masked form the UI shows, and never the adapter's own GUID.
         Assert.DoesNotContain("192.168", json, StringComparison.Ordinal);
@@ -89,7 +92,7 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void SanitizedReportKeepsWhatDiagnosisActuallyNeeds()
     {
-        var report = SanitizedDiagnosticsReport.Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch);
+        var report = Report();
 
         Assert.Equal("0.1.0", report["collector_version"]!.GetValue<string>());
         Assert.Equal(CaptureDiagnosticsSnapshot.LiveCaptureStatus, report["live_capture_status"]!.GetValue<string>());
@@ -116,8 +119,7 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void TheReportCarriesTheClearCounters()
     {
-        var report = SanitizedDiagnosticsReport.Build(
-            Loaded() with { DutyClearSignalCount = 3, DutyClearCompletionCount = 2 }, "0.1.0", DateTimeOffset.UnixEpoch);
+        var report = Report(Loaded() with { DutyClearSignalCount = 3, DutyClearCompletionCount = 2 });
 
         Assert.Equal(3, report["counters"]!["duty_clear_signals"]!.GetValue<long>());
         Assert.Equal(2, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
@@ -136,7 +138,7 @@ public sealed class CaptureDiagnosticsTests
             Assert.Equal(0, stats.DutyClearCompletionCount);
         }
 
-        var report = SanitizedDiagnosticsReport.Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch);
+        var report = Report();
         Assert.Equal(0, report["counters"]!["duty_clear_signals"]!.GetValue<long>());
         Assert.Equal(0, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
     }
@@ -158,11 +160,8 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void DisclosesWhetherTheGameExecutableIsRead()
     {
-        var reading = SanitizedDiagnosticsReport.Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch);
-        var notReading = SanitizedDiagnosticsReport.Build(
-            Loaded() with { Oodle = OodleMode.LibraryTcp, ReadsGameExecutable = false },
-            "0.1.0",
-            DateTimeOffset.UnixEpoch);
+        var reading = Report();
+        var notReading = Report(Loaded() with { Oodle = OodleMode.LibraryTcp, ReadsGameExecutable = false });
 
         // DEC-OODLE-01 requires the user to be told which of the two modes is in force.
         Assert.True(reading["boundary"]!["reads_game_executable"]!.GetValue<bool>());
@@ -408,14 +407,10 @@ public sealed class CaptureDiagnosticsTests
         }
     }
 
-    /// <summary>A snapshot carrying every kind of value the report must not leak.</summary>
     [Fact]
     public void SanitizedReportCountsTheGameDirectionsLostToAGap()
     {
-        var report = SanitizedDiagnosticsReport.Build(
-            Loaded() with { Ingress = CaptureIngressCounters.Empty with { DamagedGameDirections = 2 } },
-            "0.1.0",
-            DateTimeOffset.UnixEpoch);
+        var report = Report(Loaded() with { Ingress = CaptureIngressCounters.Empty with { DamagedGameDirections = 2 } });
 
         // One of the reasons a session stops counting as calibration evidence; without it the
         // report cannot explain why calibration made no progress.
@@ -475,6 +470,11 @@ public sealed class CaptureDiagnosticsTests
                 CaptureSilentReason.Midstream, CaptureIngressCounters.Empty, 1)!.Chinese);
     }
 
+    /// <summary>The report of <paramref name="snapshot"/> (<see cref="Loaded"/> when null) from collector 0.1.0 at the epoch.</summary>
+    private static JsonObject Report(CaptureDiagnosticsSnapshot? snapshot = null) =>
+        SanitizedDiagnosticsReport.Build(snapshot ?? Loaded(), "0.1.0", DateTimeOffset.UnixEpoch);
+
+    /// <summary>A snapshot carrying every kind of value the report must not leak.</summary>
     private static CaptureDiagnosticsSnapshot Loaded() => new()
     {
         State = CaptureControllerState.Running,
@@ -513,14 +513,10 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void SanitizedReportStatesTheUpdateCheckWithoutSayingWhereItGoes()
     {
-        var report = SanitizedDiagnosticsReport.Build(
-            Loaded() with
-            {
-                UpdateCheck = new UpdateCheckDiagnostics(
-                    true, false, DateTimeOffset.UnixEpoch.AddHours(3), "OK", "9.9.9"),
-            },
-            "0.1.0",
-            DateTimeOffset.UnixEpoch);
+        var report = Report(Loaded() with
+        {
+            UpdateCheck = new UpdateCheckDiagnostics(true, false, DateTimeOffset.UnixEpoch.AddHours(3), "OK", "9.9.9"),
+        });
         var update = report["boundary"]!["outbound"]!["update_check"]!;
 
         Assert.True(update["enabled"]!.GetValue<bool>());
@@ -541,26 +537,12 @@ public sealed class CaptureDiagnosticsTests
     [Fact]
     public void AnUncheckedInstallationReportsTheUpdateCheckAsUntouched()
     {
-        var update = SanitizedDiagnosticsReport
-            .Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch)["boundary"]!["outbound"]!["update_check"]!;
+        var update = Report()["boundary"]!["outbound"]!["update_check"]!;
 
         Assert.True(update["enabled"]!.GetValue<bool>());
         Assert.False(update["kill_switch"]!.GetValue<bool>());
         Assert.Null(update["last_checked_utc"]);
         Assert.Null(update["last_outcome"]);
         Assert.Null(update["latest_version"]);
-    }
-
-    [Fact]
-    public void SanitizedReportDropsWarningsRatherThanRiskingWhatIsInThem()
-    {
-        // Warnings are free text assembled from several places. The report whitelists fields
-        // instead of filtering them, so a warning that happens to carry a path cannot leak.
-        var json = SanitizedDiagnosticsReport
-            .Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch)
-            .ToJsonString();
-
-        Assert.DoesNotContain("warnings", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotMatch(WindowsPathPattern, json);
     }
 }
