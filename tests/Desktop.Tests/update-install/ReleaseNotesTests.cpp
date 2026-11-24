@@ -20,13 +20,19 @@ QString sha256Hex(const QString &text)
     return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
-/// CHANGELOG.md of this source tree; empty when it cannot be read.
-QString sourceChangelog()
+/// CHANGELOG.md of this source tree. Empty, with \a error saying whether the file could not
+/// be read or is empty, when there is nothing to check.
+QString sourceChangelog(QString &error)
 {
     QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
-    if (!source.open(QIODevice::ReadOnly))
+    if (!source.open(QIODevice::ReadOnly)) {
+        error = QStringLiteral("%1 could not be read: %2").arg(source.fileName(), source.errorString());
         return {};
-    return QString::fromUtf8(source.readAll());
+    }
+    const QString text = QString::fromUtf8(source.readAll());
+    if (text.isEmpty())
+        error = QStringLiteral("%1 is empty").arg(source.fileName());
+    return text;
 }
 
 /// What makes \a presentation stale for \a version of \a changelog: another version's
@@ -266,8 +272,9 @@ private Q_SLOTS:
     {
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
-        const QString log = sourceChangelog();
-        QVERIFY(!log.isEmpty());
+        QString error;
+        const QString log = sourceChangelog(error);
+        QVERIFY2(!log.isEmpty(), qPrintable(error));
         const auto unannotated = mr::ReleaseNotesController::parseEntries(log, notes.version());
         QCOMPARE(notes.entries().size(), unannotated.size());
         int hidden = 0;
@@ -292,8 +299,9 @@ private Q_SLOTS:
     {
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
-        const QString log = sourceChangelog();
-        QVERIFY(!log.isEmpty());
+        QString error;
+        const QString log = sourceChangelog(error);
+        QVERIFY2(!log.isEmpty(), qPrintable(error));
         QFile file(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/src/Desktop/resources/release-notes/presentation.json"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray presentation = file.readAll();
@@ -320,8 +328,9 @@ private Q_SLOTS:
         mr::AppSettings settings;
         mr::ReleaseNotesController notes(&settings);
         QVERIFY(!notes.version().isEmpty());
-        const QString log = sourceChangelog();
-        QVERIFY(!log.isEmpty());
+        QString error;
+        const QString log = sourceChangelog(error);
+        QVERIFY2(!log.isEmpty(), qPrintable(error));
         const QString expected = mr::ReleaseNotesController::extractNotes(log, notes.version());
         QCOMPARE(notes.text(), expected);
         QVERIFY(!notes.text().contains("## [Unreleased]"));

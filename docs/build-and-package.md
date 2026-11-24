@@ -219,6 +219,8 @@ ctest --test-dir build --output-on-failure
 | 测试 | 内容 |
 |---|---|
 | `MentorRecorderDesktopTests` | IPC framing、格式化、职业统计（含契约字段 → 职能分组推导）、AppController |
+| `MentorRecorderRunListModel` | 历史记录的分页模型 `RunListModel`（筛选、排序、翻页，记录总数减少时收回页码） |
+| `MentorRecorderRunFormValidator` | `RunFormValidator`（全部校验分支与前后对比 diff） |
 | `MentorRecorderTtsService` | `TtsService` 模板替换与语速/音量映射（会发声的用例使用 Qt 的静音测试语音引擎，不经过本机语音；缺少该插件时这些用例明确跳过）、MockBackend 的 live 事件、契约 `$defs/LiveEvent` 每个 `kind` 的路由 |
 | `MentorRecorderIpcRequests` | 每种消息的请求样本与 `tests/Fixtures/ipc-requests/` 对拍 |
 | `MentorRecorderLifecycle` | `CollectorProcess` 的重启退避、单实例租约复用、主动停止；IPC 请求的时限；旧版本留下的设置文件（含已不再使用的说明确认记录）照常读取 |

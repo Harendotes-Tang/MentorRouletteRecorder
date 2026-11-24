@@ -410,7 +410,7 @@ ApplicationWindow {
         TestBackend backend;
         for (int i = 0; i < 20000; ++i) backend.rows.append(row(i, QStringLiteral("session-a"), QStringLiteral("connection-a"), i == 0 || i == 19999));
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend, 10000));
+        QVERIFY2(indexed(controller, backend, 10000), "the candidate index never completed");
         QCOMPARE(controller.indexLoadedCount(), 20000);
         QCOMPARE(controller.rows().size(), 50);
         QCOMPARE(controller.total(), 20000);
@@ -435,7 +435,7 @@ ApplicationWindow {
         backend.rows = {row(0, "s1", "c1", true), row(1, "s1", "c2", true),
                         row(2, "s2", "c1", true), row(3, "s1", "c1", true)};
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         QCOMPARE(controller.sessions().size(), 2);
         QVERIFY(controller.anchorPairs().isEmpty());
         // Three connections, three logins; s1/c1 has a second burst (id 0, later t_ms).
@@ -460,7 +460,7 @@ ApplicationWindow {
                         eventAt(4, "ZONE_LOAD", 207000), eventAt(5, "ZONE_LOAD", 767000),
                         eventAt(6, "ZONE_LOAD", 900000)};
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         // Newest first.
         QCOMPARE(kinds(controller.timeline()), QStringList({"zone", "duty_leave", "duty_enter", "finder", "queue", "login"}));
         const auto finder = controller.timeline()[3].toMap();
@@ -513,7 +513,7 @@ ApplicationWindow {
             backend.rows.append(value);
         }
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         // Capture order (t_ms 1..4) wins over the corrected wall clock: id 0 is the login,
         // the rest follow in monotonic order, newest first.
         QStringList ids;
@@ -537,7 +537,7 @@ ApplicationWindow {
             TestBackend backend;
             for (const auto index : order) backend.rows.append(events[index]);
             mr::CandidateReviewController controller;
-            QVERIFY(indexed(controller, backend));
+            QVERIFY2(indexed(controller, backend), "the candidate index never completed");
             // Mixing connection-local t_ms and cross-connection display UTC formed a cycle:
             // zone > finder by t_ms, finder > queue by UTC, queue > zone by cluster-first UTC.
             QCOMPARE(observationIds(controller.timeline()), QStringList({"10", "11", "12"}));
@@ -564,7 +564,7 @@ ApplicationWindow {
         TestBackend backend;
         backend.rows = {oldQueue, newLogin, oldLogin, newQueue};
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         // Different sessions have independent uptime offsets. A wall-clock correction on
         // either connection must not split a session or reorder its shared monotonic clock.
         QCOMPARE(observationIds(controller.timeline()), QStringList({"21", "20", "11", "10"}));
@@ -588,7 +588,7 @@ ApplicationWindow {
             TestBackend backend;
             for (const auto index : order) backend.rows.append(events[index]);
             mr::CandidateReviewController controller;
-            QVERIFY(indexed(controller, backend));
+            QVERIFY2(indexed(controller, backend), "the candidate index never completed");
             QCOMPARE(observationIds(controller.timeline()), QStringList({"4", "5", "8", "2"}));
             QCOMPARE(controller.sessions()[0].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s1"));
             QCOMPARE(controller.sessions()[1].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s2"));
@@ -612,7 +612,7 @@ ApplicationWindow {
             eventAt(3, "FINDER_STATE_NOTIFICATION", 300000), cluster(4, 317000, 320000),
             cluster(5, 897000, 900000)};
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         // The first cluster starts before the three-minute limit but establishes its anchor
         // after it. Only the later, fresh finder notification can produce a duty entry.
         QCOMPARE(kinds(controller.timeline()), QStringList({"duty_leave", "duty_enter", "finder", "zone", "finder", "login"}));
@@ -783,7 +783,7 @@ ApplicationWindow {
         mr::MockBackend backend;
         backend.setCandidateFixture();
         mr::CandidateReviewController controller;
-        QVERIFY(indexed(controller, backend));
+        QVERIFY2(indexed(controller, backend), "the candidate index never completed");
         QVERIFY(controller.total() > 200);
         QCOMPARE(controller.sessions().size(), 2);
         QVERIFY(!controller.anchorPairs().isEmpty());

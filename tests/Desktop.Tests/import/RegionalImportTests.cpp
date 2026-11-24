@@ -107,8 +107,9 @@ private Q_SLOTS:
         controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
             QVariantMap{{"region", "TC"}, {"baseline_completed_count", 1}},
             QVariantMap{{"region", "UNKNOWN"}, {"baseline_completed_count", 0}}});
-        QVERIFY(readPreview(controller, backend,
-                            {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "TC"), previewRow(4, "UNKNOWN")}));
+        QVERIFY2(readPreview(controller, backend,
+                             {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "TC"), previewRow(4, "UNKNOWN")}),
+                 "the preview never became valid");
         QCOMPARE(controller.contributingSelectedCount(), 4);
         QCOMPARE(controller.baselineDeductionPreview(), 2);
         QVERIFY(controller.baselineChoiceOffered());
@@ -135,7 +136,7 @@ private Q_SLOTS:
         controller.setBackend(&backend);
         controller.setBaselineLoaded(true);
         controller.setAchievements({QVariantMap{{"region", "TC"}, {"baseline_completed_count", 7}}});
-        QVERIFY(readPreview(controller, backend, {previewRow(1, "TC")}));
+        QVERIFY2(readPreview(controller, backend, {previewRow(1, "TC")}), "the preview never became valid");
         controller.setOwnRecordsConfirmed(true);
         QVERIFY(controller.canCommit());
 
@@ -178,7 +179,7 @@ private Q_SLOTS:
             controller.setBackend(&backend);
             controller.setBaselineCount(100);
             controller.setBaselineLoaded(true);
-            QVERIFY(readPreview(controller, backend, {previewRow(1, region)}));
+            QVERIFY2(readPreview(controller, backend, {previewRow(1, region)}), "the preview never became valid");
             controller.setOwnRecordsConfirmed(true);
             QCOMPARE(controller.waitingForBaseline(), region != QLatin1String("CN"));
             QCOMPARE(controller.canCommit(), region == QLatin1String("CN"));
@@ -199,7 +200,7 @@ private Q_SLOTS:
         RegionalImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
-        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN")}));
+        QVERIFY2(readPreview(controller, backend, {previewRow(1, "CN")}), "the preview never became valid");
         controller.updateCandidate(0, {{"region", "TC"}});
         const QVariantMap candidate = controller.currentCandidate();
         QCOMPARE(candidate.value("region").toString(), QStringLiteral("TC"));
@@ -217,7 +218,8 @@ private Q_SLOTS:
         RegionalImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
-        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "GLOBAL")}));
+        QVERIFY2(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "GLOBAL")}),
+                 "the preview never became valid");
         controller.setRowSelected(1, false);
         controller.batchUpdateSelected({{"region", "TC"}});
         const QJsonArray rows = backend.last().payload.value("rows").toArray();
@@ -239,7 +241,8 @@ private Q_SLOTS:
         controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
             QVariantMap{{"region", "TC"}, {"baseline_completed_count", 1}},
             QVariantMap{{"region", "UNKNOWN"}, {"baseline_completed_count", 3}}});
-        QVERIFY(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "UNKNOWN")}));
+        QVERIFY2(readPreview(controller, backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "UNKNOWN")}),
+                 "the preview never became valid");
         QStringList shown;
         for (const QVariant &value : controller.baselinePreviews())
             shown.append(value.toMap().value("label").toString());
@@ -336,7 +339,7 @@ private Q_SLOTS:
             unset.setBackend(&plain);
             unset.setDefaultRegion(none);
             QCOMPARE(unset.defaultRegion(), QString());
-            QVERIFY(readPreview(unset, plain, {readRow(1, QJsonValue::Undefined)}));
+            QVERIFY2(readPreview(unset, plain, {readRow(1, QJsonValue::Undefined)}), "the preview never became valid");
             QCOMPARE(plain.calls.size(), 1);
         }
     }

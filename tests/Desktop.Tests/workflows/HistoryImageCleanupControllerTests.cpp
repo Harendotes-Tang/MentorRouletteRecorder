@@ -90,13 +90,6 @@ class HistoryImageCleanupControllerTests final : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
-    void initTestCase()
-    {
-        // The application-level tests below build an AppController: never against the user's
-        // Collector or data folder (TestCollectorGuard.h).
-        mrtest::disableCollectorLaunch();
-    }
-
     void oneReadAtATimeAndFailureAllowsRetry()
     {
         QTemporaryDir root;
@@ -262,5 +255,16 @@ private Q_SLOTS:
 };
 }
 
-MR_DESKTOP_QTEST_SUITE(HistoryImageCleanupController, HistoryImageCleanupControllerTests, QGuiApplication)
+// As MR_DESKTOP_QTEST_SUITE, with the Collector guard first.
+MR_DESKTOP_TEST_SUITE(HistoryImageCleanupController)
+{
+    // The application-level tests build an AppController: never against the user's
+    // Collector or data folder (TestCollectorGuard.h). Must precede any construction.
+    mrtest::disableCollectorLaunch();
+    QGuiApplication app(argc, argv);
+    app.setAttribute(Qt::AA_Use96Dpi, true);
+    HistoryImageCleanupControllerTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
+
 #include "HistoryImageCleanupControllerTests.moc"

@@ -59,15 +59,20 @@ QStringList strings(const QJsonArray &array)
     return values;
 }
 
-/// Consent, 开始, and the round running.
-bool startRound(EvidenceScene &scene)
+/// Consent, 开始, and the round running: empty once it runs, otherwise the step that failed.
+QString startRound(EvidenceScene &scene)
 {
-    if (!QTest::qWaitFor([&scene] { return roundVisible(scene); }) || !scene.tap(QStringLiteral("candidateRoundConsent")))
-        return false;
-    if (!QTest::qWaitFor([&scene] { return scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled(); })
-        || !scene.click(QStringLiteral("candidateRoundStartButton")))
-        return false;
-    return QTest::qWaitFor([&scene] { return phase(scene) == QLatin1String("running"); });
+    if (!QTest::qWaitFor([&scene] { return roundVisible(scene); }))
+        return QStringLiteral("the round card never showed");
+    if (!scene.tap(QStringLiteral("candidateRoundConsent")))
+        return QStringLiteral("the consent box could not be tapped");
+    if (!QTest::qWaitFor([&scene] { return scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled(); }))
+        return QStringLiteral("the start button never became enabled");
+    if (!scene.click(QStringLiteral("candidateRoundStartButton")))
+        return QStringLiteral("the start button could not be clicked");
+    if (!QTest::qWaitFor([&scene] { return phase(scene) == QLatin1String("running"); }))
+        return QStringLiteral("the round never reached the running phase");
+    return {};
 }
 
 QString answer(const EvidenceScene &scene, const char *key)
@@ -251,7 +256,8 @@ private Q_SLOTS:
         scene.app->candidates()->setTargetOverride(target.path());
         int opened = 0;
         scene.app->candidates()->setOpenUrl([&opened](const QUrl &) { ++opened; return true; });
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
 
         // QTRY_* evaluates its expression once more after it holds: wait first, click once.
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundFinishButton"))->isEnabled());
@@ -285,7 +291,8 @@ private Q_SLOTS:
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE")));
         scene.app->candidates()->setTargetOverride(target.path());
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
 
         auto *box = scene.item(QStringLiteral("candidateRoundGuesses"));
         QVERIFY(box && box->isVisible());
@@ -366,7 +373,8 @@ private Q_SLOTS:
         QVERIFY(scene.open(QStringLiteral("IDLE")));
         scene.backend.setCandidateRoundGuesses({});
         scene.app->candidates()->setTargetOverride(target.path());
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
         QVERIFY(scene.item(QStringLiteral("candidateRoundGuesses"))->isVisible());
         for (const char *key : {"first_roulette", "job_before", "job_after", "duty"})
             QVERIFY2(answer(scene, key).isEmpty(), key);
@@ -393,7 +401,8 @@ private Q_SLOTS:
         EvidenceScene scene;
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE")));
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
         auto *controller = scene.app->candidates();
         const QString roundId = controller->roundId();
         QVERIFY(!QUuid(roundId).isNull());
@@ -447,7 +456,8 @@ private Q_SLOTS:
         EvidenceScene scene;
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
         const QString roundId = scene.app->candidates()->roundId();
         QVERIFY(!QUuid(roundId).isNull());
         QVERIFY(typeAnswer(scene, "job_after", QStringLiteral("keep after restart")));
@@ -495,7 +505,8 @@ private Q_SLOTS:
         EvidenceScene scene;
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE"), local.filePath(QStringLiteral("desktop.ini"))));
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
         QJsonObject newStart = scene.backend.lastCaptureSettingsUpdate();
         const QString oldId = newStart.value(QStringLiteral("candidate_round_id")).toString();
         const QString newId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -541,7 +552,8 @@ private Q_SLOTS:
         EvidenceScene scene;
         scene.backend.setCandidateRoundFixture(false);
         QVERIFY(scene.open(QStringLiteral("IDLE")));
-        QVERIFY(startRound(scene));
+        const QString notStarted = startRound(scene);
+        QVERIFY2(notStarted.isEmpty(), qPrintable(notStarted));
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
         QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
         const QVariantMap previous = scene.app->candidates()->roundExportResult();

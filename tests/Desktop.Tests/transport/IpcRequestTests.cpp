@@ -507,12 +507,22 @@ QJsonObject recordedRegionMigrationPayload(const QString &messageType)
     return backend.payloads.value(messageType);
 }
 
-QJsonObject readSample(const QString &path)
+/// The committed sample at \a path. Empty, with \a error saying whether the file could not
+/// be read, did not parse or held no JSON object, when it is unusable.
+QJsonObject readSample(const QString &path, QString &error)
 {
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly)) {
+        error = QStringLiteral("%1 could not be read: %2").arg(path, file.errorString());
         return {};
-    return QJsonDocument::fromJson(file.readAll()).object();
+    }
+    QJsonParseError parse{};
+    const QJsonObject sample = QJsonDocument::fromJson(file.readAll(), &parse).object();
+    if (parse.error != QJsonParseError::NoError)
+        error = QStringLiteral("%1 did not parse: %2 at offset %3").arg(path, parse.errorString()).arg(parse.offset);
+    else if (sample.isEmpty())
+        error = QStringLiteral("%1 holds no JSON object").arg(path);
+    return sample;
 }
 
 /// Writes \a envelope where a maintainer copies regenerated samples from.
@@ -532,8 +542,9 @@ bool writeEnvelope(const QString &path, const QJsonObject &envelope)
 /// QTest::currentTestFailed().
 void compareWithSample(const QJsonObject &envelope, const QString &path, const QString &drift)
 {
-    const QJsonObject sample = readSample(path);
-    QVERIFY2(!sample.isEmpty(), qPrintable(path));
+    QString error;
+    const QJsonObject sample = readSample(path, error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
     QCOMPARE(sample.value(QStringLiteral("message_type")), envelope.value(QStringLiteral("message_type")));
     QCOMPARE(sample.value(QStringLiteral("protocol_version")), envelope.value(QStringLiteral("protocol_version")));
     QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")), qPrintable(drift));

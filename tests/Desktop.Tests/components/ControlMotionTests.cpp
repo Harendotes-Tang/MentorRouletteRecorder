@@ -11,6 +11,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTest>
 
 #include <memory>
@@ -193,9 +194,10 @@ ApplicationWindow {
 
 MR_DESKTOP_TEST_SUITE(ControlMotion)
 {
-    // The hover test builds an AppController: never against the user's Collector
-    // or data folder (TestCollectorGuard.h). Must precede any construction.
+    // The hover test builds an AppController: never against the user's Collector, data
+    // folder (TestCollectorGuard.h) or settings. Must precede any construction.
     mrtest::disableCollectorLaunch();
+    QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
     ControlMotionTests tests;

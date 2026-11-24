@@ -33,10 +33,11 @@
 #include <QUuid>
 
 #include <memory>
+#include <optional>
 
 namespace {
 
-/// Where the scenes keep their desktop.ini and the suites leave their screenshots.
+/// Where RecoveryUi's scenes keep their desktop.ini and its screenshots go.
 inline QString evidenceDirectory()
 {
     return QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/artifacts/recoverable-prompts-20261020");
@@ -97,7 +98,11 @@ struct ObservedBackend : mr::MockBackend {
 };
 
 struct ShippingWindowScene {
-    QTemporaryDir directory{evidenceDirectory() + QStringLiteral("/ui-settings-XXXXXX")};
+    /// Where a scene that shares no folder makes its own: under evidenceDirectory(), which
+    /// the suite creates first, or in the system temp folder.
+    enum class Folder { Evidence, SystemTemp };
+
+    QTemporaryDir directory;
     mr::AppSettings settings;
     mr::LanguageManager language{&settings};
     ObservedBackend backend;
@@ -112,9 +117,13 @@ struct ShippingWindowScene {
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
 
-    /// A scene whose desktop.ini (and data) is in \a sharedDirectory, as a restart finds it.
-    explicit ShippingWindowScene(const QString &sharedDirectory = {})
-        : settings(QDir(sharedDirectory.isEmpty() ? directory.path() : sharedDirectory)
+    /// A scene whose desktop.ini (and data) is in \a sharedDirectory, as a restart finds it,
+    /// or else in a temporary folder of its own made in \a folder.
+    explicit ShippingWindowScene(const QString &sharedDirectory = {}, Folder folder = Folder::Evidence)
+        : directory(folder == Folder::SystemTemp
+                        ? QTemporaryDir()
+                        : QTemporaryDir(evidenceDirectory() + QStringLiteral("/ui-settings-XXXXXX")))
+        , settings(QDir(sharedDirectory.isEmpty() ? directory.path() : sharedDirectory)
                        .filePath(QStringLiteral("desktop.ini")), nullptr)
     {
         backend.setDataDirectory(settingsDirectory() + QStringLiteral("/data"));
@@ -124,12 +133,18 @@ struct ShippingWindowScene {
         settings.setPromptPresentation(QStringLiteral("window"));
     }
 
-    bool create(bool dark = true, const QString &style = QStringLiteral("harendotes"))
+    /// Starts Main.qml dark or light, or in the system's theme when \a dark is empty.
+    bool create(std::optional<bool> dark = true, const QString &style = QStringLiteral("harendotes"))
     {
+        if (!directory.isValid()) {
+            errors += QStringLiteral("Temporary folder not created: %1\n").arg(directory.errorString());
+            return false;
+        }
         language.initialize(QStringLiteral("zh-CN"));
         language.attachEngine(&engine);
         app = std::make_unique<mr::AppController>(&backend, &settings);
-        app->setThemeMode(dark ? QStringLiteral("dark") : QStringLiteral("light"));
+        if (dark.has_value())
+            app->setThemeMode(*dark ? QStringLiteral("dark") : QStringLiteral("light"));
         auto *context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), app.get());
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);

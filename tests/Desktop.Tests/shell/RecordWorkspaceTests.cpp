@@ -9,7 +9,6 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
-#include <QDir>
 #include <QFont>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -21,6 +20,14 @@
 #include <qpa/qwindowsysteminterface.h>
 
 namespace {
+
+/// The shipping window as this suite starts it: its desktop.ini and data in the system temp
+/// folder, the classic style, and the system's theme.
+struct WorkspaceScene : ShippingWindowScene
+{
+    WorkspaceScene() : ShippingWindowScene({}, Folder::SystemTemp) {}
+    bool create() { return ShippingWindowScene::create(std::nullopt, QStringLiteral("classic")); }
+};
 
 /// Clicks the 「新增记录」 button of the page on screen once it can take the click.
 bool clickNewRecord(const ShippingWindowScene &scene)
@@ -58,11 +65,7 @@ class RecordWorkspaceTests final : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
-    void initTestCase()
-    {
-        QVERIFY(QDir().mkpath(evidenceDirectory()));
-        QVERIFY(mrtest::registerShippingQml());
-    }
+    void initTestCase() { QVERIFY(mrtest::registerShippingQml()); }
 
     void overviewAndHistoryCreateInsideTheWorkspace_data()
     {
@@ -74,8 +77,8 @@ private Q_SLOTS:
     void overviewAndHistoryCreateInsideTheWorkspace()
     {
         QFETCH(int, sourcePage);
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         scene.app->navigate(sourcePage);
         QVERIFY(clickNewRecord(scene));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
@@ -114,8 +117,8 @@ private Q_SLOTS:
             QDesktopServices::unsetUrlHandler(QStringLiteral("mailto"));
         });
 
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(clickNewRecord(scene));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         const QString draft = QStringLiteral("填写到一半的心得");
@@ -144,8 +147,8 @@ private Q_SLOTS:
 
     void refusedNoteAfterCreationStaysOnThePageAndRetriesTheSameRun()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.manual()->setProperty("matchedTime", QStringLiteral("12:00:00"));
@@ -176,8 +179,8 @@ private Q_SLOTS:
 
     void escapeOnAnotherPageDoesNotCloseTheHiddenReflectionSession()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         const auto run = finishedRun(true);
         scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
         scene.app->recovery()->offer(run, QStringLiteral("reflection"));
@@ -207,8 +210,8 @@ private Q_SLOTS:
 
     void closingManualEntryReoffersTheAutomaticPromptItBlocked()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         // Only a form in the active window is on show (audit 2026-11-20 K1-1).
@@ -235,8 +238,8 @@ private Q_SLOTS:
     // popup after a duty opens all the same and the draft stays where it was.
     void aManualEntryLeftOnAnotherPageDoesNotHoldTheAutomaticPromptBack()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.app->navigate(1);
@@ -258,8 +261,8 @@ private Q_SLOTS:
     // again as soon as the form is parked, not only once it is finished.
     void aPopupHeldByTheFormOpensOnceTheFormIsParked()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.mainWindow()->requestActivate();
@@ -285,8 +288,8 @@ private Q_SLOTS:
     // popup stays held back.
     void aFileChooserOpenedFromTheFormKeepsThePopupHeld()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         scene.mainWindow()->requestActivate();
@@ -313,8 +316,8 @@ private Q_SLOTS:
     // so the form on its page does not hold the popup back.
     void aFormInAnInactiveWindowDoesNotHoldThePopupBack()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         // The game is another process: this application as a whole stops being active. A window
@@ -339,8 +342,8 @@ private Q_SLOTS:
     // being written on the record page; they open once it is closed.
     void releaseNotesWaitForTheInlineEditor()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
         auto *notes = scene.root->findChild<QObject *>(QStringLiteral("releaseNotesDialog"));
@@ -359,8 +362,8 @@ private Q_SLOTS:
     // forward; the popup window the editor was last parented to stays hidden.
     void inboxDuringACorrectionDialogDoesNotShowTheEmptyPopupWindow()
     {
-        ShippingWindowScene scene;
-        QVERIFY2(scene.create(false, QStringLiteral("classic")), qPrintable(scene.errors));
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
         const auto run = finishedRun(true);
         scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
         // The last answered popup leaves the editor parented to the popup window.

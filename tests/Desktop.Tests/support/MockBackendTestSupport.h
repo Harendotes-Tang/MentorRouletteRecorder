@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QTest>
@@ -25,11 +26,13 @@ struct Answer {
     QString message;
 };
 
-/// One request, waited for.
+/// One request, waited for. The reply handler lives in \a context, so a reply that comes
+/// after the wait gave up never writes into the returned Answer.
 inline Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payload = {})
 {
     Answer answer;
-    backend.request(type, payload)->whenDone(&backend,
+    QObject context;
+    backend.request(type, payload)->whenDone(&context,
         [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
             answer.done = true;
             answer.ok = ok;
@@ -42,16 +45,17 @@ inline Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject 
     return answer;
 }
 
-/// One request sent under \a requestId, the way a retried mutation is resent, waited for.
-/// The reply carries that id.
+/// One request sent under \a requestId, the way a retried mutation is resent, waited for
+/// as ask() waits. The reply carries that id.
 inline Answer askWithId(mr::IBackend &backend, const QString &type, const QJsonObject &payload,
                         const QString &requestId)
 {
     Answer answer;
+    QObject context;
     mr::BackendReply *reply = backend.requestWithId(type, payload, requestId);
     if (reply->requestId() != requestId)
         answer.code = QStringLiteral("TEST_WRONG_REQUEST_ID");
-    reply->whenDone(&backend,
+    reply->whenDone(&context,
         [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
             answer.done = true;
             answer.ok = ok;
