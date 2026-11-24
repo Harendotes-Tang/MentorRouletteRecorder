@@ -477,9 +477,13 @@ MotionDialog {
     /// The one click the offline state offers: the player allows the public library and
     /// asks for it in the same gesture.
     function goOnline() { loadPublic("online", { enabled: true }, () => loadPublic("refresh")) }
+    /// 公共共享库 refreshes each time it is opened once the player allowed it online (owner,
+    /// 2026-11-23). The Collector answers from its cache within 30 s of its last check (2 min after
+    /// a successful one), so switching back and forth does not reach GitHub every time.
+    function refreshPublic() { if (online && !refreshing) loadPublic("refresh") }
     onOpened: reload()
     onDutyKeyChanged: if (visible && dutyOnly) { selectedId = ""; compare.close() }
-    onTabChanged: { selectedId = ""; basket = []; mode = "view"; confirmingDelete = false }
+    onTabChanged: { selectedId = ""; basket = []; mode = "view"; confirmingDelete = false; if (tab === "public") refreshPublic() }
     onCurrentIdChanged: confirmingDelete = false
 
     function openFor(currentDuty) {
@@ -490,6 +494,7 @@ MotionDialog {
         selectedId = ""
         basket = []
         note = ""
+        submission.copiedBody = ""
         open()
     }
 
@@ -513,10 +518,15 @@ MotionDialog {
         basket = basket.includes(id) ? basket.filter(entry => entry !== id) : basket.concat([id])
     }
 
+    function defaultRegion() {
+        const selected = Runtime.app && Runtime.app.recordRegion ? Runtime.app.recordRegion : ""
+        return regionKeys.includes(selected) ? selected : "ALL"
+    }
     function blankItem(type) {
         return { schema_version: 1, id: service.newId(), type: type,
-            // 全部区服 unless chosen (Design: 区服默认「全部区服」); the duty still defaults to the current one.
-            content_id: inDuty ? duty.content_id : 0, region: "ALL",
+            // The selected record region unless the author chooses another (owner, 2026-11-24);
+            // 全部区服 while none is selected. The duty still defaults to the current one.
+            content_id: inDuty ? duty.content_id : 0, region: defaultRegion(),
             language: defaultLanguage(), title: "", body: "", boss: "", phase: "", role: "", tags: [],
             game_version: "", links: [], source: "" }
     }
@@ -531,7 +541,7 @@ MotionDialog {
         startEdit({ content: item, revision: 0, position: 0, favorite: false })
     }
     function editExample(example) {
-        const item = Object.assign(blankItem("macro"), { content_id: 0, region: "ALL", title: example.title, body: example.body })
+        const item = Object.assign(blankItem("macro"), { content_id: 0, title: example.title, body: example.body })
         startEdit({ content: item, revision: 0, position: 0, favorite: false })
     }
     function startEdit(row) {
@@ -823,7 +833,8 @@ MotionDialog {
                         ? qsTr("公共共享库") + "  " + root.publicRows.length : qsTr("公共共享库") }
                 ]
                 currentValue: root.tab
-                onActivated: value => root.tab = value
+                // Clicking 公共共享库 while it is open refreshes it as well.
+                onActivated: value => { if (value === root.tab && root.remote) root.refreshPublic(); root.tab = value }
             }
             Item { Layout.fillWidth: true }
             DutyGuideButton {
@@ -1069,7 +1080,9 @@ MotionDialog {
             }
             AppButton {
                 variant: "ghost"
-                text: qsTr("在 GitHub 打开") + " ↗"
+                iconName: "external-link"
+                iconAfterText: true
+                text: qsTr("在 GitHub 打开")
                 enabled: root.issueNumber > 0
                 onClicked: root.service.openGitHub("issue", root.issueNumber)
             }
@@ -1097,6 +1110,14 @@ MotionDialog {
                 text: root.note
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
+            }
+            // Another entry opened before the submission was pasted: its steps and 再次复制 stay
+            // one click away until 完成.
+            AppButton {
+                objectName: "dutyCommunityBackToPaste"
+                visible: submission.copied && root.mode !== "submit"
+                text: qsTr("回到粘贴步骤")
+                onClicked: { root.tab = "local"; root.mode = "submit" }
             }
         }
     }

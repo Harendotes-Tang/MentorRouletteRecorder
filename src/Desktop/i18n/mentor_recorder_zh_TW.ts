@@ -6440,6 +6440,10 @@ SHA256：%3</translation>
         <translation>在 GitHub 開啟</translation>
     </message>
     <message>
+        <source>回到粘贴步骤</source>
+        <translation>回到貼上步驟</translation>
+    </message>
+    <message>
         <source>来源更新对比</source>
         <translation>比較來源更新</translation>
     </message>
@@ -6873,11 +6877,27 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
-        <translation>用 GitHub 帳號直接提交；或者複製投稿正文，在瀏覽器開啟的 GitHub 表單裡貼上並提交。</translation>
+        <translation>用 GitHub 帳號直接提交；或者複製投稿內文，在瀏覽器開啟的 GitHub 表單裡貼上並提交。</translation>
     </message>
     <message>
         <source>把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。</source>
         <translation>把產生的 Issue 編號填進底部的「投稿進度」，隨時檢視處理狀態。</translation>
+    </message>
+    <message>
+        <source>投稿正文已复制，去浏览器粘贴</source>
+        <translation>投稿內文已複製，請到瀏覽器貼上</translation>
+    </message>
+    <message>
+        <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
+        <translation>投稿內文（%1 項）已複製到剪貼簿，GitHub 投稿表單已在瀏覽器開啟；沒看到表單就點下面的「重新開啟表單」。</translation>
+    </message>
+    <message>
+        <source>在浏览器的 GitHub 表单里，点「Community submission」下面的输入框，粘贴（Ctrl+V）。</source>
+        <translation>在瀏覽器的 GitHub 表單裡，點「Community submission」下方的輸入框，貼上（Ctrl+V）。</translation>
+    </message>
+    <message>
+        <source>粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。</source>
+        <translation>貼上的是一大段像程式碼的文字，不要刪改，直接在 GitHub 頁面上提交。</translation>
     </message>
     <message>
         <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
@@ -6908,6 +6928,10 @@ SHA256：%3</translation>
         <translation>我確認來源，並同意依所選授權公開發布。</translation>
     </message>
     <message>
+        <source>粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。</source>
+        <translation>貼上之前不要再複製其他內容，巨集也不用單獨複製。剪貼簿只保留最後複製的一段，投稿內文被換掉後，GitHub 會因為找不到完整的投稿而處理失敗。已經複製過其他內容，就點「再次複製投稿內文」。</translation>
+    </message>
+    <message>
         <source>GitHub 账号</source>
         <translation>GitHub 帳號</translation>
     </message>
@@ -6932,12 +6956,28 @@ SHA256：%3</translation>
         <translation>登出 GitHub</translation>
     </message>
     <message>
+        <source>已复制</source>
+        <translation>已複製</translation>
+    </message>
+    <message>
+        <source>再次复制投稿正文</source>
+        <translation>再次複製投稿內文</translation>
+    </message>
+    <message>
+        <source>重新打开表单</source>
+        <translation>重新開啟表單</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完成</translation>
+    </message>
+    <message>
         <source>用 GitHub 账号提交（%1 项）</source>
         <translation>用 GitHub 帳號提交（%1 項）</translation>
     </message>
     <message>
-        <source>复制投稿（%1 项）并打开浏览器</source>
-        <translation>複製投稿（%1 項）並開啟瀏覽器</translation>
+        <source>点此复制（%1 项）并粘贴到 GitHub 当中</source>
+        <translation>點此複製（%1 項）並貼到 GitHub 當中</translation>
     </message>
     <message>
         <source>取消</source>
@@ -7122,12 +7162,12 @@ SHA256：%3</translation>
 <context>
     <name>DutyGuideAction</name>
     <message>
-        <source>在浏览器打开「新大陆见闻录」上这个副本的攻略</source>
-        <translation>在瀏覽器開啟「新大陆见闻录」上這個副本的攻略</translation>
+        <source>在浏览器打开「%1」上这个副本的攻略</source>
+        <translation>在瀏覽器開啟「%1」上這個副本的攻略</translation>
     </message>
     <message>
-        <source>在浏览器打开「新大陆见闻录」的攻略目录</source>
-        <translation>在瀏覽器開啟「新大陆见闻录」的攻略目錄</translation>
+        <source>在浏览器打开「%1」的攻略目录</source>
+        <translation>在瀏覽器開啟「%1」的攻略目錄</translation>
     </message>
     <message>
         <source>查看攻略</source>

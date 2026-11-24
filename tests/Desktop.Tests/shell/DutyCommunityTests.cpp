@@ -10,6 +10,8 @@
 #include "BundledFonts.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFont>
@@ -37,8 +39,12 @@ private Q_SLOTS:
     void communityEditorFollowsTheDesign();
     void communityDetailActionsTakeTheTickedEntries();
     void communitySubmissionLeavesOutWhatIsAlreadyPublic();
+    void communityBrowserSubmissionWaitsForThePaste();
     void communityPublicLibraryFoldsAndFilters();
     void communityTextRulesMatchThePublisher();
+public:
+    Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
+    QList<QUrl> opened;
 };
 } // namespace
 
@@ -61,13 +67,14 @@ void DutyCommunityTests::dashboardOpensTheCommunityLibrary()
     QCOMPARE(dialog->property("tab").toString(), QStringLiteral("local"));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
 
-    // Creating happens in the right pane; leaving the tab drops the unsaved form.
+    // Leaving the tab drops an unsaved form; opening 公共共享库 starts a refresh once it may go online.
     QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
                                       Q_ARG(QVariant, QVariant())));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+    dialog->setProperty("online", true);
     dialog->setProperty("tab", QStringLiteral("public"));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
-    QVERIFY(dialog->property("remote").toBool());
+    QVERIFY(dialog->property("remote").toBool() && dialog->property("refreshing").toBool());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -222,6 +229,17 @@ void DutyCommunityTests::communityExamplesStartNamedMacros()
             QVERIFY2(line.toUtf8().size() <= 180, qPrintable(titles.last() + QStringLiteral(": ") + line));
     }
     QCOMPARE(titles, (QStringList{s("实盾姿"), s("单点攻击"), s("无敌提醒宏"), s("OT宏"), s("禁止攻击宏"), s("辛苦宏")}));
+
+    // A new entry starts in the selected record region, 全部区服 while none is selected (owner, 2026-11-24).
+    const auto blankRegion = [&] {
+        QVariant item;
+        QMetaObject::invokeMethod(dialog, "blankItem", Q_RETURN_ARG(QVariant, item), Q_ARG(QVariant, QStringLiteral("macro")));
+        return qmlMap(item).value(QStringLiteral("region")).toString();
+    };
+    scene.app->setRecordRegion(QStringLiteral("GLOBAL"));
+    QCOMPARE(blankRegion(), QStringLiteral("GLOBAL"));
+    scene.app->setRecordRegion(QString());
+    QCOMPARE(blankRegion(), QStringLiteral("ALL"));
 
     const auto onboarding = QStringLiteral("dutyCommunityOnboarding");
     QTRY_VERIFY(visibleText(scene.item(onboarding, true), s("实盾姿")));
@@ -532,7 +550,7 @@ void DutyCommunityTests::communityDetailActionsTakeTheTickedEntries()
     QCOMPARE(ids(submission->property("selected")), (QStringList{shown.at(1), shown.at(2)}));
     QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true));
     QCOMPARE(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("text").toString(),
-             s("复制投稿（2 项）并打开浏览器 ↗"));
+             s("点此复制（2 项）并粘贴到 GitHub 当中"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -590,7 +608,7 @@ void DutyCommunityTests::communitySubmissionLeavesOutWhatIsAlreadyPublic()
              QStringList{sameTextContent.value(QStringLiteral("id")).toString()});
     QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true));
     QCOMPARE(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("text").toString(),
-             s("复制投稿（1 项）并打开浏览器 ↗"));
+             s("点此复制（1 项）并粘贴到 GitHub 当中"));
     QVERIFY(visibleText(scene.item(QStringLiteral("dutyCommunitySubmission"), true),
                         s("公共库已有相同内容「Entry 900」（first-author），不再投稿")));
 
@@ -622,6 +640,35 @@ void DutyCommunityTests::communitySubmissionLeavesOutWhatIsAlreadyPublic()
     QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QVariant(QStringList{idOf(0)}))));
     QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
     QCOMPARE(rowIds(submission->property("submittable")), QStringList{idOf(0)});
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// 「点了后……ta 会再次复制宏」(owner, 2026-11-23): after 点此复制并粘贴到 GitHub 当中 the paste steps stay,
+// 再次复制 puts the submission back, and 回到粘贴步骤 returns to them from another entry until 完成.
+void DutyCommunityTests::communityBrowserSubmissionWaitsForThePaste()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
+    QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "rememberUrl");
+    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QVariant(rowIds(dialog->property("filtered")).mid(0, 1)))));
+    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
+    scene.item(QStringLiteral("dutyCommunityConsent"), true)->setProperty("checked", true);
+    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmitBrowser")));
+    QTRY_VERIFY(submission && submission->property("copied").toBool());
+    QVERIFY(scene.item(QStringLiteral("dutyCommunityPasteWarning"), true));
+    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("mock submission"));
+    QVERIFY(opened.size() == 1 && opened.at(0).path().endsWith(QStringLiteral("/issues/new")));
+    QGuiApplication::clipboard()->setText(QStringLiteral("/p 123123123"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityCopyAgain")));
+    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("mock submission"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, rowIds(dialog->property("filtered")).at(1))));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityBackToPaste")));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityPasteWarning"), true));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionDone")));
+    QVERIFY(!submission->property("copied").toBool() && dialog->property("mode").toString() == QStringLiteral("view"));
+    QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

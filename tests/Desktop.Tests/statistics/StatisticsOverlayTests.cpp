@@ -1314,6 +1314,26 @@ void StatisticsOverlayTests::guideUsesExactDutyIdentity()
                     {QStringLiteral("detection_confidence"), QStringLiteral("HIGH")}};
     const QUrl directory(QStringLiteral("https://ff14.org/duty/"));
     QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory.resolved(QUrl(QStringLiteral("4.htm"))));
+    // The site follows the interface language, not the run's region (owner, 2026-11-24): both
+    // Chinese interfaces read 新大陆见闻录, English reads Console Games Wiki under the duty's English
+    // name, and Japanese falls back to the English site until it has one of its own.
+    const auto guideIn = [&run](const char *language) {
+        return mr::DutyCommunityController::guideUrl(run, QString::fromLatin1(language)).toString(QUrl::FullyEncoded);
+    };
+    const QString wiki = QStringLiteral("https://ffxiv.consolegameswiki.com/wiki/");
+    QCOMPARE(guideIn("zh-TW"), directory.resolved(QUrl(QStringLiteral("4.htm"))).toString());
+    QCOMPARE(guideIn("en"), wiki + QStringLiteral("Sastasha"));
+    QCOMPARE(guideIn("ja"), wiki + QStringLiteral("Sastasha"));
+    run[QStringLiteral("content_id")] = 24; // The wiki's own spelling where the client's differs.
+    run[QStringLiteral("territory_id")] = 373;
+    QCOMPARE(guideIn("en"), wiki + QStringLiteral("The_Tam-Tara_Deepcroft_(Hard)"));
+    run[QStringLiteral("content_id")] = 1064; // Unlinked: the wiki's list of duties.
+    run.remove(QStringLiteral("territory_id"));
+    QCOMPARE(guideIn("en"), wiki + QStringLiteral("Duties"));
+    QCOMPARE(mr::DutyCommunityController::guideSite(QStringLiteral("ja")), QStringLiteral("Console Games Wiki"));
+    QCOMPARE(mr::DutyCommunityController::guideSite(QStringLiteral("zh-TW")), QString::fromUtf8("新大陆见闻录"));
+    run[QStringLiteral("content_id")] = 4;
+    run[QStringLiteral("territory_id")] = 1036;
     auto historyRun = run;
     run[QStringLiteral("content_id")] = 28;
     run[QStringLiteral("territory_id")] = 387;

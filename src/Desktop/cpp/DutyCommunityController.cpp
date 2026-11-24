@@ -1,7 +1,9 @@
 #include "DutyCommunityController.h"
 
 #include "DutyCatalog.h"
+#include "GameNames.h"
 #include "IBackend.h"
+#include "LanguageManager.h"
 
 #include <QClipboard>
 #include <QDesktopServices>
@@ -20,6 +22,9 @@ namespace mr {
 namespace {
 
 constexpr auto GuideDirectory = "https://ff14.org/duty/";
+constexpr auto WikiDirectory = "https://ffxiv.consolegameswiki.com/wiki/";
+constexpr auto WikiIndexTitle = "Duties";
+constexpr auto WikiLanguage = "en";
 constexpr auto Repo = "https://github.com/Harendotes-Tang/MentorRecorder-Calibrations";
 constexpr qint64 MaxFileBytes = 700'000;
 
@@ -56,6 +61,46 @@ QVariantMap identity(const QVariantMap &run)
             {QStringLiteral("territory_id"), entry.value(QStringLiteral("territory_id"))}};
 }
 
+/// The 新大陆见闻录 page of a linked duty ("4.htm"), or empty: the duty is unknown, has no entry in
+/// the table, or its territory is not the one the table expects for its region.
+QString linkedPage(const QVariantMap &duty)
+{
+    const auto link = guideLinks().value(duty.value(QStringLiteral("content_id")).toString()).toArray();
+    if (link.size() < 2)
+        return {};
+    const auto regionOverrides = link.size() == 3 ? link.at(2).toObject() : QJsonObject{};
+    const int expectedTerritory = regionOverrides.value(duty.value(QStringLiteral("region")).toString())
+        .toInt(link.at(0).toInt());
+    if (expectedTerritory != duty.value(QStringLiteral("territory_id")).toInt())
+        return {};
+    const auto path = link.at(1).toString();
+    static const QRegularExpression safePath(QStringLiteral("\\A[1-9][0-9]*\\.htm\\z"));
+    return safePath.match(path).hasMatch() ? path : QString();
+}
+
+/// Console Games Wiki titles its pages with the English client name. Of the linked duties, these
+/// two are spelled differently there (checked against the wiki on 2026-11-24, 265 of 267 match).
+QString wikiTitle(int contentId)
+{
+    switch (contentId) {
+    case 24: return QStringLiteral("The Tam-Tara Deepcroft (Hard)");
+    case 74: return QStringLiteral("A Relic Reborn: The Chimera");
+    default: return GameNames::shared()->dutyIn(QString::fromLatin1(WikiLanguage), contentId, QString());
+    }
+}
+
+bool readsWiki(const QString &languageCode)
+{
+    return languageCode == QLatin1String("en") || languageCode == QLatin1String("ja");
+}
+
+QUrl wikiPage(const QString &title)
+{
+    QUrl url(QString::fromLatin1(WikiDirectory));
+    url.setPath(url.path() + QString(title).replace(QLatin1Char(' '), QLatin1Char('_')));
+    return url;
+}
+
 } // namespace
 
 DutyCommunityController::DutyCommunityController(IBackend *backend, QObject *parent)
@@ -63,24 +108,35 @@ DutyCommunityController::DutyCommunityController(IBackend *backend, QObject *par
 
 QUrl DutyCommunityController::guideUrl(const QVariantMap &run)
 {
+    return guideUrl(run, LanguageManager::currentCode());
+}
+
+QUrl DutyCommunityController::guideUrl(const QVariantMap &run, const QString &languageCode)
+{
     const auto duty = identity(run);
-    const QUrl directory(QString::fromLatin1(GuideDirectory));
-    const auto link = guideLinks().value(duty.value(QStringLiteral("content_id")).toString()).toArray();
-    if (link.size() < 2)
-        return directory;
-    const auto regionOverrides = link.size() == 3 ? link.at(2).toObject() : QJsonObject{};
-    const int expectedTerritory = regionOverrides.value(duty.value(QStringLiteral("region")).toString())
-        .toInt(link.at(0).toInt());
-    if (expectedTerritory != duty.value(QStringLiteral("territory_id")).toInt())
-        return directory;
-    const auto path = link.at(1).toString();
-    static const QRegularExpression safePath(QStringLiteral("\\A[1-9][0-9]*\\.htm\\z"));
-    return safePath.match(path).hasMatch() ? directory.resolved(QUrl(path)) : directory;
+    const QString page = linkedPage(duty);
+    if (!readsWiki(languageCode)) {
+        const QUrl directory(QString::fromLatin1(GuideDirectory));
+        return page.isEmpty() ? directory : directory.resolved(QUrl(page));
+    }
+    // The same duties have a page in every language, so 查看攻略 / 攻略目录 does not change with it.
+    const QString title = page.isEmpty() ? QString() : wikiTitle(duty.value(QStringLiteral("content_id")).toInt());
+    return wikiPage(title.isEmpty() ? QString::fromLatin1(WikiIndexTitle) : title);
+}
+
+QString DutyCommunityController::guideSite(const QString &languageCode)
+{
+    return readsWiki(languageCode) ? QStringLiteral("Console Games Wiki") : QString::fromUtf8("新大陆见闻录");
+}
+
+QString DutyCommunityController::guideSiteName() const
+{
+    return guideSite(LanguageManager::currentCode());
 }
 
 bool DutyCommunityController::hasGuide(const QVariantMap &run) const
 {
-    return guideUrl(run) != QUrl(QString::fromLatin1(GuideDirectory));
+    return !linkedPage(identity(run)).isEmpty();
 }
 
 bool DutyCommunityController::openGuide(const QVariantMap &run) const

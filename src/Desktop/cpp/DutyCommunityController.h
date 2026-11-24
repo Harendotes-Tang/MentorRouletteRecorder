@@ -15,7 +15,15 @@ class DutyCommunityController final : public QObject
     Q_OBJECT
 public:
     explicit DutyCommunityController(IBackend *backend, QObject *parent = nullptr);
+    /// The duty's guide page, or the site's list of duties when the duty is unknown or has no
+    /// page. The site follows the interface language: 新大陆见闻录 in both Chinese interfaces,
+    /// Console Games Wiki in English and, until it has a site of its own, in Japanese.
     static QUrl guideUrl(const QVariantMap &run);
+    static QUrl guideUrl(const QVariantMap &run, const QString &languageCode);
+    /// The name of the site guideUrl() opens for \a languageCode; a proper name, not translated.
+    static QString guideSite(const QString &languageCode);
+    /// guideSite() for the interface language.
+    Q_INVOKABLE QString guideSiteName() const;
     Q_INVOKABLE bool hasGuide(const QVariantMap &run) const;
     Q_INVOKABLE bool openGuide(const QVariantMap &run) const;
     Q_INVOKABLE QVariantMap dutyIdentity(const QVariantMap &run) const;

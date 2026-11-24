@@ -18,6 +18,12 @@ ColumnLayout {
     property bool posting: false
     property bool cancelled: false
     property bool showFullText: false
+    // The submission is on the clipboard and the GitHub form is open. The pane stays and says
+    // where to paste it: going back to the entry left only a footnote, and a player who then
+    // copied the macro itself sent that alone, which the workflow rejects (owner, 2026-11-23).
+    property string copiedBody: ""
+    readonly property bool copied: copiedBody.length > 0
+    property bool copiedAgain: false
     // What the public library already holds is left out and said why (owner, 2026-11-23): the
     // same text under another entry, or this very entry as it would be sent, licence included.
     // The publishing workflow decides the same way, so sending it would change nothing. Without
@@ -55,6 +61,14 @@ ColumnLayout {
         consent.checked = false
         license.currentIndex = 0
         showFullText = false
+        copiedBody = ""
+        copiedAgain = false
+    }
+
+    function copyAgain() {
+        copiedAgain = service.copy(copiedBody)
+        store.note = store.statusText(copiedAgain ? "prepared" : "copy_failed")
+        if (copiedAgain) copiedAgainTimer.restart()
     }
 
     function auth(action) {
@@ -116,10 +130,11 @@ ColumnLayout {
                 store.basket = []
                 if (visible) finished()
             } else if (result.status === "prepared") {
+                if (!visible) return
                 if (!service.copy(result.body)) { store.note = store.statusText("copy_failed"); return }
+                copiedBody = result.body
                 service.openGitHub("fallback", 0)
                 store.basket = []
-                if (visible) finished()
             }
             store.report(result)
         })
@@ -128,6 +143,7 @@ ColumnLayout {
     onVisibleChanged: if (!visible && code) cancelAuth()
     Timer { id: poll; onTriggered: pane.auth("poll") }
     Timer { id: cancelRetry; interval: 500; onTriggered: pane.cancelAuth() }
+    Timer { id: copiedAgainTimer; interval: 1800; onTriggered: pane.copiedAgain = false }
 
     component Body: Text {
         renderType: Theme.bodyRenderType
@@ -154,14 +170,20 @@ ColumnLayout {
                 objectName: "dutyCommunitySubmissionHeading"
                 renderType: Theme.bodyRenderType
                 Layout.topMargin: 18
-                text: qsTr("投稿到公共共享库")
+                text: pane.copied ? qsTr("投稿正文已复制，去浏览器粘贴") : qsTr("投稿到公共共享库")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(18)
                 font.bold: true
             }
-            Body { text: qsTr("投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。") }
+            Body {
+                text: pane.copied
+                      ? qsTr("投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
+                            .arg(pane.submittable.length)
+                      : qsTr("投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。")
+            }
 
             ColumnLayout {
+                visible: !pane.copied
                 Layout.fillWidth: true
                 spacing: 6
                 Repeater {
@@ -224,7 +246,11 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 9
                 Repeater {
-                    model: [
+                    model: pane.copied ? [
+                        qsTr("在浏览器的 GitHub 表单里，点「Community submission」下面的输入框，粘贴（Ctrl+V）。"),
+                        qsTr("粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。"),
+                        qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
+                    ] : [
                         qsTr("核对下面会公开的内容，选好许可并勾选确认。"),
                         qsTr("用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。"),
                         qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
@@ -262,6 +288,7 @@ ColumnLayout {
             }
 
             InsetBox {
+                visible: !pane.copied
                 Layout.fillWidth: true
                 implicitHeight: publicColumn.implicitHeight + 24
                 border.width: 1
@@ -341,14 +368,35 @@ ColumnLayout {
             }
 
             Body {
-                visible: !pane.store.configured
+                visible: !pane.store.configured && !pane.copied
                 text: pane.store.statusText("app_not_configured")
+            }
+            // The clipboard holds one text: copying the macro, or anything else, before pasting
+            // replaces the submission.
+            Rectangle {
+                objectName: "dutyCommunityPasteWarning"
+                visible: pane.copied
+                Layout.fillWidth: true
+                Layout.bottomMargin: 18
+                implicitHeight: warning.implicitHeight + 24
+                radius: Theme.radiusM
+                color: Theme.orangeBackground
+                border.width: 1
+                border.color: Theme.orange
+                Body {
+                    id: warning
+                    x: 14
+                    y: 12
+                    width: parent.width - 28
+                    color: Theme.textPrimary
+                    text: qsTr("粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。")
+                }
             }
             Flow {
                 Layout.fillWidth: true
                 Layout.bottomMargin: 18
                 spacing: 6
-                visible: pane.store.configured
+                visible: pane.store.configured && !pane.copied
                 AppButton { compact: true; visible: !pane.account && !pane.code; text: qsTr("GitHub 账号"); onClicked: pane.auth("account") }
                 AppButton { compact: true; visible: !pane.account && !pane.code; text: qsTr("开始设备授权"); onClicked: pane.auth("sign_in") }
                 AppButton { compact: true; visible: !!pane.code; text: qsTr("打开 GitHub 授权"); onClicked: pane.service.openGitHub("device", 0) }
@@ -368,8 +416,29 @@ ColumnLayout {
         Layout.bottomMargin: 12
         spacing: 8
         AppButton {
+            objectName: "dutyCommunityCopyAgain"
+            visible: pane.copied
+            variant: "primary"
+            iconName: pane.copiedAgain ? "check" : "copy"
+            text: pane.copiedAgain ? qsTr("已复制") : qsTr("再次复制投稿正文")
+            onClicked: pane.copyAgain()
+        }
+        AppButton {
+            visible: pane.copied
+            iconName: "external-link"
+            iconAfterText: true
+            text: qsTr("重新打开表单")
+            onClicked: pane.service.openGitHub("fallback", 0)
+        }
+        AppButton {
+            objectName: "dutyCommunitySubmissionDone"
+            visible: pane.copied
+            text: qsTr("完成")
+            onClicked: { pane.copiedBody = ""; pane.finished() }
+        }
+        AppButton {
             objectName: "dutyCommunitySubmitNative"
-            visible: pane.store.configured
+            visible: pane.store.configured && !pane.copied
             variant: "primary"
             text: qsTr("用 GitHub 账号提交（%1 项）").arg(pane.submittable.length)
             enabled: consent.checked && !!pane.account && !pane.posting && pane.submittable.length > 0
@@ -378,12 +447,21 @@ ColumnLayout {
         }
         AppButton {
             objectName: "dutyCommunitySubmitBrowser"
+            visible: !pane.copied
             variant: pane.store.configured ? "secondary" : "primary"
-            text: qsTr("复制投稿（%1 项）并打开浏览器").arg(pane.submittable.length) + " ↗"
+            iconName: "external-link"
+            iconAfterText: true
+            text: qsTr("点此复制（%1 项）并粘贴到 GitHub 当中").arg(pane.submittable.length)
             enabled: consent.checked && !pane.posting && pane.submittable.length > 0 && pane.submittable.length <= 20
             onClicked: pane.submit(false)
         }
-        AppButton { objectName: "dutyCommunitySubmissionCancel"; text: qsTr("取消"); onClicked: pane.finished() }
+        AppButton {
+            objectName: "dutyCommunitySubmissionCancel"
+            visible: !pane.copied
+            enabled: !pane.posting
+            text: qsTr("取消")
+            onClicked: pane.finished()
+        }
         Item { Layout.fillWidth: true }
     }
 }

@@ -12,7 +12,7 @@
 //
 // The following icons are derived from the Feather project and are also under
 // The MIT License (MIT), Copyright (c) 2013-present Cole Bemis:
-//   arrow-down, arrow-right, arrow-up, calendar, check, chevron-down, chevron-left, chevron-right, chevrons-down, circle-alert, circle-help, clock, frown, info, lock, log-out, meh, minimize-2, minus, moon, plus, radio, search, server, smile, square, target, x
+//   arrow-down, arrow-right, arrow-up, calendar, check, chevron-down, chevron-left, chevron-right, chevrons-down, circle-alert, circle-help, clock, external-link, frown, info, lock, log-out, meh, minimize-2, minus, moon, plus, radio, search, server, smile, square, target, x
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -26,7 +26,7 @@
 var version = "1.76.0"
 
 // Icons Lucide derives from Feather (MIT, see the header); the rest are ISC only.
-var fromFeather = ["arrow-down", "arrow-right", "arrow-up", "calendar", "check", "chevron-down", "chevron-left", "chevron-right", "chevrons-down", "circle-alert", "circle-help", "clock", "frown", "info", "lock", "log-out", "meh", "minimize-2", "minus", "moon", "plus", "radio", "search", "server", "smile", "square", "target", "x"]
+var fromFeather = ["arrow-down", "arrow-right", "arrow-up", "calendar", "check", "chevron-down", "chevron-left", "chevron-right", "chevrons-down", "circle-alert", "circle-help", "clock", "external-link", "frown", "info", "lock", "log-out", "meh", "minimize-2", "minus", "moon", "plus", "radio", "search", "server", "smile", "square", "target", "x"]
 
 // name -> the drawing elements of the icon's 24x24 viewBox.
 var icons = {
@@ -53,6 +53,7 @@ var icons = {
     "cloud-off": "<path d=\"M10.94 5.274A7 7 0 0 1 15.71 10h1.79a4.5 4.5 0 0 1 4.222 6.057\"/><path d=\"M18.796 18.81A4.5 4.5 0 0 1 17.5 19H9A7 7 0 0 1 5.79 5.78\"/><path d=\"m2 2 20 20\"/>",
     "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>",
     "diamond": "<path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/>",
+    "external-link": "<path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>",
     "file-check": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"m9 15 2 2 4-4\"/>",
     "file-down": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M12 18v-6\"/><path d=\"m9 15 3 3 3-3\"/>",
     "file-input": "<path d=\"M4 11V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M2 15h10\"/><path d=\"m9 18 3-3-3-3\"/>",

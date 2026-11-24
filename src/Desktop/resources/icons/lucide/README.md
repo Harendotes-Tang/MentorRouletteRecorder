@@ -3,9 +3,9 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 73 个图标中有 28 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
+（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 74 个图标中有 29 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`external-link`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
 其中 `circle-alert` 与 `circle-help` 在名单上仍写作 Feather 的旧名 `alert-circle` 与 `help-circle`（Lucide 后来改了名，对应关系记在生成器的 `FEATHER_RENAMES` 中）；`globe` 不在名单上。
-生成器按同一份名单把 MIT 声明与这 28 个名称一并写入 `Lucide.js` 的文件头（`fromFeather`）。
+生成器按同一份名单把 MIT 声明与这 29 个名称一并写入 `Lucide.js` 的文件头（`fromFeather`）。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
 
 | 项 | 值 |
@@ -30,6 +30,8 @@
 2026-11-19 全部 69 个图标升级到 `lucide-static@1.76.0`（`https://unpkg.com/lucide-static@1.76.0/icons/<name>.svg`），逐个覆盖并重新生成 `Lucide.js`；与 1.61.0 相比只有 `circle-help` 的问号画法有变化，其余文件仅版本注释不同。下表为新文件的校验值，上文两处「1.61.0」记录的是当时的取用版本。
 
 2026-11-23 新增 `languages`、`send`、`skull`、`star`（「提醒与宏」的语言、投稿、BOSS / 阶段与收藏），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
+
+2026-11-23 新增 `external-link`（「提醒与宏」中打开浏览器的按钮用它代替文字箭头「↗」），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
 
 2026-11-09 图标统一补齐：复选、浮窗、完成状态、窗口控制与复制操作的新增图标同样取自上述固定官方 npm 版本；浮窗旧名称由 `OverlayIcons.js` 映射到标准 Lucide 名称，运行时仍只读取本地生成库。
 
@@ -58,6 +60,7 @@
 | `cloud-off.svg` | `b32b6eec0f0ddbe5aa6da470acc6d26e826844f84c154c3fdf516ff50e86d952` |
 | `copy.svg` | `7dad075505307e180ca7536d02d849cab403f3bcdffc96ea6970e75f770a31b3` |
 | `diamond.svg` | `0b0fa8579e57c2e7f651587ca62f6258b411b8e35502bd58989ddd11ea8b35e5` |
+| `external-link.svg` | `7794fb77f11607d0ad0a4e3bea4ecddeda1cc87e0e9e42b12157196e0cf8b25c` |
 | `file-check.svg` | `f5b97ec5277265788de350034caeee26bc4723228ce1d2138f9b2a00eb381ef9` |
 | `file-down.svg` | `2ac3838ae2a627b780a7f7d0913cf6b547d460ae6b506b67c03d51f1dd653692` |
 | `file-input.svg` | `5846bf615d309ed4ace903fd710d05166a2887729422aecb9da859fc48dee6a9` |

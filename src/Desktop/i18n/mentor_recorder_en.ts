@@ -6440,6 +6440,10 @@ SHA256: %3</translation>
         <translation>Open on GitHub</translation>
     </message>
     <message>
+        <source>回到粘贴步骤</source>
+        <translation>Back to paste steps</translation>
+    </message>
+    <message>
         <source>来源更新对比</source>
         <translation>Compare source revisions</translation>
     </message>
@@ -6880,6 +6884,22 @@ SHA256: %3</translation>
         <translation>Enter the Issue number under Submission progress at the bottom to check its state at any time.</translation>
     </message>
     <message>
+        <source>投稿正文已复制，去浏览器粘贴</source>
+        <translation>Submission copied. Paste it in the browser</translation>
+    </message>
+    <message>
+        <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
+        <translation>The submission (%1) is on the clipboard and the GitHub submission form is open in the browser. If you do not see the form, click Reopen form below.</translation>
+    </message>
+    <message>
+        <source>在浏览器的 GitHub 表单里，点「Community submission」下面的输入框，粘贴（Ctrl+V）。</source>
+        <translation>In the GitHub form in the browser, click the box under Community submission and paste (Ctrl+V).</translation>
+    </message>
+    <message>
+        <source>粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。</source>
+        <translation>What you paste is a long block that looks like program code. Do not change any of it; submit it on the GitHub page as it is.</translation>
+    </message>
+    <message>
         <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
         <translation>The title, text, duty, boss / phase, region and language of these %1 items become public, with the licence you choose. Submit only text you may share, and leave out personal information.</translation>
     </message>
@@ -6908,6 +6928,10 @@ SHA256: %3</translation>
         <translation>I confirm the source and agree to publish under the selected license.</translation>
     </message>
     <message>
+        <source>粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。</source>
+        <translation>Do not copy anything else before pasting, and do not copy the macro on its own. The clipboard keeps only the last thing copied, and once the submission is replaced GitHub cannot find a complete submission and fails to process it. If you already copied something else, click Copy submission again.</translation>
+    </message>
+    <message>
         <source>GitHub 账号</source>
         <translation>GitHub account</translation>
     </message>
@@ -6932,12 +6956,28 @@ SHA256: %3</translation>
         <translation>Sign out of GitHub</translation>
     </message>
     <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>再次复制投稿正文</source>
+        <translation>Copy submission again</translation>
+    </message>
+    <message>
+        <source>重新打开表单</source>
+        <translation>Reopen form</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+    <message>
         <source>用 GitHub 账号提交（%1 项）</source>
         <translation>Submit with GitHub account (%1)</translation>
     </message>
     <message>
-        <source>复制投稿（%1 项）并打开浏览器</source>
-        <translation>Copy submission (%1) and open browser</translation>
+        <source>点此复制（%1 项）并粘贴到 GitHub 当中</source>
+        <translation>Copy (%1), then paste into GitHub</translation>
     </message>
     <message>
         <source>取消</source>
@@ -7122,12 +7162,12 @@ SHA256: %3</translation>
 <context>
     <name>DutyGuideAction</name>
     <message>
-        <source>在浏览器打开「新大陆见闻录」上这个副本的攻略</source>
-        <translation>Open this duty&apos;s guide on 新大陆见闻录 in the browser</translation>
+        <source>在浏览器打开「%1」上这个副本的攻略</source>
+        <translation>Open this duty&apos;s guide on %1 in the browser</translation>
     </message>
     <message>
-        <source>在浏览器打开「新大陆见闻录」的攻略目录</source>
-        <translation>Open the 新大陆见闻录 guide index in the browser</translation>
+        <source>在浏览器打开「%1」的攻略目录</source>
+        <translation>Open the %1 guide index in the browser</translation>
     </message>
     <message>
         <source>查看攻略</source>
