@@ -8,7 +8,7 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class CandidateProfileTests : IDisposable
 {
     private const string Build = "2026.08.05.0000.0000";
-    private readonly TempDirectory _directory = new("CandidateProfiles");
+    private readonly TempDirectory _directory = new("CandidateProfiles", strict: true);
 
     [Fact]
     public void DefaultCatalogDoesNotRetainCandidatesAndFormalSelectionNeverUsesThem()

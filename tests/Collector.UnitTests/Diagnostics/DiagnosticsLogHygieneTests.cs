@@ -98,11 +98,13 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     [Fact]
     public void Logger_WritesNoPayloadAndNoUserName()
     {
+        // A folder of its own that must come away whole: a log file the logger left open fails the test.
+        using var directory = new TempDirectory("LogTests", strict: true);
         var line = Write(logger => logger.Write(LogLevel.Info, "ipc", "connection_accepted", new Dictionary<string, object?>
         {
             ["count"] = 3,
             ["path"] = @"C:\Users\SomebodyElse\AppData\Local\MentorRecorder\x.db",
-        }));
+        }), directory.Path);
 
         Assert.Contains("\"event\":\"connection_accepted\"", line, StringComparison.Ordinal);
         Assert.Contains("\"ts\":\"2026-09-04T07:00:00.000Z\"", line, StringComparison.Ordinal);
@@ -217,12 +219,14 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     [Fact]
     public void Logger_DeletesDaysThatHaveAgedOut()
     {
-        var stale = _directory.Combine("collector-20260101.log");
-        var recent = _directory.Combine("collector-20260903.log");
+        // A folder of its own that must come away whole: a log file the logger left open fails the test.
+        using var directory = new TempDirectory("LogTests", strict: true);
+        var stale = directory.Combine("collector-20260101.log");
+        var recent = directory.Combine("collector-20260903.log");
         File.WriteAllText(stale, "old\n");
         File.WriteAllText(recent, "yesterday\n");
 
-        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        using var logger = new RotatingFileLogger(directory.Path, Clock());
         logger.Write(LogLevel.Info, "startup", "database_ready");
 
         Assert.False(File.Exists(stale), "a log from eight months ago should have been pruned");
@@ -518,10 +522,12 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
 
     private static TestClock Clock() => new(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
 
-    /// <summary>Writes with a fresh logger in this test's directory and returns the file text.</summary>
-    private string Write(Action<RotatingFileLogger> write)
+    /// <summary>Writes with a fresh logger and returns the file text.</summary>
+    /// <param name="write">What the logger writes.</param>
+    /// <param name="directory">The log folder; this test class's folder when null.</param>
+    private string Write(Action<RotatingFileLogger> write, string? directory = null)
     {
-        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        using var logger = new RotatingFileLogger(directory ?? _directory.Path, Clock());
         write(logger);
         return File.ReadAllText(logger.CurrentPath, new UTF8Encoding(false));
     }

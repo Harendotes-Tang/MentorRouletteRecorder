@@ -19,9 +19,12 @@ public sealed class BackupServiceTests : IDisposable
     // A checkout on another drive must support real backups outside the user profile.
     private readonly TempDirectory _directory = new("BackupService", parent: AppContext.BaseDirectory);
 
+    // The integrity tests' own database and its backups stay in %TEMP%, where their debris is cleaned.
+    private readonly TempDirectory _integrity = new("BackupIntegrity");
+
     /// <summary>A database of the tests' own, for the ones that open it with a seam.</summary>
-    private string DatabasePath => _directory.Combine("mentor_recorder.db");
-    private string BackupDirectory => _directory.Combine("backups");
+    private string DatabasePath => _integrity.Combine("mentor_recorder.db");
+    private string BackupDirectory => _integrity.Combine("backups");
     private string DatabaseFolder => Path.GetDirectoryName(_database.Path)!;
 
     /// <summary>Opens copies normally, except a staged copy (".mentor-export-*.tmp"), whose check then fails.</summary>
@@ -256,6 +259,7 @@ public sealed class BackupServiceTests : IDisposable
     {
         _database.Dispose();
         SqliteConnection.ClearAllPools();
+        _integrity.Dispose();
         // Test debris under AppContext.BaseDirectory; a locked file is left for the next run to remove.
         _directory.Dispose();
     }

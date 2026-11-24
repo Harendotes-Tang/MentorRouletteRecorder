@@ -5,7 +5,7 @@ public sealed class SymbolicLinkFactAttribute : FactAttribute
 {
     public SymbolicLinkFactAttribute()
     {
-        using var root = new TempDirectory("LinkCapability");
+        using var root = new TempDirectory("LinkCapability", strict: true);
         try
         {
             Directory.CreateSymbolicLink(root.Combine("link"), root.Path);

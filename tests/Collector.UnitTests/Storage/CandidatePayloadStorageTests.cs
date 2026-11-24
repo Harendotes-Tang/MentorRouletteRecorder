@@ -15,7 +15,7 @@ public sealed class CandidatePayloadStorageTests : IDisposable
     private readonly CandidateObservationRepository _ledger;
     private readonly SettingsRepository _settings;
     private readonly string _session = Guid.NewGuid().ToString("D");
-    private readonly TempDirectory _outputDirectory = TempDirectory.Reserve("CandidatePayloadTests");
+    private readonly TempDirectory _outputDirectory = TempDirectory.Reserve("CandidatePayloadTests", strict: true);
 
     public CandidatePayloadStorageTests()
     {

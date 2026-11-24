@@ -8,7 +8,7 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class OodleTempOwnershipTests : IDisposable
 {
-    private readonly TempDirectory _directory = new();
+    private readonly TempDirectory _directory = new(strict: true);
     private static readonly FieldInfo TempPath = typeof(OodleNative_Ffxiv).GetField("_libraryTempPath", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     public OodleTempOwnershipTests() => Directory.CreateDirectory(_directory.Combine("Machina.FFXIV"));

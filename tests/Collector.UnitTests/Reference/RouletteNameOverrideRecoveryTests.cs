@@ -7,7 +7,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>损坏的可选显示映射回退，并允许下一次有效改名修复文件。</summary>
 public sealed class RouletteNameOverrideRecoveryTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("RouletteNames");
+    private readonly TempDirectory _directory = new("RouletteNames", strict: true);
 
     [Theory]
     [InlineData("[]")]

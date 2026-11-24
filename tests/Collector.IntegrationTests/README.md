@@ -11,6 +11,8 @@
 `PipeServerTests` —— 端到端的 IPC 协议：
 
 - `GetVersion` 握手；`GetStatus` 报告 schema 版本与实际抓包状态，其中 `injected_hook_enabled = false`；
+- 未安装 Npcap 的新服务端经实时协议桥答复：`GetProtocolProfileStatus` 为 `NONE`，`GetCurrentRun` 为 `IDLE`
+  且没有记录，`StartCapture`、`StopCapture` 被拒且不启动抓包；
 - `CorrectRun` 与 `GetRunRevisions` 呈现完整修订链，创建时的原值仍可自 revision 1 读出；
 - 同一 `request_id` 重发 `CorrectRun` 仅应用一次，`idempotent_replay = true`；
 - 非法 JSON 帧被拒后连接**仍可用**；未知 `message_type` 显式报错；
@@ -22,7 +24,7 @@
 
 `CaptureIpcTests` —— 抓包类消息：未安装 Npcap 时的真实答复（`ListCaptureAdapters` 报告 `npcap_installed = false`
 并给出安装提示、不推荐任何网卡，`StartCapture` 返回 `ERR_NPCAP_MISSING` 且不启动抓包，`StopCapture` 返回
-`ERR_CAPTURE_NOT_RUNNING` 且当前记录仍为 `IDLE`）；注入伪造报文源后完整走通一次抓包。
+`ERR_CAPTURE_NOT_RUNNING`）；注入伪造报文源后完整走通一次抓包。
 
 `IpcPagingTests` —— `QueryRuns` 分页（页间不重叠）与 `page_size > 200` 被拒；分页边界与大响应不截断记录。
 

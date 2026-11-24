@@ -43,7 +43,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     private const byte Expert = 5;
     private const byte NormalRaids = 15;
 
-    private readonly TempDirectory _root = TempDirectory.Reserve();
+    private readonly TempDirectory _root = TempDirectory.Reserve(strict: true);
 
     public void Dispose() => _root.Dispose();
 

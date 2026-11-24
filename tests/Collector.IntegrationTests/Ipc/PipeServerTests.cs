@@ -60,6 +60,46 @@ public sealed class PipeServerTests
         Assert.Equal("UNAVAILABLE", capture["last_error_code"]!.GetValue<string>());
     }
 
+    /// <summary>
+    /// A fresh server without Npcap, on the live protocol bridge and the shipping catalogue: here the profile
+    /// status and the current run come from the live pipeline. CaptureIpcTests' fixture has no bridge, so its
+    /// answers to those two messages are the capture layer's constants.
+    /// </summary>
+    [Fact]
+    public async Task CaptureMessages_ReportMissingNpcapWithoutStartingCapture()
+    {
+        await using var fixture = ServerFixture.Start();
+        Assert.NotNull(fixture.Host.LiveProtocol);
+
+        var adapters = (await fixture.CallAsync("ListCaptureAdapters")).Require();
+        Assert.False(adapters["npcap_installed"]!.GetValue<bool>());
+        Assert.NotNull(adapters["install_hint"]);
+
+        // Adapters are listed even without Npcap, because enumerating them needs no driver and
+        // an empty list is less useful than the cards plus the install hint. Nothing is
+        // recommended without the game's connections, and every address is masked to a /24.
+        // See tests/Collector.IntegrationTests/Capture/CaptureIpcTests.cs.
+        foreach (var adapter in adapters["adapters"]!.AsArray())
+        {
+            Assert.False(adapter!["recommended"]!.GetValue<bool>());
+        }
+
+        var profile = (await fixture.CallAsync("GetProtocolProfileStatus")).Require();
+        Assert.Equal("NONE", profile["status"]!.GetValue<string>());
+
+        var start = await fixture.CallAsync("StartCapture", new JsonObject());
+        Assert.False(start.Ok);
+        Assert.Equal(ErrorCodes.NpcapMissing, start.ErrorCode);
+
+        var stop = await fixture.CallAsync("StopCapture");
+        Assert.False(stop.Ok);
+        Assert.Equal(ErrorCodes.CaptureNotRunning, stop.ErrorCode);
+
+        var current = (await fixture.CallAsync("GetCurrentRun")).Require();
+        Assert.Equal("IDLE", current["state"]!.GetValue<string>());
+        Assert.Null(current["run"]);
+    }
+
     [Fact]
     public async Task CorrectRun_ThenGetRunRevisions_ShowsTheWholeChain()
     {
@@ -343,7 +383,7 @@ public sealed class PipeServerTests
         await using var fixture = ServerFixture.Start(host =>
             host.Mutations.CreateManualRun(ManualRun(1)));
 
-        using var directory = new TempDirectory("ExportIt", parent: AppContext.BaseDirectory);
+        using var directory = new TempDirectory("ExportIt", parent: AppContext.BaseDirectory, strict: true);
         await using var client = await fixture.ConnectAsync();
 
         var csv = (await client.SendAsync("ExportCsv", new JsonObject

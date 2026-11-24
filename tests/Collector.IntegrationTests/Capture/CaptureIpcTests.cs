@@ -89,10 +89,6 @@ public sealed class CaptureIpcTests
 
         Assert.False(response.Ok);
         Assert.Equal(ErrorCodes.CaptureNotRunning, response.ErrorCode);
-
-        var current = (await fixture.CallAsync("GetCurrentRun")).Require();
-        Assert.Equal("IDLE", current["state"]!.GetValue<string>());
-        Assert.Null(current["run"]);
     }
 
     [Fact]

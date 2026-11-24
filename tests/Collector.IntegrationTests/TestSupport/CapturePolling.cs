@@ -13,7 +13,11 @@ internal static class CapturePolling
     private static readonly TimeSpan RunPatience = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RunInterval = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan ValidationPatience = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ValidationInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly TimeSpan ValidationInterval = TimeSpan.FromMilliseconds(20);
+
+    // CalibrationIpcTests once asked 250 times 20 ms apart, so a pipe slowed by load lengthened its wait; the
+    // validation waits keep that floor besides the 5 s.
+    private const int ValidationAsks = 250;
 
     /// <summary>The first capture status that satisfies <paramref name="until"/>; 10 s at most.</summary>
     /// <param name="fixture">Server under test.</param>
@@ -64,7 +68,10 @@ internal static class CapturePolling
             RunInterval,
             "no stored run ever reached " + result);
 
-    /// <summary>The capture-validation status once it is in <paramref name="state"/>; 5 s at most.</summary>
+    /// <summary>
+    /// The capture-validation status once it is in <paramref name="state"/>; it gives up only after 5 s and 250
+    /// asks 20 ms apart, whichever takes longer.
+    /// </summary>
     /// <param name="client">A connected client.</param>
     /// <param name="state">Wire spelling of the expected validation state.</param>
     public static Task<JsonObject> WaitForValidationStateAsync(this PipeClient client, string state) =>
@@ -76,13 +83,18 @@ internal static class CapturePolling
             },
             ValidationPatience,
             ValidationInterval,
-            "validation state did not reach " + state);
+            "validation state did not reach " + state,
+            ValidationAsks);
 
+    /// <summary>
+    /// Asks until an answer comes, giving up once <paramref name="patience"/> has passed and at least
+    /// <paramref name="asks"/> asks were made.
+    /// </summary>
     private static async Task<JsonObject> AskUntilAsync(
-        Func<Task<JsonObject?>> ask, TimeSpan patience, TimeSpan interval, string failure)
+        Func<Task<JsonObject?>> ask, TimeSpan patience, TimeSpan interval, string failure, int asks = 0)
     {
         var deadline = DateTime.UtcNow + patience;
-        while (DateTime.UtcNow < deadline)
+        for (var asked = 0; asked < asks || DateTime.UtcNow < deadline; asked++)
         {
             if (await ask() is { } answer)
             {

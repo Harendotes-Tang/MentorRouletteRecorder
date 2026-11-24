@@ -12,7 +12,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>模板直接经过生产解析、预览和临时库提交；说明页不能产生虚构记录。</summary>
 public sealed class RunImportTemplateTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("TemplateTests");
+    private readonly TempDirectory _directory = new("TemplateTests", strict: true);
     private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note", "joined_in_progress", "region" };
 
     [Fact]

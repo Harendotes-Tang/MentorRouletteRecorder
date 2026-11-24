@@ -204,7 +204,7 @@ public sealed class SharedCalibrationContractTests
     [Fact]
     public void TheEvidenceDocumentTheCollectorWritesIsValidAgainstTheEvidenceSchema()
     {
-        using var root = TempDirectory.Reserve("Evidence");
+        using var root = TempDirectory.Reserve("Evidence", strict: true);
         var store = new CalibrationEvidenceReceiptStore(root.Path);
         var fields = new[] { "zone", "territory", "job", "match" };
         var verdicts = new[] { "PASS", "CONTRADICT", "WAIT" };

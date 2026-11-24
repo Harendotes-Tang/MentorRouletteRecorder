@@ -34,7 +34,7 @@ public sealed class TemplateObservationTests
 
     private static Protocol.Sharing.CalibrationEvidenceResult Export(string trace)
     {
-        using var directory = new TempDirectory("TemplateObservation");
+        using var directory = new TempDirectory("TemplateObservation", strict: true);
         var path = Path.Combine(directory.Path, "trace.jsonl");
         File.WriteAllText(path, trace);
         return TemplateObservationExporter.Export(path, CaptureTraceDigest.Compute(path), EvidenceId, SessionAlias);
@@ -108,7 +108,7 @@ public sealed class TemplateObservationTests
     [Fact]
     public void ClosedFileMustStillMatchTheControllersFrozenDigest()
     {
-        using var directory = new TempDirectory("TemplateObservation");
+        using var directory = new TempDirectory("TemplateObservation", strict: true);
         var path = Path.Combine(directory.Path, "trace.jsonl");
         File.WriteAllText(path, Trace());
         var digest = CaptureTraceDigest.Compute(path);
@@ -121,7 +121,7 @@ public sealed class TemplateObservationTests
     [Fact]
     public void FileOverSixtyFourMiBLimitIsRejectedBeforeReading()
     {
-        using var directory = new TempDirectory("TemplateObservation");
+        using var directory = new TempDirectory("TemplateObservation", strict: true);
         var path = Path.Combine(directory.Path, "trace.jsonl");
         using (var file = File.Create(path)) file.SetLength(CaptureTraceAnalysis.MaxInputBytes + 1);
         Assert.Equal("OBSERVATION_LIMIT", TemplateObservationExporter.Export(path, "", EvidenceId, SessionAlias).Reason);

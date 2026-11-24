@@ -144,7 +144,7 @@ public sealed class ReplayTests
     [InlineData(false)]
     public void QueueInferredReplayStartsOnlyForAKnownDuty(bool knownDuty)
     {
-        using var root = TempDirectory.Reserve("QueueReplay");
+        using var root = TempDirectory.Reserve("QueueReplay", strict: true);
         try
         {
             var template = CalibrationObserverTests.Template();

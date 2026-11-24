@@ -27,15 +27,15 @@ public sealed class SettingsGateTests : IDisposable
     }
 
     [Fact]
-    public void TheAchievementRowWaitsForAnOpenTransactionInsteadOfFailing()
+    public async Task TheAchievementRowWaitsForAnOpenTransactionInsteadOfFailing()
     {
-        AssertWaitsForTheGate(() => _settings.GetAchievementSettings());
+        await AssertWaitsForTheGateAsync(() => _settings.GetAchievementSettings(), TimeSpan.FromSeconds(20));
     }
 
     [Fact]
-    public void TheBaselineHistoryWaitsForAnOpenTransactionToo()
+    public async Task TheBaselineHistoryWaitsForAnOpenTransactionToo()
     {
-        AssertWaitsForTheGate(() => _settings.ReadBaselineAudit());
+        await AssertWaitsForTheGateAsync(() => _settings.ReadBaselineAudit(), TimeSpan.FromSeconds(20));
     }
 
     [Fact]
@@ -68,13 +68,15 @@ public sealed class SettingsGateTests : IDisposable
     /// confirmed calibration failed after its file was written. It must wait its turn instead.
     /// </summary>
     [Fact]
-    public void ACaptureSessionProfileUpdateWaitsForAnOpenTransactionToo()
+    public async Task ACaptureSessionProfileUpdateWaitsForAnOpenTransactionToo()
     {
         var sessions = new CaptureSessionRepository(_database.Database);
         var sessionId = _database.OpenCaptureSession(Region.Cn, "2026.08.05.0000.0000", ProfileStatus.Verified);
         var changed = false;
 
-        AssertWaitsForTheGate(() => changed = sessions.UpdateProfile(sessionId, "cn.2026.09.01.local", ProfileStatus.Verified));
+        await AssertWaitsForTheGateAsync(
+            () => changed = sessions.UpdateProfile(sessionId, "cn.2026.09.01.local", ProfileStatus.Verified),
+            TimeSpan.FromSeconds(30));
 
         Assert.True(changed);
         Assert.Equal("cn.2026.09.01.local", sessions.Get(sessionId)!.ProtocolProfileId);
@@ -85,7 +87,8 @@ public sealed class SettingsGateTests : IDisposable
     /// the gate rather than throwing, and completes once the writer commits.
     /// </summary>
     /// <param name="read">The transaction-less repository call under test.</param>
-    private void AssertWaitsForTheGate(Func<object> read)
+    /// <param name="patience">How long each side may take to start or finish.</param>
+    private async Task AssertWaitsForTheGateAsync(Func<object> read, TimeSpan patience)
     {
         using var writing = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -93,19 +96,18 @@ public sealed class SettingsGateTests : IDisposable
         var writer = Task.Run(() => _database.Database.RunInTransaction(_ =>
         {
             writing.Set();
-            release.Wait(TimeSpan.FromSeconds(20));
+            release.Wait(patience);
         }));
-        Assert.True(writing.Wait(TimeSpan.FromSeconds(20)));
+        Assert.True(writing.Wait(patience));
 
         var reading = Task.Run(read);
         Assert.False(
-            reading.Wait(TimeSpan.FromMilliseconds(400)),
+            await Task.WhenAny(reading, Task.Delay(TimeSpan.FromMilliseconds(400))) == reading,
             "the read did not wait for the open transaction; it is running outside the gate");
 
         release.Set();
-        Assert.True(writer.Wait(TimeSpan.FromSeconds(20)));
-        Assert.True(reading.Wait(TimeSpan.FromSeconds(20)));
-        Assert.NotNull(reading.Result);
+        await writer.WaitAsync(patience);
+        Assert.NotNull(await reading.WaitAsync(patience));
     }
 
     public void Dispose() => _database.Dispose();

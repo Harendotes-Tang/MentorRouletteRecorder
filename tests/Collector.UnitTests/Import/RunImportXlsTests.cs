@@ -11,7 +11,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>用实际 HSSF 生成 OLE/BIFF8 文件，验证导入边界而不是模拟解析成功。</summary>
 public sealed class RunImportXlsTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("XlsTests");
+    private readonly TempDirectory _directory = new("XlsTests", strict: true);
 
     [Fact]
     public void FirstVisibleSheetUsesFirstNonemptyHeaderAndSparseChineseColumns()

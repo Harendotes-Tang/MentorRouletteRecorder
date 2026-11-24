@@ -444,7 +444,7 @@ public sealed class HistoryRetentionTests
     [Fact]
     public void MigrationStartsOldDeletedRowsAtTheUpgradeClock()
     {
-        using var temp = new TempDirectory("RetentionMigration");
+        using var temp = new TempDirectory("RetentionMigration", strict: true);
         var path = temp.Combine("legacy.db");
         var clock = new TestClock(new DateTimeOffset(2026, 10, 10, 0, 0, 0, TimeSpan.Zero));
         using (var old = new SqliteConnection("Data Source=" + path + ";Pooling=False"))

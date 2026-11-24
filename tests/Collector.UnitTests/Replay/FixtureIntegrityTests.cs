@@ -185,7 +185,7 @@ public sealed class FixtureIntegrityTests
     [Fact]
     public void AFixtureThatDoesNotDeclareItselfSyntheticIsRefused()
     {
-        using var temp = new TempDirectory("DecodedTamper");
+        using var temp = new TempDirectory("DecodedTamper", strict: true);
         var path = temp.Combine("fake.decoded.json");
         var document = JsonDocument.Parse(
             File.ReadAllText(Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")));
@@ -209,7 +209,7 @@ public sealed class FixtureIntegrityTests
     [InlineData(true, "uppercase")]
     public void LoadChecksSidecarBeforeParsingAndAcceptsNormalizedHash(bool decoded, string sidecar)
     {
-        using var temp = new TempDirectory("FixtureSidecar");
+        using var temp = new TempDirectory("FixtureSidecar", strict: true);
         var source = decoded
             ? Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")
             : Path.Combine(Directory, "mentor_left_v1.fixture.json");
@@ -240,7 +240,7 @@ public sealed class FixtureIntegrityTests
     [InlineData("decoded/synthetic_complete.decoded.json", "61441", "61442")]
     public void TamperingWithAFixtureIsDetected(string relativePath, string original, string edited)
     {
-        using var temp = new TempDirectory("FixtureTamper");
+        using var temp = new TempDirectory("FixtureTamper", strict: true);
         var source = Path.Combine(Directory, relativePath);
         var copy = temp.Combine(Path.GetFileName(source));
         File.Copy(source, copy);

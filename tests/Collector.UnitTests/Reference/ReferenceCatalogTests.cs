@@ -281,22 +281,24 @@ public sealed class ReferenceCatalogTests
 
     /// <summary>A duplicate id, an empty name, an unsupported schema and an unknown region are each refused.</summary>
     [Theory]
-    [InlineData("""
+    [InlineData("duplicate id", """
         {"schema_version":1,"region":"CN","roulettes":[
           {"roulette_id":1,"localized_name":"A","enabled":true},
           {"roulette_id":1,"localized_name":"B","enabled":true}
         ]}
         """)]
-    [InlineData("""
+    [InlineData("empty name", """
         {"schema_version":1,"region":"CN","roulettes":[
           {"roulette_id":1,"localized_name":"","enabled":true}
         ]}
         """)]
-    [InlineData("""{"schema_version":2,"region":"CN","roulettes":[]}""")]
-    [InlineData("""{"schema_version":1,"region":"NOWHERE","roulettes":[]}""")]
-    public void ParseRouletteCatalog_RefusesAnUnusableDocument(string json)
+    [InlineData("schema 2", """{"schema_version":2,"region":"CN","roulettes":[]}""")]
+    [InlineData("unknown region", """{"schema_version":1,"region":"NOWHERE","roulettes":[]}""")]
+    public void ParseRouletteCatalog_RefusesAnUnusableDocument(string refusal, string json)
     {
-        Assert.Throws<InvalidDataException>(() => RouletteCatalog.Parse(json));
+        var error = Record.Exception(() => RouletteCatalog.Parse(json));
+
+        Assert.True(error?.GetType() == typeof(InvalidDataException), refusal + ": " + (error?.GetType().Name ?? "accepted"));
     }
 
     [Fact]

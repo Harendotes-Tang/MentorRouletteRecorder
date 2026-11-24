@@ -338,7 +338,7 @@ public sealed class ReflectionTests : IDisposable
         Seed(TestDatabase.Run());
         Set(run.RunId, ReflectionMood.Good, "带新人，一次过。");
 
-        using var temp = new TempDirectory("ReflectionExport");
+        using var temp = new TempDirectory("ReflectionExport", strict: true);
         var exporter = new RunExporter(_runs, _database.Clock);
 
         var csv = File.ReadAllText(

@@ -10,9 +10,10 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// How capture finishes and publishes an automatically recorded run. A holding place: the first test belongs
-/// with the state machine tests (Domain/StateMachineTests.cs) and the second with the pipeline tests
-/// (Protocol/Pipeline/ProtocolPipelineTests.cs), which are both over the 800-line limit until they are split.
+/// How capture finishes and stores an automatically recorded run. An explicit exit from the duty ends the run
+/// with the result the profile can vouch for: left, or unknown and pending review when the profile cannot
+/// detect results. Automatic changes that all fall in one millisecond still each publish the updated row and
+/// the statistics, an unchanged duplicate publishes nothing, and the stored row stays at revision 1.
 /// </summary>
 public sealed class AutomaticRunRecordingTests
 {

@@ -540,10 +540,16 @@ public sealed class SharedCalibrationClientTests
             .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) =>
                 throw new HttpRequestException(HttpRequestError.SecureConnectionError, "handshake", new AuthenticationException()))
             .Serve(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
-                new SharedTransportResponse(200, uri, null, new FailingStream())))
-            .Serve(SharedCalibrationClient.IndexUri(Source.CdnFallback), (_, _) => throw new InvalidOperationException("surprise"));
+                new SharedTransportResponse(200, uri, null, new FailingStream())));
+        // The fake hands every failure back as a faulted task; this transport throws before it returns one.
+        var client = new SharedCalibrationClient(
+            (uri, token) => uri == SharedCalibrationClient.IndexUri(Source.CdnFallback)
+                ? throw new InvalidOperationException("surprise")
+                : transport.Send(uri, token),
+            TimeSpan.FromSeconds(5),
+            _ => null);
 
-        var result = await Client(transport).FetchAsync(Region.Cn, Build);
+        var result = await client.FetchAsync(Region.Cn, Build);
 
         Assert.Equal(new[] { Outcome.TlsFailed, Outcome.HttpStatus, Outcome.ReadFailed, Outcome.TransportFailed }, result.IndexAttempts.Select(attempt => attempt.Outcome));
         Assert.Equal("InvalidOperationException", result.IndexAttempts[3].Detail);

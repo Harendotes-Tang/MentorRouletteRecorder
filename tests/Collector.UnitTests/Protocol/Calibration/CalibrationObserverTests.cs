@@ -667,7 +667,7 @@ public sealed class CalibrationObserverTests
     [Fact]
     public void TemplateSelectionPrefersTheHighestBuildAndRefusesATie()
     {
-        using var temp = new TempDirectory();
+        using var temp = new TempDirectory(strict: true);
         WriteTemplate(temp.Path, "older", "build-1");
         WriteTemplate(temp.Path, "newer", "build-2");
         var catalog = ProfileCatalog.Load(temp.Path);

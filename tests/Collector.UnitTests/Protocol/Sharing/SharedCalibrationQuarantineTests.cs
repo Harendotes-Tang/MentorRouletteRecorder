@@ -405,23 +405,25 @@ public sealed class SharedCalibrationQuarantineTests
     [Fact]
     public void DiskRoundTripPreservesQuarantineThenRecoveryEpochAndCode()
     {
-        using var bed = new Bed();
+        // A store folder of its own that must come away whole: a state file left open fails the test.
+        using var root = TempDirectory.Reserve(strict: true);
         var payload = ShareCodeTests.Payload(CalibrationMatchSource.Announcement,
             new ShareCodePop(512, Length: 64)) with { GameBuild = Bed.Build };
         var candidate = new SharedCalibrationCandidate(ShareCode.Sha256(payload), ShareCode.Encode(payload), payload,
             3, DateTimeOffset.UtcNow, SharedCalibrationIndexTests.Commit(), Quarantined: true, QuarantineEpoch: 2);
-        var store = bed.Store;
+        var store = new SharedCalibrationStore(root.Path);
         Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
             Bed.Fetched(SharedFetchStatus.Ok, candidate), DateTimeOffset.UtcNow).Recorded);
-        var quarantined = Assert.Single(new SharedCalibrationStore(bed.StoreRoot)
+        var quarantined = Assert.Single(new SharedCalibrationStore(root.Path)
             .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
-        Assert.True(quarantined.Quarantined, File.ReadAllText(bed.StatePath));
+        Assert.True(quarantined.Quarantined, File.ReadAllText(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(root.Path, Region.Cn, payload.GameBuild), SharedCalibrationStore.StateFileName)));
         Assert.Equal(2, quarantined.QuarantineEpoch);
         Assert.Equal(SharedPublication.Published, store.Publication(Region.Cn, payload.GameBuild, candidate.CodeSha256));
 
         Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
             Bed.Fetched(SharedFetchStatus.Ok, candidate with { Quarantined = false }), DateTimeOffset.UtcNow).Recorded);
-        var recovered = Assert.Single(new SharedCalibrationStore(bed.StoreRoot)
+        var recovered = Assert.Single(new SharedCalibrationStore(root.Path)
             .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
         Assert.False(recovered.Quarantined);
         Assert.Equal(2, recovered.QuarantineEpoch);

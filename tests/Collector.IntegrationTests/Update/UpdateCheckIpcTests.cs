@@ -149,7 +149,7 @@ public sealed class UpdateCheckIpcTests
     public async Task TheExportedReportStatesTheCheckWithoutSayingWhereItGoes()
     {
         await using var fixture = ServerFixture.Start();
-        using var workspace = new TempDirectory("UpdateReport");
+        using var workspace = new TempDirectory("UpdateReport", strict: true);
         var target = workspace.Combine("report.json");
         Assert.True((await fixture.CallAsync(
             "ExportDiagnosticsReport", new JsonObject { ["target_path"] = target })).Ok);

@@ -13,7 +13,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>仅使用合成文件验证来源解析；不读取本人数据库、截图或第三方账号。</summary>
 public sealed class RunImportSourceParserTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("ImportSourceTests");
+    private readonly TempDirectory _directory = new("ImportSourceTests", strict: true);
     private static readonly string[] RunFields =
     [
         "run_id", "region", "content_id", "duty_name", "job_id", "job_name", "role", "matched_at_utc",

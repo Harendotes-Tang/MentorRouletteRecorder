@@ -14,7 +14,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProtocolProfileMalformedFieldTests : IDisposable
 {
-    private readonly TempDirectory _root = new("ProfileMalformed");
+    private readonly TempDirectory _root = new("ProfileMalformed", strict: true);
     private readonly string _directory;
 
     public ProtocolProfileMalformedFieldTests()

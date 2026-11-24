@@ -36,8 +36,10 @@ public sealed class LocalizedSearchIpcTests
         Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
         var imported = Assert.Single(committed["run_ids"]!.AsArray())!.GetValue<string>();
 
-        var noteMatch = await CreateRunAsync(client, 2, 19, 4, "只在备注提到" + alias);
-        _ = await CreateRunAsync(client, 3, 19, 4, "只在备注提到" + fullName);
+        var noteMatch = await CreateRunAsync(
+            client, 2, 19, 4, "只在备注提到" + alias, region: null, matched: false, reason: "合成中文简称回归");
+        _ = await CreateRunAsync(
+            client, 3, 19, 4, "只在备注提到" + fullName, region: null, matched: false, reason: "合成中文简称回归");
         var filter = new JsonObject { ["text"] = alias };
         await AssertFilterAgreesEverywhereAsync(
             client, fixture, filter, [imported, noteMatch], ["2026-09-01", "2026-09-02"], "chinese-alias-search.json");
@@ -59,10 +61,10 @@ public sealed class LocalizedSearchIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var paladin = await CreateRunAsync(client, 1, 19, 4, "unrelated");
-        var note = await CreateRunAsync(client, 2, 24, 4, "helped a Paladin");
-        _ = await CreateRunAsync(client, 3, 24, 4, "only 骑士");
-        _ = await CreateRunAsync(client, 4, 24, 4, "unrelated");
+        var paladin = await CreateRunAsync(client, 1, 19, 4, "unrelated", region: null);
+        var note = await CreateRunAsync(client, 2, 24, 4, "helped a Paladin", region: null);
+        _ = await CreateRunAsync(client, 3, 24, 4, "only 骑士", region: null);
+        _ = await CreateRunAsync(client, 4, 24, 4, "unrelated", region: null);
         (await client.SendAsync("SetRunReflection", new JsonObject
         {
             ["run_id"] = note, ["mood"] = "good", ["text"] = "reflection content",
@@ -114,18 +116,35 @@ public sealed class LocalizedSearchIpcTests
         Assert.Equal(ErrorCodes.BadRequest, empty.ErrorCode);
     }
 
-    /// <summary>A completed CN run on 2026-09-<paramref name="day"/>: matched 11:58, entered 12:00, ended 12:20.</summary>
-    private static async Task<string> CreateRunAsync(PipeClient client, int day, int jobId, int contentId, string note = "unrelated")
+    /// <summary>
+    /// A completed hand-entered run on 2026-09-<paramref name="day"/>: entered 12:00, ended 12:20 and, when
+    /// <paramref name="matched"/>, matched 11:58.
+    /// </summary>
+    /// <param name="region">The client the run is entered for; null sends none, as an entry made before a client is
+    /// chosen does, and the run is stored as UNKNOWN.</param>
+    private static async Task<string> CreateRunAsync(
+        PipeClient client, int day, int jobId, int contentId, string note = "unrelated",
+        string? region = "CN", bool matched = true, string reason = "搜索回归验证")
     {
-        var created = (await client.SendAsync("CreateManualRun", new JsonObject
+        var request = new JsonObject
         {
-            ["region"] = "CN", ["job_id"] = jobId, ["content_id"] = contentId,
-            ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
+            ["job_id"] = jobId, ["content_id"] = contentId,
             ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
             ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
             ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
-            ["note"] = note, ["reason"] = "搜索回归验证",
-        })).Require();
+            ["note"] = note, ["reason"] = reason,
+        };
+        if (region is not null)
+        {
+            request["region"] = region;
+        }
+
+        if (matched)
+        {
+            request["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z";
+        }
+
+        var created = (await client.SendAsync("CreateManualRun", request)).Require();
         return created["run_id"]!.GetValue<string>();
     }
 

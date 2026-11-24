@@ -11,8 +11,8 @@ public sealed class ExportPathsTests
     [SymbolicLinkFact]
     public void ExportPaths_ResolveFinalPathFollowsALocalDirectoryLink()
     {
-        using var root = new TempDirectory("LinkTests");
-        using var target = new TempDirectory("LinkTarget");
+        using var root = new TempDirectory("LinkTests", strict: true);
+        using var target = new TempDirectory("LinkTarget", strict: true);
 
         var link = root.Combine("link");
         try
@@ -40,7 +40,7 @@ public sealed class ExportPathsTests
     [SymbolicLinkFact]
     public void ExportPaths_ValidatesFileLinksAndNetworkDirectoryLinks()
     {
-        using var root = new TempDirectory("LinkTests");
+        using var root = new TempDirectory("LinkTests", strict: true);
         var target = root.Combine("target.csv");
         File.WriteAllText(target, "keep");
         var localFile = root.Combine("local.csv");

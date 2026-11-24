@@ -10,7 +10,7 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class ChineseJobAliasTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("AliasTests");
+    private readonly TempDirectory _directory = new("AliasTests", strict: true);
     // Independent approved expectations: production must read the single catalog, not this test table.
     public static TheoryData<string, int> ApprovedAliases => new()
     {

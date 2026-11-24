@@ -12,7 +12,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ImportTextRefTests : IDisposable
 {
-    private readonly TempDirectory _directory = new("ImportTextRefTests");
+    private readonly TempDirectory _directory = new("ImportTextRefTests", strict: true);
 
     public void Dispose() => _directory.Dispose();
 
