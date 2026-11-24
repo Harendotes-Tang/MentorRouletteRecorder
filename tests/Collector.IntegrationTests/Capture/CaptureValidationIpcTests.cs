@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -11,24 +10,14 @@ public sealed class CaptureValidationIpcTests
     {
         var source = new FakeCaptureSource();
         var capture = CaptureFakes.Ready(source, "2026.01");
-        var validation = new CaptureValidationServices
-        {
-            PollInterval = TimeSpan.FromMilliseconds(10),
-            Trace = new CaptureTraceServices
-            {
-                Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                SourceFactory = () => source, TcpConnectionCounter = (_, _) => 0,
-            },
-        };
-        await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
+        await using var fixture = CaptureServerFixture.Start(capture, validation: CaptureFakes.Validation(capture, () => source));
         await using var client = await fixture.ConnectAsync();
-        var responses = new List<JsonObject>();
-        client.EnvelopeReceived += envelope => { lock (responses) responses.Add(envelope.DeepClone().AsObject()); };
+        var log = new FrameLog(client);
         Assert.Equal("IDLE", (await client.SendAsync("GetCaptureValidationStatus")).Require()["state"]!.GetValue<string>());
         var start = await client.SendAsync("StartCaptureValidation", new JsonObject { ["adapter_id"] = "{TEST-ADAPTER}" });
         Assert.True(start.Ok, start.ErrorMessage);
         Assert.Equal("WAITING", start.Require()["state"]!.GetValue<string>());
-        await AwaitState(client, "RECORDING");
+        await client.WaitForValidationStateAsync("RECORDING");
         source.PushOpcode(0x1234, 12);
         source.PushRaw(new byte[] { 1 });
         foreach (var marker in new[] { "queued", "pop", "entered", "victory", "left" })
@@ -37,25 +26,17 @@ public sealed class CaptureValidationIpcTests
         Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("StartCaptureValidation")).ErrorCode);
         var stop = await client.SendAsync("StopCaptureValidation");
         Assert.Equal("STOPPING", stop.Require()["state"]!.GetValue<string>());
-        var final = await AwaitState(client, "COMPLETED");
+        var final = await client.WaitForValidationStateAsync("COMPLETED");
         Assert.Equal(1, final["message_count"]!.GetValue<long>());
         Assert.Equal(1, final["decode_error_count"]!.GetValue<long>());
         Assert.Equal(5, final["marker_count"]!.GetValue<long>());
         var path = final["trace_path"]!.GetValue<string>();
-        Assert.StartsWith(Path.Combine(Path.GetDirectoryName(fixture.Host.Database.Path)!, "traces") + Path.DirectorySeparatorChar, path);
+        Assert.StartsWith(Path.Combine(fixture.DataDirectory, "traces") + Path.DirectorySeparatorChar, path);
         Assert.Equal(CaptureTraceDigest.Compute(path), final["sha256"]!.GetValue<string>());
         Assert.True(JsonNode.Parse(File.ReadLines(path).First())!["synthetic"]!.GetValue<bool>());
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
         Assert.True((await client.SendAsync("StopCaptureValidation")).Ok);
-        JsonObject[] envelopes;
-        lock (responses) envelopes = responses.ToArray();
-        foreach (var envelope in envelopes)
-        {
-            ContractSchema.Validate(string.Empty, envelope, "validation pipe envelope");
-            var type = envelope["message_type"]!.GetValue<string>();
-            if (envelope["ok"]!.GetValue<bool>() && type.Contains("Validation", StringComparison.Ordinal))
-                ContractSchema.Validate("$defs/Responses/" + type, envelope["payload"], type);
-        }
+        AssertMatchContract(log.Envelopes(), "validation pipe envelope");
     }
 
     /// <summary>
@@ -71,28 +52,19 @@ public sealed class CaptureValidationIpcTests
     public async Task AFailedSessionIsReportedAsFailedAndStillMatchesTheContract()
     {
         var capture = CaptureFakes.Ready(new FakeCaptureSource(), "2026.01");
-        var validation = new CaptureValidationServices
-        {
-            PollInterval = TimeSpan.FromMilliseconds(10),
-            Trace = new CaptureTraceServices
-            {
-                Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                // Npcap is present and the game is running, so the session gets as far as
-                // opening a source, which is what fails.
-                SourceFactory = () => throw new InvalidOperationException(@"private startup detail D:\FFXIV\ffxiv_dx11.exe"),
-                TcpConnectionCounter = (_, _) => 0,
-            },
-        };
+        // Npcap is present and the game is running, so the session gets as far as
+        // opening a source, which is what fails.
+        var validation = CaptureFakes.Validation(
+            capture, () => throw new InvalidOperationException(@"private startup detail D:\FFXIV\ffxiv_dx11.exe"));
         await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
         await using var client = await fixture.ConnectAsync();
-        var responses = new List<JsonObject>();
-        client.EnvelopeReceived += envelope => { lock (responses) responses.Add(envelope.DeepClone().AsObject()); };
+        var log = new FrameLog(client);
 
         var start = await client.SendAsync(
             "StartCaptureValidation", new JsonObject { ["adapter_id"] = "{TEST-ADAPTER}" });
         Assert.True(start.Ok, start.ErrorMessage);
 
-        var final = await AwaitState(client, "FAILED");
+        var final = await client.WaitForValidationStateAsync("FAILED");
         Assert.Equal("FAILED", final["reason"]!.GetValue<string>());
         Assert.False(final["active"]!.GetValue<bool>());
         Assert.Equal(ErrorCodes.Internal, final["error_code"]!.GetValue<string>());
@@ -110,16 +82,9 @@ public sealed class CaptureValidationIpcTests
         Assert.Equal("Starting", failure["stage"]!.GetValue<string>());
         Assert.DoesNotContain("private startup detail", exported);
 
-        JsonObject[] envelopes;
-        lock (responses) envelopes = responses.ToArray();
+        var envelopes = log.Envelopes();
         Assert.NotEmpty(envelopes);
-        foreach (var envelope in envelopes)
-        {
-            ContractSchema.Validate(string.Empty, envelope, "validation pipe envelope");
-            var type = envelope["message_type"]!.GetValue<string>();
-            if (envelope["ok"]!.GetValue<bool>() && type.Contains("Validation", StringComparison.Ordinal))
-                ContractSchema.Validate("$defs/Responses/" + type, envelope["payload"], type);
-        }
+        AssertMatchContract(envelopes, "validation pipe envelope");
         Assert.Contains(envelopes, envelope =>
             envelope["message_type"]!.GetValue<string>() == "GetCaptureValidationStatus"
             && envelope["ok"]!.GetValue<bool>()
@@ -142,12 +107,8 @@ public sealed class CaptureValidationIpcTests
         await using var fixture = CaptureServerFixture.Start();
         var payload = JsonNode.Parse(json)!.AsObject();
         Assert.Equal(ErrorCodes.BadRequest, (await fixture.CallAsync(messageType, payload)).ErrorCode);
-        var request = new JsonObject
-        {
-            ["protocol_version"] = 1, ["request_id"] = Guid.NewGuid().ToString("D"),
-            ["message_type"] = messageType, ["payload"] = payload.DeepClone(),
-        };
-        Assert.False(ContractSchema.Evaluate("$defs/RequestEnvelope", request).IsValid);
+        Assert.False(ContractSchema.Evaluate(
+            "$defs/RequestEnvelope", ContractSchema.RequestEnvelope(messageType, payload)).IsValid);
     }
 
     [Fact]
@@ -169,8 +130,7 @@ public sealed class CaptureValidationIpcTests
             "src", "Collector", "Capture", "CaptureValidationController.cs"));
         var reasons = System.Text.RegularExpressions.Regex.Matches(code, "Wait\\(\"([A-Z_]+)\"")
             .Select(match => match.Groups[1].Value).Distinct().ToArray();
-        var declared = ContractSchema.Root["$defs"]!["CaptureValidationStatus"]!["properties"]!["reason"]!["enum"]!
-            .AsArray().Select(value => value!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+        var declared = ContractSchema.DeclaredEnum("$defs", "CaptureValidationStatus", "properties", "reason", "enum");
 
         Assert.Contains("WAITING_REGION", reasons);
         Assert.All(reasons, reason => Assert.Contains(reason, declared));
@@ -196,15 +156,9 @@ public sealed class CaptureValidationIpcTests
             : Contracts.Texts.CollectorTexts.CaptureValidationWaitingRegion().Key;
         using var directory = new TempDirectory();
         using var controller = new CaptureValidationController(directory.Combine("test.db"), new(),
-            new CaptureValidationServices
+            CaptureFakes.Validation(capture, () => new FakeCaptureSource()) with
             {
-                PollInterval = TimeSpan.FromMilliseconds(10),
                 LocateGame = () => capture.Game.Locate() with { Region = Domain.Region.Unknown, Warnings = warnings },
-                Trace = new CaptureTraceServices
-                {
-                    Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                    SourceFactory = () => new FakeCaptureSource(), TcpConnectionCounter = (_, _) => 0,
-                },
             });
         controller.Start("{TEST-ADAPTER}");
         Assert.True(SpinWait.SpinUntil(
@@ -226,19 +180,9 @@ public sealed class CaptureValidationIpcTests
     {
         var source = new FakeCaptureSource();
         var capture = CaptureFakes.Ready(source, "2026.01");
-        var validation = new CaptureValidationServices
-        {
-            PollInterval = TimeSpan.FromMilliseconds(10),
-            Trace = new CaptureTraceServices
-            {
-                Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                SourceFactory = () => source, TcpConnectionCounter = (_, _) => 0,
-            },
-        };
-        await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
+        await using var fixture = CaptureServerFixture.Start(capture, validation: CaptureFakes.Validation(capture, () => source));
         await using var client = await fixture.ConnectAsync();
-        var responses = new List<JsonObject>();
-        client.EnvelopeReceived += envelope => { lock (responses) responses.Add(envelope.DeepClone().AsObject()); };
+        var log = new FrameLog(client);
 
         var idle = (await client.SendAsync("GetCaptureValidationStatus")).Require();
         Assert.False(idle["identity_probe"]!.GetValue<bool>());
@@ -251,7 +195,7 @@ public sealed class CaptureValidationIpcTests
             new JsonObject { ["adapter_id"] = "{TEST-ADAPTER}", ["identity_probe"] = true });
         Assert.True(start.Ok, start.ErrorMessage);
         Assert.True(start.Require()["identity_probe"]!.GetValue<bool>());
-        await AwaitState(client, "RECORDING");
+        await client.WaitForValidationStateAsync("RECORDING");
         foreach (var marker in CaptureTraceMarkerText.Identity)
         {
             var added = await client.SendAsync("AddCaptureValidationMarker", new JsonObject { ["marker"] = marker });
@@ -260,7 +204,7 @@ public sealed class CaptureValidationIpcTests
         Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync(
             "AddCaptureValidationMarker", new JsonObject { ["marker"] = "character_c" })).ErrorCode);
         await client.SendAsync("StopCaptureValidation");
-        var final = await AwaitState(client, "COMPLETED");
+        var final = await client.WaitForValidationStateAsync("COMPLETED");
 
         // No traffic was fed, so no step could name anyone.
         Assert.Equal(CaptureIdentityProbe.ResultIncomplete, final["identity_result"]!.GetValue<string>());
@@ -272,26 +216,21 @@ public sealed class CaptureValidationIpcTests
         Assert.Contains("\"identity_probe\":true", File.ReadLines(final["trace_path"]!.GetValue<string>()).First(),
             StringComparison.Ordinal);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
+        AssertMatchContract(log.Envelopes(), "identity round envelope");
+    }
 
-        JsonObject[] envelopes;
-        lock (responses) envelopes = responses.ToArray();
+    /// <summary>
+    /// Every envelope against the root schema, and every successful validation answer against its own response
+    /// schema.
+    /// </summary>
+    private static void AssertMatchContract(IEnumerable<JsonObject> envelopes, string what)
+    {
         foreach (var envelope in envelopes)
         {
-            ContractSchema.Validate(string.Empty, envelope, "identity round envelope");
+            ContractSchema.Validate(string.Empty, envelope, what);
             var type = envelope["message_type"]!.GetValue<string>();
             if (envelope["ok"]!.GetValue<bool>() && type.Contains("Validation", StringComparison.Ordinal))
                 ContractSchema.Validate("$defs/Responses/" + type, envelope["payload"], type);
-        }
-    }
-
-    private static async Task<JsonObject> AwaitState(PipeClient client, string state)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (true)
-        {
-            var status = (await client.SendAsync("GetCaptureValidationStatus")).Require();
-            if (status["state"]!.GetValue<string>() == state) return status;
-            await Task.Delay(10, timeout.Token);
         }
     }
 }

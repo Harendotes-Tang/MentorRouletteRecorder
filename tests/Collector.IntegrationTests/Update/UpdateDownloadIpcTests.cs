@@ -91,14 +91,12 @@ public sealed class UpdateDownloadIpcTests
         Assert.Contains(Download(started)["state"]!.GetValue<string>(), new[] { "DOWNLOADING", "VERIFYING", "READY" });
 
         var download = await PollAsync(client, state => state == "READY");
-        var expectedPath = Path.Combine(
-            Path.GetDirectoryName(fixture.DatabasePath)!, "updates", "MentorRecorder-" + Published + "-setup.exe");
         Assert.Equal(Published, download["version"]!.GetValue<string>());
-        Assert.Equal(expectedPath, download["file_path"]!.GetValue<string>());
+        Assert.Equal(InstallerPath(fixture), download["file_path"]!.GetValue<string>());
         Assert.Equal(Sha(Installer), download["sha256"]!.GetValue<string>());
         Assert.Equal(Installer.Length, download["received_bytes"]!.GetValue<long>());
         Assert.Equal(Installer.Length, download["total_bytes"]!.GetValue<long>());
-        Assert.Equal(Installer, await File.ReadAllBytesAsync(expectedPath));
+        Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath(fixture)));
 
         // Cancel has nothing to stop once the installer is ready.
         var cancelled = (await client.SendAsync("CancelUpdateDownload")).Require();
@@ -267,11 +265,7 @@ public sealed class UpdateDownloadIpcTests
         // Windows can hold a WAL handle briefly; the temp cleaner will get it.
         using var directory = new TempDirectory("IntegrationTests");
         var transport = new Transport { StallAfter = 40_000 };
-        var host = CollectorHost.Open(
-            directory.Combine("test.db"),
-            capture: CaptureFakes.NoGame(),
-            speechClient: ServerFixture.RefusingSpeechClient,
-            updateCheckClient: transport.Client());
+        var host = ServerFixture.OpenHost(directory.Combine("test.db"), transport.Client());
         var part = directory.Combine("updates", "MentorRecorder-" + Published + "-setup.exe.part");
         try
         {
@@ -315,8 +309,8 @@ public sealed class UpdateDownloadIpcTests
         }
     }
 
-    private static string InstallerPath(ServerFixture fixture) => Path.Combine(
-        Path.GetDirectoryName(fixture.DatabasePath)!, "updates", "MentorRecorder-" + Published + "-setup.exe");
+    private static string InstallerPath(ServerFixture fixture) =>
+        Path.Combine(fixture.DataDirectory, "updates", "MentorRecorder-" + Published + "-setup.exe");
 
     // ---------------------------------------------------------------------------- test double
 

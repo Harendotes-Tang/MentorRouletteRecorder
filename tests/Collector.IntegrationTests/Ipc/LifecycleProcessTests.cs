@@ -166,7 +166,10 @@ public sealed class ServingCollector : IAsyncDisposable
     /// <summary>How long to keep trying when the single-instance lease is held by someone else.</summary>
     public static readonly TimeSpan LeaseWait = TimeSpan.FromSeconds(30);
 
-    internal static async Task<ServingCollector> StartAsync(string databasePath)
+    /// <summary>Starts <c>--serve --db … --json</c> and waits for its startup line.</summary>
+    /// <param name="databasePath">Database the server should open.</param>
+    /// <param name="extraArguments">Further command-line arguments, such as <c>--parent-pid</c>.</param>
+    internal static async Task<ServingCollector> StartAsync(string databasePath, params string[] extraArguments)
     {
         // The lease is per user, not per database, so anything else serving as this user blocks
         // this start. A short wait absorbs the transient case, the previous test's process
@@ -175,7 +178,7 @@ public sealed class ServingCollector : IAsyncDisposable
         var deadline = DateTime.UtcNow + LeaseWait;
         while (true)
         {
-            var attempt = await TryStartAsync(databasePath).ConfigureAwait(false);
+            var attempt = await TryStartAsync(databasePath, extraArguments).ConfigureAwait(false);
             if (attempt.Serving is not null)
             {
                 return attempt.Serving;
@@ -191,9 +194,9 @@ public sealed class ServingCollector : IAsyncDisposable
     }
 
     private static async Task<(ServingCollector? Serving, bool LeaseHeld, string? Failure)> TryStartAsync(
-        string databasePath)
+        string databasePath, string[] extraArguments)
     {
-        var process = CollectorProcessFixture.Start("--serve", "--db", databasePath, "--json");
+        var process = CollectorProcessFixture.Start(["--serve", "--db", databasePath, "--json", .. extraArguments]);
         try
         {
             var line = await ReadLineAsync(process, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
@@ -217,10 +220,11 @@ public sealed class ServingCollector : IAsyncDisposable
                 return (null, false, "startup line was not a JSON object: " + line);
             }
 
-            // Keep draining stderr for the rest of this process's life. The serve path writes
+            // Keep draining both pipes for the rest of this process's life. The serve path writes
             // diagnostics to the rotating log instead, but an undrained pipe stalls the child
             // the moment anything does write to it.
             var drain = process.StandardError.ReadToEndAsync();
+            _ = process.StandardOutput.ReadToEndAsync();
             return (new ServingCollector(process, startup, drain), false, null);
         }
         catch
@@ -327,7 +331,9 @@ public sealed class ServingCollector : IAsyncDisposable
         return completed == (Task)read ? await read.ConfigureAwait(false) : null;
     }
 
-    private static void TryKill(Process process)
+    /// <summary>Kills <paramref name="process"/> and its children unless it is already gone, and waits for it.</summary>
+    /// <param name="process">A process this suite started.</param>
+    internal static void TryKill(Process process)
     {
         try
         {

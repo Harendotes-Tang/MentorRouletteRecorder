@@ -60,7 +60,7 @@ public sealed class DutyCategoryIpcTests
         var importedRevision = revisions["items"]!.AsArray().Single(node => node!["revision"]!.GetValue<int>() == 1)!;
         Assert.Contains(importedRevision["changes"]!.AsArray(), change =>
             change!["field"]!.GetValue<string>() == "duty_category" && change["new_value"]!.GetValue<string>() == "大型任务");
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "category-raw-export.json");
+        var path = Path.Combine(fixture.DataDirectory, "category-raw-export.json");
         (await client.SendAsync("ExportJson", new JsonObject { ["target_path"] = path, ["filter"] = filter.DeepClone() })).Require();
         Assert.Equal("大型任务", JsonNode.Parse(File.ReadAllText(path))![0]!["duty_category"]!.GetValue<string>());
         Assert.Equal("duplicate", (await Preview())["rows"]![0]!["status"]!.GetValue<string>());

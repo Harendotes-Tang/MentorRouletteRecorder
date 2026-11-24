@@ -72,12 +72,9 @@ public sealed class DisplayTimeZoneIpcTests
         }
     }
 
-    private static async Task<JsonObject> SetAsync(PipeClient client, string? zone)
-    {
-        var payload = (await client.SendAsync("SetDisplayTimeZone", new JsonObject { ["time_zone"] = zone })).Require();
-        ContractSchema.Validate("$defs/Responses/SetDisplayTimeZone", payload, "SetDisplayTimeZone response");
-        return payload;
-    }
+    private static async Task<JsonObject> SetAsync(PipeClient client, string? zone) =>
+        ContractSchema.Answered(
+            await client.SendAsync("SetDisplayTimeZone", new JsonObject { ["time_zone"] = zone }), "SetDisplayTimeZone response");
 
     private static async Task<string[]> DaysAsync(PipeClient client)
     {

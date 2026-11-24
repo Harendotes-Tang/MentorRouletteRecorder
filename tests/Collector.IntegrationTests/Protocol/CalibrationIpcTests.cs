@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -114,28 +113,22 @@ public sealed class CalibrationIpcTests
         var source = new FakeCaptureSource();
         var elapsed = TimeSpan.FromMilliseconds(elapsedMs);
         var capture = CaptureFakes.Ready(source, "2026.09.01.0000.0000");
-        var validation = new CaptureValidationServices
+        var validation = CaptureFakes.Validation(capture, () => new ObservationTimeSource(source, elapsed)) with
         {
-            PollInterval = TimeSpan.FromMilliseconds(10),
             // FakeCaptureSource normally starts its clock before host startup, while validation
             // starts its marker clock afterward. Share one time domain even after slow startup.
             Elapsed = () => elapsed,
-            Trace = new CaptureTraceServices
-            {
-                Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                SourceFactory = () => new ObservationTimeSource(source, elapsed), TcpConnectionCounter = (_, _) => 0,
-            },
         };
         await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
         await using var client = await fixture.ConnectAsync();
         Assert.True((await client.SendAsync("StartCaptureValidation",
             new JsonObject { ["adapter_id"] = "{TEST-ADAPTER}" })).Ok);
-        await AwaitValidationState(client, "RECORDING");
+        await client.WaitForValidationStateAsync("RECORDING");
         Assert.True((await client.SendAsync("AddCaptureValidationMarker", new JsonObject { ["marker"] = "queued" })).Ok);
         source.PushOpcode(0x1234, 12);
         Assert.False((await client.SendAsync("GetTemplateObservation")).Require()["available"]!.GetValue<bool>());
         Assert.True((await client.SendAsync("StopCaptureValidation")).Ok);
-        await AwaitValidationState(client, "COMPLETED");
+        await client.WaitForValidationStateAsync("COMPLETED");
         var completed = (await client.SendAsync("GetCaptureValidationStatus")).Require();
         Assert.Equal(1, completed["message_count"]!.GetValue<long>());
         Assert.Equal(1, completed["marker_count"]!.GetValue<long>());
@@ -170,16 +163,6 @@ public sealed class CalibrationIpcTests
         public void OnFault(string reason, Exception? error) => _observer!.OnFault(reason, error);
         public void Stop() => source.Stop();
         public void Dispose() => source.Dispose();
-    }
-
-    private static async Task AwaitValidationState(PipeClient client, string state)
-    {
-        for (var i = 0; i < 250; i++)
-        {
-            if ((await client.SendAsync("GetCaptureValidationStatus")).Require()["state"]!.GetValue<string>() == state) return;
-            await Task.Delay(20);
-        }
-        Assert.Fail("validation state did not reach " + state);
     }
 
     [Fact]

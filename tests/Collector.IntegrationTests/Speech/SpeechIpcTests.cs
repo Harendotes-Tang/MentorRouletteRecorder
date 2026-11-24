@@ -34,6 +34,9 @@ public sealed class SpeechIpcTests
             new(200, request.Uri, "audio/wav", null, new MemoryStream(WaveFile.Silence()));
     }
 
+    private static Task WaitForRequestAsync(Transport transport) =>
+        Poll.UntilAsync(() => !transport.Requests.IsEmpty, "the synthesis never reached the transport");
+
     private static JsonObject AzureSettings(string? key = Key) => new()
     {
         ["provider"] = "azure",
@@ -47,14 +50,7 @@ public sealed class SpeechIpcTests
     {
         await using var fixture = ServerFixture.Start(speech: new Transport().Client());
         await using var client = await fixture.ConnectAsync();
-        var seen = new List<string>();
-        client.EnvelopeReceived += envelope =>
-        {
-            lock (seen)
-            {
-                seen.Add(envelope.ToJsonString());
-            }
-        };
+        var log = new FrameLog(client);
 
         var initial = (await client.SendAsync("GetSpeechSettings")).Require();
         Assert.Equal("none", initial["provider"]!.GetValue<string>());
@@ -84,14 +80,14 @@ public sealed class SpeechIpcTests
         Assert.Null(cleared["azure_region"]);
         Assert.Null(cleared["voice"]);
 
-        foreach (var text in seen)
+        foreach (var text in log.Envelopes().Select(envelope => envelope.ToJsonString()))
         {
             Assert.DoesNotContain(Key, text, StringComparison.Ordinal);
             Assert.DoesNotContain("api_key", text, StringComparison.Ordinal);
         }
 
         Assert.DoesNotContain(fixture.Log, line => line.Contains(Key, StringComparison.Ordinal));
-        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "speech-key.bin")));
+        Assert.False(File.Exists(Path.Combine(fixture.DataDirectory, "speech-key.bin")));
     }
 
     [Theory]
@@ -161,7 +157,7 @@ public sealed class SpeechIpcTests
         Assert.Equal("azure", first["provider"]!.GetValue<string>());
 
         var path = first["audio_path"]!.GetValue<string>();
-        var cacheFolder = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "tts-cache");
+        var cacheFolder = Path.Combine(fixture.DataDirectory, "tts-cache");
         Assert.Equal(cacheFolder, Path.GetDirectoryName(path));
         Assert.True(fixture.Host.Speech.Cache.Contains(path));
         Assert.Equal(WaveFile.Silence(), await File.ReadAllBytesAsync(path));
@@ -197,12 +193,7 @@ public sealed class SpeechIpcTests
         (await client.SendAsync("UpdateSpeechSettings", AzureSettings())).Require();
 
         var pending = client.SendAsync("SynthesizeSpeech", new JsonObject { ["text"] = "匹配成功" }, timeout: TimeSpan.FromSeconds(20));
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (transport.Requests.IsEmpty)
-        {
-            Assert.True(DateTime.UtcNow < deadline, "the synthesis never reached the transport");
-            await Task.Delay(10);
-        }
+        await WaitForRequestAsync(transport);
 
         // Answered while the sentence is still waiting on the speech service.
         var version = await client.SendAsync("GetVersion", timeout: TimeSpan.FromSeconds(3));
@@ -229,12 +220,7 @@ public sealed class SpeechIpcTests
         await using (var client = await fixture.ConnectAsync())
         {
             _ = client.SendAsync("SynthesizeSpeech", new JsonObject { ["text"] = "匹配成功" });
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (transport.Requests.IsEmpty)
-            {
-                Assert.True(DateTime.UtcNow < deadline, "the synthesis never reached the transport");
-                await Task.Delay(10);
-            }
+            await WaitForRequestAsync(transport);
         }
 
         Assert.True((await fixture.CallAsync("GetVersion")).Ok);
@@ -280,7 +266,7 @@ public sealed class SpeechIpcTests
         (await client.SendAsync("UpdateSpeechSettings", AzureSettings())).Require();
         (await client.SendAsync("SynthesizeSpeech", new JsonObject { ["text"] = "匹配成功" })).Require();
 
-        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "speech-diag.json");
+        var target = Path.Combine(fixture.DataDirectory, "speech-diag.json");
         var report = (await client.SendAsync("ExportDiagnosticsReport", new JsonObject { ["target_path"] = target })).Require();
         var text = await File.ReadAllTextAsync(report["target_path"]!.GetValue<string>());
         var online = JsonNode.Parse(text)!["boundary"]!["outbound"]!["online_speech"]!;

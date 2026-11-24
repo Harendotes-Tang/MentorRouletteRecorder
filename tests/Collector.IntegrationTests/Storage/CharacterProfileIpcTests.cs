@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 
 namespace MentorRecorder.Collector.IntegrationTests;
@@ -55,12 +54,8 @@ public sealed class CharacterProfileIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        async Task<JsonObject> Send(string message, JsonObject payload)
-        {
-            var result = (await client.SendAsync(message, payload)).Require();
-            ContractSchema.Validate("$defs/Responses/" + message, result, message + " profile response");
-            return result;
-        }
+        async Task<JsonObject> Send(string message, JsonObject payload) =>
+            ContractSchema.Answered(await client.SendAsync(message, payload), message + " profile response");
 
         async Task<JsonObject> CreateRun() => (await Send("CreateManualRun", new JsonObject
         {
@@ -164,12 +159,8 @@ public sealed class CharacterProfileIpcTests
         const string key = "0a1b2c3d";
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        async Task<JsonObject> Send(string message, JsonObject payload)
-        {
-            var result = (await client.SendAsync(message, payload)).Require();
-            ContractSchema.Validate("$defs/Responses/" + message, result, message + " identity response");
-            return result;
-        }
+        async Task<JsonObject> Send(string message, JsonObject payload) =>
+            ContractSchema.Answered(await client.SendAsync(message, payload), message + " identity response");
 
         async Task<string?> Refused(string message, JsonObject payload) => (await client.SendAsync(message, payload)).ErrorCode;
         JsonNode China(JsonObject dashboard) =>

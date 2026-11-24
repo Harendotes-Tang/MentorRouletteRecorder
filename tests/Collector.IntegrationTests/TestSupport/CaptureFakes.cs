@@ -46,6 +46,9 @@ internal static class CaptureFakes
     /// <summary>Where the fake install sits; a CN path, so the region is read from it.</summary>
     public const string RememberedExecutable = @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe";
 
+    /// <summary>The one adapter's address, which carries the game's connections in <see cref="Ready"/>.</summary>
+    public static readonly IPAddress AdapterAddress = IPAddress.Parse("192.168.31.77");
+
     /// <summary>Capture services that can start: Npcap ready, one game process, one adapter.</summary>
     /// <param name="source">Source the controller should use.</param>
     /// <param name="gameBuild">Build text returned from the fake game directory.</param>
@@ -58,6 +61,22 @@ internal static class CaptureFakes
         Profile = new VerifiedProfile(),
         EnableFollowTimer = false,
         DetectionTtl = TimeSpan.Zero,
+    };
+
+    /// <summary>
+    /// Validation services over <paramref name="capture"/>'s detectors: a 10 ms poll, sources from
+    /// <paramref name="sourceFactory"/> and no game connection open before the session.
+    /// </summary>
+    /// <param name="capture">The capture services whose Npcap, game and adapter detectors the session uses.</param>
+    /// <param name="sourceFactory">Creates the session's source.</param>
+    public static CaptureValidationServices Validation(CaptureServices capture, Func<ICaptureSource> sourceFactory) => new()
+    {
+        PollInterval = TimeSpan.FromMilliseconds(10),
+        Trace = new CaptureTraceServices
+        {
+            Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
+            SourceFactory = sourceFactory, TcpConnectionCounter = (_, _) => 0,
+        },
     };
 
     private sealed class ReadyNpcapEnvironment : INpcapEnvironment
@@ -107,7 +126,7 @@ internal static class CaptureFakes
                         4321,
                         processName,
                         DateTimeOffset.UnixEpoch,
-                        @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
+                        RememberedExecutable,
                         AccessDenied: false),
                 }
                 : Array.Empty<GameProcessCandidate>();
@@ -139,7 +158,7 @@ internal static class CaptureFakes
                 "Test adapter",
                 IsUp: true,
                 IsLoopback: false,
-                new[] { IPAddress.Parse("192.168.31.77") }),
+                new[] { AdapterAddress }),
         };
     }
 
@@ -147,7 +166,7 @@ internal static class CaptureFakes
     {
         public IReadOnlyList<IPAddress> LocalAddresses(int processId) =>
             processId == 4321
-                ? new[] { IPAddress.Parse("192.168.31.77") }
+                ? new[] { AdapterAddress }
                 : Array.Empty<IPAddress>();
     }
 

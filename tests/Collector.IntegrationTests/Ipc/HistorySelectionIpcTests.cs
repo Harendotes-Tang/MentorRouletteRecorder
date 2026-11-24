@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -35,9 +36,9 @@ public sealed class HistorySelectionIpcTests
             ["reason"] = "move the first record to the front",
             ["changes"] = new JsonObject
             {
-                ["matched_at_utc"] = Timestamp(movedAt.AddMinutes(-1)),
-                ["entered_at_utc"] = Timestamp(movedAt),
-                ["ended_at_utc"] = Timestamp(movedAt.AddMinutes(1)),
+                ["matched_at_utc"] = UtcTimestamp.ToText(movedAt.AddMinutes(-1)),
+                ["entered_at_utc"] = UtcTimestamp.ToText(movedAt),
+                ["ended_at_utc"] = UtcTimestamp.ToText(movedAt.AddMinutes(1)),
             },
         })).Require();
         (await writer.SendAsync("SoftDeleteRun", new JsonObject
@@ -49,9 +50,9 @@ public sealed class HistorySelectionIpcTests
         {
             ["region"] = "CN",
             ["result"] = "COMPLETED",
-            ["matched_at_utc"] = Timestamp(insertedAt.AddMinutes(-1)),
-            ["entered_at_utc"] = Timestamp(insertedAt),
-            ["ended_at_utc"] = Timestamp(insertedAt.AddMinutes(1)),
+            ["matched_at_utc"] = UtcTimestamp.ToText(insertedAt.AddMinutes(-1)),
+            ["entered_at_utc"] = UtcTimestamp.ToText(insertedAt),
+            ["ended_at_utc"] = UtcTimestamp.ToText(insertedAt.AddMinutes(1)),
             ["note"] = GroupNote,
             ["reason"] = "insert a new first-page record",
         })).Require()["run_id"]!.GetValue<string>();
@@ -160,7 +161,7 @@ public sealed class HistorySelectionIpcTests
         Assert.All(csvLines.Skip(1), row => Assert.Contains(quotedReflection, row, StringComparison.Ordinal));
 
         await ReleaseAsync(client, selection);
-        var missing = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "missing.csv");
+        var missing = Path.Combine(fixture.DataDirectory, "missing.csv");
         Assert.Equal(ErrorCodes.NotFound, (await client.SendAsync("ExportCsv",
             new JsonObject { ["target_path"] = missing, ["selection_id"] = selection })).ErrorCode);
         Assert.False(File.Exists(missing));
@@ -362,7 +363,6 @@ public sealed class HistorySelectionIpcTests
     }));
 
     private static string RunId(int ordinal) => "e0000000-0000-4000-8000-" + ordinal.ToString("x12", CultureInfo.InvariantCulture);
-    private static string Timestamp(DateTimeOffset at) => at.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
     private static async Task<JsonObject> FreezeAsync(PipeClient client)
     {
@@ -454,7 +454,7 @@ public sealed class HistorySelectionIpcTests
     private static async Task<string> ExportAsync(
         PipeClient client, ServerFixture fixture, string selection, string format, string direction, int expectedCount)
     {
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, $"checked.{format}");
+        var path = Path.Combine(fixture.DataDirectory, $"checked.{format}");
         var type = format == "csv" ? "ExportCsv" : "ExportJson";
         var result = (await client.SendAsync(type, new JsonObject
         {

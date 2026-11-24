@@ -2,7 +2,9 @@ using System.Text.Json.Nodes;
 using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Reference;
 using NPOI.HSSF.UserModel;
 using NPOI.SS.UserModel;
 
@@ -41,13 +43,10 @@ public sealed class RunImportIpcTests
             ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1, 2),
             ["confirm_own_records"] = true, ["deduct_from_baseline"] = true,
         };
-        var requestId = Guid.NewGuid().ToString("D");
-        var result = (await client.SendAsync("CommitRunImport", commit.DeepClone().AsObject(), requestId)).Require();
+        var (result, replay) = await CommitTwiceAsync(client, commit);
         ContractSchema.Validate("$defs/Responses/CommitRunImport", result, "mixed regional import");
         Assert.Equal(2, result["baseline_deducted_count"]!.GetValue<int>());
         Assert.Equal(2, result["baseline_adjustments"]!.AsArray().Count);
-        var replay = (await client.SendAsync("CommitRunImport", commit.DeepClone().AsObject(), requestId)).Require();
-        Assert.True(replay["replayed"]!.GetValue<bool>());
         Assert.True(JsonNode.DeepEquals(result["baseline_adjustments"], replay["baseline_adjustments"]));
         var stats = (await client.SendAsync("GetDashboardStats")).Require();
         ContractSchema.Validate("$defs/Responses/GetDashboardStats", stats, "mixed regional dashboard");
@@ -67,6 +66,19 @@ public sealed class RunImportIpcTests
         Assert.Equal(0, regional["completed_count"]!.GetValue<int>());
         Assert.Equal(50, regional["achievement_progress"]!.GetValue<int>());
         Assert.Single(regional["achievements"]!.AsArray());
+    }
+
+    /// <summary>
+    /// Commits <paramref name="payload"/>, then sends the same request again under the same request id; the second
+    /// answer must be a replay of the first.
+    /// </summary>
+    private static async Task<(JsonObject Committed, JsonObject Replay)> CommitTwiceAsync(PipeClient client, JsonObject payload)
+    {
+        var requestId = Guid.NewGuid().ToString("D");
+        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        var replay = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        Assert.True(replay["replayed"]!.GetValue<bool>());
+        return (committed, replay);
     }
 
     [Fact]
@@ -114,11 +126,8 @@ public sealed class RunImportIpcTests
         Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject())).ErrorCode);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
         payload["confirm_own_records"] = true;
-        var requestId = Guid.NewGuid().ToString("D");
-        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
-        var retried = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        var (committed, retried) = await CommitTwiceAsync(client, payload);
         Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
-        Assert.True(retried["replayed"]!.GetValue<bool>());
         ContractSchema.Validate("$defs/Responses/CommitRunImport", retried, "import retry");
         var query = (await client.SendAsync("QueryRuns", new JsonObject
         {
@@ -204,14 +213,11 @@ public sealed class RunImportIpcTests
             ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1),
             ["confirm_own_records"] = true, ["deduct_from_baseline"] = true,
         };
-        var requestId = Guid.NewGuid().ToString("D");
-        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        var (committed, replayed) = await CommitTwiceAsync(client, payload);
         ContractSchema.Validate("$defs/Responses/CommitRunImport", committed, "import deducting from the baseline");
         Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
         Assert.Equal(1, committed["baseline_deducted_count"]!.GetValue<int>());
         Assert.Equal(1499, committed["baseline_completed_count"]!.GetValue<int>());
-        var replayed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
-        Assert.True(replayed["replayed"]!.GetValue<bool>());
         Assert.Equal(1, replayed["baseline_deducted_count"]!.GetValue<int>());
         var dashboard = (await client.SendAsync("GetDashboardStats")).Require();
         Assert.Equal(1499, dashboard["baseline_completed_count"]!.GetValue<int>());
@@ -230,7 +236,7 @@ public sealed class RunImportIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "synthetic-entry-mode.xlsx");
+        var path = Path.Combine(fixture.DataDirectory, "synthetic-entry-mode.xlsx");
         WriteWorkbook(path, header);
         var request = new JsonObject { ["source_kind"] = "XLSX", ["file_path"] = path, ["source_name"] = "合成进入方式工作簿" };
         if (header == "玩家自定义列") request["column_mapping"] = new JsonObject { [header] = "joined_in_progress" };
@@ -255,11 +261,8 @@ public sealed class RunImportIpcTests
             ["preview_id"] = checkedPreview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1, 2, 3),
             ["confirm_own_records"] = true,
         };
-        var requestId = Guid.NewGuid().ToString("D");
-        var committed = (await client.SendAsync("CommitRunImport", commitRequest.DeepClone().AsObject(), requestId)).Require();
+        var (committed, _) = await CommitTwiceAsync(client, commitRequest);
         Assert.Equal(3, committed["imported_count"]!.GetValue<int>());
-        var retry = (await client.SendAsync("CommitRunImport", commitRequest.DeepClone().AsObject(), requestId)).Require();
-        Assert.True(retry["replayed"]!.GetValue<bool>());
         var stored = (await client.SendAsync("QueryRuns")).Require();
         ContractSchema.Validate("$defs/Responses/QueryRuns", stored, "entry-mode stored three states");
         Assert.Equal(3, stored["page_info"]!["total"]!.GetValue<int>());
@@ -274,7 +277,7 @@ public sealed class RunImportIpcTests
         Assert.All(repeated["rows"]!.AsArray(), row => Assert.Equal("duplicate", row!["status"]!.GetValue<string>()));
         foreach (var kind in new[] { "JSON", "CSV" })
         {
-            var exportPath = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "entry-export." + kind.ToLowerInvariant());
+            var exportPath = Path.Combine(fixture.DataDirectory, "entry-export." + kind.ToLowerInvariant());
             (await client.SendAsync("Export" + (kind == "JSON" ? "Json" : "Csv"), new JsonObject { ["target_path"] = exportPath })).Require();
             var native = (await client.SendAsync("PreviewRunImport", new JsonObject
             {
@@ -365,11 +368,8 @@ public sealed class RunImportIpcTests
             ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = rowNumbers,
             ["confirm_own_records"] = true,
         };
-        var requestId = Guid.NewGuid().ToString("D");
-        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        var (committed, _) = await CommitTwiceAsync(client, payload);
         Assert.Equal(2090, committed["imported_count"]!.GetValue<int>());
-        var replay = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
-        Assert.True(replay["replayed"]!.GetValue<bool>());
         Assert.Equal(2090, (await client.SendAsync("QueryRuns")).Require()["page_info"]!["total"]!.GetValue<int>());
     }
 
@@ -443,12 +443,7 @@ public sealed class RunImportIpcTests
         };
         var requestId = Guid.NewGuid().ToString("D");
         Assert.False((await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Ok);
-        foreach (var table in new[] { "mentor_runs", "run_import_metadata", "run_revisions", "run_reflections", "run_import_batches" })
-        {
-            using var count = fixture.Host.Database.CreateCommand();
-            count.CommandText = "SELECT COUNT(*) FROM " + table;
-            Assert.Equal(0L, count.ExecuteScalar());
-        }
+        fixture.AssertTablesEmpty("mentor_runs", "run_import_metadata", "run_revisions", "run_reflections", "run_import_batches");
         using (var drop = fixture.Host.Database.CreateCommand())
         {
             drop.CommandText = "DROP TRIGGER fail_last_page;";
@@ -468,7 +463,7 @@ public sealed class RunImportIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "synthetic.xls");
+        var path = Path.Combine(fixture.DataDirectory, "synthetic.xls");
         var id = Guid.NewGuid().ToString("D"); Write(path, id, "本地应保留的合成备注");
         var preview = (await client.SendAsync("PreviewRunImport", new JsonObject
         {
@@ -482,11 +477,10 @@ public sealed class RunImportIpcTests
         var payload = new JsonObject { ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(2), ["confirm_own_records"] = false };
         Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject())).ErrorCode);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
-        payload["confirm_own_records"] = true; var requestId = Guid.NewGuid().ToString("D");
-        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        payload["confirm_own_records"] = true;
+        var (committed, retry) = await CommitTwiceAsync(client, payload);
         Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
-        var retry = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
-        Assert.True(retry["replayed"]!.GetValue<bool>()); ContractSchema.Validate("$defs/Responses/CommitRunImport", retry, "binary XLS retry");
+        ContractSchema.Validate("$defs/Responses/CommitRunImport", retry, "binary XLS retry");
         var stored = Assert.Single((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray())!;
         ContractSchema.Validate("$defs/Run", stored, "binary XLS saved run");
         Assert.Equal(id, stored["run_id"]!.GetValue<string>());
@@ -515,7 +509,7 @@ public sealed class RunImportIpcTests
     public async Task DamagedRealFileReturnsActionableErrorAndPipeRemainsUsable()
     {
         await using var fixture = ServerFixture.Start(); await using var client = await fixture.ConnectAsync();
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "renamed.xls"); File.WriteAllText(path, "<html>not BIFF8</html>");
+        var path = Path.Combine(fixture.DataDirectory, "renamed.xls"); File.WriteAllText(path, "<html>not BIFF8</html>");
         var response = await client.SendAsync("PreviewRunImport", new JsonObject { ["source_kind"] = "XLS", ["file_path"] = path });
         Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode); Assert.Contains("不能只修改后缀", response.ErrorMessage);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
@@ -529,4 +523,169 @@ public sealed class RunImportIpcTests
         using var file = File.Create(path); workbook.Write(file, leaveOpen: true);
     }
     private static void Set(IRow row, params string[] cells) { for (var i = 0; i < cells.Length; i++) row.CreateCell(i).SetCellValue(cells[i]); }
+
+    // ------------------------------------------------------ duty identity by name ----
+    // 真实隔离管道验证按名推断与显式编号；合成记录不代表反馈者原表验收。
+
+    [Fact]
+    public async Task AsuraPreviewRevalidationCommitRetryAndReimportPreserveSourceAndExistingIdentities()
+    {
+        var historicalUnknown = Historical(null);
+        var historical69 = Historical(69);
+        await using var fixture = ServerFixture.Start(seed: host => host.Database.RunInTransaction(transaction =>
+        {
+            host.Runs.Insert(historicalUnknown, transaction);
+            host.Runs.Insert(historical69, transaction);
+        }));
+        await using var client = await fixture.ConnectAsync();
+        var source = new JsonArray(
+            Candidate("阿修罗歼灭战", "2026-10-20"),
+            Candidate("阿修罗歼灭战", "2026-10-21"),
+            Candidate("阿修罗歼灭战", "2026-10-22"));
+        source[1]!["content_id"] = null;
+        source[1]!["territory_id"] = null;
+        source[1]!["duty_category"] = null;
+        source[2]!["content_id"] = 69;
+        async Task<JsonObject> Preview(JsonArray rows) => (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "ROWS", ["source_name"] = "synthetic-asura", ["rows"] = rows.DeepClone(),
+        })).Require();
+        var preview = await Preview(source);
+        ContractSchema.Validate("$defs/Responses/PreviewRunImport", preview, "Asura inferred and explicit identities");
+        var rows = preview["rows"]!.AsArray();
+        Assert.Equal(new int?[] { 944, 944, 69 }, rows.Select(row => row!["run"]!["content_id"]?.GetValue<int>()));
+        Assert.All(rows, row => Assert.True(row!["can_import"]!.GetValue<bool>()));
+        Assert.False(rows[0]!["candidate"]!.AsObject().ContainsKey("content_id"));
+        Assert.Null(rows[1]!["candidate"]!["content_id"]);
+        Assert.Null(rows[1]!["candidate"]!["territory_id"]);
+        Assert.Null(rows[1]!["candidate"]!["duty_category"]);
+        Assert.Equal(69, rows[2]!["candidate"]!["content_id"]!.GetValue<int>());
+        Assert.Equal(2, (await client.SendAsync("QueryRuns")).Require()["page_info"]!["total"]!.GetValue<int>());
+        var candidates = new JsonArray(rows.Select(row => row!["candidate"]!.DeepClone()).ToArray());
+        var revalidated = await Preview(candidates);
+        Assert.Equal(new int?[] { 944, 944, 69 }, revalidated["rows"]!.AsArray()
+            .Select(row => row!["run"]!["content_id"]?.GetValue<int>()));
+        var payload = new JsonObject
+        {
+            ["preview_id"] = revalidated["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1, 2, 3),
+            ["confirm_own_records"] = true,
+        };
+        var (committed, _) = await CommitTwiceAsync(client, payload);
+        Assert.Equal(3, committed["imported_count"]!.GetValue<int>());
+        var query = (await client.SendAsync("QueryRuns")).Require();
+        Assert.Equal(5, query["page_info"]!["total"]!.GetValue<int>());
+        var ids = committed["run_ids"]!.AsArray().Select(node => node!.GetValue<string>()).ToArray();
+        Assert.Equal(new int?[] { 944, 944, 69 }, ids.Select(id => fixture.Host.Runs.Get(id)!.ContentId));
+        Assert.All(ids, id => Assert.Equal("阿修罗歼灭战", fixture.Host.Runs.Get(id)!.DutyName));
+        Assert.Equal(historicalUnknown, fixture.Host.Runs.Get(historicalUnknown.RunId));
+        Assert.Equal(historical69, fixture.Host.Runs.Get(historical69.RunId));
+        var repeat = await Preview(source);
+        Assert.All(repeat["rows"]!.AsArray(), row => Assert.Equal("duplicate", row!["status"]!.GetValue<string>()));
+        var exportPath = Path.Combine(fixture.DataDirectory, "asura-identities.json");
+        (await client.SendAsync("ExportJson", new JsonObject { ["target_path"] = exportPath })).Require();
+        var exported = JsonNode.Parse(File.ReadAllText(exportPath))!.AsArray();
+        Assert.Equal(5, exported.Count);
+        Assert.Null(exported.Single(node => node!["run_id"]!.GetValue<string>() == historicalUnknown.RunId)!["content_id"]);
+        Assert.Equal(69, exported.Single(node => node!["run_id"]!.GetValue<string>() == historical69.RunId)!["content_id"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task AllOtherDuplicateGroupsStayUnknownUntilTheCandidateSuppliesAnActualId()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var catalog = DutyCatalog.Default;
+        var groups = catalog.Documents.SelectMany(document => document.Rows.Keys).Distinct()
+            .Select(id => catalog.Find(id, Region.Cn)).OfType<DutyInfo>()
+            .GroupBy(row => row.LocalizedName, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1 && group.Key != "阿修罗歼灭战").ToArray();
+        Assert.Equal(16, groups.Length);
+        var source = new JsonArray(groups.Select(group => (JsonNode)Candidate(group.Key, "2026-10-22")).ToArray());
+        var preview = (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "ROWS", ["rows"] = source,
+        })).Require();
+        var candidates = new JsonArray(preview["rows"]!.AsArray().Select((row, index) =>
+        {
+            Assert.Null(row!["run"]!["content_id"]);
+            var candidate = row["candidate"]!.DeepClone().AsObject();
+            Assert.False(candidate.ContainsKey("content_id"));
+            candidate["content_id"] = groups[index].Max(duty => duty.ContentId);
+            return (JsonNode)candidate;
+        }).ToArray());
+        var explicitPreview = (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "ROWS", ["rows"] = candidates,
+        })).Require();
+        Assert.Equal(groups.Select(group => (int?)group.Max(duty => duty.ContentId)),
+            explicitPreview["rows"]!.AsArray().Select(row => row!["run"]!["content_id"]?.GetValue<int>()));
+        Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
+    }
+
+    private static JsonObject Candidate(string name, string day) => new()
+    {
+        ["region"] = "CN", ["duty_name"] = name, ["job_id"] = 19,
+        ["source_recorded_at"] = day, ["result"] = "COMPLETED",
+    };
+
+    private static MentorRun Historical(int? contentId)
+    {
+        var time = DateTimeOffset.Parse("2020-01-01T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
+        return new MentorRun
+        {
+            RunId = Guid.NewGuid().ToString("D"), Revision = 1, Region = Region.Cn, ContentId = contentId,
+            DutyName = "阿修罗歼灭战", Source = RunSource.Manual, Result = RunResult.Completed,
+            EnteredAtUtc = time, EndedAtUtc = time.AddMinutes(10), DurationMs = 600000,
+            CreatedAtUtc = time, UpdatedAtUtc = time,
+        };
+    }
+
+    // ------------------------------------------------ import metadata on the wire ----
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CurrentImportedRunProjectsBooleanAcceptedByContract(bool mentorConfirmed)
+    {
+        var wire = Wire.Run(ImportedRun(mentorConfirmed));
+
+        Assert.Equal(mentorConfirmed, wire["import_metadata"]!["mentor_confirmed"]!.GetValue<bool>());
+        ContractSchema.Validate("$defs/Run", wire, "Imported run with mentor confirmation");
+    }
+
+    [Fact]
+    public void LegacyImportedMetadataWithoutMentorConfirmationRemainsAccepted()
+    {
+        var wire = Wire.Run(ImportedRun(mentorConfirmed: true));
+        Assert.True(wire["import_metadata"]!.AsObject().Remove("mentor_confirmed"));
+
+        ContractSchema.Validate("$defs/Run", wire, "Legacy imported run without mentor confirmation");
+    }
+
+    [Fact]
+    public void MentorConfirmationRejectsAStringInsteadOfBoolean()
+    {
+        var metadata = Wire.Run(ImportedRun(mentorConfirmed: false))["import_metadata"]!.AsObject();
+        metadata["mentor_confirmed"] = "false";
+
+        Assert.False(ContractSchema.Evaluate("$defs/RunImportMetadata", metadata).IsValid);
+    }
+
+    private static MentorRun ImportedRun(bool mentorConfirmed)
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 1, 2, 0, TimeSpan.Zero);
+        return new MentorRun
+        {
+            RunId = Guid.NewGuid().ToString("D"),
+            Revision = 1,
+            Source = RunSource.Import,
+            Result = RunResult.Completed,
+            EnteredAtUtc = now.AddMinutes(-2),
+            EndedAtUtc = now,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+            ImportMetadata = new RunImportMetadata("JSON", null, null, null, now,
+                "synthetic-source-fingerprint", mentorConfirmed),
+        };
+    }
 }

@@ -42,15 +42,8 @@ public sealed class ContractSchemaTests
             readEnvironment: _ => null);
         await using var fixture = ServerFixture.Start(capture: CaptureFakes.Ready(source), speech: speech);
 
-        var envelopes = new List<JsonObject>();
         await using var client = await fixture.ConnectAsync();
-        client.EnvelopeReceived += envelope =>
-        {
-            lock (envelopes)
-            {
-                envelopes.Add(envelope.DeepClone().AsObject());
-            }
-        };
+        var log = new FrameLog(client);
 
         // A backup handle can linger on Windows; the temp cleaner will get it.
         using (var workspace = new TempDirectory("Contract"))
@@ -80,8 +73,8 @@ public sealed class ContractSchemaTests
             Assert.False(update["update_available"]!.GetValue<bool>());
 
             // -- create two runs so the statistics and the exports have something to say --
-            var firstRunId = await CreateRunAsync(client, "COMPLETED", 900001, 19);
-            _ = await CreateRunAsync(client, "LEFT_OR_ABANDONED", 900002, 24);
+            var firstRunId = await ManualRuns.CreateAsync(client, 900001);
+            _ = await ManualRuns.CreateAsync(client, 900002, 24, "LEFT_OR_ABANDONED");
 
             var queried = await client.SendAsync(
                 "QueryRuns",
@@ -470,7 +463,7 @@ public sealed class ContractSchemaTests
 
             Assert.Equal(30, (await client.SendAsync("GetHistoryRetentionSettings")).Require()["retention_days"]!.GetValue<int>());
             Assert.Equal(0, (await client.SendAsync("UpdateHistoryRetentionSettings", new JsonObject { ["retention_days"] = 0 })).Require()["retention_days"]!.GetValue<int>());
-            var recycleId = await CreateRunAsync(client, "COMPLETED", 900001, 19);
+            var recycleId = await ManualRuns.CreateAsync(client, 900001);
             foreach (var step in new[] { ("soft_delete", 1), ("restore", 2), ("soft_delete", 3), ("purge", 4) })
             {
                 var batch = await client.SendAsync("BatchMutateRuns", new JsonObject
@@ -491,21 +484,16 @@ public sealed class ContractSchemaTests
 
             // A frame that is not JSON at all: answered against the zero uuid and closed off
             // as message_type "Error".
-            var beforeMalformed = Count(envelopes);
+            var beforeMalformed = log.Envelopes().Length;
             await client.SendRawAsync(Encoding.UTF8.GetBytes("{not json"));
-            await WaitForAsync(envelopes, beforeMalformed + 1);
+            await log.WaitForEnvelopesAsync(envelopes => envelopes.Length > beforeMalformed, "等待帧超时。");
 
             // Live events are asynchronous; the mutations above published several.
-            await WaitForEventsAsync(envelopes, 4);
+            await log.WaitForEventsAsync(events => events.Length >= 4, "等待实时事件超时。");
         }
 
         // -- validation ---------------------------------------------------------------------
-        List<JsonObject> captured;
-        lock (envelopes)
-        {
-            captured = envelopes.ToList();
-        }
-
+        var captured = log.Envelopes();
         Assert.NotEmpty(captured);
 
         var seenResponses = new HashSet<string>(StringComparer.Ordinal);
@@ -604,10 +592,7 @@ public sealed class ContractSchemaTests
     [Fact]
     public void ContractDeclaresEveryErrorCodeTheCollectorCanReturn()
     {
-        var declared = ContractSchema.Root["$defs"]!["ErrorPayload"]!["properties"]!["code"]!["enum"]!
-            .AsArray()
-            .Select(node => node!.GetValue<string>())
-            .ToHashSet(StringComparer.Ordinal);
+        var declared = ContractSchema.DeclaredEnum("$defs", "ErrorPayload", "properties", "code", "enum");
 
         var implemented = typeof(ErrorCodes)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
@@ -615,30 +600,20 @@ public sealed class ContractSchemaTests
             .Select(field => (string)field.GetRawConstantValue()!)
             .ToHashSet(StringComparer.Ordinal);
 
-        Assert.Equal(
-            declared.OrderBy(code => code, StringComparer.Ordinal),
-            implemented.OrderBy(code => code, StringComparer.Ordinal));
+        Assert.Equal(declared, implemented.OrderBy(code => code, StringComparer.Ordinal));
     }
 
     [Fact]
     public void ContractDeclaresEveryLiveEventKindTheBusEmits()
     {
-        var declared = ContractSchema.Root["$defs"]!["LiveEvent"]!["properties"]!["kind"]!["enum"]!
-            .AsArray()
-            .Select(node => node!.GetValue<string>())
-            .ToHashSet(StringComparer.Ordinal);
+        var declared = ContractSchema.DeclaredEnum("$defs", "LiveEvent", "properties", "kind", "enum");
 
         var emittedKinds = Enum.GetValues<LiveEventKind>().Select(LiveEventBus.KindToken);
         var emittedTypes = Enum.GetValues<LiveEventKind>().Select(LiveEventBus.SchemaEventType);
 
-        Assert.Equal(
-            declared.OrderBy(kind => kind, StringComparer.Ordinal),
-            emittedKinds.Distinct().OrderBy(kind => kind, StringComparer.Ordinal));
+        Assert.Equal(declared, emittedKinds.Distinct().OrderBy(kind => kind, StringComparer.Ordinal));
 
-        var declaredTypes = ContractSchema.Root["$defs"]!["LiveEvent"]!["properties"]!["event_type"]!["enum"]!
-            .AsArray()
-            .Select(node => node!.GetValue<string>())
-            .ToHashSet(StringComparer.Ordinal);
+        var declaredTypes = ContractSchema.DeclaredEnum("$defs", "LiveEvent", "properties", "event_type", "enum");
         Assert.All(emittedTypes, type => Assert.Contains(type, declaredTypes));
     }
 
@@ -647,12 +622,8 @@ public sealed class ContractSchemaTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        async Task<JsonObject> Send(string message, JsonObject payload)
-        {
-            var result = (await client.SendAsync(message, payload)).Require();
-            ContractSchema.Validate("$defs/Responses/" + message, result, message + " regional response");
-            return result;
-        }
+        async Task<JsonObject> Send(string message, JsonObject payload) =>
+            ContractSchema.Answered(await client.SendAsync(message, payload), message + " regional response");
 
         foreach (var (region, baseline) in new[] { ("CN", 100), ("TC", 20) })
         {
@@ -709,110 +680,5 @@ public sealed class ContractSchemaTests
         Assert.Equal(accepted, ContractSchema.Evaluate("$defs/Region", JsonValue.Create(region)).IsValid);
         Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter",
             new JsonObject { ["region"] = region }).IsValid);
-    }
-
-    [Theory]
-    [InlineData(1000, true)]
-    [InlineData(4096, true)]
-    [InlineData(4097, false)]
-    public async Task ExactNameLimit_MatchesSchemaAndRealPipe(int count, bool accepted)
-    {
-        var names = new JsonArray(Enumerable.Range(0, count)
-            .Select(index => (JsonNode?)JsonValue.Create("name-" + index)).ToArray());
-        var filter = new JsonObject { ["name_exact"] = names };
-        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter", filter).IsValid);
-        await using var fixture = ServerFixture.Start();
-        await using var client = await fixture.ConnectAsync();
-        var response = await client.SendAsync("QueryRuns", new JsonObject
-        {
-            ["filter"] = filter, ["page"] = 1, ["page_size"] = 1,
-        });
-        Assert.Equal(accepted, response.Ok);
-        if (accepted)
-            ContractSchema.Validate("$defs/Responses/QueryRuns", response.Require(), "bounded exact names");
-        else
-            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
-    }
-
-    [Theory]
-    [InlineData(200, true)]
-    [InlineData(201, false)]
-    public async Task ReflectionTextLimit_MatchesSchemaAndRealPipe(int length, bool accepted)
-    {
-        var filter = new JsonObject { ["reflection_text"] = new string('字', length), ["with_reflection"] = true };
-        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter", filter).IsValid);
-        Assert.True(ContractSchema.Evaluate("$defs/RunFilter", new JsonObject { ["reflection_text"] = null }).IsValid);
-        await using var fixture = ServerFixture.Start();
-        await using var client = await fixture.ConnectAsync();
-        var response = await client.SendAsync("QueryRuns", new JsonObject
-        {
-            ["filter"] = filter, ["page"] = 1, ["page_size"] = 1,
-        });
-        Assert.Equal(accepted, response.Ok);
-        if (accepted)
-            ContractSchema.Validate("$defs/Responses/QueryRuns", response.Require(), "bounded reflection text");
-        else
-            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
-    }
-
-    private static async Task<string> CreateRunAsync(
-        PipeClient client, string result, int contentId, int jobId)
-    {
-        var response = await client.SendAsync(
-            "CreateManualRun",
-            new JsonObject
-            {
-                ["content_id"] = contentId,
-                ["job_id"] = jobId,
-                ["duty_name"] = "石卫塔",
-                ["matched_at_utc"] = "2026-09-04T11:58:00.000Z",
-                ["entered_at_utc"] = "2026-09-04T12:00:00.000Z",
-                ["ended_at_utc"] = "2026-09-04T12:26:00.000Z",
-                ["result"] = result,
-                ["contributes_to_goal"] = true,
-                ["note"] = "契约测试补录",
-                ["reason"] = "契约测试补录",
-            });
-
-        return response.Require()["run_id"]!.GetValue<string>();
-    }
-
-    private static int Count(List<JsonObject> envelopes)
-    {
-        lock (envelopes)
-        {
-            return envelopes.Count;
-        }
-    }
-
-    private static async Task WaitForAsync(List<JsonObject> envelopes, int atLeast)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (Count(envelopes) < atLeast && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(25);
-        }
-
-        Assert.True(Count(envelopes) >= atLeast, "等待帧超时。");
-    }
-
-    private static async Task WaitForEventsAsync(List<JsonObject> envelopes, int atLeast)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            lock (envelopes)
-            {
-                if (envelopes.Count(envelope =>
-                        envelope["message_type"]!.GetValue<string>() == "Event") >= atLeast)
-                {
-                    return;
-                }
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("等待实时事件超时。");
     }
 }

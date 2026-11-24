@@ -1,9 +1,8 @@
 using System.Buffers.Binary;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Profiles;
+using MentorRecorder.Collector.Storage;
+using static MentorRecorder.Collector.IntegrationTests.SyntheticTraffic;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -90,6 +89,10 @@ public sealed class CaptureIpcTests
 
         Assert.False(response.Ok);
         Assert.Equal(ErrorCodes.CaptureNotRunning, response.ErrorCode);
+
+        var current = (await fixture.CallAsync("GetCurrentRun")).Require();
+        Assert.Equal("IDLE", current["state"]!.GetValue<string>());
+        Assert.Null(current["run"]);
     }
 
     [Fact]
@@ -207,7 +210,7 @@ public sealed class CaptureIpcTests
         Assert.Equal(ErrorCodes.CaptureAlreadyRunning, second.ErrorCode);
 
         source.PushOpcode(0x0142, payloadLength: 16);
-        var observed = await WaitForAsync(fixture, status => status["packets_observed"]!.GetValue<long>() > 0);
+        var observed = await fixture.WaitForCaptureStatusAsync(status => status["packets_observed"]!.GetValue<long>() > 0);
         Assert.Equal(0, observed["packets_dropped"]!.GetValue<long>());
 
         var stopped = (await fixture.CallAsync("StopCapture")).Require();
@@ -241,8 +244,8 @@ public sealed class CaptureIpcTests
         // One rejected frame re-runs the verdict. The evidence deciding it is the ingress
         // counters, which no observer callback reports.
         source.PushDecodeError();
-        var status = await WaitForAsync(
-            fixture, payload => payload["silent_reason"]!.GetValue<string>() != "NONE");
+        var status = await fixture.WaitForCaptureStatusAsync(
+            payload => payload["silent_reason"]!.GetValue<string>() != "NONE");
 
         Assert.Equal("MIDSTREAM", status["silent_reason"]!.GetValue<string>());
         Assert.True(status["midstream_suspected"]!.GetValue<bool>());
@@ -316,35 +319,18 @@ public sealed class CaptureIpcTests
         await using var fixture = CaptureServerFixture.Start(CaptureFakes.Ready(source));
         await using var client = await fixture.ConnectAsync();
 
-        var events = new List<JsonObject>();
-        using var received = new SemaphoreSlim(0);
-        client.EventReceived += payload =>
-        {
-            lock (events)
-            {
-                events.Add(payload);
-            }
-
-            received.Release();
-        };
+        var log = new FrameLog(client);
 
         await client.SendAsync("SubscribeLiveEvents");
         await client.SendAsync("StartCapture");
 
-        Assert.True(
-            await received.WaitAsync(TimeSpan.FromSeconds(10)),
-            "a capture status change must reach a live subscriber");
+        static bool Starting(JsonObject payload) =>
+            payload["event_type"]!.GetValue<string>() == "CaptureStatusChanged"
+            && payload["capture"]!["state"]!.GetValue<string>() == "STARTING";
+        await log.WaitForEventsAsync(
+            events => events.Any(Starting), "a capture status change must reach a live subscriber");
 
-        JsonObject[] snapshot;
-        lock (events)
-        {
-            snapshot = events.ToArray();
-        }
-
-        var statusChange = Assert.Single(
-            snapshot,
-            payload => payload["event_type"]!.GetValue<string>() == "CaptureStatusChanged"
-                && payload["capture"]!["state"]!.GetValue<string>() == "STARTING");
+        var statusChange = Assert.Single(log.Events(), Starting);
         Assert.Equal("collector_status", statusChange["kind"]!.GetValue<string>());
         Assert.NotNull(statusChange["capture"]);
     }
@@ -370,31 +356,8 @@ public sealed class CaptureIpcTests
     {
         const string gameBuild = "integration-live-build";
         using var source = new FakeCaptureSource();
-
-        var profilePath = SyntheticProfile.Path;
-        var synthetic = ProfileLoader.Validate(profilePath).Profile
-            ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
-        var verified = synthetic with
-        {
-            ProfileId = "integration-live",
-            Region = Region.Cn,
-            GameBuild = gameBuild,
-            Status = ProfileCompatibilityStatus.Verified,
-            Messages = synthetic.Messages
-                .Select(message => message with { SegmentType = FfxivFraming.SegmentTypeIpc })
-                .ToArray(),
-        };
-
-        ProfileSelection Select(GameProcessDetection game) => new(
-            ProfileCompatibilityStatus.Verified,
-            verified.ToBinding(),
-            verified,
-            game.Region,
-            game.GameBuild,
-            "integration test profile selected");
-
         await using var fixture = CaptureServerFixture.Start(
-            CaptureFakes.Ready(source, gameBuild), Select);
+            CaptureFakes.Ready(source, gameBuild), Selector(VerifiedProfile("integration-live", gameBuild)));
 
         var started = (await fixture.CallAsync("StartCapture")).Require();
         var sessionId = started["capture_session_id"]!.GetValue<string>();
@@ -408,12 +371,9 @@ public sealed class CaptureIpcTests
             source.PushRaw(heartbeat);
         }
 
-        var pop = new byte[8];
-        BinaryPrimitives.WriteUInt16LittleEndian(pop, 42);
-        BinaryPrimitives.WriteUInt32LittleEndian(pop.AsSpan(4), 1001);
-        source.PushRaw(IpcMessage(61441, pop));
+        source.PushRaw(IpcMessage(PopOpcode, Pop(42, 1001)));
 
-        var current = await WaitForCurrentRunAsync(fixture, "MENTOR_MATCHED");
+        var current = await fixture.WaitForCurrentRunAsync("MENTOR_MATCHED");
         Assert.Equal("integration-live", current["run"]!["protocol_profile_id"]!.GetValue<string>());
         Assert.Equal(gameBuild, current["run"]!["game_build"]!.GetValue<string>());
         Assert.Equal(sessionId, current["run"]!["capture_session_id"]!.GetValue<string>());
@@ -421,22 +381,11 @@ public sealed class CaptureIpcTests
         Assert.Null(current["elapsed_ms"]);
         Assert.Single((await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray());
 
-        var zone = new byte[16];
-        BinaryPrimitives.WriteUInt32LittleEndian(zone, 2001);
-        BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(4), 1001);
-        BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(8), 3001);
-        zone[12] = 1;
-        source.PushRaw(IpcMessage(61442, zone));
+        source.PushRaw(IpcMessage(ZoneOpcode, Zone(2001, 1001, 3001)));
+        source.PushRaw(IpcMessage(JobOpcode, Job(1)));
+        source.PushRaw(IpcMessage(ResultOpcode, Result(1)));
 
-        var job = new byte[4];
-        job[0] = 1;
-        source.PushRaw(IpcMessage(61444, job));
-
-        var result = new byte[4];
-        result[0] = 1;
-        source.PushRaw(IpcMessage(61443, result));
-
-        await WaitForStoredResultAsync(fixture, "COMPLETED");
+        await fixture.WaitForStoredResultAsync("COMPLETED");
         var rows = (await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray();
         var run = Assert.Single(rows)!;
         Assert.Equal("COMPLETED", run["result"]!.GetValue<string>());
@@ -472,29 +421,21 @@ public sealed class CaptureIpcTests
         const string gameBuild = "integration-disconnect-build";
         using var source = new FakeCaptureSource();
         await using var fixture = CaptureServerFixture.Start(
-            CaptureFakes.Ready(source, gameBuild), SyntheticSelector(gameBuild, "integration-disconnect"));
+            CaptureFakes.Ready(source, gameBuild), Selector(VerifiedProfile("integration-disconnect", gameBuild)));
 
         Assert.True((await fixture.CallAsync("StartCapture")).Ok);
 
-        var pop = new byte[8];
-        BinaryPrimitives.WriteUInt16LittleEndian(pop, 42);
-        BinaryPrimitives.WriteUInt32LittleEndian(pop.AsSpan(4), 1001);
-        source.PushRaw(IpcMessage(61441, pop));
-        await WaitForCurrentRunAsync(fixture, "MENTOR_MATCHED");
+        source.PushRaw(IpcMessage(PopOpcode, Pop(42, 1001)));
+        await fixture.WaitForCurrentRunAsync("MENTOR_MATCHED");
 
-        var zone = new byte[16];
-        BinaryPrimitives.WriteUInt32LittleEndian(zone, 2001);
-        BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(4), 1001);
-        BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(8), 3001);
-        zone[12] = 1;
-        source.PushRaw(IpcMessage(61442, zone));
-        await WaitForCurrentRunAsync(fixture, "ENTERED_DUTY");
+        source.PushRaw(IpcMessage(ZoneOpcode, Zone(2001, 1001, 3001)));
+        await fixture.WaitForCurrentRunAsync("ENTERED_DUTY");
 
         // The connection carrying the duty goes away. Nothing here touches the state machine
         // or the semantic processor.
         source.PushConnectionClosed();
 
-        await WaitForStoredResultAsync(fixture, "DISCONNECTED");
+        await fixture.WaitForStoredResultAsync("DISCONNECTED");
         var rows = (await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray();
         var run = Assert.Single(rows)!;
         Assert.Equal("DISCONNECTED", run["result"]!.GetValue<string>());
@@ -502,103 +443,71 @@ public sealed class CaptureIpcTests
         await fixture.CallAsync("StopCapture");
     }
 
-    /// <summary>The checked-in synthetic profile, presented as a verified one for this build.</summary>
-    /// <param name="gameBuild">Client build the profile claims to cover.</param>
-    /// <param name="profileId">Identifier stamped on the runs it produces.</param>
-    private static Func<GameProcessDetection, ProfileSelection> SyntheticSelector(
-        string gameBuild, string profileId)
-    {
-        var profilePath = SyntheticProfile.Path;
-        var synthetic = ProfileLoader.Validate(profilePath).Profile
-            ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
-        var verified = synthetic with
-        {
-            ProfileId = profileId,
-            Region = Region.Cn,
-            GameBuild = gameBuild,
-            Status = ProfileCompatibilityStatus.Verified,
-            Messages = synthetic.Messages
-                .Select(message => message with { SegmentType = FfxivFraming.SegmentTypeIpc })
-                .ToArray(),
-        };
+    // -------------------------------------------- remembered install, game closed ----
+    // The wire when the client version is known but the game is not running. The contract already
+    // allows it - game_build has never depended on ffxiv_running - and the two must be reported
+    // independently: a client that infers "no version yet" from "not running" would be wrong, and
+    // one that infers "the game is up" from a version would start a capture that cannot work.
 
-        return game => new ProfileSelection(
-            ProfileCompatibilityStatus.Verified,
-            verified.ToBinding(),
-            verified,
-            game.Region,
-            game.GameBuild,
-            "integration test profile selected");
+    private const string InstalledBuild = "2026.09.18.0000.0000";
+
+    [Fact]
+    public async Task GetCaptureStatus_ReportsTheInstalledBuildWithTheGameClosed()
+    {
+        await using var fixture = CaptureServerFixture.Start(CaptureFakes.RememberedInstall(InstalledBuild));
+
+        var payload = (await fixture.CallAsync("GetCaptureStatus")).Require();
+
+        Assert.False(payload["ffxiv_running"]!.GetValue<bool>());
+        Assert.Null(payload["ffxiv_process_id"]);
+        Assert.Equal(InstalledBuild, payload["game_build"]!.GetValue<string>());
+        Assert.Equal("CN", payload["region"]!.GetValue<string>());
     }
 
-    private static async Task<JsonObject> WaitForAsync(
-        CaptureServerFixture fixture, Func<JsonObject, bool> predicate)
+    [Fact]
+    public async Task GetStatus_NeverRendersTheRememberedInstallPath()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var status = (await fixture.CallAsync("GetCaptureStatus")).Require();
-            if (predicate(status))
-            {
-                return status;
-            }
+        await using var fixture = CaptureServerFixture.Start(CaptureFakes.RememberedInstall(InstalledBuild));
 
-            await Task.Delay(25);
-        }
+        var payload = (await fixture.CallAsync("GetStatus")).Require();
+        var game = payload["game"]!;
 
-        throw new TimeoutException("the capture status never reached the expected value");
+        Assert.False(game["running"]!.GetValue<bool>());
+        Assert.Equal(InstalledBuild, game["game_build"]!.GetValue<string>());
+        Assert.Equal(0, game["instance_count"]!.GetValue<int>());
+
+        // The path itself stays inside the service: install_path_readable speaks for the
+        // running client's path and there is no running client (docs/privacy-boundary.md §5).
+        Assert.False(game["install_path_readable"]!.GetValue<bool>());
+        Assert.DoesNotContain("SdoA", payload.ToJsonString(), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<JsonObject> WaitForCurrentRunAsync(
-        CaptureServerFixture fixture, string expectedState)
+    [Fact]
+    public async Task TheShippingHostWritesTheInstallNoteBesideItsDatabase()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var current = (await fixture.CallAsync("GetCurrentRun")).Require();
-            if (current["state"]!.GetValue<string>() == expectedState)
-            {
-                return current;
-            }
+        using var source = new FakeCaptureSource();
+        await using var fixture = CaptureServerFixture.Start(CaptureFakes.Ready(source, InstalledBuild));
 
-            await Task.Delay(25);
-        }
+        // One ordinary status poll is enough: the locator sees the client and remembers where
+        // it found it, so the next launch knows the version before the game is started.
+        _ = (await fixture.CallAsync("GetCaptureStatus")).Require();
 
-        throw new TimeoutException("the current run never reached " + expectedState);
+        var note = Path.Combine(fixture.DataDirectory, DatabasePaths.GameInstallFileName);
+        Assert.True(File.Exists(note), note + " was not written");
+        var written = File.ReadAllText(note);
+        Assert.Contains(FileGameInstallMemory.PathField, written, StringComparison.Ordinal);
+        Assert.Contains("ffxiv_dx11.exe", written, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Waits until the stored row carries a terminal result.
-    ///
-    /// <c>GetCurrentRun</c> normalises a terminal state to IDLE as soon as it is asked, so a
-    /// player who finished a duty and then idled in a city is not reported as still in one
-    /// (review finding L-9). The durable answer to what an attempt ended as is the stored row,
-    /// which is also what <c>run_finished</c> is computed from.
-    /// </summary>
-    /// <param name="fixture">Server under test.</param>
-    /// <param name="expectedResult">Wire spelling of the expected result.</param>
-    private static async Task<JsonObject> WaitForStoredResultAsync(
-        CaptureServerFixture fixture, string expectedResult)
+    [Fact]
+    public async Task StartCapture_IsStillRefused_WhileTheGameIsNotRunning()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var rows = (await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray();
-            if (rows.Count > 0 && rows[0]!["result"]!.GetValue<string>() == expectedResult)
-            {
-                return rows[0]!.AsObject();
-            }
+        await using var fixture = CaptureServerFixture.Start(CaptureFakes.RememberedInstall(InstalledBuild));
 
-            await Task.Delay(25);
-        }
+        var response = await fixture.CallAsync("StartCapture");
 
-        throw new TimeoutException("no stored run ever reached " + expectedResult);
-    }
-
-    private static byte[] IpcMessage(ushort opcode, ReadOnlySpan<byte> payload)
-    {
-        var message = FakeCaptureSource.BuildIpcMessage(opcode, payload.Length);
-        payload.CopyTo(message.AsSpan(FfxivFraming.HeaderBytes));
-        return message;
+        // Knowing the version says nothing about whether there is a client to observe.
+        Assert.False(response.Ok);
+        Assert.Equal(ErrorCodes.FfxivNotRunning, response.ErrorCode);
     }
 }

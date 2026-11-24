@@ -15,26 +15,6 @@ public sealed class ReflectionIpcTests
 {
     private static string NewId() => Guid.NewGuid().ToString("D");
 
-    private static async Task<string> CreateCompletedRunAsync(PipeClient client, int contentId)
-    {
-        var response = await client.SendAsync(
-            "CreateManualRun",
-            new JsonObject
-            {
-                ["content_id"] = contentId,
-                ["job_id"] = 19,
-                ["duty_name"] = "石卫塔",
-                ["matched_at_utc"] = "2026-09-04T11:58:00.000Z",
-                ["entered_at_utc"] = "2026-09-04T12:00:00.000Z",
-                ["ended_at_utc"] = "2026-09-04T12:26:00.000Z",
-                ["result"] = "COMPLETED",
-                ["contributes_to_goal"] = true,
-                ["reason"] = "心得测试补录",
-            });
-
-        return response.Require()["run_id"]!.GetValue<string>();
-    }
-
     private static Task<IpcResponse> SetAsync(
         PipeClient client, string runId, string mood, string text, string? requestId = null) =>
         client.SendAsync(
@@ -47,7 +27,7 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var runId = await CreateCompletedRunAsync(client, 900101);
+        var runId = await ManualRuns.CreateAsync(client, 900101);
 
         var written = await SetAsync(client, runId, "good", "  带新人打灯塔，一次过。  ");
         var reflection = written.Require()["reflection"]!.AsObject();
@@ -69,8 +49,8 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var withOne = await CreateCompletedRunAsync(client, 900102);
-        _ = await CreateCompletedRunAsync(client, 900103);
+        var withOne = await ManualRuns.CreateAsync(client, 900102);
+        _ = await ManualRuns.CreateAsync(client, 900103);
         Assert.True((await SetAsync(client, withOne, "ok", "还行。")).Ok);
 
         var all = await client.SendAsync("QueryRuns", new JsonObject());
@@ -101,7 +81,7 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var runId = await CreateCompletedRunAsync(client, 900104);
+        var runId = await ManualRuns.CreateAsync(client, 900104);
         Assert.True((await SetAsync(client, runId, "bad", "糟心。")).Ok);
 
         var cleared = await SetAsync(client, runId, "bad", "   ");
@@ -116,7 +96,7 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var runId = await CreateCompletedRunAsync(client, 900105);
+        var runId = await ManualRuns.CreateAsync(client, 900105);
 
         Assert.Equal(
             ErrorCodes.NotFound,
@@ -134,7 +114,7 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var runId = await CreateCompletedRunAsync(client, 900106);
+        var runId = await ManualRuns.CreateAsync(client, 900106);
 
         Assert.True((await client.SendAsync(
             "SoftDeleteRun",
@@ -171,35 +151,25 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var events = new List<JsonObject>();
-        client.EnvelopeReceived += envelope =>
-        {
-            if (envelope["message_type"]!.GetValue<string>() != "Event")
-            {
-                return;
-            }
-
-            lock (events)
-            {
-                events.Add(envelope["payload"]!.DeepClone().AsObject());
-            }
-        };
+        var log = new FrameLog(client);
 
         Assert.True((await client.SendAsync(
             "SubscribeLiveEvents", new JsonObject { ["heartbeat_interval_ms"] = 5000 })).Ok);
 
-        var runId = await CreateCompletedRunAsync(client, 900107);
+        var runId = await ManualRuns.CreateAsync(client, 900107);
         Assert.True((await SetAsync(client, runId, "good", "发事件用的心得。")).Ok);
 
-        var stats = await WaitForAsync(events, payload =>
-            payload["kind"]!.GetValue<string>() == "stats_invalidated" &&
-            payload["message"]?.GetValue<string>() == "reflection_changed");
-        Assert.NotNull(stats);
+        await log.WaitForEventsAsync(
+            events => events.Any(payload =>
+                payload["kind"]!.GetValue<string>() == "stats_invalidated" &&
+                payload["message"]?.GetValue<string>() == "reflection_changed"),
+            "stats_invalidated for the reflection never arrived");
 
-        var updated = await WaitForAsync(events, payload =>
-            payload["kind"]!.GetValue<string>() == "run_updated" &&
-            payload["run"]?["reflection"]?["text"]?.GetValue<string>() == "发事件用的心得。");
-        Assert.NotNull(updated);
+        await log.WaitForEventsAsync(
+            events => events.Any(payload =>
+                payload["kind"]!.GetValue<string>() == "run_updated" &&
+                payload["run"]?["reflection"]?["text"]?.GetValue<string>() == "发事件用的心得。"),
+            "run_updated carrying the reflection never arrived");
     }
 
     [Fact]
@@ -207,8 +177,8 @@ public sealed class ReflectionIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var written = await CreateCompletedRunAsync(client, 900108);
-        var pending = await CreateCompletedRunAsync(client, 900109);
+        var written = await ManualRuns.CreateAsync(client, 900108);
+        var pending = await ManualRuns.CreateAsync(client, 900109);
         Assert.True((await SetAsync(client, written, "ok", "写过了。")).Ok);
 
         var summary = (await client.SendAsync(
@@ -237,26 +207,5 @@ public sealed class ReflectionIpcTests
         Assert.Equal(0, summary["pending_completed_count"]!.GetValue<int>());
         Assert.Empty(summary["recent"]!.AsArray());
         Assert.Null(summary["next_pending"]);
-    }
-
-    private static async Task<JsonObject?> WaitForAsync(
-        List<JsonObject> events, Func<JsonObject, bool> predicate)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            lock (events)
-            {
-                var match = events.FirstOrDefault(predicate);
-                if (match is not null)
-                {
-                    return match;
-                }
-            }
-
-            await Task.Delay(25);
-        }
-
-        return null;
     }
 }

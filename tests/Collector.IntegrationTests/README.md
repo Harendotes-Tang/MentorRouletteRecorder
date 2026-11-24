@@ -10,11 +10,7 @@
 
 `PipeServerTests` —— 端到端的 IPC 协议：
 
-- `GetVersion` 握手；`GetStatus` 报告 schema 版本与实际抓包状态；
-- 未安装 Npcap 时抓包类消息的真实答复：`ListCaptureAdapters` 报告 `npcap_installed = false` 并给出安装提示、
-  不推荐任何网卡，`StartCapture` 返回 `ERR_NPCAP_MISSING` 且不启动抓包，`StopCapture` 返回 `ERR_CAPTURE_NOT_RUNNING`，
-  `GetStatus` 报告 `injected_hook_enabled = false`；
-- `QueryRuns` 分页（页间不重叠）与 `page_size > 200` 被拒；
+- `GetVersion` 握手；`GetStatus` 报告 schema 版本与实际抓包状态，其中 `injected_hook_enabled = false`；
 - `CorrectRun` 与 `GetRunRevisions` 呈现完整修订链，创建时的原值仍可自 revision 1 读出；
 - 同一 `request_id` 重发 `CorrectRun` 仅应用一次，`idempotent_replay = true`；
 - 非法 JSON 帧被拒后连接**仍可用**；未知 `message_type` 显式报错；
@@ -23,6 +19,12 @@
 - `SubscribeLiveEvents` 在一次变更后收到 `run_updated`；两个订阅者同时收到事件；
 - 四张统计表；导出与备份写出真实文件；导出至用户目录之外被拒；
 - 契约中**每一个** `message_type` 均有答复（载荷或明确的错误码）。
+
+`CaptureIpcTests` —— 抓包类消息：未安装 Npcap 时的真实答复（`ListCaptureAdapters` 报告 `npcap_installed = false`
+并给出安装提示、不推荐任何网卡，`StartCapture` 返回 `ERR_NPCAP_MISSING` 且不启动抓包，`StopCapture` 返回
+`ERR_CAPTURE_NOT_RUNNING` 且当前记录仍为 `IDLE`）；注入伪造报文源后完整走通一次抓包。
+
+`IpcPagingTests` —— `QueryRuns` 分页（页间不重叠）与 `page_size > 200` 被拒；分页边界与大响应不截断记录。
 
 `ReplayIntegrationTests` —— 逐个重放测试样本，期望值依据
 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与

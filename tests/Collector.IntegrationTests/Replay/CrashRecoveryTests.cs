@@ -6,6 +6,7 @@ using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Replay;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
+using Microsoft.Data.Sqlite;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -25,6 +26,14 @@ public sealed class CrashRecoveryTests : IDisposable
         _databasePath = _directory.Combine("recovery.db");
     }
 
+    /// <summary>Opens the test database with its default settings and runs <paramref name="write"/> in one transaction.</summary>
+    private void Seed(Action<SqliteDatabase, SqliteTransaction> write)
+    {
+        using var database = SqliteDatabase.Open(_databasePath, SystemClock.Instance);
+        new SettingsRepository(database, SystemClock.Instance).EnsureDefaults();
+        database.RunInTransaction(tx => write(database, tx));
+    }
+
     /// <summary>
     /// Writes a run that is still in flight, exactly as a process that died between the duty
     /// finder pop and the duty result would have left it.
@@ -36,20 +45,13 @@ public sealed class CrashRecoveryTests : IDisposable
     /// </param>
     private string SeedUnfinishedRun(bool sessionEnded = false)
     {
-        using var database = SqliteDatabase.Open(_databasePath, SystemClock.Instance);
-        var settings = new SettingsRepository(database, SystemClock.Instance);
-        settings.EnsureDefaults();
-
-        var runs = new RunRepository(database);
-        var revisions = new RunRevisionRepository(database);
-        var sessions = new CaptureSessionRepository(database);
         var runId = Guid.NewGuid().ToString("D");
         var sessionId = Guid.NewGuid().ToString("D");
         var matched = new DateTimeOffset(2026, 9, 3, 20, 0, 0, TimeSpan.Zero);
 
-        database.RunInTransaction(tx =>
+        Seed((database, tx) =>
         {
-            sessions.Insert(
+            new CaptureSessionRepository(database).Insert(
                 new CaptureSession
                 {
                     CaptureSessionId = sessionId,
@@ -61,7 +63,7 @@ public sealed class CrashRecoveryTests : IDisposable
                 },
                 tx);
 
-            runs.Insert(
+            new RunRepository(database).Insert(
                 new MentorRun
                 {
                     RunId = runId,
@@ -82,7 +84,7 @@ public sealed class CrashRecoveryTests : IDisposable
                 },
                 tx);
 
-            revisions.Append(
+            new RunRevisionRepository(database).Append(
                 new RunRevision
                 {
                     RevisionId = Guid.NewGuid().ToString("D"),
@@ -106,19 +108,13 @@ public sealed class CrashRecoveryTests : IDisposable
     /// </summary>
     private string SeedFinishedUnknownRun()
     {
-        using var database = SqliteDatabase.Open(_databasePath, SystemClock.Instance);
-        var settings = new SettingsRepository(database, SystemClock.Instance);
-        settings.EnsureDefaults();
-
-        var runs = new RunRepository(database);
-        var sessions = new CaptureSessionRepository(database);
         var runId = Guid.NewGuid().ToString("D");
         var sessionId = Guid.NewGuid().ToString("D");
         var matched = new DateTimeOffset(2026, 9, 3, 21, 0, 0, TimeSpan.Zero);
 
-        database.RunInTransaction(tx =>
+        Seed((database, tx) =>
         {
-            sessions.Insert(
+            new CaptureSessionRepository(database).Insert(
                 new CaptureSession
                 {
                     CaptureSessionId = sessionId,
@@ -128,7 +124,7 @@ public sealed class CrashRecoveryTests : IDisposable
                 },
                 tx);
 
-            runs.Insert(
+            new RunRepository(database).Insert(
                 new MentorRun
                 {
                     RunId = runId,

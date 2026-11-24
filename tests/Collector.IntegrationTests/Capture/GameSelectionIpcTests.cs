@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -19,17 +18,13 @@ public sealed class GameSelectionIpcTests
         {
             Game = new GameProcessLocator(processes),
             Adapters = new AdapterEnumerator(network, network),
-            SourceFactory = () => { var source = new FakeCaptureSource(); sources.Add(source); return source; },
+            SourceFactory = Recording(sources),
         };
         await using var fixture = CaptureServerFixture.Start(services);
         await using var client = await fixture.ConnectAsync();
         var status = (await client.SendAsync("GetCaptureStatus")).Require();
         var choice = Assert.Single(status["game_processes"]!.AsArray())!;
-        var selection = new JsonObject
-        {
-            ["process_id"] = choice["process_id"]!.DeepClone(),
-            ["selection_token"] = choice["selection_token"]!.DeepClone(),
-        };
+        var selection = SelectionOf(choice);
         (await client.SendAsync("SelectGameProcess", selection)).Require();
         fixture.Host.Capture.Poll();
         var oldSession = Assert.Single(sources).LastOptions!.CaptureSessionId;
@@ -62,7 +57,7 @@ public sealed class GameSelectionIpcTests
         var services = CaptureFakes.Ready(new FakeCaptureSource()) with
         {
             Game = new GameProcessLocator(processes),
-            SourceFactory = () => { var source = new FakeCaptureSource(); sources.Add(source); return source; },
+            SourceFactory = Recording(sources),
         };
         await using var fixture = CaptureServerFixture.Start(services);
         await using var client = await fixture.ConnectAsync();
@@ -71,11 +66,7 @@ public sealed class GameSelectionIpcTests
         Assert.True(status["game_selection_required"]!.GetValue<bool>());
         Assert.Empty(sources);
         var choice = status["game_processes"]!.AsArray().First()!;
-        var selection = new JsonObject
-        {
-            ["process_id"] = choice["process_id"]!.DeepClone(),
-            ["selection_token"] = choice["selection_token"]!.DeepClone(),
-        };
+        var selection = SelectionOf(choice);
         var selected = (await client.SendAsync("SelectGameProcess", selection)).Require();
         ContractSchema.Validate("$defs/CaptureStatus", selected, "selected game");
         Assert.Equal(4321, selected["ffxiv_process_id"]!.GetValue<int>());
@@ -150,6 +141,15 @@ public sealed class GameSelectionIpcTests
         Assert.Equal("payload.process_id", refused.Payload["field"]!.GetValue<string>());
     }
 
+    private static JsonObject SelectionOf(JsonNode choice) => new()
+    {
+        ["process_id"] = choice["process_id"]!.DeepClone(),
+        ["selection_token"] = choice["selection_token"]!.DeepClone(),
+    };
+
+    private static Func<ICaptureSource> Recording(List<FakeCaptureSource> sources) =>
+        () => { var source = new FakeCaptureSource(); sources.Add(source); return source; };
+
     private sealed class Clients : IGameProcessProvider
     {
         public bool FirstRunning { get; set; } = true;
@@ -175,10 +175,9 @@ public sealed class GameSelectionIpcTests
 
     private sealed class RestartNetwork(RestartingClient processes) : IAdapterProvider, IProcessTcpTable
     {
-        private static readonly IPAddress Address = IPAddress.Parse("192.168.31.77");
         public IReadOnlyList<AdapterInfo> List() =>
-            [new("restart-adapter", "Test", "Test", true, false, [Address])];
+            [new("restart-adapter", "Test", "Test", true, false, [CaptureFakes.AdapterAddress])];
         public IReadOnlyList<IPAddress> LocalAddresses(int processId) =>
-            processes.Client?.ProcessId == processId ? [Address] : [];
+            processes.Client?.ProcessId == processId ? [CaptureFakes.AdapterAddress] : [];
     }
 }

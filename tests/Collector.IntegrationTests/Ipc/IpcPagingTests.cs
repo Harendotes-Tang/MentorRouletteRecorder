@@ -4,9 +4,61 @@ using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
-/// <summary>分页边界和大响应通过真实命名管道返回，不能截断记录或破坏后续请求。</summary>
+/// <summary>
+/// 分页通过真实命名管道返回：页与页不重叠，超出上限的 page_size 被拒；分页边界和大响应不能截断记录或破坏后续请求。
+/// </summary>
 public sealed class IpcPagingTests
 {
+    [Fact]
+    public async Task QueryRuns_PagesThroughTheHistory()
+    {
+        await using var fixture = ServerFixture.Start(host =>
+        {
+            for (var index = 0; index < 7; index++)
+            {
+                host.Mutations.CreateManualRun(PipeServerTests.ManualRun(index));
+            }
+        });
+
+        await using var client = await fixture.ConnectAsync();
+
+        var first = (await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["page"] = 1,
+            ["page_size"] = 3,
+            ["sort"] = new JsonObject { ["field"] = "entered_at_utc", ["direction"] = "asc" },
+        })).Require();
+
+        Assert.Equal(3, first["items"]!.AsArray().Count);
+        Assert.Equal(7, first["page_info"]!["total"]!.GetValue<int>());
+
+        var last = (await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["page"] = 3,
+            ["page_size"] = 3,
+            ["sort"] = new JsonObject { ["field"] = "entered_at_utc", ["direction"] = "asc" },
+        })).Require();
+
+        Assert.Single(last["items"]!.AsArray());
+        Assert.Equal(3, last["page_info"]!["page"]!.GetValue<int>());
+
+        // Pages must not overlap.
+        var firstIds = first["items"]!.AsArray().Select(item => item!["run_id"]!.GetValue<string>());
+        var lastIds = last["items"]!.AsArray().Select(item => item!["run_id"]!.GetValue<string>());
+        Assert.Empty(firstIds.Intersect(lastIds, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task QueryRuns_WithAnOversizedPageSize_IsRefused()
+    {
+        await using var fixture = ServerFixture.Start();
+
+        var response = await fixture.CallAsync("QueryRuns", new JsonObject { ["page_size"] = 201 });
+
+        Assert.False(response.Ok);
+        Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
+    }
+
     [Theory]
     [InlineData("GetDungeonStats")]
     [InlineData("GetJobStats")]

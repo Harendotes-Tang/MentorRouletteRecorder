@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Schema;
+using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -106,6 +107,46 @@ public static class ContractSchema
         message.AppendLine(instance?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "null");
         Assert.Fail(message.ToString());
     }
+
+    /// <summary>
+    /// The payload of an answered request, validated against the response schema of its message type. A refusal
+    /// fails the test with its message.
+    /// </summary>
+    /// <param name="response">The response to a request.</param>
+    /// <param name="what">What the payload is, for the failure message.</param>
+    public static JsonObject Answered(IpcResponse response, string what)
+    {
+        Assert.True(response.Ok, response.MessageType + ": " + response.ErrorMessage);
+        Validate("$defs/Responses/" + response.MessageType, response.Payload, what);
+        return response.Payload;
+    }
+
+    /// <summary>
+    /// The string members of the enum at a path below the document root, ordinal-sorted; a <c>null</c> member is
+    /// left out.
+    /// </summary>
+    /// <param name="pointer">Path segments, for example <c>"$defs", "SpeechProvider", "enum"</c>.</param>
+    public static string[] DeclaredEnum(params string[] pointer)
+    {
+        JsonNode? node = Root;
+        foreach (var segment in pointer)
+        {
+            node = node![segment];
+        }
+
+        return node!.AsArray().OfType<JsonNode>().Select(item => item.GetValue<string>()).Order(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>A request envelope as a client would frame it, for evaluating against the contract.</summary>
+    /// <param name="messageType">Message type from the contract.</param>
+    /// <param name="payload">Request payload; copied, so the caller can keep using it.</param>
+    public static JsonObject RequestEnvelope(string messageType, JsonNode? payload) => new()
+    {
+        ["protocol_version"] = 1,
+        ["request_id"] = "11111111-2222-4333-8444-555555555555",
+        ["message_type"] = messageType,
+        ["payload"] = payload?.DeepClone(),
+    };
 
     /// <summary>Every message type the contract declares, minus <c>Event</c> and <c>Error</c>.</summary>
     public static IReadOnlyList<string> BusinessMessageTypes { get; } = Root["$defs"]!["MessageType"]!["enum"]!

@@ -42,13 +42,9 @@ public sealed class NetworkPathContractTests
             }
         }
 
-        var definitions = ContractSchema.Root["$defs"]!;
-        var declaredKinds = definitions["NetworkPath"]!["properties"]!["kind"]!["enum"]!.AsArray()
-            .Select(node => node!.GetValue<string>());
-        var declaredQueries = definitions["NetworkQueryStatus"]!["enum"]!.AsArray()
-            .Select(node => node!.GetValue<string>());
-        Assert.Equal(declaredKinds.Order(StringComparer.Ordinal), kinds.Order(StringComparer.Ordinal));
-        Assert.Equal(declaredQueries.Order(StringComparer.Ordinal), queries.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ContractSchema.DeclaredEnum("$defs", "NetworkPath", "properties", "kind", "enum"), kinds.Order(StringComparer.Ordinal));
+        Assert.Equal(ContractSchema.DeclaredEnum("$defs", "NetworkQueryStatus", "enum"), queries.Order(StringComparer.Ordinal));
         ContractSchema.Validate("$defs/NetworkPath", new JsonObject(), "older partial network facts");
     }
 
@@ -218,9 +214,8 @@ public sealed class NetworkPathContractTests
             tokens.Add(wire["state"]!.GetValue<string>());
         }
 
-        var declared = ContractSchema.Root["$defs"]!["PathRecovery"]!["properties"]!["state"]!["enum"]!.AsArray()
-            .Select(node => node!.GetValue<string>());
-        Assert.Equal(declared.Order(StringComparer.Ordinal), tokens.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ContractSchema.DeclaredEnum("$defs", "PathRecovery", "properties", "state", "enum"), tokens.Order(StringComparer.Ordinal));
         ContractSchema.Validate("$defs/PathRecovery", PathRecoveryWire.ToJson(
             new PathRecoverySnapshot(PathRecoveryState.Recovering, 0, 0)), "zero recovery progress");
         ContractSchema.Validate("$defs/PathRecovery", PathRecoveryWire.ToJson(
@@ -320,7 +315,7 @@ public sealed class NetworkPathContractTests
         Assert.Equal(4321, connections.LastPid);
 
         foreach (var secret in new[]
-                 { "192.168.31.77", "203.0.113.29", "private-driver-name", "private-interface-description" })
+                 { CaptureFakes.AdapterAddress.ToString(), "203.0.113.29", "private-driver-name", "private-interface-description" })
         {
             Assert.DoesNotContain(secret, statusPath.ToJsonString(), StringComparison.Ordinal);
             Assert.DoesNotContain(secret, reportText, StringComparison.Ordinal);
@@ -342,7 +337,7 @@ public sealed class NetworkPathContractTests
         public IReadOnlyList<AdapterInfo> List() => new[]
         {
             new AdapterInfo("{TEST-ADAPTER}", "private-driver-name", "private-interface-description", true, false,
-                new[] { IPAddress.Parse("192.168.31.77") }),
+                new[] { CaptureFakes.AdapterAddress }),
         };
     }
 
@@ -358,7 +353,7 @@ public sealed class NetworkPathContractTests
             return new ProcessNetworkConnectionTables(
                 new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, new[]
                 {
-                    new ProcessNetworkConnection(IPAddress.Parse("192.168.31.77"), 54123,
+                    new ProcessNetworkConnection(CaptureFakes.AdapterAddress, 54123,
                         IPAddress.Parse("203.0.113.29"), 54994),
                 }),
                 new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>()));

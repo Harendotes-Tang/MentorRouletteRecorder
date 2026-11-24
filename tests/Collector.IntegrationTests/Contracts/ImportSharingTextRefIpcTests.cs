@@ -1,44 +1,16 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Sharing;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
 /// <summary>
-/// Import and shared-calibration sentences over a real Named Pipe carry their catalogue references
-/// beside the Chinese (contracts/collector-texts.md §2.1): the <c>ImportCalibrationCode</c>
-/// <c>message_ref</c>, the preview rows' <c>error_refs</c> / <c>warning_refs</c> and the refusals'
-/// <c>message_ref</c>. Each reference renders back to exactly the Chinese an older Desktop shows.
+/// Import sentences over a real Named Pipe carry their catalogue references beside the Chinese
+/// (contracts/collector-texts.md §2.1): the preview rows' <c>error_refs</c> / <c>warning_refs</c> and
+/// the refusals' <c>message_ref</c>. Each reference renders back to exactly the Chinese an older
+/// Desktop shows. The <c>ImportCalibrationCode</c> answers' references are held by
+/// <see cref="SharedCalibrationIpcTests"/>, which sends the same requests.
 /// </summary>
 public sealed class ImportSharingTextRefIpcTests
 {
-    [Fact]
-    public async Task EveryImportCalibrationCodeAnswerCarriesItsMessageAsAReference()
-    {
-        await using var fixture = ServerFixture.Start();
-        await using var client = await fixture.ConnectAsync();
-
-        var garbage = Answered(await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = "MRC1.???" }));
-        Assert.Equal("sharing.import.not_imported", CollectorTextCatalogue.Key(garbage["message_ref"]));
-        Assert.Equal("sharing.code.characters", CollectorTextCatalogue.Key(garbage["message_ref"]!["args"]!["reason"]));
-
-        var overlong = Answered(await client.SendAsync("ImportCalibrationCode",
-            new JsonObject { ["code"] = ShareCode.Prefix + new string('A', ShareCode.MaxCodeLength) }));
-        Assert.Equal("sharing.import.code_too_long", CollectorTextCatalogue.Key(overlong["message_ref"]));
-        Assert.Equal(ShareCode.MaxCodeLength, overlong["message_ref"]!["args"]!["max"]!.GetValue<int>());
-
-        var path = Path.Combine(ContractSchema.RepositoryRoot, "tests", "Fixtures", "shared-calibration", "vectors.json");
-        var code = JsonNode.Parse(File.ReadAllText(path))!["valid"]![0]!["code"]!.GetValue<string>();
-        var notCalibrating = Answered(await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = code }));
-        Assert.Equal("sharing.import.not_calibrating", CollectorTextCatalogue.Key(notCalibrating["message_ref"]));
-
-        var missing = await client.SendAsync("ImportCalibrationCode", new JsonObject());
-        CollectorTextCatalogue.AssertRefusal(missing, "ipc.field.missing");
-        Assert.Equal("code", missing.Payload["message_ref"]!["args"]!["field"]!.GetValue<string>());
-
-        CollectorTextCatalogue.AssertRefusal(await client.SendAsync("GetCalibrationShareCode"), "sharing.share_code.no_profile");
-    }
-
     [Fact]
     public async Task PreviewRowsCarryReferencesParallelToTheirErrorsAndWarnings()
     {
@@ -96,14 +68,6 @@ public sealed class ImportSharingTextRefIpcTests
             ["preview_id"] = Guid.NewGuid().ToString("D"), ["row_numbers"] = new JsonArray(1), ["confirm_own_records"] = false,
         });
         CollectorTextCatalogue.AssertRefusal(refused, "import.commit.own_records_required");
-    }
-
-    private static JsonObject Answered(IpcResponse response)
-    {
-        Assert.True(response.Ok, response.ErrorMessage);
-        ContractSchema.Validate("$defs/Responses/ImportCalibrationCode", response.Payload, "ImportCalibrationCode response payload");
-        CollectorTextCatalogue.AssertParallel(response.Payload["message"], response.Payload["message_ref"]);
-        return response.Payload;
     }
 
     /// <summary>As long and in the same order; a null entry is a sentence the catalogue does not word, such as the source's own.</summary>

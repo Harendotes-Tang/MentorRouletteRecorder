@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -13,7 +12,8 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// refuses -- or that the contract does not describe -- fails here rather than in the field.
 /// tests/Fixtures/ipc-requests/variants/*.json are the further shapes one message can take
 /// (a paged import, its next page, an import from a file); they are held to the schema too
-/// (audit 2026-10-20, G-3).
+/// (audit 2026-10-20, G-3). Single request fields whose accepted values the schema and the
+/// Collector must agree on are held to both here as well.
 /// </summary>
 public sealed class ContractRequestSampleTests
 {
@@ -97,26 +97,21 @@ public sealed class ContractRequestSampleTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, messageType + ".out")
+        var target = Path.Combine(fixture.DataDirectory, messageType + ".out")
             .Replace("\\", "\\\\", StringComparison.Ordinal);
 
         JsonObject Payload(string template) =>
             JsonNode.Parse(template.Replace("{0}", target, StringComparison.Ordinal))!.AsObject();
-        JsonObject Envelope(JsonObject payload) => new()
-        {
-            ["protocol_version"] = 1,
-            ["request_id"] = Guid.NewGuid().ToString("D"),
-            ["message_type"] = messageType,
-            ["payload"] = payload,
-        };
 
         Assert.False(
-            ContractSchema.Evaluate("$defs/RequestEnvelope", Envelope(Payload(refused))).IsValid,
+            ContractSchema.Evaluate(
+                "$defs/RequestEnvelope", ContractSchema.RequestEnvelope(messageType, Payload(refused))).IsValid,
             messageType + " 的契约仍然接受 " + refused);
         var refusal = await client.SendAsync(messageType, Payload(refused));
         Assert.Equal(ErrorCodes.BadRequest, refusal.ErrorCode);
 
-        ContractSchema.Validate("$defs/RequestEnvelope", Envelope(Payload(accepted)), messageType);
+        ContractSchema.Validate(
+            "$defs/RequestEnvelope", ContractSchema.RequestEnvelope(messageType, Payload(accepted)), messageType);
         Assert.True((await client.SendAsync(messageType, Payload(accepted))).Ok);
     }
 
@@ -147,7 +142,7 @@ public sealed class ContractRequestSampleTests
                 payload["preview_id"] = preview["preview_id"]!.DeepClone();
             }
             if (messageType == "ExportCandidateEvidence")
-                payload["target_path"] = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "sample-candidate-evidence.json");
+                payload["target_path"] = Path.Combine(fixture.DataDirectory, "sample-candidate-evidence.json");
             var response = await client.SendAsync(messageType, payload);
 
             // A business refusal is fine. ERR_BAD_REQUEST means the Collector could not read
@@ -156,5 +151,87 @@ public sealed class ContractRequestSampleTests
                 response.ErrorCode == ErrorCodes.BadRequest,
                 $"{messageType} 样本被 Collector 判为 ERR_BAD_REQUEST：{response.ErrorMessage}");
         }
+    }
+
+    /// <summary>
+    /// contracts/CHANGELOG.md 2026-11-03: ExportRequest.sort is the RunSort QueryRuns takes. The
+    /// schema and the Collector agree on what passes and what is refused, and an accepted sort
+    /// orders the file: ascending history_date puts the earliest run on the first data row.
+    /// </summary>
+    [Theory]
+    [InlineData("history_date", "asc", true)]
+    [InlineData("history_date", "desc", true)]
+    [InlineData("history_date", "sideways", false)]
+    [InlineData("run_id", "asc", false)]
+    public async Task ExportSort_MatchesSchemaAndRealPipe(string field, string direction, bool accepted)
+    {
+        var request = new JsonObject
+        {
+            ["target_path"] = "placeholder",
+            ["filter"] = new JsonObject(),
+            ["sort"] = new JsonObject { ["field"] = field, ["direction"] = direction },
+        };
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/ExportRequest", request).IsValid);
+
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var earliest = await ManualRuns.CreateAsync(client, 5, enteredAtUtc: "2026-09-01T01:00:00.000Z");
+        var latest = await ManualRuns.CreateAsync(client, 5, enteredAtUtc: "2026-09-03T01:00:00.000Z");
+        var target = Path.Combine(fixture.DataDirectory, $"sorted-{field}-{direction}.json");
+        request["target_path"] = target;
+
+        var response = await client.SendAsync("ExportJson", request);
+        Assert.Equal(accepted, response.Ok);
+        if (!accepted)
+        {
+            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
+            return;
+        }
+
+        ContractSchema.Validate("$defs/Responses/ExportJson", response.Require(), "sorted export");
+        var ids = JsonNode.Parse(File.ReadAllText(target))!.AsArray()
+            .Select(item => item!["run_id"]!.GetValue<string>()).ToArray();
+        Assert.Equal(direction == "asc" ? new[] { earliest, latest } : new[] { latest, earliest }, ids);
+    }
+
+    [Theory]
+    [InlineData(1000, true)]
+    [InlineData(4096, true)]
+    [InlineData(4097, false)]
+    public async Task ExactNameLimit_MatchesSchemaAndRealPipe(int count, bool accepted)
+    {
+        var names = new JsonArray(Enumerable.Range(0, count)
+            .Select(index => (JsonNode?)JsonValue.Create("name-" + index)).ToArray());
+        await AssertQueryRunsFilterAgreesAsync(new JsonObject { ["name_exact"] = names }, accepted, "bounded exact names");
+    }
+
+    [Theory]
+    [InlineData(200, true)]
+    [InlineData(201, false)]
+    public async Task ReflectionTextLimit_MatchesSchemaAndRealPipe(int length, bool accepted)
+    {
+        Assert.True(ContractSchema.Evaluate("$defs/RunFilter", new JsonObject { ["reflection_text"] = null }).IsValid);
+        var filter = new JsonObject { ["reflection_text"] = new string('字', length), ["with_reflection"] = true };
+        await AssertQueryRunsFilterAgreesAsync(filter, accepted, "bounded reflection text");
+    }
+
+    /// <summary>The schema and a real Collector both accept <paramref name="filter"/> on QueryRuns, or both refuse it.</summary>
+    /// <param name="filter">The RunFilter under test.</param>
+    /// <param name="accepted">Whether both must accept it.</param>
+    /// <param name="what">What the filter is, for the failure message.</param>
+    private static async Task AssertQueryRunsFilterAgreesAsync(JsonObject filter, bool accepted, string what)
+    {
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter", filter).IsValid);
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var response = await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["filter"] = filter, ["page"] = 1, ["page_size"] = 1,
+        });
+        Assert.Equal(accepted, response.Ok);
+        if (accepted)
+            ContractSchema.Validate("$defs/Responses/QueryRuns", response.Require(), what);
+        else
+            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
     }
 }

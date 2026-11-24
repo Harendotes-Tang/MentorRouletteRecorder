@@ -7,7 +7,9 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// <summary>
 /// The five shared-calibration requests and the setting over a real pipe on a machine with no
 /// game: ordinary answers are outcomes matching the contract, only a share code that cannot be
-/// given fails, and a request of the wrong shape is refused before anything decodes it.
+/// given fails, and a request of the wrong shape is refused before anything decodes it. Each
+/// answer's and refusal's sentence also travels as a catalogue reference that renders back to the
+/// Chinese (contracts/collector-texts.md §2.1).
 /// </summary>
 public sealed class SharedCalibrationIpcTests
 {
@@ -18,13 +20,6 @@ public sealed class SharedCalibrationIpcTests
         return (valid["code"]!.GetValue<string>(), valid["code_sha256"]!.GetValue<string>());
     }
 
-    private static JsonObject Answered(IpcResponse response, string messageType)
-    {
-        Assert.True(response.Ok, messageType + ": " + response.ErrorMessage);
-        ContractSchema.Validate("$defs/Responses/" + messageType, response.Payload, messageType + " response payload");
-        return response.Payload;
-    }
-
     [Fact]
     public async Task WithNothingBeingCalibratedEveryRequestAnswersWithAnOutcome()
     {
@@ -32,15 +27,15 @@ public sealed class SharedCalibrationIpcTests
         await using var client = await fixture.ConnectAsync();
 
         Assert.Equal("NOT_NEEDED",
-            Answered(await client.SendAsync("CheckSharedCalibration"), "CheckSharedCalibration")["outcome"]!.GetValue<string>());
+            ContractSchema.Answered(await client.SendAsync("CheckSharedCalibration"), "CheckSharedCalibration")["outcome"]!.GetValue<string>());
         Assert.Equal("NOTHING_TO_ACCEPT",
-            Answered(await client.SendAsync("AcceptSharedQueueInference"), "AcceptSharedQueueInference")["outcome"]!.GetValue<string>());
-        var rejected = Answered(await client.SendAsync("RejectSharedCalibration"), "RejectSharedCalibration");
+            ContractSchema.Answered(await client.SendAsync("AcceptSharedQueueInference"), "AcceptSharedQueueInference")["outcome"]!.GetValue<string>());
+        var rejected = ContractSchema.Answered(await client.SendAsync("RejectSharedCalibration"), "RejectSharedCalibration");
         Assert.Null(rejected["withdrawn_profile_id"]);
         Assert.Equal(0, rejected["dropped_candidates"]!.GetValue<int>());
 
         var share = await client.SendAsync("GetCalibrationShareCode");
-        Assert.False(share.Ok);
+        CollectorTextCatalogue.AssertRefusal(share, "sharing.share_code.no_profile");
         Assert.Equal(ErrorCodes.ShareCodeUnavailable, share.ErrorCode);
         Assert.Equal("NO_PROFILE", share.Payload["details"]!["reason"]!.GetValue<string>());
         Assert.Matches("[\\u4e00-\\u9fff]", share.ErrorMessage);
@@ -60,28 +55,40 @@ public sealed class SharedCalibrationIpcTests
         await using var client = await fixture.ConnectAsync();
         var (code, sha) = Vector();
 
-        var garbage = Answered(
+        var garbage = ContractSchema.Answered(
             await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = "MRC1.???" }), "ImportCalibrationCode");
         Assert.Equal("MALFORMED", garbage["outcome"]!.GetValue<string>());
         Assert.StartsWith("E_SHARE_CODE_", garbage["reason"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Null(garbage["code_sha256"]);
         Assert.Matches("[\\u4e00-\\u9fff]", garbage["message"]!.GetValue<string>());
+        CollectorTextCatalogue.AssertParallel(garbage["message"], garbage["message_ref"]);
+        Assert.Equal("sharing.import.not_imported", CollectorTextCatalogue.Key(garbage["message_ref"]));
+        Assert.Equal("sharing.code.characters", CollectorTextCatalogue.Key(garbage["message_ref"]!["args"]!["reason"]));
 
-        var overlong = Answered(
+        var overlong = ContractSchema.Answered(
             await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = ShareCode.Prefix + new string('A', ShareCode.MaxCodeLength) }),
             "ImportCalibrationCode");
         Assert.Equal("MALFORMED", overlong["outcome"]!.GetValue<string>());
         Assert.Equal("E_SHARE_CODE_TOO_LONG", overlong["reason"]!.GetValue<string>());
+        CollectorTextCatalogue.AssertParallel(overlong["message"], overlong["message_ref"]);
+        Assert.Equal("sharing.import.code_too_long", CollectorTextCatalogue.Key(overlong["message_ref"]));
+        Assert.Equal(ShareCode.MaxCodeLength, overlong["message_ref"]!["args"]!["max"]!.GetValue<int>());
 
-        var notCalibrating = Answered(
+        var notCalibrating = ContractSchema.Answered(
             await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = "  " + code + "\n" }), "ImportCalibrationCode");
         Assert.Equal("NOT_APPLICABLE", notCalibrating["outcome"]!.GetValue<string>());
         Assert.Equal("NOT_CALIBRATING", notCalibrating["reason"]!.GetValue<string>());
         Assert.Equal(sha, notCalibrating["code_sha256"]!.GetValue<string>());
+        CollectorTextCatalogue.AssertParallel(notCalibrating["message"], notCalibrating["message_ref"]);
+        Assert.Equal("sharing.import.not_calibrating", CollectorTextCatalogue.Key(notCalibrating["message_ref"]));
+
+        var missing = await client.SendAsync("ImportCalibrationCode", new JsonObject());
+        Assert.Equal(ErrorCodes.BadRequest, missing.ErrorCode);
+        CollectorTextCatalogue.AssertRefusal(missing, "ipc.field.missing");
+        Assert.Equal("code", missing.Payload["message_ref"]!["args"]!["field"]!.GetValue<string>());
 
         foreach (var payload in new[]
                  {
-                     new JsonObject(),
                      new JsonObject { ["code"] = 5 },
                      new JsonObject { ["code"] = new string('A', SharedCalibrationHandlers.MaxCodeRequestLength + 1) },
                      new JsonObject { ["code"] = code, ["extra"] = true },
@@ -114,7 +121,7 @@ public sealed class SharedCalibrationIpcTests
             await client.SendRawAsync(System.Text.Encoding.UTF8.GetBytes(envelope.Replace(anchor, replacement, StringComparison.Ordinal)));
         }
 
-        var afterwards = Answered(
+        var afterwards = ContractSchema.Answered(
             await client.SendAsync("ImportCalibrationCode", new JsonObject { ["code"] = "MRC1.???" }), "ImportCalibrationCode");
         Assert.Equal("MALFORMED", afterwards["outcome"]!.GetValue<string>());
     }
@@ -125,14 +132,14 @@ public sealed class SharedCalibrationIpcTests
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
 
-        Assert.True(Answered(await client.SendAsync("GetCaptureSettings"), "GetCaptureSettings")["shared_calibration_enabled"]!.GetValue<bool>());
+        Assert.True(ContractSchema.Answered(await client.SendAsync("GetCaptureSettings"), "GetCaptureSettings")["shared_calibration_enabled"]!.GetValue<bool>());
 
-        var off = Answered(
+        var off = ContractSchema.Answered(
             await client.SendAsync("UpdateCaptureSettings", new JsonObject { ["shared_calibration_enabled"] = false }), "UpdateCaptureSettings");
 
         Assert.False(off["shared_calibration_enabled"]!.GetValue<bool>());
         Assert.True(off["auto_calibration_enabled"]!.GetValue<bool>());
-        Assert.False(Answered(await client.SendAsync("GetCaptureSettings"), "GetCaptureSettings")["shared_calibration_enabled"]!.GetValue<bool>());
+        Assert.False(ContractSchema.Answered(await client.SendAsync("GetCaptureSettings"), "GetCaptureSettings")["shared_calibration_enabled"]!.GetValue<bool>());
         Assert.Equal(ErrorCodes.BadRequest,
             (await client.SendAsync("UpdateCaptureSettings", new JsonObject { ["shared_calibration_enabled"] = "no" })).ErrorCode);
     }

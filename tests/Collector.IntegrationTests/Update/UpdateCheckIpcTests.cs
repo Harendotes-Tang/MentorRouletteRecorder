@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.IntegrationTests;
@@ -120,20 +119,12 @@ public sealed class UpdateCheckIpcTests
         // Windows can hold a WAL handle briefly; the temp cleaner will get it.
         using var directory = new TempDirectory("IntegrationTests");
         var databasePath = directory.Combine("test.db");
-        using (var host = CollectorHost.Open(
-                   databasePath,
-                   capture: CaptureFakes.NoGame(),
-                   speechClient: ServerFixture.RefusingSpeechClient,
-                   updateCheckClient: ServerFixture.RefusingUpdateCheckClient))
+        using (var host = ServerFixture.OpenHost(databasePath))
         {
             CaptureSettingsStore.Apply(host.Settings, new CaptureSettingsUpdate { UpdateCheckEnabled = false });
         }
 
-        using var reopened = CollectorHost.Open(
-            databasePath,
-            capture: CaptureFakes.NoGame(),
-            speechClient: ServerFixture.RefusingSpeechClient,
-            updateCheckClient: ServerFixture.RefusingUpdateCheckClient);
+        using var reopened = ServerFixture.OpenHost(databasePath);
 
         Assert.False(CaptureSettingsStore.Read(reopened.Settings).UpdateCheckEnabled);
         Assert.False(reopened.Updates.Snapshot().Enabled);

@@ -61,6 +61,9 @@ public sealed class ServerFixture : IAsyncDisposable
     /// <summary>Path of the throwaway database.</summary>
     public string DatabasePath => Host.Database.Path;
 
+    /// <summary>Throw-away data directory this server's database and side files live in.</summary>
+    public string DataDirectory => _directory.Path;
+
     /// <summary>Starts a server on a fresh database.</summary>
     /// <param name="seed">Optional callback run against the host before the server starts.</param>
     /// <param name="capture">
@@ -99,7 +102,14 @@ public sealed class ServerFixture : IAsyncDisposable
             speechClient: speech ?? RefusingSpeechClient,
             updateCheckClient: updateCheckClient ?? RefusingUpdateCheckClient);
         seed?.Invoke(host);
+        return Serve(directory, host);
+    }
 
+    /// <summary>Serves an opened host on a pipe of its own; the fixture owns both and the directory.</summary>
+    /// <param name="directory">Throw-away folder the host's database lives in.</param>
+    /// <param name="host">The host to serve.</param>
+    internal static ServerFixture Serve(TempDirectory directory, CollectorHost host)
+    {
         // A per-test pipe name keeps parallel tests from colliding with each other, and with
         // any Collector the developer happens to have running.
         var pipeName = "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1";
@@ -117,6 +127,19 @@ public sealed class ServerFixture : IAsyncDisposable
         return new ServerFixture(directory, host, server, log);
     }
 
+    /// <summary>
+    /// Opens a host on <paramref name="databasePath"/> in the no-Npcap/no-game environment, without a pipe, for a test
+    /// that drives the host itself or reopens a database; the caller disposes it.
+    /// </summary>
+    /// <param name="databasePath">Database file to open or create.</param>
+    /// <param name="updateCheckClient">Update-check client; one that refuses to send when null.</param>
+    public static CollectorHost OpenHost(string databasePath, UpdateCheckClient? updateCheckClient = null) =>
+        CollectorHost.Open(
+            databasePath,
+            capture: CaptureFakes.NoGame(),
+            speechClient: RefusingSpeechClient,
+            updateCheckClient: updateCheckClient ?? RefusingUpdateCheckClient);
+
     /// <summary>Opens a connected client.</summary>
     public async Task<PipeClient> ConnectAsync()
     {
@@ -132,6 +155,19 @@ public sealed class ServerFixture : IAsyncDisposable
     {
         await using var client = await ConnectAsync().ConfigureAwait(false);
         return await client.SendAsync(messageType, payload).ConfigureAwait(false);
+    }
+
+    /// <summary>Asserts that none of <paramref name="tables"/> holds a row.</summary>
+    /// <param name="tables">Table names.</param>
+    public void AssertTablesEmpty(params string[] tables)
+    {
+        foreach (var table in tables)
+        {
+            using var command = Host.Database.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM " + table;
+            var rows = (long)command.ExecuteScalar()!;
+            Assert.True(rows == 0, table + " holds " + rows + " row(s)");
+        }
     }
 
     /// <inheritdoc />

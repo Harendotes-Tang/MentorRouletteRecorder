@@ -13,7 +13,9 @@ public sealed class PipeServerTests
 {
     private static string NewId() => Guid.NewGuid().ToString("D");
 
-    private static CreateManualRunCommand ManualRun(int index) => new()
+    /// <summary>The <paramref name="index"/>th of a series of hand-entered runs an hour apart; every fourth one left.</summary>
+    /// <param name="index">Position in the series.</param>
+    internal static CreateManualRunCommand ManualRun(int index) => new()
     {
         Region = Region.Cn,
         RequestId = NewId(),
@@ -56,90 +58,6 @@ public sealed class PipeServerTests
         Assert.False(capture["injected_hook_enabled"]!.GetValue<bool>());
         Assert.Equal("WinPCap", capture["monitor_type"]!.GetValue<string>());
         Assert.Equal("UNAVAILABLE", capture["last_error_code"]!.GetValue<string>());
-    }
-
-    [Fact]
-    public async Task CaptureMessages_ReportMissingNpcapWithoutStartingCapture()
-    {
-        await using var fixture = ServerFixture.Start();
-
-        var adapters = (await fixture.CallAsync("ListCaptureAdapters")).Require();
-        Assert.False(adapters["npcap_installed"]!.GetValue<bool>());
-        Assert.NotNull(adapters["install_hint"]);
-
-        // Adapters are listed even without Npcap, because enumerating them needs no driver and
-        // an empty list is less useful than the cards plus the install hint. Nothing is
-        // recommended without the game's connections, and every address is masked to a /24.
-        // See tests/Collector.IntegrationTests/Capture/CaptureIpcTests.cs.
-        foreach (var adapter in adapters["adapters"]!.AsArray())
-        {
-            Assert.False(adapter!["recommended"]!.GetValue<bool>());
-        }
-
-        var profile = (await fixture.CallAsync("GetProtocolProfileStatus")).Require();
-        Assert.Equal("NONE", profile["status"]!.GetValue<string>());
-
-        var start = await fixture.CallAsync("StartCapture", new JsonObject());
-        Assert.False(start.Ok);
-        Assert.Equal(ErrorCodes.NpcapMissing, start.ErrorCode);
-
-        var stop = await fixture.CallAsync("StopCapture");
-        Assert.False(stop.Ok);
-        Assert.Equal(ErrorCodes.CaptureNotRunning, stop.ErrorCode);
-
-        var current = (await fixture.CallAsync("GetCurrentRun")).Require();
-        Assert.Equal("IDLE", current["state"]!.GetValue<string>());
-        Assert.Null(current["run"]);
-    }
-
-    [Fact]
-    public async Task QueryRuns_PagesThroughTheHistory()
-    {
-        await using var fixture = ServerFixture.Start(host =>
-        {
-            for (var index = 0; index < 7; index++)
-            {
-                host.Mutations.CreateManualRun(ManualRun(index));
-            }
-        });
-
-        await using var client = await fixture.ConnectAsync();
-
-        var first = (await client.SendAsync("QueryRuns", new JsonObject
-        {
-            ["page"] = 1,
-            ["page_size"] = 3,
-            ["sort"] = new JsonObject { ["field"] = "entered_at_utc", ["direction"] = "asc" },
-        })).Require();
-
-        Assert.Equal(3, first["items"]!.AsArray().Count);
-        Assert.Equal(7, first["page_info"]!["total"]!.GetValue<int>());
-
-        var last = (await client.SendAsync("QueryRuns", new JsonObject
-        {
-            ["page"] = 3,
-            ["page_size"] = 3,
-            ["sort"] = new JsonObject { ["field"] = "entered_at_utc", ["direction"] = "asc" },
-        })).Require();
-
-        Assert.Single(last["items"]!.AsArray());
-        Assert.Equal(3, last["page_info"]!["page"]!.GetValue<int>());
-
-        // Pages must not overlap.
-        var firstIds = first["items"]!.AsArray().Select(item => item!["run_id"]!.GetValue<string>());
-        var lastIds = last["items"]!.AsArray().Select(item => item!["run_id"]!.GetValue<string>());
-        Assert.Empty(firstIds.Intersect(lastIds, StringComparer.Ordinal));
-    }
-
-    [Fact]
-    public async Task QueryRuns_WithAnOversizedPageSize_IsRefused()
-    {
-        await using var fixture = ServerFixture.Start();
-
-        var response = await fixture.CallAsync("QueryRuns", new JsonObject { ["page_size"] = 201 });
-
-        Assert.False(response.Ok);
-        Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
     }
 
     [Fact]
@@ -242,19 +160,14 @@ public sealed class PipeServerTests
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
         var requestId = Guid.NewGuid().ToString("D");
-        var answered = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
-        client.EnvelopeReceived += envelope =>
-        {
-            if (envelope["request_id"]?.GetValue<string>() == requestId)
-            {
-                answered.TrySetResult(envelope);
-            }
-        };
+        var log = new FrameLog(client);
+        bool Answer(JsonObject envelope) => envelope["request_id"]?.GetValue<string>() == requestId;
 
         await client.SendRawAsync(Encoding.UTF8.GetBytes(
             string.Format(System.Globalization.CultureInfo.InvariantCulture, template, requestId)));
 
-        var response = await answered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await log.WaitForEnvelopesAsync(envelopes => envelopes.Any(Answer), "the repeated-key request was never answered");
+        var response = log.Envelopes().First(Answer);
         Assert.False(response["ok"]!.GetValue<bool>());
         Assert.Equal(ErrorCodes.BadRequest, response["error"]!["code"]!.GetValue<string>());
         Assert.True((await client.SendAsync("GetVersion")).Ok);
@@ -342,17 +255,7 @@ public sealed class PipeServerTests
             runId = host.Mutations.CreateManualRun(ManualRun(1)).RunId);
 
         await using var subscriber = await fixture.ConnectAsync();
-        var events = new List<JsonObject>();
-        using var received = new SemaphoreSlim(0);
-        subscriber.EventReceived += payload =>
-        {
-            lock (events)
-            {
-                events.Add(payload);
-            }
-
-            received.Release();
-        };
+        var log = new FrameLog(subscriber);
 
         var acknowledgement = (await subscriber.SendAsync("SubscribeLiveEvents", new JsonObject())).Require();
         Assert.True(Guid.TryParseExact(
@@ -367,15 +270,10 @@ public sealed class PipeServerTests
             ["changes"] = new JsonObject { ["result"] = "DISCONNECTED" },
         });
 
-        Assert.True(await received.WaitAsync(TimeSpan.FromSeconds(10)), "no live event arrived");
+        static bool RunUpdated(JsonObject payload) => payload["kind"]!.GetValue<string>() == "run_updated";
+        await log.WaitForEventsAsync(events => events.Any(RunUpdated), "no live event arrived");
 
-        JsonObject[] snapshot;
-        lock (events)
-        {
-            snapshot = events.ToArray();
-        }
-
-        var updated = snapshot.First(payload => payload["kind"]!.GetValue<string>() == "run_updated");
+        var updated = log.Events().First(RunUpdated);
         Assert.Equal("RunUpdated", updated["event_type"]!.GetValue<string>());
         Assert.Equal(runId, updated["run"]!["run_id"]!.GetValue<string>());
         Assert.Equal("DISCONNECTED", updated["run"]!["result"]!.GetValue<string>());
@@ -638,7 +536,7 @@ public sealed class PipeServerTests
         foreach (var messageType in MessageDispatcher.KnownMessageTypes)
         {
             var response = await client.SendAsync(
-                messageType, PayloadFor(messageType, Path.GetDirectoryName(fixture.DatabasePath)!));
+                messageType, PayloadFor(messageType, fixture.DataDirectory));
 
             // Either a result or an explicit contract error; never a silent drop or a hang.
             Assert.True(
@@ -650,7 +548,7 @@ public sealed class PipeServerTests
             if (response.Ok && response.Payload["target_path"]?.GetValue<string>() is { } written)
             {
                 Assert.StartsWith(
-                    Path.GetDirectoryName(fixture.DatabasePath)! + Path.DirectorySeparatorChar,
+                    fixture.DataDirectory + Path.DirectorySeparatorChar,
                     written,
                     StringComparison.OrdinalIgnoreCase);
             }

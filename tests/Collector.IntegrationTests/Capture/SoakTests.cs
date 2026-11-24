@@ -6,11 +6,11 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Pipeline;
-using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
 using Xunit.Abstractions;
+using static MentorRecorder.Collector.IntegrationTests.SyntheticTraffic;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -69,12 +69,8 @@ public sealed class SoakTests : IDisposable
     /// <summary>Longest the dashboard query may take once the database has filled up.</summary>
     public static readonly TimeSpan MaxDashboardLatency = TimeSpan.FromMilliseconds(200);
 
-    // Opcodes. The four cycle opcodes come from the checked-in synthetic profile; the noise
-    // opcodes are deliberately outside it so the parser has to refuse them.
-    private const ushort OpcodePop = 61441;
-    private const ushort OpcodeZone = 61442;
-    private const ushort OpcodeResult = 61443;
-    private const ushort OpcodeJob = 61444;
+    // Noise opcodes. The four cycle opcodes come from the checked-in synthetic profile
+    // (SyntheticTraffic); these are deliberately outside it so the parser has to refuse them.
     private const ushort OpcodeUnknownA = 60000;
     private const ushort OpcodeUnknownB = 60001;
 
@@ -445,18 +441,11 @@ public sealed class SoakTests : IDisposable
                 var statistics = new StatisticsRepository(
                     database, settings, JobCatalog.Default, DutyCatalog.Default);
                 var liveEvents = new LiveEventBus(clock);
-                var profile = LoadSoakProfile();
                 var pipeline = new LiveProtocolPipeline(
                     database,
                     clock,
                     liveEvents,
-                    game => new ProfileSelection(
-                        ProfileCompatibilityStatus.Verified,
-                        profile.ToBinding(),
-                        profile,
-                        game.Region,
-                        game.GameBuild,
-                        "soak profile"));
+                    Selector(VerifiedProfile("soak-synthetic", GameBuild), "soak profile"));
 
                 var source = new FakeCaptureSource();
                 var services = CaptureFakes.Ready(source, GameBuild) with
@@ -482,32 +471,6 @@ public sealed class SoakTests : IDisposable
                 database.Dispose();
                 throw;
             }
-        }
-
-        /// <summary>
-        /// The checked-in synthetic profile, remapped onto the IPC segment type.
-        ///
-        /// The profile on disk declares segment type 61440 so it can never match a real client,
-        /// but the framing reader exposes an opcode only for the IPC segment type. Opcodes,
-        /// offsets, lengths and constraints are untouched.
-        /// </summary>
-        private static ProtocolProfile LoadSoakProfile()
-        {
-            var path = SyntheticProfile.Path;
-            var loaded = ProfileLoader.Validate(path).Profile
-                ?? throw new InvalidOperationException(
-                    "the checked-in synthetic profile must load: " + path);
-
-            return loaded with
-            {
-                ProfileId = "soak-synthetic",
-                Region = Region.Cn,
-                GameBuild = GameBuild,
-                Status = ProfileCompatibilityStatus.Verified,
-                Messages = loaded.Messages
-                    .Select(message => message with { SegmentType = FfxivFraming.SegmentTypeIpc })
-                    .ToArray(),
-            };
         }
 
         public long DatabaseBytes()
@@ -552,30 +515,27 @@ public sealed class SoakTests : IDisposable
                 $"collected {all.Count} runs");
         }
 
-        public long CountRows(string table) =>
-            _database.Read(_ =>
-            {
-                using var command = _database.CreateCommand();
-                command.CommandText = "SELECT COUNT(*) FROM " + table + ";";
-                return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-            });
+        public long CountRows(string table) => Count("SELECT COUNT(*) FROM " + table + ";");
 
         public long CountParserErrorRowsOfKind(string kind) =>
-            _database.Read(_ =>
-            {
-                using var command = _database.CreateCommand();
-                command.CommandText = "SELECT COUNT(*) FROM parser_errors WHERE kind = $kind;";
-                command.Parameters.AddWithValue("$kind", kind);
-                return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-            });
+            Count("SELECT COUNT(*) FROM parser_errors WHERE kind = $kind;", kind);
 
         public long CountEventsBelongingToRuns() =>
+            Count(
+                "SELECT COUNT(*) FROM run_events e " +
+                "WHERE EXISTS (SELECT 1 FROM mentor_runs r WHERE r.run_id = e.run_id);");
+
+        /// <summary>One scalar count, read under the database's read gate; <paramref name="kind"/> binds <c>$kind</c>.</summary>
+        private long Count(string sql, string? kind = null) =>
             _database.Read(_ =>
             {
                 using var command = _database.CreateCommand();
-                command.CommandText =
-                    "SELECT COUNT(*) FROM run_events e " +
-                    "WHERE EXISTS (SELECT 1 FROM mentor_runs r WHERE r.run_id = e.run_id);";
+                command.CommandText = sql;
+                if (kind is not null)
+                {
+                    command.Parameters.AddWithValue("$kind", kind);
+                }
+
                 return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
             });
 
@@ -710,14 +670,14 @@ public sealed class SoakTests : IDisposable
                 case 7:
                     // A profile opcode carrying the wrong payload length: framing accepts it,
                     // the parser refuses it on the declared length rule.
-                    _source.PushRaw(IpcMessage(OpcodeZone, new byte[3]), epochMs: epoch + index);
+                    _source.PushRaw(IpcMessage(ZoneOpcode, new byte[3]), epochMs: epoch + index);
                     return 0;
 
                 case 8:
                     // A field outside the profile's declared constraints: roulette_id 0 is
                     // below the declared minimum, so the message is refused even though its
                     // opcode and length are right.
-                    _source.PushRaw(IpcMessage(OpcodePop, new byte[8]), epochMs: epoch + index);
+                    _source.PushRaw(IpcMessage(PopOpcode, new byte[8]), epochMs: epoch + index);
                     return 0;
 
                 case 9:
@@ -751,32 +711,17 @@ public sealed class SoakTests : IDisposable
             var baseEpoch = epoch + 1_000_000 + (cycle * 1000);
             var contentId = (uint)(900_000 + cycle);
 
-            var pop = new byte[8];
-            BinaryPrimitives.WriteUInt16LittleEndian(pop, MentorRouletteId);
-            BinaryPrimitives.WriteUInt32LittleEndian(pop.AsSpan(4), contentId);
-
-            var zone = new byte[16];
-            BinaryPrimitives.WriteUInt32LittleEndian(zone, 2001);
-            BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(4), contentId);
-            BinaryPrimitives.WriteUInt32LittleEndian(zone.AsSpan(8), (uint)(3000 + cycle));
-            zone[12] = 1;
-
-            var job = new byte[4];
-            job[0] = 19;
-
-            var result = new byte[4];
-            result[0] = 1;
-
             var pushed = 0;
-            pushed += PushUntil(IpcMessage(OpcodePop, pop), baseEpoch, RunState.MentorMatched);
-            pushed += PushUntil(IpcMessage(OpcodeZone, zone), baseEpoch + 1, RunState.EnteredDuty);
+            pushed += PushUntil(IpcMessage(PopOpcode, Pop(MentorRouletteId, contentId)), baseEpoch, RunState.MentorMatched);
+            pushed += PushUntil(
+                IpcMessage(ZoneOpcode, Zone(2001, contentId, (uint)(3000 + cycle))), baseEpoch + 1, RunState.EnteredDuty);
 
             // The job message does not move the state machine, it fills a field on the run in
             // flight, so there is no state to wait on and one push is enough.
-            _source.PushRaw(IpcMessage(OpcodeJob, job), epochMs: baseEpoch + 2);
+            _source.PushRaw(ValidJobMessage(), epochMs: baseEpoch + 2);
             pushed++;
 
-            pushed += PushUntil(IpcMessage(OpcodeResult, result), baseEpoch + 3, RunState.Completed);
+            pushed += PushUntil(IpcMessage(ResultOpcode, Result(1)), baseEpoch + 3, RunState.Completed);
             return pushed;
         }
 
@@ -854,20 +799,8 @@ public sealed class SoakTests : IDisposable
             return false;
         }
 
-        private static byte[] IpcMessage(ushort opcode, ReadOnlySpan<byte> payload)
-        {
-            var message = FakeCaptureSource.BuildIpcMessage(opcode, payload.Length);
-            payload.CopyTo(message.AsSpan(FfxivFraming.HeaderBytes));
-            return message;
-        }
-
         /// <summary>A well-formed PLAYER_JOB message the profile accepts.</summary>
-        private static byte[] ValidJobMessage()
-        {
-            var job = new byte[4];
-            job[0] = 19;
-            return IpcMessage(OpcodeJob, job);
-        }
+        private static byte[] ValidJobMessage() => IpcMessage(JobOpcode, Job(19));
 
         /// <summary>A frame whose declared length runs off the end of the buffer.</summary>
         private static byte[] TruncatedMessage()

@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -36,14 +35,17 @@ public sealed class LifecycleOrphanTests : IDisposable
         var databasePath = _directory.Combine("orphan.db");
         var parent = StartIdleParent();
 
-        var collector = await StartServingCollectorAsync(databasePath, parent.Id);
+        await using var collector = await ServingCollector.StartAsync(
+            databasePath, "--parent-pid", parent.Id.ToString(CultureInfo.InvariantCulture));
+        Assert.Equal(parent.Id, collector.Startup["parent_pid"]!.GetValue<int>());
+        Assert.False(string.IsNullOrWhiteSpace(collector.PipeName));
 
         // No warning and no chance to clean up: the condition the watchdog exists for.
         parent.Kill(entireProcessTree: true);
         await parent.WaitForExitAsync(new CancellationTokenSource(ExitBudget).Token);
 
         Assert.True(
-            collector.WaitForExit((int)ExitBudget.TotalMilliseconds),
+            await collector.WaitForExitAsync(ExitBudget),
             $"the Collector was still running {ExitBudget.TotalSeconds:F0}s after its parent was " +
             "killed; a Desktop that is force-killed must not leave a Collector behind");
 
@@ -129,55 +131,6 @@ public sealed class LifecycleOrphanTests : IDisposable
     }
 
     /// <summary>
-    /// Starts the real Collector serving <paramref name="databasePath"/> under
-    /// <paramref name="parentProcessId"/>, and waits for the startup line that proves it is
-    /// actually serving.
-    /// </summary>
-    /// <param name="databasePath">Database the server should open.</param>
-    /// <param name="parentProcessId">Process the Collector must follow into the grave.</param>
-    private async Task<Process> StartServingCollectorAsync(string databasePath, int parentProcessId)
-    {
-        // The serve lease is per user, not per database, so the previous test class's process
-        // can still hold it while it shuts down. That case is transient; anything longer is a
-        // real conflict and fails loudly.
-        var deadline = DateTime.UtcNow + ServingCollector.LeaseWait;
-        while (true)
-        {
-            var process = CollectorProcessFixture.Start(
-                "--serve",
-                "--db",
-                databasePath,
-                "--parent-pid",
-                parentProcessId.ToString(CultureInfo.InvariantCulture),
-                "--json");
-            _started.Add(process);
-
-            var line = await ReadLineAsync(process, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            if (line is not null && JsonNode.Parse(line) is JsonObject startup)
-            {
-                // Keep the pipes drained; an undrained one is a stall waiting to happen.
-                _ = process.StandardError.ReadToEndAsync();
-                _ = process.StandardOutput.ReadToEndAsync();
-
-                Assert.Equal(parentProcessId, startup["parent_pid"]!.GetValue<int>());
-                Assert.False(string.IsNullOrWhiteSpace(startup["pipe_name"]!.GetValue<string>()));
-                return process;
-            }
-
-            var error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-            TryKill(process);
-
-            if (!error.Contains(ServingCollector.LeaseRefusalMarker, StringComparison.Ordinal) ||
-                DateTime.UtcNow >= deadline)
-            {
-                Assert.Fail("the Collector never started serving. stderr: " + error);
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     /// Starts a child that stays alive until it is killed, standing in for the Desktop.
     ///
     /// <c>cmd.exe</c> with its input redirected and never written to blocks on its first read:
@@ -201,35 +154,11 @@ public sealed class LifecycleOrphanTests : IDisposable
         return parent;
     }
 
-    private static async Task<string?> ReadLineAsync(Process process, TimeSpan timeout)
-    {
-        var read = process.StandardOutput.ReadLineAsync();
-        var completed = await Task.WhenAny(read, Task.Delay(timeout)).ConfigureAwait(false);
-        return completed == (Task)read ? await read.ConfigureAwait(false) : null;
-    }
-
-    private static void TryKill(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-
-            process.WaitForExit(30_000);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-            // Already gone.
-        }
-    }
-
     public void Dispose()
     {
         foreach (var process in _started)
         {
-            TryKill(process);
+            ServingCollector.TryKill(process);
             process.Dispose();
         }
 

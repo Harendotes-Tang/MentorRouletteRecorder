@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -35,30 +36,14 @@ public sealed class LocalizedSearchIpcTests
         Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
         var imported = Assert.Single(committed["run_ids"]!.AsArray())!.GetValue<string>();
 
-        async Task<string> Manual(int day, string note)
-        {
-            var run = (await client.SendAsync("CreateManualRun", new JsonObject
-            {
-                ["job_id"] = 19, ["content_id"] = 4, ["note"] = note, ["reason"] = "合成中文简称回归",
-                ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z", ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
-                ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
-            })).Require();
-            return run["run_id"]!.GetValue<string>();
-        }
-        var noteMatch = await Manual(2, "只在备注提到" + alias);
-        _ = await Manual(3, "只在备注提到" + fullName);
+        var noteMatch = await CreateRunAsync(client, 2, 19, 4, "只在备注提到" + alias);
+        _ = await CreateRunAsync(client, 3, 19, 4, "只在备注提到" + fullName);
         var filter = new JsonObject { ["text"] = alias };
-        async Task<JsonObject> Query(JsonObject current, int page = 1, int pageSize = 50) =>
-            (await client.SendAsync("QueryRuns", new JsonObject
-            { ["filter"] = current.DeepClone(), ["page"] = page, ["page_size"] = pageSize })).Require();
-        var seen = new HashSet<string>();
-        for (var page = 1; page <= 2; page++)
-        {
-            var result = await Query(filter, page, 1);
-            Assert.Equal(2, result["page_info"]!["total"]!.GetValue<int>());
-            seen.Add(Assert.Single(result["items"]!.AsArray())!["run_id"]!.GetValue<string>());
-        }
-        Assert.Equal(new[] { imported, noteMatch }.Order(), seen.Order());
+        await AssertFilterAgreesEverywhereAsync(
+            client, fixture, filter, [imported, noteMatch], ["2026-09-01", "2026-09-02"], "chinese-alias-search.json");
+
+        async Task<JsonObject> Query(JsonObject current) =>
+            (await client.SendAsync("QueryRuns", new JsonObject { ["filter"] = current.DeepClone() })).Require();
         var restricted = filter.DeepClone().AsObject(); restricted["job_id"] = new JsonArray(jobId);
         var saved = Assert.Single((await Query(restricted))["items"]!.AsArray())!;
         Assert.Equal(imported, saved["run_id"]!.GetValue<string>());
@@ -67,17 +52,6 @@ public sealed class LocalizedSearchIpcTests
             run => run!["run_id"]!.GetValue<string>() == imported);
         var literal = await Query(new JsonObject { ["text"] = "备注提到" + alias });
         Assert.Equal(noteMatch, Assert.Single(literal["items"]!.AsArray())!["run_id"]!.GetValue<string>());
-        var calendar = (await client.SendAsync("QueryRunCalendarDays", new JsonObject
-        { ["filter"] = filter.DeepClone(), ["month"] = "2026-09" })).Require();
-        Assert.Equal(new[] { "2026-09-01", "2026-09-02" }, calendar["days"]!.AsArray().Select(day => day!.GetValue<string>()).Order());
-        var stats = (await client.SendAsync("GetResultStats", new JsonObject { ["filter"] = filter.DeepClone() })).Require();
-        Assert.Equal(2, stats["attempt_count"]!.GetValue<int>());
-        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "chinese-alias-search.json");
-        var output = (await client.SendAsync("ExportJson", new JsonObject
-        { ["target_path"] = target, ["filter"] = filter.DeepClone() })).Require();
-        Assert.Equal(2, output["row_count"]!.GetValue<int>());
-        Assert.Equal(new[] { imported, noteMatch }.Order(), JsonNode.Parse(File.ReadAllText(target))!.AsArray()
-            .Select(run => run!["run_id"]!.GetValue<string>()).Order());
     }
 
     [Fact]
@@ -85,43 +59,21 @@ public sealed class LocalizedSearchIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        async Task<string> Create(int day, int jobId, string note)
-        {
-            var created = (await client.SendAsync("CreateManualRun", new JsonObject
-            {
-                ["job_id"] = jobId, ["content_id"] = 4,
-                ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
-                ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
-                ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
-                ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
-                ["note"] = note, ["reason"] = "搜索回归验证",
-            })).Require();
-            return created["run_id"]!.GetValue<string>();
-        }
-        var paladin = await Create(1, 19, "unrelated");
-        var note = await Create(2, 24, "helped a Paladin");
-        _ = await Create(3, 24, "only 骑士");
-        _ = await Create(4, 24, "unrelated");
+        var paladin = await CreateRunAsync(client, 1, 19, 4, "unrelated");
+        var note = await CreateRunAsync(client, 2, 24, 4, "helped a Paladin");
+        _ = await CreateRunAsync(client, 3, 24, 4, "only 骑士");
+        _ = await CreateRunAsync(client, 4, 24, 4, "unrelated");
         (await client.SendAsync("SetRunReflection", new JsonObject
         {
             ["run_id"] = note, ["mood"] = "good", ["text"] = "reflection content",
         })).Require();
         var filter = new JsonObject { ["text"] = "Paladin", ["name_text"] = "骑士" };
         ContractSchema.Validate("$defs/RunFilter", filter, "localized name search");
+        await AssertFilterAgreesEverywhereAsync(
+            client, fixture, filter, [paladin, note], ["2026-09-01", "2026-09-02"], "localized-search.json");
 
-        async Task<JsonObject> Query(JsonObject current, int page = 1, int pageSize = 50) =>
-            (await client.SendAsync("QueryRuns", new JsonObject
-            {
-                ["filter"] = current.DeepClone(), ["page"] = page, ["page_size"] = pageSize,
-            })).Require();
-        var seen = new HashSet<string>();
-        for (var page = 1; page <= 2; page++)
-        {
-            var found = await Query(filter, page, 1);
-            Assert.Equal(2, found["page_info"]!["total"]!.GetValue<int>());
-            seen.Add(Assert.Single(found["items"]!.AsArray())!["run_id"]!.GetValue<string>());
-        }
-        Assert.Equal(new[] { paladin, note }.Order(), seen.Order());
+        async Task<JsonObject> Query(JsonObject current) =>
+            (await client.SendAsync("QueryRuns", new JsonObject { ["filter"] = current.DeepClone() })).Require();
         var legacy = await Query(new JsonObject { ["text"] = "Paladin" });
         Assert.Equal(note, Assert.Single(legacy["items"]!.AsArray())!["run_id"]!.GetValue<string>());
         var nameOnly = await Query(new JsonObject { ["name_text"] = "骑士" });
@@ -132,26 +84,6 @@ public sealed class LocalizedSearchIpcTests
         var jobFilter = filter.DeepClone().AsObject();
         jobFilter["job_id"] = new JsonArray(24);
         Assert.Equal(note, Assert.Single((await Query(jobFilter))["items"]!.AsArray())!["run_id"]!.GetValue<string>());
-
-        var calendar = (await client.SendAsync("QueryRunCalendarDays", new JsonObject
-        {
-            ["filter"] = filter.DeepClone(), ["month"] = "2026-09",
-        })).Require();
-        Assert.Equal(new[] { "2026-09-01", "2026-09-02" },
-            calendar["days"]!.AsArray().Select(day => day!.GetValue<string>()).Order());
-        var stats = (await client.SendAsync("GetResultStats", new JsonObject
-        {
-            ["filter"] = filter.DeepClone(),
-        })).Require();
-        Assert.Equal(2, stats["attempt_count"]!.GetValue<int>());
-        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "localized-search.json");
-        var output = (await client.SendAsync("ExportJson", new JsonObject
-        {
-            ["target_path"] = target, ["filter"] = filter.DeepClone(),
-        })).Require();
-        Assert.Equal(2, output["row_count"]!.GetValue<int>());
-        Assert.Equal(new[] { paladin, note }.Order(), JsonNode.Parse(File.ReadAllText(target))!
-            .AsArray().Select(run => run!["run_id"]!.GetValue<string>()).Order());
     }
 
     // 骑士 is inside 暗黑骑士 and 龙骑士, and 万魔殿 边境之狱4 inside its Savage mode's name:
@@ -161,67 +93,80 @@ public sealed class LocalizedSearchIpcTests
     {
         await using var fixture = ServerFixture.Start();
         await using var client = await fixture.ConnectAsync();
-        async Task<string> Create(int day, int jobId, int contentId, string note = "unrelated")
-        {
-            var created = (await client.SendAsync("CreateManualRun", new JsonObject
-            {
-                ["region"] = "CN", ["job_id"] = jobId, ["content_id"] = contentId,
-                ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
-                ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
-                ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
-                ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
-                ["note"] = note, ["reason"] = "搜索回归验证",
-            })).Require();
-            return created["run_id"]!.GetValue<string>();
-        }
-        var paladin = await Create(1, 19, 4);
-        _ = await Create(2, 32, 4);
-        _ = await Create(3, 22, 4);
-        var note = await Create(4, 24, 4, "helped a Paladin");
-        var normal = await Create(5, 24, 800);
-        _ = await Create(6, 24, 801);
+        var paladin = await CreateRunAsync(client, 1, 19, 4);
+        _ = await CreateRunAsync(client, 2, 32, 4);
+        _ = await CreateRunAsync(client, 3, 22, 4);
+        var note = await CreateRunAsync(client, 4, 24, 4, "helped a Paladin");
+        var normal = await CreateRunAsync(client, 5, 24, 800);
+        _ = await CreateRunAsync(client, 6, 24, 801);
         var filter = new JsonObject
         {
             ["text"] = "Paladin", ["name_exact"] = new JsonArray("骑士", "万魔殿 边境之狱4"),
         };
         ContractSchema.Validate("$defs/RunFilter", filter, "exact name search");
-        var expected = new[] { paladin, note, normal }.Order().ToArray();
-
-        var seen = new List<string>();
-        for (var page = 1; page <= 3; page++)
-        {
-            var found = (await client.SendAsync("QueryRuns", new JsonObject
-            {
-                ["filter"] = filter.DeepClone(), ["page"] = page, ["page_size"] = 1,
-            })).Require();
-            Assert.Equal(3, found["page_info"]!["total"]!.GetValue<int>());
-            seen.Add(Assert.Single(found["items"]!.AsArray())!["run_id"]!.GetValue<string>());
-        }
-        Assert.Equal(expected, seen.Order());
-        var calendar = (await client.SendAsync("QueryRunCalendarDays", new JsonObject
-        {
-            ["filter"] = filter.DeepClone(), ["month"] = "2026-09",
-        })).Require();
-        Assert.Equal(new[] { "2026-09-01", "2026-09-04", "2026-09-05" },
-            calendar["days"]!.AsArray().Select(day => day!.GetValue<string>()).Order());
-        var stats = (await client.SendAsync("GetResultStats", new JsonObject
-        {
-            ["filter"] = filter.DeepClone(),
-        })).Require();
-        Assert.Equal(3, stats["attempt_count"]!.GetValue<int>());
-        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "exact-name-search.json");
-        var output = (await client.SendAsync("ExportJson", new JsonObject
-        {
-            ["target_path"] = target, ["filter"] = filter.DeepClone(),
-        })).Require();
-        Assert.Equal(3, output["row_count"]!.GetValue<int>());
-        Assert.Equal(expected, JsonNode.Parse(File.ReadAllText(target))!
-            .AsArray().Select(run => run!["run_id"]!.GetValue<string>()).Order());
+        await AssertFilterAgreesEverywhereAsync(
+            client, fixture, filter, [paladin, note, normal], ["2026-09-01", "2026-09-04", "2026-09-05"], "exact-name-search.json");
 
         var empty = await client.SendAsync("QueryRuns", new JsonObject
         {
             ["filter"] = new JsonObject { ["name_exact"] = new JsonArray("骑士", "") },
         });
         Assert.Equal(ErrorCodes.BadRequest, empty.ErrorCode);
+    }
+
+    /// <summary>A completed CN run on 2026-09-<paramref name="day"/>: matched 11:58, entered 12:00, ended 12:20.</summary>
+    private static async Task<string> CreateRunAsync(PipeClient client, int day, int jobId, int contentId, string note = "unrelated")
+    {
+        var created = (await client.SendAsync("CreateManualRun", new JsonObject
+        {
+            ["region"] = "CN", ["job_id"] = jobId, ["content_id"] = contentId,
+            ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
+            ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
+            ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
+            ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
+            ["note"] = note, ["reason"] = "搜索回归验证",
+        })).Require();
+        return created["run_id"]!.GetValue<string>();
+    }
+
+    /// <summary>
+    /// Every query that takes the filter finds exactly <paramref name="runs"/>: QueryRuns page by page, the calendar
+    /// of 2026-09 (<paramref name="days"/>, in order), the result statistics and a JSON export.
+    /// </summary>
+    private static async Task AssertFilterAgreesEverywhereAsync(
+        PipeClient client, ServerFixture fixture, JsonObject filter, string[] runs, string[] days, string exportName)
+    {
+        var expected = runs.Order().ToArray();
+        var seen = new List<string>();
+        for (var page = 1; page <= runs.Length; page++)
+        {
+            var found = (await client.SendAsync("QueryRuns", new JsonObject
+            {
+                ["filter"] = filter.DeepClone(), ["page"] = page, ["page_size"] = 1,
+            })).Require();
+            Assert.Equal(runs.Length, found["page_info"]!["total"]!.GetValue<int>());
+            seen.Add(Assert.Single(found["items"]!.AsArray())!["run_id"]!.GetValue<string>());
+        }
+        Assert.Equal(expected, seen.Order());
+
+        var calendar = (await client.SendAsync("QueryRunCalendarDays", new JsonObject
+        {
+            ["filter"] = filter.DeepClone(), ["month"] = "2026-09",
+        })).Require();
+        Assert.Equal(days, calendar["days"]!.AsArray().Select(day => day!.GetValue<string>()).Order());
+        var stats = (await client.SendAsync("GetResultStats", new JsonObject
+        {
+            ["filter"] = filter.DeepClone(),
+        })).Require();
+        Assert.Equal(runs.Length, stats["attempt_count"]!.GetValue<int>());
+
+        var target = Path.Combine(fixture.DataDirectory, exportName);
+        var output = (await client.SendAsync("ExportJson", new JsonObject
+        {
+            ["target_path"] = target, ["filter"] = filter.DeepClone(),
+        })).Require();
+        Assert.Equal(runs.Length, output["row_count"]!.GetValue<int>());
+        Assert.Equal(expected, JsonNode.Parse(File.ReadAllText(target))!
+            .AsArray().Select(run => run!["run_id"]!.GetValue<string>()).Order());
     }
 }

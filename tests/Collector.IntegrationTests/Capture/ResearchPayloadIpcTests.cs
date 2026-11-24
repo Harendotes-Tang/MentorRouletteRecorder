@@ -1,14 +1,52 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
+using MentorRecorder.Collector.Protocol.Pipeline;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
+/// <summary>
+/// The candidate-validation and research-payload settings over a real pipe: what each switch selects, what the
+/// research whitelist lets into the evidence and nowhere else, and the requests both refuse.
+/// </summary>
 public sealed class ResearchPayloadIpcTests
 {
+    [Fact]
+    public async Task ExplicitSettingSelectsCandidateThroughRealPipeAlongsideTheFormalBinding()
+    {
+        await using var fixture = ServerFixture.Start();
+        var initial = (await fixture.CallAsync("GetCaptureSettings")).Require();
+        Assert.False(initial["candidate_validation_enabled"]!.GetValue<bool>());
+        var updated = (await fixture.CallAsync("UpdateCaptureSettings", new JsonObject
+            { ["candidate_validation_enabled"] = true })).Require();
+        ContractSchema.Validate("$defs/Responses/UpdateCaptureSettings", updated, "candidate setting");
+        Assert.True(updated["candidate_validation_enabled"]!.GetValue<bool>());
+        var pipeline = fixture.Host.LiveProtocol!;
+        var status = pipeline.Refresh(GameProcessDetection.NotRunning with
+            { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
+        Assert.Equal("cn.2026.08.05.candidate", pipeline.CandidateProfileId);
+        // Candidate validation observes alongside the formal profile rather than replacing it.
+        Assert.Equal(ProfileStatus.Verified, status.Status);
+        Assert.Empty((await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray());
+        Assert.True((await fixture.CallAsync("UpdateCaptureSettings", new JsonObject
+            { ["candidate_validation_enabled"] = false })).Ok);
+        Assert.Null(pipeline.CandidateProfileId);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("1")]
+    [InlineData("\"true\"")]
+    public async Task CandidateSettingRequiresBoolean(string value)
+    {
+        await using var fixture = ServerFixture.Start();
+        var response = await fixture.CallAsync("UpdateCaptureSettings", new JsonObject
+            { ["candidate_validation_enabled"] = JsonNode.Parse(value) });
+        Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
+    }
+
     [Fact]
     public async Task DisablingResearchCommitsBufferedWindowMetadataBeforeTheLedgerCloses()
     {
@@ -19,10 +57,8 @@ public sealed class ResearchPayloadIpcTests
             ["candidate_validation_enabled"] = true,
             ["research_payload_opcodes"] = new JsonArray("0x03bb"),
         })).Require();
-        var pipeline = fixture.Host.LiveProtocol!;
-        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
+        var pipeline = StartCandidatePipeline(fixture);
         var session = fixture.Host.CaptureSessionId;
-        pipeline.OnCaptureStarted(session);
         var now = fixture.Host.Clock.UtcNow;
         pipeline.Accept(new DecodedMessage(session, MessageDirection.Outbound, now,
             TimeSpan.FromMilliseconds(1), 0, 3, 0x03bb, new byte[128], "synthetic connection"));
@@ -56,9 +92,7 @@ public sealed class ResearchPayloadIpcTests
             ["candidate_validation_enabled"] = true,
             ["research_payload_opcodes"] = new JsonArray("0x014a", "0x031d", "0x0153", "0x0214"),
         })).Require();
-        var pipeline = fixture.Host.LiveProtocol!;
-        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
-        pipeline.OnCaptureStarted(fixture.Host.CaptureSessionId);
+        var pipeline = StartCandidatePipeline(fixture);
 
         // Five distinct members form a real candidate zone burst. The fifth member is
         // deliberately too long for research; it must still contribute metadata only.
@@ -93,7 +127,7 @@ public sealed class ResearchPayloadIpcTests
         // Turning research off must not strip historical evidence or mislabel its export.
         (await client.SendAsync("UpdateCaptureSettings", new JsonObject
             { ["candidate_validation_enabled"] = false, ["research_payload_opcodes"] = new JsonArray() })).Require();
-        var directory = Path.GetDirectoryName(fixture.DatabasePath)!;
+        var directory = fixture.DataDirectory;
         var path = Path.Combine(directory, "expanded-research.json");
         var exported = (await client.SendAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = path })).Require();
         var bytes = await File.ReadAllBytesAsync(path);
@@ -115,12 +149,7 @@ public sealed class ResearchPayloadIpcTests
             Assert.DoesNotContain(fixture.Log, text => text.Contains(raw, StringComparison.Ordinal));
         }
         Assert.Equal(RunState.Idle, pipeline.RunState);
-        foreach (var table in new[] { "mentor_runs", "run_events", "run_revisions" })
-        {
-            using var command = fixture.Host.Database.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM " + table;
-            Assert.Equal(0L, command.ExecuteScalar());
-        }
+        fixture.AssertTablesEmpty("mentor_runs", "run_events", "run_revisions");
     }
 
     [Fact]
@@ -137,9 +166,7 @@ public sealed class ResearchPayloadIpcTests
         })).Require();
         ContractSchema.Validate("$defs/CaptureSettings", settings, "research settings");
         Assert.Equal("0x03bb", settings["research_payload_opcodes"]![0]!.GetValue<string>());
-        var pipeline = fixture.Host.LiveProtocol!;
-        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
-        pipeline.OnCaptureStarted(fixture.Host.CaptureSessionId);
+        var pipeline = StartCandidatePipeline(fixture);
         var bytes = Enumerable.Range(0, 128).Select(i => (byte)i).ToArray();
         var raw = Convert.ToHexString(bytes).ToLowerInvariant();
         var message = new DecodedMessage(fixture.Host.CaptureSessionId, MessageDirection.Outbound,
@@ -163,7 +190,7 @@ public sealed class ResearchPayloadIpcTests
         Assert.Null(buffered.Observation.PayloadHex);
         Assert.Equal(124L, buffered.Observation.TMs);
 
-        var directory = Path.GetDirectoryName(fixture.DatabasePath)!;
+        var directory = fixture.DataDirectory;
         var path = Path.Combine(directory, "research.json");
         (await client.SendAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = path })).Require();
         var evidence = JsonNode.Parse(await File.ReadAllTextAsync(path))!;
@@ -202,5 +229,14 @@ public sealed class ResearchPayloadIpcTests
         await using var fixture = ServerFixture.Start();
         Assert.Equal(ErrorCodes.BadRequest, (await fixture.CallAsync("UpdateCaptureSettings", new JsonObject
             { ["research_payload_opcodes"] = new JsonArray("0x03bb") })).ErrorCode);
+    }
+
+    /// <summary>The live pipeline refreshed for a CN 2026.08.05 client and started on the host's capture session.</summary>
+    private static LiveProtocolPipeline StartCandidatePipeline(ServerFixture fixture)
+    {
+        var pipeline = fixture.Host.LiveProtocol!;
+        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
+        pipeline.OnCaptureStarted(fixture.Host.CaptureSessionId);
+        return pipeline;
     }
 }

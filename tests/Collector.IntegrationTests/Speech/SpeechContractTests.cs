@@ -15,17 +15,6 @@ public sealed class SpeechContractTests
 {
     private static readonly DateTimeOffset At = new(2026, 9, 16, 21, 38, 4, TimeSpan.Zero);
 
-    private static string[] Declared(params string[] pointer)
-    {
-        JsonNode? node = ContractSchema.Root;
-        foreach (var segment in pointer)
-        {
-            node = node![segment];
-        }
-
-        return node!.AsArray().OfType<JsonNode>().Select(item => item.GetValue<string>()).Order(StringComparer.Ordinal).ToArray();
-    }
-
     public static TheoryData<string> SettingsCases => new() { "off", "azure", "azure-no-key", "openai", "openai-loopback", "half" };
 
     [Theory]
@@ -88,10 +77,10 @@ public sealed class SpeechContractTests
     [Fact]
     public void TheContractDeclaresEveryTokenTheCollectorWrites()
     {
-        Assert.Equal(SpeechProviderWire.AllTokens.Order(StringComparer.Ordinal), Declared("$defs", "SpeechProvider", "enum"));
+        Assert.Equal(SpeechProviderWire.AllTokens.Order(StringComparer.Ordinal), ContractSchema.DeclaredEnum("$defs", "SpeechProvider", "enum"));
         Assert.Equal(
             SpeechProviderWire.AllTokens.Where(token => token != "none").Order(StringComparer.Ordinal),
-            Declared("$defs", "Responses", "SynthesizeSpeech", "properties", "provider", "enum"));
+            ContractSchema.DeclaredEnum("$defs", "Responses", "SynthesizeSpeech", "properties", "provider", "enum"));
 
         var kinds = ContractSchema.Root["$defs"]!["CaptureStatus"]!["properties"]!["last_valid_event_kind"]!["enum"]!
             .AsArray().Select(node => node?.GetValue<string>()).ToArray();
@@ -102,7 +91,7 @@ public sealed class SpeechContractTests
             ProfileMessageParser.EventKinds.Order(StringComparer.Ordinal),
             kinds.OfType<string>().Order(StringComparer.Ordinal));
 
-        var codes = Declared("$defs", "ErrorPayload", "properties", "code", "enum");
+        var codes = ContractSchema.DeclaredEnum("$defs", "ErrorPayload", "properties", "code", "enum");
         foreach (var outcome in Enum.GetValues<SpeechOutcome>().Where(outcome => outcome != SpeechOutcome.Ok))
         {
             var code = OnlineSpeechService.ErrorCodeFor(outcome);
@@ -162,36 +151,15 @@ public sealed class SpeechContractTests
         { "SynthesizeSpeech", "{\"text\":\"a\",\"rate_percent\":201}", false },
         { "SynthesizeSpeech", "{\"text\":\"a\",\"rate_percent\":49}", false },
         { "SynthesizeSpeech", "{\"text\":\"a\",\"voice\":\"alloy\"}", false },
+        { "SynthesizeSpeech", "{\"text\":\"" + new string('字', 201) + "\"}", false },
+        { "SynthesizeSpeech", "{\"text\":\"" + new string('字', 200) + "\"}", true },
     };
 
     [Theory]
     [MemberData(nameof(RequestCases))]
     public void TheRequestSchemaAcceptsWhatTheCollectorAcceptsAndRefusesTheRest(string messageType, string payload, bool valid)
     {
-        var envelope = new JsonObject
-        {
-            ["protocol_version"] = 1,
-            ["request_id"] = "11111111-2222-4333-8444-555555555555",
-            ["message_type"] = messageType,
-            ["payload"] = JsonNode.Parse(payload),
-        };
-
+        var envelope = ContractSchema.RequestEnvelope(messageType, JsonNode.Parse(payload));
         Assert.Equal(valid, ContractSchema.Evaluate("$defs/RequestEnvelope", envelope).IsValid);
-    }
-
-    [Fact]
-    public void AnOverlongSentenceIsRefusedByTheSchemaToo()
-    {
-        var envelope = new JsonObject
-        {
-            ["protocol_version"] = 1,
-            ["request_id"] = "11111111-2222-4333-8444-555555555555",
-            ["message_type"] = "SynthesizeSpeech",
-            ["payload"] = new JsonObject { ["text"] = new string('字', 201) },
-        };
-        Assert.False(ContractSchema.Evaluate("$defs/RequestEnvelope", envelope).IsValid);
-
-        envelope["payload"] = new JsonObject { ["text"] = new string('字', 200) };
-        Assert.True(ContractSchema.Evaluate("$defs/RequestEnvelope", envelope).IsValid);
     }
 }

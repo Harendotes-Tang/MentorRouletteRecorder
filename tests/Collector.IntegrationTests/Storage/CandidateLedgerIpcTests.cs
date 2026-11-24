@@ -67,7 +67,7 @@ public sealed class CandidateLedgerIpcTests
             (await client.SendAsync("ReviewCandidateObservation", body.DeepClone().AsObject(), request)).ErrorCode);
         Assert.Single(fixture.Host.Candidates.ReadEvidence().Reviews);
 
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "candidate.json");
+        var path = Path.Combine(fixture.DataDirectory, "candidate.json");
         var exported = (await client.SendAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = path })).Require();
         ContractSchema.Validate("$defs/Responses/ExportCandidateEvidence", exported, "candidate export");
         var bytes = await File.ReadAllBytesAsync(path);
@@ -83,12 +83,7 @@ public sealed class CandidateLedgerIpcTests
         Assert.Equal(ErrorCodes.ExportFailed,
             (await client.SendAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = path })).ErrorCode);
         Assert.Equal(hash, Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path))).ToLowerInvariant());
-        foreach (var table in new[] { "mentor_runs", "run_events", "run_revisions" })
-        {
-            using var command = fixture.Host.Database.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM " + table;
-            Assert.Equal(0L, command.ExecuteScalar());
-        }
+        fixture.AssertTablesEmpty("mentor_runs", "run_events", "run_revisions");
     }
 
     [Fact]
@@ -127,7 +122,7 @@ public sealed class CandidateLedgerIpcTests
             ["candidate_validation_enabled"] = false, ["candidate_round_id"] = id,
             ["research_payload_opcodes"] = new JsonArray(),
         };
-        string FilePath(string name) => Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, name + ".json");
+        string FilePath(string name) => Path.Combine(fixture.DataDirectory, name + ".json");
         JsonObject ScopedExport(string id, string path) => new()
         {
             ["target_path"] = path, ["candidate_round_id"] = id, ["round_answers"] = new JsonObject { ["first_roulette"] = "实际任务" },
@@ -252,7 +247,7 @@ public sealed class CandidateLedgerIpcTests
         var note = new string('核', 2000);
         for (var i = 0; i < 500; i++)
             fixture.Host.Candidates.Review(Guid.NewGuid().ToString("D"), row.ObservationId, "UNSURE", note);
-        var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "history.json");
+        var path = Path.Combine(fixture.DataDirectory, "history.json");
         var exported = (await fixture.CallAsync("ExportCandidateEvidence", new JsonObject { ["target_path"] = path })).Require();
         Assert.Equal(500, exported["review_count"]!.GetValue<int>());
         Assert.True(new FileInfo(path).Length > 1_000_000);
@@ -274,7 +269,7 @@ public sealed class CandidateLedgerIpcTests
     public async Task AnExportWithoutATargetStaysBesideTheDatabase()
     {
         await using var fixture = ServerFixture.Start();
-        var expected = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "exports");
+        var expected = Path.Combine(fixture.DataDirectory, "exports");
 
         var exported = (await fixture.CallAsync("ExportCandidateEvidence", new JsonObject())).Require();
 

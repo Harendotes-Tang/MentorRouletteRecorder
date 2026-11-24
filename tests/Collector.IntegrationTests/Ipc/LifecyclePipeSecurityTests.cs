@@ -45,30 +45,14 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     public async Task ThePipeGrantsExactlyOneIdentityAndItIsTheCurrentUser()
     {
         await using var pipe = CreateShippingPipe();
-        var security = pipe.Stream.GetAccessControl();
-
-        var rules = security
-            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
-            .Cast<PipeAccessRule>()
-            .ToArray();
-
-        var rule = Assert.Single(rules);
-        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
-
-        using var identity = WindowsIdentity.GetCurrent();
-        Assert.Equal(identity.User, rule.IdentityReference);
-        Assert.Equal(PipeAccessRights.FullControl, rule.PipeAccessRights & PipeAccessRights.FullControl);
+        AssertOnlyTheCurrentUserIsGranted(pipe.Stream);
     }
 
     [Fact]
     public async Task ThePipeGrantsNothingToEveryoneOrToAnyOtherWellKnownGroup()
     {
         await using var pipe = CreateShippingPipe();
-        var rules = pipe.Stream
-            .GetAccessControl()
-            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
-            .Cast<PipeAccessRule>()
-            .ToArray();
+        var rules = RulesOf(pipe.Stream);
 
         foreach (var wellKnown in ForbiddenIdentities)
         {
@@ -88,10 +72,8 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     public async Task ThePipeCarriesAHighIntegrityLabelOnlyWhenTheCollectorRunsElevated()
     {
         await using var pipe = CreateShippingPipe();
-        using var identity = WindowsIdentity.GetCurrent();
-        var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
 
-        Assert.Equal(elevated ? "S:(ML;;NWNR;;;HI)" : string.Empty, LabelOf(pipe.Stream));
+        Assert.Equal(ExpectedLabelForThisProcess(), LabelOf(pipe.Stream));
     }
 
     /// <summary>
@@ -121,20 +103,14 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     [Fact]
     public async Task ALabelledPipeKeepsItsOneGrantAndAdmitsAClientAtTheLabelsLevel()
     {
-        var create = typeof(PipeServer).GetMethod("CreatePipeInstance", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(create is not null, "PipeServer.CreatePipeInstance has been renamed; update this test rather than deleting it.");
+        var create = CreatePipeInstance();
         var name = "MentorRecorder.acltest." + Guid.NewGuid().ToString("N") + ".v1";
         using var identity = WindowsIdentity.GetCurrent();
 
-        await using var stream = (NamedPipeServerStream)create!.Invoke(null, new object?[] { name, identity.User, 0x2000 })!;
+        await using var stream = (NamedPipeServerStream)create.Invoke(null, new object?[] { name, identity.User, 0x2000 })!;
 
         Assert.Equal("S:(ML;;NWNR;;;ME)", LabelOf(stream));
-        var rule = Assert.Single(stream.GetAccessControl()
-            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
-            .Cast<PipeAccessRule>());
-        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
-        Assert.Equal(identity.User, rule.IdentityReference);
-        Assert.Equal(PipeAccessRights.FullControl, rule.PipeAccessRights & PipeAccessRights.FullControl);
+        AssertOnlyTheCurrentUserIsGranted(stream);
 
         var accepted = stream.WaitForConnectionAsync();
         await using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -159,11 +135,10 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     [Fact]
     public async Task ALabelledInstanceIsNotServedOnAPipeThatStandsWithoutTheLabel()
     {
-        var create = typeof(PipeServer).GetMethod("CreatePipeInstance", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.True(create is not null, "PipeServer.CreatePipeInstance has been renamed; update this test rather than deleting it.");
+        var create = CreatePipeInstance();
         var name = "MentorRecorder.acltest." + Guid.NewGuid().ToString("N") + ".v1";
         using var identity = WindowsIdentity.GetCurrent();
-        await using var plain = (NamedPipeServerStream)create!.Invoke(null, new object?[] { name, identity.User, null })!;
+        await using var plain = (NamedPipeServerStream)create.Invoke(null, new object?[] { name, identity.User, null })!;
         Assert.Equal(string.Empty, LabelOf(plain));
 
         var refused = Assert.Throws<TargetInvocationException>(() => create.Invoke(null, new object?[] { name, identity.User, 0x2000 }));
@@ -177,14 +152,8 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
             "MentorRecorder.prepared." + Guid.NewGuid().ToString("N") + ".v1");
         var prepared = PrepareShippingPipe(server);
         var preparedHandle = prepared.SafePipeHandle;
-        var rule = Assert.Single(prepared.GetAccessControl()
-            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
-            .Cast<PipeAccessRule>());
-        using var identity = WindowsIdentity.GetCurrent();
-        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
-        Assert.Equal(identity.User, rule.IdentityReference);
-        var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-        Assert.Equal(elevated ? "S:(ML;;NWNR;;;HI)" : string.Empty, LabelOf(prepared));
+        AssertOnlyTheCurrentUserIsGranted(prepared);
+        Assert.Equal(ExpectedLabelForThisProcess(), LabelOf(prepared));
 
         // The startup announcement may now be written: even a client that opens the pipe
         // before RunAsync reaches WaitForConnection sees its complete security descriptor.
@@ -282,6 +251,39 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
             server.DisposeAsync().AsTask().GetAwaiter().GetResult();
             throw;
         }
+    }
+
+    private static PipeAccessRule[] RulesOf(NamedPipeServerStream stream) =>
+        stream.GetAccessControl()
+            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+            .Cast<PipeAccessRule>()
+            .ToArray();
+
+    /// <summary>The pipe grants one identity, the current user, full control, and nothing else.</summary>
+    private static void AssertOnlyTheCurrentUserIsGranted(NamedPipeServerStream stream)
+    {
+        var rule = Assert.Single(RulesOf(stream));
+        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
+
+        using var identity = WindowsIdentity.GetCurrent();
+        Assert.Equal(identity.User, rule.IdentityReference);
+        Assert.Equal(PipeAccessRights.FullControl, rule.PipeAccessRights & PipeAccessRights.FullControl);
+    }
+
+    /// <summary>The shipping <c>PipeServer.CreatePipeInstance(name, user, integrity level)</c>.</summary>
+    private static MethodInfo CreatePipeInstance()
+    {
+        var create = typeof(PipeServer).GetMethod("CreatePipeInstance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(create is not null, "PipeServer.CreatePipeInstance has been renamed; update this test rather than deleting it.");
+        return create!;
+    }
+
+    /// <summary>The label an elevated Collector puts on its pipe, or none when this process is not elevated.</summary>
+    private static string ExpectedLabelForThisProcess()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        return elevated ? "S:(ML;;NWNR;;;HI)" : string.Empty;
     }
 
     private static Type LabelType() =>

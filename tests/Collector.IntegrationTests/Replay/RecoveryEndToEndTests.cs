@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Recovery;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -117,17 +116,7 @@ public sealed class RecoveryEndToEndTests : IDisposable
         // Connecting only now: the recovery pass finished before this process had a pipe at
         // all, let alone a client on it.
         await using var subscriber = await serving.ConnectAsync();
-        var events = new List<JsonObject>();
-        using var received = new SemaphoreSlim(0);
-        subscriber.EventReceived += payload =>
-        {
-            lock (events)
-            {
-                events.Add(payload);
-            }
-
-            received.Release();
-        };
+        var log = new FrameLog(subscriber);
 
         var acknowledgement =
             (await subscriber.SendAsync("SubscribeLiveEvents", new JsonObject())).Require();
@@ -135,18 +124,14 @@ public sealed class RecoveryEndToEndTests : IDisposable
             acknowledgement["subscription_id"]!.GetValue<string>(), "D", out _));
 
         // Two events: the corrected run, and the hint that cached statistics are now stale.
-        Assert.True(
-            await received.WaitAsync(TimeSpan.FromSeconds(15)),
-            "the recovered run never reached the subscriber");
-        Assert.True(
-            await received.WaitAsync(TimeSpan.FromSeconds(15)),
-            "the statistics-invalidated hint never reached the subscriber");
+        await log.WaitForEventsAsync(
+            events => events.Length >= 1, "the recovered run never reached the subscriber", TimeSpan.FromSeconds(15));
+        await log.WaitForEventsAsync(
+            events => events.Length >= 2,
+            "the statistics-invalidated hint never reached the subscriber",
+            TimeSpan.FromSeconds(15));
 
-        List<JsonObject> delivered;
-        lock (events)
-        {
-            delivered = events.ToList();
-        }
+        var delivered = log.Events();
 
         var updated = Assert.Single(
             delivered, payload => payload["kind"]!.GetValue<string>() == "run_updated");

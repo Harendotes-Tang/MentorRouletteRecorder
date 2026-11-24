@@ -56,17 +56,6 @@ public sealed class SharedCalibrationContractTests
         };
     }
 
-    private static string[] Declared(params string[] pointer)
-    {
-        JsonNode? node = ContractSchema.Root;
-        foreach (var segment in pointer)
-        {
-            node = node![segment];
-        }
-
-        return node!.AsArray().OfType<JsonNode>().Select(item => item.GetValue<string>()).Order(StringComparer.Ordinal).ToArray();
-    }
-
     private static string[] Tokens<TEnum>()
         where TEnum : struct, Enum =>
         EnumWire<TEnum>.AllTokens.Order(StringComparer.Ordinal).ToArray();
@@ -101,7 +90,7 @@ public sealed class SharedCalibrationContractTests
 
         Assert.Equal(
             SharedCandidateConsensus.Fields.Order(StringComparer.Ordinal),
-            candidate["disputed"]!["items"]!["enum"]!.AsArray().Select(item => item!.GetValue<string>()).Order(StringComparer.Ordinal));
+            ContractSchema.DeclaredEnum("$defs", "SharedCalibrationCandidate", "properties", "disputed", "items", "enum"));
         Assert.Equal("boolean", candidate["preferred"]!["type"]!.GetValue<string>());
         Assert.NotNull(candidate["shape_prior"]);
         Assert.DoesNotContain("disputed", ContractSchema.Root["$defs"]!["SharedCalibrationCandidate"]!["required"]!.AsArray()
@@ -177,24 +166,24 @@ public sealed class SharedCalibrationContractTests
     [Fact]
     public void TheContractDeclaresEveryTokenTheCollectorWrites()
     {
-        Assert.Equal(Tokens<SharedCalibrationPhase>(), Declared("$defs", "SharedCalibrationPhase", "enum"));
-        Assert.Equal(Tokens<SharedCandidateStatus>(), Declared("$defs", "SharedCandidateStatus", "enum"));
-        Assert.Equal(Tokens<SharedVerdict>(), Declared("$defs", "SharedVerdict", "enum"));
-        Assert.Equal(Tokens<SharedFetchStatus>(), Declared("$defs", "SharedFetchStatus", "enum"));
-        Assert.Equal(Tokens<SharedRecheckReason>(), Declared("$defs", "SharedRecheckReason", "enum"));
-        Assert.Equal(Tokens<SharedCalibrationSource>(), Declared("$defs", "SharedCalibrationSource", "enum"));
-        Assert.Equal(Tokens<SharedFetchOutcome>(), Declared("$defs", "SharedFetchOutcome", "enum"));
-        Assert.Equal(Tokens<CalibrationMatchSource>(), Declared("$defs", "CalibrationMatchSource", "enum"));
-        Assert.Equal(Tokens<SharedCandidateSource>(), Declared("$defs", "SharedCalibrationCandidate", "properties", "source", "enum"));
-        Assert.Equal(Tokens<SharedCheckOutcome>(), Declared("$defs", "Responses", "CheckSharedCalibration", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedConsentOutcome>(), Declared("$defs", "Responses", "AcceptSharedQueueInference", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedImportOutcome>(), Declared("$defs", "Responses", "ImportCalibrationCode", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedShareBasis>(), Declared("$defs", "Responses", "GetCalibrationShareCode", "properties", "basis", "enum"));
+        Assert.Equal(Tokens<SharedCalibrationPhase>(), ContractSchema.DeclaredEnum("$defs", "SharedCalibrationPhase", "enum"));
+        Assert.Equal(Tokens<SharedCandidateStatus>(), ContractSchema.DeclaredEnum("$defs", "SharedCandidateStatus", "enum"));
+        Assert.Equal(Tokens<SharedVerdict>(), ContractSchema.DeclaredEnum("$defs", "SharedVerdict", "enum"));
+        Assert.Equal(Tokens<SharedFetchStatus>(), ContractSchema.DeclaredEnum("$defs", "SharedFetchStatus", "enum"));
+        Assert.Equal(Tokens<SharedRecheckReason>(), ContractSchema.DeclaredEnum("$defs", "SharedRecheckReason", "enum"));
+        Assert.Equal(Tokens<SharedCalibrationSource>(), ContractSchema.DeclaredEnum("$defs", "SharedCalibrationSource", "enum"));
+        Assert.Equal(Tokens<SharedFetchOutcome>(), ContractSchema.DeclaredEnum("$defs", "SharedFetchOutcome", "enum"));
+        Assert.Equal(Tokens<CalibrationMatchSource>(), ContractSchema.DeclaredEnum("$defs", "CalibrationMatchSource", "enum"));
+        Assert.Equal(Tokens<SharedCandidateSource>(), ContractSchema.DeclaredEnum("$defs", "SharedCalibrationCandidate", "properties", "source", "enum"));
+        Assert.Equal(Tokens<SharedCheckOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "CheckSharedCalibration", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedConsentOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "AcceptSharedQueueInference", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedImportOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "ImportCalibrationCode", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedShareBasis>(), ContractSchema.DeclaredEnum("$defs", "Responses", "GetCalibrationShareCode", "properties", "basis", "enum"));
         Assert.Equal(new[] { "CALIBRATED", "VERIFIED" }, Tokens<SharedShareBasis>());
         Assert.Equal(
             new[] { "NOT_LOCAL", "NOT_SHAREABLE", "NO_PROFILE", "SHARED", "SHARED_NOT_PROVEN" }, Tokens<SharedShareCodeRefusal>());
 
-        var origins = Declared("$defs", "CaptureStatus", "properties", "profile_origin", "enum");
+        var origins = ContractSchema.DeclaredEnum("$defs", "CaptureStatus", "properties", "profile_origin", "enum");
         Assert.All(Enum.GetValues<ProfileOrigin>(), origin => Assert.Contains(CalibrationWire.Origin(origin) ?? "UNMAPPED", origins));
     }
 
