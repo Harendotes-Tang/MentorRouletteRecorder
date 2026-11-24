@@ -85,7 +85,8 @@ public sealed class CalibrationObserverTests
         return payload;
     }
 
-    private static byte[] TerritoryPayload(int territory) =>
+    /// <summary>A 136-byte territory message carrying <paramref name="territory"/> at offset 2.</summary>
+    internal static byte[] TerritoryPayload(int territory) =>
         Bytes(136, (2, (byte)(territory & 0xff)), (3, (byte)(territory >> 8)));
 
     /// <summary>One zone-load burst: anchor, five large shapes, and the three template-shaped members.</summary>
@@ -374,21 +375,6 @@ public sealed class CalibrationObserverTests
         Assert.Contains(evidence.FinderLengths, text => text.Contains(":40=", StringComparison.Ordinal));
         Assert.Equal(0, snapshot.DiagnosticsOverflow);
         Assert.Equal(0, snapshot.OverflowCount);
-    }
-
-    [Fact]
-    public void AChattyFinderOpcodeFillsNoTableAndBlocksNothing()
-    {
-        // A queue that ticks over for twenty minutes must not be able to push the real match
-        // out of the sample table, and a full report-only table must never void a claim.
-        var chatter = Enumerable.Range(0, 2_000)
-            .Select(i => Message(MessageDirection.Inbound, Reply, Bytes(40, (9, 5), (16, 1)), 130_000 + (i * 10)));
-        var (observer, draft) = Run(Session1().Concat(chatter));
-        var snapshot = observer.Snapshot();
-
-        Assert.True(snapshot.Pops.Count <= CalibrationObserver.MaxPops);
-        Assert.Equal(0, snapshot.OverflowCount);
-        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
     }
 
     [Fact]

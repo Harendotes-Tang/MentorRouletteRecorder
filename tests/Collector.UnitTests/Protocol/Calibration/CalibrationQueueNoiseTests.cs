@@ -92,8 +92,7 @@ public sealed class CalibrationQueueNoiseTests
     [Fact]
     public void AMatchRightAfterAMovementPacketCarryingTheQueuedIdIsStillAMatch()
     {
-        var snapshot = CalibrationTrafficCases.Observe(
-            MovingWith(CalibrationObserverTests.Session1(), 1).OrderBy(message => message.Mono));
+        var snapshot = CalibrationTrafficCases.Observe(MovingWith(CalibrationObserverTests.Session1(), 1));
 
         var match = Assert.Single(snapshot.Pops, pop => pop.TMs == 120_000);
         Assert.False(match.WithinEcho);
@@ -151,8 +150,7 @@ public sealed class CalibrationQueueNoiseTests
                 MessageDirection.Outbound, Movement, CalibrationObserverTests.Bytes(24, (0, 1)), 60_050))
             .Concat(chatter)
             .Concat(CalibrationTrafficCases.SecondQueue())
-            .Concat(CalibrationTrafficCases.SecondQueue(roulette: 3, at: 330_000))
-            .OrderBy(message => message.Mono);
+            .Concat(CalibrationTrafficCases.SecondQueue(roulette: 3, at: 330_000));
 
         var snapshot = CalibrationTrafficCases.Observe(traffic);
 

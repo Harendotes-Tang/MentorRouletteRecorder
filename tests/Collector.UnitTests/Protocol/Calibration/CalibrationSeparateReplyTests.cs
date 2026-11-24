@@ -2,13 +2,11 @@ using System.Text.Json;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
-using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -107,7 +105,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         CalibrationObserverTests.Bytes(length, writes);
 
     private static DecodedMessage ZoneMessage(long t, int territory) => Message(MessageDirection.Inbound, Zone,
-        Bytes(136, (2, (byte)(territory & 0xff)), (3, (byte)(territory >> 8))), t);
+        CalibrationObserverTests.TerritoryPayload(territory), t);
 
     /// <summary>One zone load: the marker carrying the territory, an anchor, five large shapes and an unrelated 136-byte message.</summary>
     internal static IEnumerable<DecodedMessage> Load(long t, int territory)
@@ -678,15 +676,8 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
         var sessionId = db.OpenCaptureSession(Region.Global, build);
         pipeline.OnCaptureStarted(sessionId);
-        void Feed(IEnumerable<DecodedMessage> traffic)
-        {
-            foreach (var message in traffic.OrderBy(message => message.Mono))
-            {
-                pipeline.Accept(message with { CaptureSessionId = sessionId });
-            }
-        }
 
-        Feed(Evening());
+        SharedCalibrationTestBed.Feed(pipeline, sessionId, Evening());
         var ready = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, ready.State);
         Assert.Equal("global.2026.11.03", ready.TemplateProfileId);
@@ -701,9 +692,9 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
             ? ("global.2026.11.03", ProfileOrigin.Shipped) : (result.ProfileId, ProfileOrigin.Local);
         Assert.Equal(expected, (withoutSwitch.Profile?.ProfileId, withoutSwitch.Origin));
 
-        Feed(Queue(600_000, Mentor, 40).Concat(Match(630_000, Mentor)));
+        SharedCalibrationTestBed.Feed(pipeline, sessionId, Queue(600_000, Mentor, 40).Concat(Match(630_000, Mentor)));
         Assert.Equal(RunState.MentorMatched, pipeline.RunState);
-        Feed(Load(656_000, Fractal));
+        SharedCalibrationTestBed.Feed(pipeline, sessionId, Load(656_000, Fractal));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         using var command = db.Database.CreateCommand();
         command.CommandText = "SELECT job_id FROM mentor_runs";

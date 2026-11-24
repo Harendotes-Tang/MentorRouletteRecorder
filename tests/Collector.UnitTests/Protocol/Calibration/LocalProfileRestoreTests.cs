@@ -1,11 +1,7 @@
-using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
-using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -31,33 +27,10 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
     // ------------------------------------------------------------------ helpers
 
-    private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
-
-    private string RetiredPath => ProfilePath + LocalProfileFiles.RetiredByRequestSuffix;
+    private string RetiredPath => _bed.LocalProfilePath + LocalProfileFiles.RetiredByRequestSuffix;
 
     private CalibrationServices Services(bool fetch = false) =>
         _bed.Services(fetch).WithLocalProfilesIn(_bed.LocalRoot);
-
-    /// <summary>The same profile with its job message withheld, as a machine wrote it before the job rule worked.</summary>
-    private string WriteLocalProfileLackingTheJob(string trafficCase)
-    {
-        var draft = CalibrationTrafficCases.Derive(trafficCase);
-        var withheld = draft with
-        {
-            Messages = draft.Messages.Where(message => message.Name != "PLAYER_JOB").ToArray(),
-            SampleCounts = draft.SampleCounts
-                .Where(sample => !sample.Key.Contains("PLAYER_JOB", StringComparison.Ordinal))
-                .ToDictionary(sample => sample.Key, sample => sample.Value, StringComparer.Ordinal),
-        };
-        return LocalProfileWriter.Write(withheld, Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot).Path;
-    }
-
-    /// <summary>One match of the shape a learned announcement profile declares.</summary>
-    /// <param name="rouletteId">Value at the declared roulette offset.</param>
-    /// <param name="at">Session time in milliseconds.</param>
-    private static DecodedMessage Announced(byte rouletteId, long at) => CalibrationObserverTests.Message(
-        MessageDirection.Inbound, CalibrationTrafficCases.Announce,
-        CalibrationObserverTests.Bytes(64, (16, rouletteId)), at);
 
     // ------------------------------------------------------------------ the round trip
 
@@ -65,14 +38,14 @@ public sealed class LocalProfileRestoreTests : IDisposable
     public void RetiringAndRestoringBringsBackTheSameFileAndRecordsWithItAgain()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
-        var before = File.ReadAllBytes(ProfilePath);
+        var before = File.ReadAllBytes(_bed.LocalProfilePath);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
         pipeline.DiscardCalibration(retireLocalProfile: true);
-        Assert.False(File.Exists(ProfilePath));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
         Assert.True(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
         pipeline.DiscardCalibration(restoreLocalProfile: true);
@@ -80,14 +53,14 @@ public sealed class LocalProfileRestoreTests : IDisposable
         // Byte for byte: the rollback is a rename, never a rewrite. A profile whose hash changed
         // would be refused by the loader, and a rewritten one is no longer the file the player
         // confirmed.
-        Assert.Equal(before, File.ReadAllBytes(ProfilePath));
+        Assert.Equal(before, File.ReadAllBytes(_bed.LocalProfilePath));
         Assert.False(File.Exists(RetiredPath));
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
         // Bound inside the session that is already running, so the next match is recorded.
-        Bed.Feed(pipeline, session, new[] { Announced(9, 300_000) });
+        Bed.Feed(pipeline, session, new[] { Bed.Announced(9, 300_000) });
         Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
@@ -99,7 +72,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     [Fact]
     public void ARestoredProfileWithoutTheJobGoesBackToLookingForIt()
     {
-        WriteLocalProfileLackingTheJob(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfileLackingTheJob(CalibrationTrafficCases.Announcement);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -165,7 +138,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         // Retired through 重新校准 on an earlier evening.
-        File.Move(ProfilePath, RetiredPath);
+        File.Move(_bed.LocalProfilePath, RetiredPath);
         var retired = File.ReadAllBytes(RetiredPath);
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.WriteSharedProfile(code.Payload);
@@ -191,7 +164,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
         Assert.DoesNotContain("重新校准", answer.Message, StringComparison.Ordinal);
 
         // Back under its own name, byte for byte, and not offered again: nothing is left to restore.
-        Assert.Equal(retired, File.ReadAllBytes(ProfilePath));
+        Assert.Equal(retired, File.ReadAllBytes(_bed.LocalProfilePath));
         Assert.False(File.Exists(RetiredPath));
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
@@ -215,7 +188,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
         // A fresh calibration produced a profile for the same build in the meantime.
         _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState);
-        var current = File.ReadAllBytes(ProfilePath);
+        var current = File.ReadAllBytes(_bed.LocalProfilePath);
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
         var refused = Assert.Throws<CollectorException>(
@@ -223,7 +196,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
         Assert.Equal(ErrorCodes.CalibrationNotReady, refused.Code);
         Assert.Matches("[\\u4e00-\\u9fff]", refused.Message);
-        Assert.Equal(current, File.ReadAllBytes(ProfilePath));
+        Assert.Equal(current, File.ReadAllBytes(_bed.LocalProfilePath));
         Assert.True(File.Exists(RetiredPath));
     }
 
@@ -235,14 +208,14 @@ public sealed class LocalProfileRestoreTests : IDisposable
     public void AProfileTheTrafficDisprovedIsNeverOfferedBack()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
-        File.Move(ProfilePath, ProfilePath + LocalProfileFiles.RetiredSuffix);
+        File.Move(_bed.LocalProfilePath, _bed.LocalProfilePath + LocalProfileFiles.RetiredSuffix);
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
 
         Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
         Assert.Throws<CollectorException>(() => pipeline.DiscardCalibration(restoreLocalProfile: true));
-        Assert.True(File.Exists(ProfilePath + LocalProfileFiles.RetiredSuffix));
-        Assert.False(File.Exists(ProfilePath));
+        Assert.True(File.Exists(_bed.LocalProfilePath + LocalProfileFiles.RetiredSuffix));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
     }
 
     [Fact]
@@ -294,7 +267,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
             () => pipeline.DiscardCalibration(restoreLocalProfile: true));
 
         Assert.Contains("重新校准", refused.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(ProfilePath));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
         Assert.True(File.Exists(RetiredPath));
     }
 
@@ -322,7 +295,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
             () => pipeline.DiscardCalibration(restoreLocalProfile: true));
 
         Assert.Contains("重新校准", refused.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(ProfilePath));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
         Assert.True(File.Exists(RetiredPath));
         Assert.Equal(shared, pipeline.Current.ProfileId);
         Assert.Equal(inFlight, pipeline.RunState);
@@ -338,7 +311,7 @@ public sealed class LocalProfileRestoreTests : IDisposable
     public void ACatalogueThatCannotBeReadJustNowUndoesTheRestoreInsteadOfCondemningTheProfile()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.Announcement);
-        var before = File.ReadAllBytes(ProfilePath);
+        var before = File.ReadAllBytes(_bed.LocalProfilePath);
         var services = Services();
         var unreadable = false;
         var pipeline = _bed.Pipeline(services with
@@ -356,14 +329,14 @@ public sealed class LocalProfileRestoreTests : IDisposable
 
         Assert.Equal(ErrorCodes.CalibrationNotReady, refused.Code);
         Assert.DoesNotContain("重新校准", refused.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(ProfilePath));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
         Assert.Equal(before, File.ReadAllBytes(RetiredPath));
         Assert.True(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
 
         unreadable = false;
         pipeline.DiscardCalibration(restoreLocalProfile: true);
 
-        Assert.Equal(before, File.ReadAllBytes(ProfilePath));
+        Assert.Equal(before, File.ReadAllBytes(_bed.LocalProfilePath));
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
     }

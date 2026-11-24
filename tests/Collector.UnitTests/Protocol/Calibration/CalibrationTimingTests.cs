@@ -28,7 +28,7 @@ public sealed class CalibrationTimingTests
         CalibrationObserverTests.Message(MessageDirection.Inbound, opcode, new byte[12], t);
 
     private static CalibrationSnapshot Observe(params IEnumerable<DecodedMessage>[] parts) =>
-        CalibrationTrafficCases.Observe(parts.SelectMany(part => part).OrderBy(message => message.Mono));
+        CalibrationTrafficCases.Observe(parts.SelectMany(part => part));
 
     private static TimedShape? Shape(CalibrationSnapshot snapshot, ushort opcode) =>
         snapshot.TimedShapes.FirstOrDefault(shape => shape.Opcode == opcode);

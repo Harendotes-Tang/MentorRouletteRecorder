@@ -1,5 +1,4 @@
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
@@ -36,8 +35,6 @@ public sealed class LocalProfileRetirementTests : IDisposable
 
     // ------------------------------------------------------------------ helpers
 
-    private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
-
     /// <summary>The bed's services with the local-profile seams wired and the retirement watched.</summary>
     private CalibrationServices Services()
     {
@@ -52,13 +49,6 @@ public sealed class LocalProfileRetirementTests : IDisposable
             },
         };
     }
-
-    /// <summary>One match of the shape a learned announcement profile declares.</summary>
-    /// <param name="rouletteId">Value at the declared roulette offset.</param>
-    /// <param name="at">Session time in milliseconds.</param>
-    private static DecodedMessage Announced(byte rouletteId, long at) => CalibrationObserverTests.Message(
-        MessageDirection.Inbound, CalibrationTrafficCases.Announce,
-        CalibrationObserverTests.Bytes(64, (16, rouletteId)), at);
 
     // ------------------------------------------------------------------ the retirement
 
@@ -79,8 +69,8 @@ public sealed class LocalProfileRetirementTests : IDisposable
         pipeline.DiscardCalibration(retireLocalProfile: true);
 
         Assert.Equal((Region.Cn, Bed.Build, LocalProfileFiles.RetiredByRequestSuffix), Assert.Single(_retired));
-        Assert.False(File.Exists(ProfilePath));
-        Assert.True(File.Exists(ProfilePath + LocalProfileFiles.RetiredByRequestSuffix));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
+        Assert.True(File.Exists(_bed.LocalProfilePath + LocalProfileFiles.RetiredByRequestSuffix));
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
 
         // Observing inside the session that is already running, so the player need not restart.
@@ -104,7 +94,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
         var pipeline = _bed.Pipeline(Services());
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, new[] { Announced(9, 50_000) });
+        Bed.Feed(pipeline, session, new[] { Bed.Announced(9, 50_000) });
         var recorded = Assert.Single(_bed.RunsOf(session));
         Assert.False(recorded.PendingReview);
 
@@ -152,7 +142,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
         pipeline.DiscardCalibration();
 
         Assert.Empty(_retired);
-        Assert.True(File.Exists(ProfilePath));
+        Assert.True(File.Exists(_bed.LocalProfilePath));
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
@@ -297,7 +287,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
         Bed.Feed(pipeline, session, new[] { Background(5_000) });
         Assert.False(pipeline.RunUnderWayNow);
 
-        Bed.Feed(pipeline, session, new[] { Announced(9, 60_000) });
+        Bed.Feed(pipeline, session, new[] { Bed.Announced(9, 60_000) });
         Assert.Equal(RunState.MentorMatched, pipeline.RunState);
         Assert.True(pipeline.RunUnderWayNow);
 
@@ -318,7 +308,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
     private static DecodedMessage[] ZoneChange(int territory, long at, byte marker) => new[]
     {
         CalibrationObserverTests.Message(MessageDirection.Inbound, CalibrationTrafficCases.Territory,
-            CalibrationObserverTests.Bytes(136, (2, (byte)(territory & 0xff)), (3, (byte)(territory >> 8))), at),
+            CalibrationObserverTests.TerritoryPayload(territory), at),
         CalibrationObserverTests.Message(MessageDirection.Inbound, CalibrationTrafficCases.ZoneInit,
             CalibrationObserverTests.Bytes(456, (100, marker)), at + 100),
     };
@@ -344,7 +334,7 @@ public sealed class LocalProfileRetirementTests : IDisposable
 
         pipeline.DiscardCalibration(retireLocalProfile: true);
 
-        Assert.True(File.Exists(ProfilePath));
+        Assert.True(File.Exists(_bed.LocalProfilePath));
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);

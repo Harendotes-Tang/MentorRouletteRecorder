@@ -125,4 +125,29 @@ public sealed class CalibrationVerdictTests
 
         Assert.NotEqual(CalibrationMatchSource.MarkerOffset, coordinator.CurrentDraft()!.MatchSource);
     }
+
+    /// <summary>
+    /// The player marks the popup line wrong on the card. That line is the only thing the
+    /// announcement contributed, and the recording they already have rests on the queue request
+    /// underneath it - so the announcement goes and the profile stays, rather than an evening of
+    /// evidence being thrown away over an add-on.
+    /// </summary>
+    [Fact]
+    public void MarkingThePopupLineWrongCostsTheAnnouncementAndNothingElse()
+    {
+        var coordinator = Coordinator(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+
+        var offered = coordinator.Snapshot();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+
+        Assert.Null(coordinator.Judge(Marking(offered, "pop")));
+
+        var again = coordinator.CurrentDraft()!;
+        Assert.Equal(CalibrationDraftStatus.Ready, again.Status);
+        Assert.Null(again.TimedAnnouncement);
+        Assert.Equal(CalibrationMatchSource.QueueRequest, again.MatchSource);
+        Assert.Contains(again.Messages, message => message.Name == "CONTENT_FINDER_POP");
+        Assert.DoesNotContain(again.Messages, message => message.Name == "MATCH_ANNOUNCED");
+    }
 }

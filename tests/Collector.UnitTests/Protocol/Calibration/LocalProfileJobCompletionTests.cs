@@ -1,15 +1,19 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// A finished local profile completes itself.
+/// A local profile without PLAYER_JOB gains it.
+///
+/// The player's own machine on CN 2026.09.15: a queue-inferred profile was in force without
+/// PLAYER_JOB, because the job rule could not name the message when it was written. Once the rule
+/// can, the draft underneath is the same inferred match plus the job - and a draft that repeats
+/// the inferred match was never offered again, so the profile could never gain the job and every
+/// record stayed 职业未知 for the life of the build.
 ///
 /// The job upgrade of 1.2.3 reaches only a profile that infers the match from the queue, because
 /// that is the one calibration keeps running beside. A machine whose profile reads the server's
@@ -29,29 +33,6 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
-
-    /// <summary>
-    /// The profile a machine wrote before the job rule could name the message: the very draft one
-    /// evening produces, with the job message and its evidence entry taken back out again.
-    /// </summary>
-    /// <param name="trafficCase">Case from <see cref="CalibrationTrafficCases"/>.</param>
-    private string WriteProfileLackingTheJob(string trafficCase)
-    {
-        var draft = CalibrationTrafficCases.Derive(trafficCase);
-        Assert.Contains(draft.Messages, message => message.Name == "PLAYER_JOB");
-        var withheld = draft with
-        {
-            Messages = draft.Messages.Where(message => message.Name != "PLAYER_JOB").ToArray(),
-            SampleCounts = draft.SampleCounts
-                .Where(sample => !sample.Key.Contains("PLAYER_JOB", StringComparison.Ordinal))
-                .ToDictionary(sample => sample.Key, sample => sample.Value, StringComparer.Ordinal),
-        };
-        var written = LocalProfileWriter.Write(withheld, Bed.Template, Bed.Build, Bed.Confirmed, _bed.LocalRoot).Path;
-        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(written), StringComparison.Ordinal);
-        return written;
-    }
-
     /// <summary>A live pipeline over the bed's roots with the local-profile seams wired.</summary>
     private Protocol.Pipeline.LiveProtocolPipeline Pipeline() =>
         _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
@@ -61,10 +42,65 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
     private static IEnumerable<DecodedMessage> Evening(string trafficCase) =>
         CalibrationTrafficCases.Traffic(trafficCase).Concat(CalibrationObserverTests.Noise(360_000, 400_000));
 
+    // ------------------------------------------------------------------ a queue-inferred profile
+
+    [Fact]
+    public void AnInferredProfileWithoutTheJobIsOfferedTheJobAndUsesItAtOnce()
+    {
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequestNoJob);
+        var pipeline = Pipeline();
+        pipeline.Refresh(Bed.Game());
+        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
+        var session = _bed.Start(pipeline);
+
+        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest)
+            .Concat(CalibrationObserverTests.Noise(250_000, 290_000)));
+
+        // The same inferred match, but it brings something the profile in force lacks.
+        var offered = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+
+        var result = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
+
+        Assert.Contains("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
+        Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
+
+        // Bound in the running session, not at the next launch: a mentor run queued now has the job.
+        Bed.Feed(pipeline, session, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Outbound, CalibrationTrafficCases.Request,
+                CalibrationObserverTests.Bytes(24, (0, 9)), 400_000),
+        }.Concat(CalibrationObserverTests.Cluster(420_000, 1039, job: 24)));
+
+        var run = _bed.AllRuns()
+            .Single(item => string.Equals(item.ProtocolProfileId, result.ProfileId, StringComparison.Ordinal) &&
+                            item.EnteredAtUtc is not null);
+        Assert.Equal(24, run.JobId);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>A profile that already has the job is not asked about again for an identical draft.</summary>
+    [Fact]
+    public void AnInferredProfileThatAlreadyHasTheJobIsNotAskedAgain()
+    {
+        _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        var pipeline = Pipeline();
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+
+        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest)
+            .Concat(CalibrationObserverTests.Noise(250_000, 290_000)));
+
+        Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    // ------------------------------------------------------------------ a profile that reads the announcement
+
     [Fact]
     public void AFinishedProfileWithoutTheJobIsOfferedTheJobAndUsesItAtOnce()
     {
-        WriteProfileLackingTheJob(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfileLackingTheJob(CalibrationTrafficCases.Announcement);
         var pipeline = Pipeline();
         pipeline.Refresh(Bed.Game());
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
@@ -79,7 +115,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
 
         var result = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
-        Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Contains("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         Assert.NotEqual(CalibrationState.Ready, pipeline.CalibrationStatus().State);
 
         // Bound in the running session, not at the next launch: the next mentor run has the job.
@@ -110,15 +146,13 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
         var first = _bed.Start(pipeline);
         // The exit burst carried no job, so the evening's draft is ready without PLAYER_JOB.
-        Bed.Feed(pipeline, first, Evening(CalibrationTrafficCases.Announcement).Where(message =>
-            !(message.Opcode == CalibrationTrafficCases.Job &&
-              message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000))));
+        Bed.Feed(pipeline, first, CalibrationTrafficCases.WithoutExitJob(Evening(CalibrationTrafficCases.Announcement)));
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
         pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
-        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         Assert.Equal(CalibrationState.Done, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
 
@@ -129,7 +163,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
         var completion = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, completion.State);
         pipeline.ConfirmCalibration(Bed.AllCorrect(completion));
-        Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Contains("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         pipeline.OnCaptureStopped(second, CaptureEndReason.UserStop);
     }
 
@@ -141,7 +175,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
     [Fact]
     public void TheCardStaysHiddenWhileTheCompletionIsStillBeingLookedFor()
     {
-        WriteProfileLackingTheJob(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfileLackingTheJob(CalibrationTrafficCases.Announcement);
         var pipeline = Pipeline();
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -162,7 +196,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
     [Fact]
     public void ADraftThatNamesADifferentMatchMessageIsNeverOffered()
     {
-        WriteProfileLackingTheJob(CalibrationTrafficCases.Announcement);
+        _bed.WriteLocalProfileLackingTheJob(CalibrationTrafficCases.Announcement);
         var pipeline = Pipeline();
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
@@ -173,7 +207,7 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
 
         Assert.Equal(CalibrationState.Idle, pipeline.CalibrationStatus().State);
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
-        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 

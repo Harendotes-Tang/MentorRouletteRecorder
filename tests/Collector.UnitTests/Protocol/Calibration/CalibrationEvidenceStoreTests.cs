@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -14,9 +15,58 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
 {
     private const string Build = "2026.09.01.0000.0000";
     private const string TemplateSha = "template-sha";
+
+    /// <summary>The session id the shared traffic helpers stamp their messages with.</summary>
+    private const string FirstSession = "calibration-session";
+
     private readonly TempDirectory _root = TempDirectory.Reserve();
 
     public void Dispose() => _root.Dispose();
+
+    private string FilePath => _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+
+    private static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic) =>
+        CalibrationTrafficCases.Observe(traffic);
+
+    /// <summary>A coordinator armed for the build; its session is begun by the test.</summary>
+    private static CalibrationCoordinator Armed()
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, Build);
+        return coordinator;
+    }
+
+    /// <summary>Hands the traffic to the coordinator in the order given.</summary>
+    private static void Feed(CalibrationCoordinator coordinator, IEnumerable<DecodedMessage> traffic)
+    {
+        foreach (var message in traffic)
+        {
+            coordinator.Accept(message);
+        }
+    }
+
+    /// <summary>The Collector starting again: a coordinator armed for the build, carrying what the file holds.</summary>
+    private CalibrationCoordinator Restarted()
+    {
+        var restarted = Armed();
+        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        return restarted;
+    }
+
+    /// <summary>
+    /// The marker-offset evening observed, its announcement opcode then disproved by the traffic, and the
+    /// evidence saved when the capture stops.
+    /// </summary>
+    private void SaveAnEveningWhoseAnnouncementTheTrafficDisproved()
+    {
+        var coordinator = Armed();
+        coordinator.Begin(FirstSession);
+        Feed(coordinator, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset));
+        Assert.Equal(CalibrationMatchSource.MarkerOffset, coordinator.CurrentDraft()!.MatchSource);
+        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
+        coordinator.Stop();
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+    }
 
     [Fact]
     public void SameBuildCnAndTcEvidenceCanBeSavedAndDeletedIndependently()
@@ -31,21 +81,6 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Tc, Build, TemplateSha));
         Assert.NotNull(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
         Assert.Throws<ArgumentException>(() => CalibrationEvidenceStore.FileNameFor(Region.Unknown, Build));
-    }
-
-    /// <summary>The session id the shared traffic helpers stamp their messages with.</summary>
-    private const string FirstSession = "calibration-session";
-
-    private static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic, string session = FirstSession)
-    {
-        var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Region.Cn, session);
-        foreach (var message in traffic.OrderBy(message => message.Mono))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        return observer.Snapshot();
     }
 
     /// <summary>
@@ -82,14 +117,9 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [Fact]
     public void AWrongVerdictSurvivesARestart()
     {
-        var template = CalibrationObserverTests.Template();
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(template, Region.Cn, Build);
+        var coordinator = Armed();
         coordinator.Begin(FirstSession);
-        foreach (var message in CalibrationObserverTests.Session1())
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator, CalibrationObserverTests.Session1());
 
         coordinator.Stop();
         var draft = coordinator.CurrentDraft()!;
@@ -101,9 +131,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.NotEqual(CalibrationState.Ready, coordinator.Snapshot().State);
 
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
-        var restarted = new CalibrationCoordinator();
-        restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        var restarted = Restarted();
         restarted.Begin("after-restart");
 
         Assert.NotEqual(CalibrationState.Ready, restarted.Snapshot().State);
@@ -118,30 +146,12 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [Fact]
     public void APopOpcodeTheTrafficDisprovedSurvivesARestartAndObservingAgain()
     {
-        var template = CalibrationObserverTests.Template();
-        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(template, Region.Cn, Build);
-        coordinator.Begin(FirstSession);
-        foreach (var message in traffic)
-        {
-            coordinator.Accept(message);
-        }
+        SaveAnEveningWhoseAnnouncementTheTrafficDisproved();
 
-        Assert.Equal(CalibrationMatchSource.MarkerOffset, coordinator.CurrentDraft()!.MatchSource);
-        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
-        coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
-
-        var restarted = new CalibrationCoordinator();
-        restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        var restarted = Restarted();
         restarted.Begin(FirstSession);
         restarted.Discard(FirstSession);
-        foreach (var message in traffic)
-        {
-            restarted.Accept(message);
-        }
+        Feed(restarted, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset));
 
         Assert.NotEqual(CalibrationMatchSource.MarkerOffset, restarted.CurrentDraft()!.MatchSource);
     }
@@ -155,29 +165,12 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [Fact]
     public void APopOpcodeTheTrafficDisprovedSurvivesObservingAgainBeforeAnySessionBegins()
     {
-        var template = CalibrationObserverTests.Template();
-        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(template, Region.Cn, Build);
-        coordinator.Begin(FirstSession);
-        foreach (var message in traffic)
-        {
-            coordinator.Accept(message);
-        }
+        SaveAnEveningWhoseAnnouncementTheTrafficDisproved();
 
-        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
-        coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
-
-        var restarted = new CalibrationCoordinator();
-        restarted.Arm(template, Region.Cn, Build);
-        restarted.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        var restarted = Restarted();
         restarted.Discard(null);
         restarted.Begin(FirstSession);
-        foreach (var message in traffic)
-        {
-            restarted.Accept(message);
-        }
+        Feed(restarted, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset));
 
         Assert.NotEqual(CalibrationMatchSource.MarkerOffset, restarted.CurrentDraft()!.MatchSource);
     }
@@ -190,24 +183,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     [Fact]
     public void WhatTheDiscardLeavesOnDiskKeepsTheDisprovedOpcodesAcrossTheNextRestart()
     {
-        var template = CalibrationObserverTests.Template();
-        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(template, Region.Cn, Build);
-        coordinator.Begin(FirstSession);
-        foreach (var message in traffic)
-        {
-            coordinator.Accept(message);
-        }
-
-        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
-        coordinator.Stop();
-        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        SaveAnEveningWhoseAnnouncementTheTrafficDisproved();
 
         // The Collector restarts with the game closed, and the player presses 清空校准进度 before any session.
-        var discarding = new CalibrationCoordinator();
-        discarding.Arm(template, Region.Cn, Build);
-        discarding.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        var discarding = Restarted();
         discarding.Discard(null);
         Assert.Null(discarding.Evidence());
         // What the pipeline does: delete the file, then write what the coordinator says must stay.
@@ -222,15 +201,10 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal(new HashSet<ushort> { CalibrationTrafficCases.Announce }, kept.Rejections.DisprovedPopOpcodes);
 
         // And the Collector restarts again before any session began - where the player may press 清空 once more.
-        var third = new CalibrationCoordinator();
-        third.Arm(template, Region.Cn, Build);
-        third.Carry(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
+        var third = Restarted();
         third.Discard(null);
         third.Begin(FirstSession);
-        foreach (var message in traffic)
-        {
-            third.Accept(message);
-        }
+        Feed(third, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset));
 
         Assert.NotEqual(CalibrationMatchSource.MarkerOffset, third.CurrentDraft()!.MatchSource);
     }
@@ -297,8 +271,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         var plain = Observe(CalibrationObserverTests.Session1());
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, plain));
         Assert.Same(CalibrationRejections.None, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.Rejections);
-        Assert.DoesNotContain("rejections", File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build))),
-            StringComparison.Ordinal);
+        Assert.DoesNotContain("rejections", File.ReadAllText(FilePath), StringComparison.Ordinal);
 
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, plain with { Rejections = rejections }));
         var read = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.Rejections;
@@ -462,7 +435,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal("NO_FILE",
             CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, "2026.10.01.0000.0000", TemplateSha));
 
-        File.WriteAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ no");
+        File.WriteAllText(FilePath, "{ no");
         Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
     }
 
@@ -482,8 +455,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
 
         Directory.CreateDirectory(_root.Path);
-        File.WriteAllText(
-            _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)), "{ not json");
+        File.WriteAllText(FilePath, "{ not json");
 
         Assert.Null(CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha));
     }
@@ -551,12 +523,11 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     {
         CalibrationEvidenceStore.Save(
             _root.Path, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
-        var path = _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
-        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var document = JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         document.Remove("timed_shapes");
         document.Remove("timed_dead");
         document.Remove("timing_overflow");
-        File.WriteAllText(path, document.ToJsonString());
+        File.WriteAllText(FilePath, document.ToJsonString());
 
         var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
@@ -565,8 +536,6 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Empty(carried.TimedDead);
         Assert.Equal(0, carried.TimingOverflow);
     }
-
-    private string FilePath => _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
 
     /// <summary>
     /// Audit 2026-10-03, OCal-1. A file written while every movement packet that started with a
@@ -582,7 +551,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         var template = CalibrationObserverTests.Template();
         var before = Observe(CalibrationObserverTests.Session1());
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
-        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        var document = JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         document.Remove("queue_rule");
         foreach (var pop in document["pops"]!.AsArray())
         {
@@ -643,7 +612,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, thin));
         Assert.Equal(thin.MessagesSeen, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!.MessagesSeen);
 
-        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        var document = JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         document["schema_version"] = CalibrationEvidenceStore.SchemaVersion + 1;
         document["messages_seen"] = rich.MessagesSeen;
         File.WriteAllText(FilePath, document.ToJsonString());
@@ -677,7 +646,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
     {
         var rich = Observe(CalibrationObserverTests.Session1());
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, rich));
-        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        var document = JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
         var opcodes = document["opcodes"]!.AsArray();
         opcodes.Add(opcodes[0]!.DeepClone());
         File.WriteAllText(FilePath, document.ToJsonString());
@@ -695,7 +664,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         // it comes from the shipped duty table rather than from the wire.
         var before = Observe(CalibrationObserverTests.Session1());
         CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before);
-        var text = File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+        var text = File.ReadAllText(FilePath);
 
         Assert.DoesNotContain("payload", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("bytes", text, StringComparison.OrdinalIgnoreCase);

@@ -14,16 +14,7 @@ public sealed class CalibratedShapeTests
     private static string Json(IEnumerable<ProfileMessage> messages) =>
         string.Join("\n", messages.Select(message => CalibratedProfileDocument.Message(message).ToJsonString()));
 
-    public static TheoryData<string> Cases()
-    {
-        var data = new TheoryData<string>();
-        foreach (var name in CalibrationTrafficCases.All)
-        {
-            data.Add(name);
-        }
-
-        return data;
-    }
+    public static TheoryData<string> Cases() => new(CalibrationTrafficCases.All);
 
     /// <summary>
     /// Whatever the draft declared reads back as a handful of learned values, and those values

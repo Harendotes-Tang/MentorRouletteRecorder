@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
@@ -47,20 +46,13 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         };
     }
 
-    /// <summary>One message of the shape the learned announcement profile declares as the match.</summary>
-    /// <param name="rouletteId">Value at the declared roulette offset.</param>
-    /// <param name="at">Session time in milliseconds.</param>
-    private static DecodedMessage Announced(byte rouletteId, long at) => CalibrationObserverTests.Message(
-        MessageDirection.Inbound, CalibrationTrafficCases.Announce,
-        CalibrationObserverTests.Bytes(64, (16, rouletteId)), at);
-
     /// <summary>
     /// What the player really did: opened the retainer bell. Ten rows of the declared shape inside
     /// one second, each carrying its own slot number where the profile reads the roulette id.
     /// </summary>
     /// <param name="at">Session time of the first row.</param>
     private static IEnumerable<DecodedMessage> BellRows(long at) =>
-        Enumerable.Range(0, 10).Select(slot => Announced((byte)slot, at + slot));
+        Enumerable.Range(0, 10).Select(slot => Bed.Announced((byte)slot, at + slot));
 
     /// <summary>The same list against a profile that reads the match off the queue reply's state.</summary>
     /// <param name="at">Session time of the first row.</param>
@@ -78,10 +70,10 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
     /// <summary>Login, a mentor match, the duty, and another roulette two minutes later.</summary>
     private static DecodedMessage[] OrdinaryEvening() => CalibrationObserverTests.Cluster(5_000, 5000)
-        .Append(Announced(9, 60_000))
+        .Append(Bed.Announced(9, 60_000))
         .Concat(CalibrationObserverTests.Cluster(65_000, 1039))
         .Concat(CalibrationObserverTests.Cluster(125_000, 5000))
-        .Append(Announced(2, 190_000))
+        .Append(Bed.Announced(2, 190_000))
         .OrderBy(message => message.Mono)
         .ToArray();
 
@@ -98,7 +90,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
         // One match recorded under the profile before the traffic catches it out.
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, new[] { Announced(9, 50_000) });
+        Bed.Feed(pipeline, session, new[] { Bed.Announced(9, 50_000) });
         var recorded = Assert.Single(_bed.RunsOf(session));
         Assert.False(recorded.PendingReview);
 
@@ -106,9 +98,8 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal((Region.Cn, Bed.Build), Assert.Single(_retired));
-        Assert.False(File.Exists(LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build)));
-        Assert.True(File.Exists(
-            LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build) + LocalProfileFiles.RetiredSuffix));
+        Assert.False(File.Exists(_bed.LocalProfilePath));
+        Assert.True(File.Exists(_bed.LocalProfilePath + LocalProfileFiles.RetiredSuffix));
 
         // Calibration is observing again, not idle and not done, so this build can be learned afresh.
         Assert.True(pipeline.CalibrationArmed);
@@ -161,7 +152,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         var upgraded = _bed.Pipeline(Services());
         upgraded.Refresh(Bed.Game());
         var later = _bed.Start(upgraded);
-        Bed.Feed(upgraded, later, new[] { Announced(9, 50_000) }, hour: 3);
+        Bed.Feed(upgraded, later, new[] { Bed.Announced(9, 50_000) }, hour: 3);
         var after = Assert.Single(_bed.RunsOf(later));
         Assert.Equal(before.ProtocolProfileId, after.ProtocolProfileId);
 
@@ -279,7 +270,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         // The profile stops recording whatever the disk answers; only putting it away is lost.
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(RunState.Idle, pipeline.RunState);
-        Assert.True(File.Exists(LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build)));
+        Assert.True(File.Exists(_bed.LocalProfilePath));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
@@ -302,7 +293,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
 
         Bed.Feed(pipeline, session, BellRows(100_000));
 
-        Assert.True(File.Exists(LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build)));
+        Assert.True(File.Exists(_bed.LocalProfilePath));
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
@@ -327,7 +318,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, BellRows(100_000));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-        Assert.True(File.Exists(LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build)));
+        Assert.True(File.Exists(_bed.LocalProfilePath));
         var host = (ISharedCalibrationHost)pipeline;
 
         // A shared bind the reloaded catalogue does not stand behind changes nothing.

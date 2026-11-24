@@ -10,7 +10,24 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CalibrationCardTruthTests
 {
-    private const ushort Announce = 0xF00D;
+    private const ushort Announce = CalibrationTrafficCases.Announce;
+
+    /// <summary>A coordinator armed for the test build; the test sets what is in force and begins the session.</summary>
+    private static CalibrationCoordinator Armed()
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        return coordinator;
+    }
+
+    /// <summary>Hands the traffic to the coordinator in session-time order.</summary>
+    private static void Feed(CalibrationCoordinator coordinator, IEnumerable<DecodedMessage> traffic)
+    {
+        foreach (var message in traffic.OrderBy(message => message.Mono))
+        {
+            coordinator.Accept(message);
+        }
+    }
 
     [Fact]
     public void ABlockedDraftBlocksACalibrationThatHasNotStartedWorking()
@@ -45,18 +62,10 @@ public sealed class CalibrationCardTruthTests
     [Fact]
     public void AStuckUpgradeSaysItIsStuckAndHowToRestartIt()
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(true, lacking: new HashSet<string> { CalibratedShape.AnnouncedName });
         coordinator.Begin("calibration-session");
-        var traffic = CalibrationObserverTests.QueueAndPop(1_000, 1, 100_000).Take(2)
-            .Concat(Enumerable.Range(0, 300).Select(index => CalibrationObserverTests.Message(
-                MessageDirection.Inbound, CalibrationTrafficCases.Reply,
-                CalibrationObserverTests.Bytes(40, (9, (byte)(index % 256)), (16, (byte)(1 + index / 256))), 3_000 + index)));
-        foreach (var message in traffic)
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator, CalibrationObserverSafetyTests.OverflowingReplyStates());
 
         var status = coordinator.Snapshot();
 
@@ -77,8 +86,7 @@ public sealed class CalibrationCardTruthTests
     [Fact]
     public void AnUpgradeStillLookingNeverSaysAMentorRunIsMissedForAPartyQueue()
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(true);
         coordinator.Begin("calibration-session");
 
@@ -103,20 +111,15 @@ public sealed class CalibrationCardTruthTests
     [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "PLAYER_JOB", "职业")]
     public void AnUpgradeReadyToCheckSaysWhatConfirmingItBrings(string traffic, string lacking, string brings)
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         // The profile in force is the one the same evening would have written, without what it lacks.
         var inForce = CalibrationTrafficCases.Derive(traffic).Messages
             .Where(message => message.Name != lacking)
             .ToArray();
         coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking }, inForce);
         coordinator.Begin("calibration-session");
-        foreach (var message in CalibrationTrafficCases.Traffic(traffic)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
-            .OrderBy(message => message.Mono))
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator,
+            CalibrationTrafficCases.Traffic(traffic).Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
 
         var status = coordinator.Snapshot();
 
@@ -146,8 +149,7 @@ public sealed class CalibrationCardTruthTests
     [InlineData(null, "继续校准")]
     public void ASearchBesideAProfileThatReadsThePopupDoesNotSayItIsLookingForThePopup(string? lacking, string says)
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(
             true, "cn.2026.09.01.0000.0000.local", lacking is null ? null : new HashSet<string> { lacking });
         coordinator.Begin("calibration-session");
@@ -168,18 +170,10 @@ public sealed class CalibrationCardTruthTests
     [Fact]
     public void AStuckSearchBesideAProfileThatReadsThePopupDoesNotSayThePopupIsMissing()
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { "PLAYER_JOB" });
         coordinator.Begin("calibration-session");
-        var traffic = CalibrationObserverTests.QueueAndPop(1_000, 1, 100_000).Take(2)
-            .Concat(Enumerable.Range(0, 300).Select(index => CalibrationObserverTests.Message(
-                MessageDirection.Inbound, CalibrationTrafficCases.Reply,
-                CalibrationObserverTests.Bytes(40, (9, (byte)(index % 256)), (16, (byte)(1 + index / 256))), 3_000 + index)));
-        foreach (var message in traffic)
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator, CalibrationObserverSafetyTests.OverflowingReplyStates());
 
         var status = coordinator.Snapshot();
 
@@ -214,13 +208,6 @@ public sealed class CalibrationCardTruthTests
         Assert.Contains(draft.Blockers, text => text.Key == "calibration.blocker.no_duty");
     }
 
-    /// <summary>The queue-request evening without the job in its exit burst: the job cannot be declared.</summary>
-    /// <param name="traffic">Case from <see cref="CalibrationTrafficCases"/>.</param>
-    private static DecodedMessage[] WithoutTheExitJob(string traffic) => CalibrationTrafficCases.Traffic(traffic)
-        .Where(message => !(message.Opcode == CalibrationTrafficCases.Job &&
-            message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000)))
-        .ToArray();
-
     /// <summary>
     /// Audit 2026-10-20, C-1. Beside a recording, queue-inferred profile a ready draft was offered as soon
     /// as it declared one message the profile lacked, and confirming it rewrites the profile from the draft
@@ -238,8 +225,9 @@ public sealed class CalibrationCardTruthTests
         var inForce = CalibrationTrafficCases.Derive(profileTraffic).Messages
             .Where(message => message.Name != lacking)
             .ToArray();
+        // Without the job in its exit burst, the evening's job cannot be declared.
         var evening = lacking == "MATCH_ANNOUNCED"
-            ? WithoutTheExitJob(eveningTraffic)
+            ? CalibrationTrafficCases.WithoutExitJob(CalibrationTrafficCases.Traffic(eveningTraffic)).ToArray()
             : CalibrationTrafficCases.Traffic(eveningTraffic).ToArray();
         var draft = CalibrationDraft.Derive(CalibrationTrafficCases.Observe(evening), CalibrationObserverTests.Template());
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
@@ -247,16 +235,10 @@ public sealed class CalibrationCardTruthTests
         Assert.DoesNotContain(draft.Messages, message => message.Name == dropped);
         Assert.Contains(draft.Messages, message => message.Name == lacking);
 
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking }, inForce);
         coordinator.Begin("calibration-session");
-        foreach (var message in evening
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
-            .OrderBy(message => message.Mono))
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator, evening.Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
 
         Assert.Equal(CalibrationState.Observing, coordinator.Snapshot().State);
     }
@@ -273,34 +255,21 @@ public sealed class CalibrationCardTruthTests
     public void AnAnnouncementThatWouldDropTheTerritoryOrTheJobIsNotOffered(string dropped)
     {
         var inForce = CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest).Messages;
+        var markerOffset = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
         var evening = dropped == "PLAYER_JOB"
-            ? WithoutTheExitJob(CalibrationTrafficCases.MarkerOffset)
-            : CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset)
-                .Concat(new long[] { 5_010, 125_010, 215_010 }.Select((at, index) => CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, CalibrationTrafficCases.DecoyTerritory,
-                    index == 1
-                        ? CalibrationObserverTests.Bytes(136, (2, 15), (3, 4))
-                        : CalibrationObserverTests.Bytes(136, (2, 0x88), (3, 0x13)),
-                    at)))
-                .OrderBy(message => message.Mono)
-                .ToArray();
+            ? CalibrationTrafficCases.WithoutExitJob(markerOffset).ToArray()
+            : markerOffset.Concat(CalibrationTrafficCases.TerritoryDecoys()).ToArray();
         var draft = CalibrationDraft.Derive(CalibrationTrafficCases.Observe(evening), CalibrationObserverTests.Template());
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
         Assert.Equal(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
         Assert.Contains(inForce, message => message.Name == dropped);
         Assert.DoesNotContain(draft.Messages, message => message.Name == dropped);
 
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(
             true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { "MATCH_ANNOUNCED" }, inForce);
         coordinator.Begin("calibration-session");
-        foreach (var message in evening
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
-            .OrderBy(message => message.Mono))
-        {
-            coordinator.Accept(message);
-        }
+        Feed(coordinator, evening.Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
 
         Assert.Equal(CalibrationState.Observing, coordinator.Snapshot().State);
     }
@@ -315,8 +284,7 @@ public sealed class CalibrationCardTruthTests
     [Fact]
     public void AProfileInForceIsStillNamedAfterARestartOrADiscard()
     {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        var coordinator = Armed();
         coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local");
 
         Assert.Equal("cn.2026.09.01.0000.0000.local", coordinator.Snapshot().LocalProfileId);
@@ -350,8 +318,7 @@ public sealed class CalibrationCardTruthTests
     /// <summary>A second 16-byte message in every burst, carrying a job of its own choosing at byte 0.</summary>
     private static IEnumerable<DecodedMessage> WithATwin(ushort opcode, Func<long, byte> job) =>
         CalibrationObserverTests.Session1().Concat(new long[] { 5_000, 125_000, 215_000 }.Select(t =>
-            CalibrationObserverTests.Message(MessageDirection.Inbound, opcode, CalibrationObserverTests.Bytes(16, (0, job(t))), t + 470)))
-            .OrderBy(message => message.Mono);
+            CalibrationObserverTests.Message(MessageDirection.Inbound, opcode, CalibrationObserverTests.Bytes(16, (0, job(t))), t + 470)));
 
     /// <summary>
     /// CN 2026.09.15, the player's own machine: job_shapes read "0x0266=12/18!0 v19;25;27;40" and
@@ -397,8 +364,7 @@ public sealed class CalibrationCardTruthTests
                 CalibrationObserverTests.Message(MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(24, (8, 2)), 340_500),
             })
             .Concat(CalibrationObserverTests.Cluster(345_000, 1039))
-            .Concat(CalibrationObserverTests.Cluster(435_000, 5000))
-            .OrderBy(message => message.Mono)),
+            .Concat(CalibrationObserverTests.Cluster(435_000, 5000))),
         CalibrationObserverTests.Template());
 
     /// <summary>

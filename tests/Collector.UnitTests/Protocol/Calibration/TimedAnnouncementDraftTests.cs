@@ -1,4 +1,3 @@
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
@@ -29,9 +28,7 @@ public sealed class TimedAnnouncementDraftTests
     private static CalibrationDraft Derive(
         IEnumerable<DecodedMessage> traffic, CalibrationRejections? rejections = null) =>
         CalibrationDraft.Derive(
-            CalibrationTrafficCases.Observe(traffic.OrderBy(message => message.Mono)),
-            CalibrationObserverTests.Template(),
-            rejections);
+            CalibrationTrafficCases.Observe(traffic), CalibrationObserverTests.Template(), rejections);
 
     /// <summary>The evening that names the announcement, with its sightings left out.</summary>
     private static IEnumerable<DecodedMessage> WithoutSightings() =>
@@ -82,6 +79,10 @@ public sealed class TimedAnnouncementDraftTests
         Assert.All(pops, item => Assert.DoesNotContain("0x", item.Label.Chinese, StringComparison.Ordinal));
         Assert.Contains(pops, item => item.Label.Chinese.Contains("练级迷宫", StringComparison.Ordinal));
         Assert.Equal(pops.Length, pops.Select(item => item.EventId).Distinct().Count());
+        // "A popup happened around then" is true of any candidate, so the line also says how long
+        // before the loading screen it came - the one number the player can hold against what they
+        // remember, and the one a maintainer reads first in a screenshot.
+        Assert.All(pops, item => Assert.Matches(@"读条前约 \d+ 秒", item.Label.Chinese));
     }
 
     /// <summary>
@@ -250,42 +251,6 @@ public sealed class TimedAnnouncementDraftTests
     }
 
     /// <summary>
-    /// The player marks the popup line wrong on the card. That line is the only thing the
-    /// announcement contributed, and the recording they already have rests on the queue request
-    /// underneath it - so the announcement goes and the profile stays, rather than an evening of
-    /// evidence being thrown away over an add-on.
-    /// </summary>
-    [Fact]
-    public void MarkingThePopupLineWrongCostsTheAnnouncementAndNothingElse()
-    {
-        var coordinator = new CalibrationCoordinator();
-        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
-        coordinator.Begin("calibration-session");
-        foreach (var message in CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
-            .OrderBy(message => message.Mono))
-        {
-            coordinator.Accept(message);
-        }
-
-        var offered = coordinator.Snapshot();
-        Assert.Equal(CalibrationState.Ready, offered.State);
-        var verdicts = offered.Events.Where(item => item.RequiresConfirmation).ToDictionary(
-            item => item.EventId,
-            item => item.Kind == "pop" ? CalibrationVerdict.Wrong : CalibrationVerdict.Correct,
-            StringComparer.Ordinal);
-
-        Assert.Null(coordinator.Judge(verdicts));
-
-        var again = coordinator.CurrentDraft()!;
-        Assert.Equal(CalibrationDraftStatus.Ready, again.Status);
-        Assert.Null(again.TimedAnnouncement);
-        Assert.Equal(CalibrationMatchSource.QueueRequest, again.MatchSource);
-        Assert.Contains(again.Messages, message => message.Name == "CONTENT_FINDER_POP");
-        Assert.DoesNotContain(again.Messages, message => message.Name == "MATCH_ANNOUNCED");
-    }
-
-    /// <summary>
     /// A duty the player was brought into by a party member has no request of their own behind
     /// it, so it cannot test anything: the software does not know what was queued. It must not
     /// count against the shape either, which is what the pre-duty classification is for.
@@ -334,19 +299,5 @@ public sealed class TimedAnnouncementDraftTests
             .Concat(idle.Select(t => Sighting(t))));
 
         Assert.Null(draft.TimedAnnouncement);
-    }
-
-    /// <summary>
-    /// "A popup happened around then" is true of any candidate, so the line also says how long
-    /// before the loading screen it came - the one number the player can hold against what they
-    /// remember, and the one a maintainer reads first in a screenshot.
-    /// </summary>
-    [Fact]
-    public void TheLineToConfirmSaysHowLongBeforeTheLoadItCame()
-    {
-        var draft = Derive(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced));
-
-        Assert.All(draft.Events.Where(item => item.Kind == "pop"),
-            item => Assert.Matches(@"读条前约 \d+ 秒", item.Label.Chinese));
     }
 }

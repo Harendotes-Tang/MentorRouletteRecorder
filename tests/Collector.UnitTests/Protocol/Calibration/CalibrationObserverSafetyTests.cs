@@ -26,14 +26,20 @@ public sealed class CalibrationObserverSafetyTests
         Assert.Empty(draft.Messages);
     }
 
-    [Fact]
-    public void AFullPopEvidenceTableBlocksInsteadOfHidingLostStates()
-    {
-        var traffic = QueueAndPop(1_000, 1, 100_000).Take(2)
+    /// <summary>
+    /// A queue request and its echo, then 300 replies a millisecond apart, each with its own state and roulette:
+    /// more distinct reply states than the pop table holds.
+    /// </summary>
+    internal static IEnumerable<DecodedMessage> OverflowingReplyStates() =>
+        QueueAndPop(1_000, 1, 100_000).Take(2)
             .Concat(Enumerable.Range(0, 300).Select(index => Message(
                 MessageDirection.Inbound, Reply,
                 Bytes(40, (9, (byte)(index % 256)), (16, (byte)(1 + index / 256))), 3_000 + index)));
-        var (snapshot, draft) = Observe(traffic);
+
+    [Fact]
+    public void AFullPopEvidenceTableBlocksInsteadOfHidingLostStates()
+    {
+        var (snapshot, draft) = Observe(OverflowingReplyStates());
 
         Assert.Equal(CalibrationObserver.MaxPops, snapshot.Pops.Count);
         Assert.Equal(301 - CalibrationObserver.MaxPops, snapshot.OverflowCount);
@@ -74,11 +80,14 @@ public sealed class CalibrationObserverSafetyTests
     [Fact]
     public void RepeatedKnownReplyStatesStayBoundedAndAccountForCompression()
     {
+        // A queue that ticks over for twenty minutes must not be able to push the real match
+        // out of the sample table, and a full report-only table must never void a claim.
         var chatter = Enumerable.Range(0, 2_000)
             .Select(index => Message(MessageDirection.Inbound, Reply,
                 Bytes(40, (9, 5), (16, 1)), 130_000 + index * 10));
         var (snapshot, draft) = Observe(Session1().Concat(chatter));
 
+        Assert.True(snapshot.Pops.Count <= CalibrationObserver.MaxPops);
         Assert.Equal(CalibrationObserver.MaxPopsPerBucket,
             snapshot.Pops.Count(pop => !pop.WithinEcho && pop.Selectors.Single().Value == 5));
         Assert.Equal(2_000 - CalibrationObserver.MaxPopsPerBucket, snapshot.DiagnosticsOverflow);
@@ -378,19 +387,8 @@ public sealed class CalibrationObserverSafetyTests
     }
 
     private static (CalibrationSnapshot Snapshot, CalibrationDraft Draft) Observe(
-        IEnumerable<DecodedMessage> traffic, CalibrationTemplate? template = null)
-    {
-        template ??= Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in traffic.OrderBy(message => message.Mono))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        var snapshot = observer.Snapshot();
-        return (snapshot, CalibrationDraft.Derive(snapshot, template));
-    }
+        IEnumerable<DecodedMessage> traffic, CalibrationTemplate? template = null) =>
+        CalibrationTrafficCases.ObserveAndDerive(traffic, template);
 
     private static CalibrationTemplate TemplateWithContentField()
     {

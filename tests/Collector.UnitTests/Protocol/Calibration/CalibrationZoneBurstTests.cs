@@ -263,17 +263,6 @@ public sealed class CalibrationZoneBurstTests
         Enumerable.Range(0, 60).Select(i => CalibrationObserverTests.Message(
             MessageDirection.Inbound, opcode, new byte[length], 200_000 + i * 500, connection));
 
-    private static (CalibrationSnapshot Snapshot, CalibrationDraft Draft) Observe(IEnumerable<DecodedMessage> traffic)
-    {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in traffic.OrderBy(m => m.Mono))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        var snapshot = observer.Snapshot();
-        return (snapshot, CalibrationDraft.Derive(snapshot, template));
-    }
+    private static (CalibrationSnapshot Snapshot, CalibrationDraft Draft) Observe(IEnumerable<DecodedMessage> traffic) =>
+        CalibrationTrafficCases.ObserveAndDerive(traffic);
 }

@@ -1,5 +1,7 @@
 using System.Text.Json;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
+using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -238,7 +240,7 @@ public sealed class CalibrationTemplateTests : IDisposable
         var reply = Assert.IsType<CalibrationFinderReply>(report.Profile!.Calibration!.FinderReply);
         Assert.Equal((PacketDirection.ServerToClient, 40, 16, ProfileFieldType.U8, false),
             (reply.Direction, reply.ExpectedLength, reply.RouletteField.Offset, reply.RouletteField.Type, reply.CarriesPlayerJob));
-        var template = MentorRecorder.Collector.Protocol.Calibration.CalibrationTemplate.From(report.Profile)!;
+        var template = CalibrationTemplate.From(report.Profile)!;
         Assert.True(template.SeparateReply);
         Assert.False(template.ReplyCarriesJob);
     }
@@ -346,7 +348,7 @@ public sealed class CalibrationTemplateTests : IDisposable
     public void ShippedCnProfileCarriesACalibrationTemplate()
     {
         var catalog = ProfileCatalog.Load(Path.Combine(AppContext.BaseDirectory, "protocol-profiles"));
-        var cn = Assert.Single(catalog.UsableFor(MentorRecorder.Collector.Domain.Region.Cn),
+        var cn = Assert.Single(catalog.UsableFor(Region.Cn),
             profile => profile.ProfileId == "cn.2026.08.05");
 
         var calibration = Assert.IsType<ProfileCalibration>(cn.Calibration);

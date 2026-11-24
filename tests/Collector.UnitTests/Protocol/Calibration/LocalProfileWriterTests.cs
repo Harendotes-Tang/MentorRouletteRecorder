@@ -66,6 +66,7 @@ public sealed class LocalProfileWriterTests : IDisposable
         var request = template.Calibration.FinderRequest;
         var draft = ReadyDraft(template) with
         {
+            MatchSource = CalibrationMatchSource.QueueRequest,
             Messages = new[]
             {
                 template.Pop with
@@ -80,7 +81,6 @@ public sealed class LocalProfileWriterTests : IDisposable
                 template.PlayerJob! with { Opcode = 0xA109 },
             },
         };
-        draft = SetSource(draft, CalibrationMatchSource.QueueRequest);
 
         var result = LocalProfileWriter.Write(draft, template, Build, Confirmed, _root);
 
@@ -98,9 +98,6 @@ public sealed class LocalProfileWriterTests : IDisposable
         Assert.True(profile.ToBinding().MatchFromQueue);
         Assert.Contains("推断", profile.ProvenanceSummary, StringComparison.Ordinal);
     }
-
-    private static CalibrationDraft SetSource(CalibrationDraft draft, CalibrationMatchSource source) =>
-        draft with { MatchSource = source };
 
     [Fact]
     public void WritesAVerifiedProfileTheLoaderAndCatalogAccept()
@@ -312,16 +309,7 @@ public sealed class LocalProfileWriterTests : IDisposable
     // outside CalibrationDraft, and moving it must not change a single byte of a
     // profile a player already has on disk; these goldens are what holds that.
 
-    public static TheoryData<string> Cases()
-    {
-        var data = new TheoryData<string>();
-        foreach (var name in CalibrationTrafficCases.All)
-        {
-            data.Add(name);
-        }
-
-        return data;
-    }
+    public static TheoryData<string> Cases() => new(CalibrationTrafficCases.All);
 
     [Theory]
     [MemberData(nameof(Cases))]

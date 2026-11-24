@@ -1,11 +1,14 @@
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
 
+/// <summary>
+/// What a draft makes of the traffic the observer saw: which shape marks a zone load, when a pop is a
+/// match, what counts as a duty seen, and which message the scan names as the announcement.
+/// </summary>
 public sealed class CalibrationDraftTests
 {
     private const ushort Decoy = 0xB0FF;
@@ -227,15 +230,8 @@ public sealed class CalibrationDraftTests
     [InlineData(5_000)]
     public void LoadStartIsRecordedFromTheFirstLargeMessage(long start)
     {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in CalibrationObserverTests.Cluster(start, 5000))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        var cluster = Assert.Single(observer.Snapshot().Clusters);
+        var snapshot = CalibrationTrafficCases.Observe(CalibrationObserverTests.Cluster(start, 5000));
+        var cluster = Assert.Single(snapshot.Clusters);
         Assert.Equal(start + 100, cluster.LoadStartTMs);
         Assert.Equal(TimeSpan.FromMilliseconds(100), cluster.LoadStartedAtUtc - cluster.StartedAtUtc);
         Assert.True(cluster.StartTMs <= cluster.LoadStartTMs);
@@ -246,22 +242,21 @@ public sealed class CalibrationDraftTests
     /// Entry and exit must count as observations in their own right rather than only as
     /// corroboration of the match, or the card tells a player who has just finished a roulette
     /// that it has seen neither.
+    ///
+    /// Nothing can be written yet and the card has to say why: a single request/echo pair could
+    /// be two unrelated messages that happened to share a byte, so the opcode pair is not named
+    /// until a SECOND, different roulette pairs on the same two opcodes. Making the request is
+    /// enough - the duty does not have to be played again.
     /// </summary>
     [Fact]
     public void ADutyPlayedWithNoMatchMessageIsStillReportedAsSeen()
     {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in WithoutThePop())
-        {
-            observer.Accept(message);
-        }
+        var (snapshot, draft) = CalibrationTrafficCases.ObserveAndDerive(CalibrationTrafficCases.WithoutTheMatch());
+        var evidence = CalibrationEvidenceSummary.From(snapshot, CalibrationObserverTests.Template());
 
-        observer.Flush();
-        var snapshot = observer.Snapshot();
-        var draft = CalibrationDraft.Derive(snapshot, template);
-        var evidence = CalibrationEvidenceSummary.From(snapshot, template);
-
+        Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
+        Assert.Empty(draft.Messages);
+        Assert.Contains(draft.Blockers, text => text.Chinese.Contains("申请一个与刚才不同的随机任务", StringComparison.Ordinal));
         Assert.True(draft.Progress.FinderRequestSeen);
         Assert.False(draft.Progress.PopSeen);
         Assert.False(draft.Progress.DutyEntrySeen);
@@ -284,27 +279,14 @@ public sealed class CalibrationDraftTests
     [Fact]
     public void ATerritoryShapeThatMovedLeavesTheDutyUnseen()
     {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in WithoutThePop())
-        {
-            observer.Accept(message.Payload.Length == 136 ? message with { Payload = new byte[144] } : message);
-        }
-
-        observer.Flush();
-        var snapshot = observer.Snapshot();
-        var draft = CalibrationDraft.Derive(snapshot, template);
-        var evidence = CalibrationEvidenceSummary.From(snapshot, template);
+        var (snapshot, draft) = CalibrationTrafficCases.ObserveAndDerive(CalibrationTrafficCases.WithoutTheMatch()
+            .Select(message => message.Payload.Length == 136 ? message with { Payload = new byte[144] } : message));
+        var evidence = CalibrationEvidenceSummary.From(snapshot, CalibrationObserverTests.Template());
 
         Assert.False(draft.Progress.DutyZoneSeen);
         Assert.Equal(0, evidence.DutyZones);
         Assert.Equal(0, evidence.TerritoryCandidates);
     }
-
-    /// <summary>Login, request, echo, duty entry and exit - everything but the match itself.</summary>
-    private static IEnumerable<DecodedMessage> WithoutThePop() =>
-        CalibrationObserverTests.Session1()
-            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)));
 
     /// <summary>
     /// A populated map sends large server messages continuously, so a burst that must wait for
@@ -315,8 +297,9 @@ public sealed class CalibrationDraftTests
     [Fact]
     public void APopulatedMapDoesNotHideTheZoneLoads()
     {
-        var quiet = Observe(CalibrationObserverTests.Session1());
-        var busy = Observe(CalibrationObserverTests.Session1().Concat(PopulatedMap(0, 240_000)));
+        var quiet = CalibrationTrafficCases.ObserveAndDerive(CalibrationObserverTests.Session1());
+        var busy = CalibrationTrafficCases.ObserveAndDerive(
+            CalibrationObserverTests.Session1().Concat(PopulatedMap(0, 240_000)));
 
         Assert.Equal(CalibrationDraftStatus.Ready, quiet.Draft.Status);
         Assert.Equal(quiet.Draft.Status, busy.Draft.Status);
@@ -360,7 +343,7 @@ public sealed class CalibrationDraftTests
         };
 
         var evidence = CalibrationEvidenceSummary.From(
-            Observe(traffic).Snapshot, CalibrationObserverTests.Template());
+            CalibrationTrafficCases.Observe(traffic), CalibrationObserverTests.Template());
 
         Assert.Contains(evidence.RouletteEchoes!, text => text.StartsWith("0xf00d:64=1/1~", StringComparison.Ordinal));
         Assert.DoesNotContain(evidence.RouletteEchoes!, text => text.StartsWith("0xf00e", StringComparison.Ordinal));
@@ -396,7 +379,7 @@ public sealed class CalibrationDraftTests
             MessageDirection.Inbound, 0xBEEF, CalibrationObserverTests.Bytes(64, (16, 1)), 950_000));
 
         var evidence = CalibrationEvidenceSummary.From(
-            Observe(traffic).Snapshot, CalibrationObserverTests.Template());
+            CalibrationTrafficCases.Observe(traffic), CalibrationObserverTests.Template());
 
         Assert.StartsWith("0xf00d:64=2/2", evidence.MatchEchoes!.First(), StringComparison.Ordinal);
         Assert.DoesNotContain(evidence.MatchEchoes!, text => text.StartsWith("0xbeef", StringComparison.Ordinal));
@@ -436,7 +419,7 @@ public sealed class CalibrationDraftTests
             MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(64, (16, 1)), 540_000));
 
         var echoes = CalibrationEvidenceSummary.From(
-            Observe(traffic).Snapshot, CalibrationObserverTests.Template()).MatchEchoes!;
+            CalibrationTrafficCases.Observe(traffic), CalibrationObserverTests.Template()).MatchEchoes!;
 
         // The announcement: one entry preceded, one loose hit left over from the refusal, and a
         // distance from the load that the escort cannot have.
@@ -455,26 +438,21 @@ public sealed class CalibrationDraftTests
     [Fact]
     public void AnAnnouncementOnAMessageOfItsOwnIsLearnedAndBeatsTheLoadsEscort()
     {
-        var traffic = CalibrationObserverTests.Session1()
-            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
-            .Concat(new[]
-            {
-                // The announcement, on an opcode and a length the template does not name.
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 1)), 120_000),
-                // Traffic escorting the load. It precedes the entry too, and it is not the pop.
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xF00E, CalibrationObserverTests.Bytes(24, (16, 1)), 124_900),
-                // A second roulette, matched and refused: the announcement fires, no duty follows.
-                CalibrationObserverTests.Message(
-                    MessageDirection.Outbound, 0xC001, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xC002, CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 2)), 340_000),
-            });
+        // Session1 without its match message, and a second roulette queued and echoed.
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest).Concat(new[]
+        {
+            // The announcement, on an opcode and a length the template does not name.
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 1)), 120_000),
+            // Traffic escorting the load. It precedes the entry too, and it is not the pop.
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, 0xF00E, CalibrationObserverTests.Bytes(24, (16, 1)), 124_900),
+            // The second roulette was matched and refused: the announcement fires, no duty follows.
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 2)), 340_000),
+        });
 
-        var draft = Observe(traffic).Draft;
+        var draft = Derive(traffic);
         var pop = draft.Messages.FirstOrDefault(message => message.Name == "CONTENT_FINDER_POP");
 
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
@@ -499,22 +477,17 @@ public sealed class CalibrationDraftTests
     [Fact]
     public void TheAnnouncementIsLearnedWithoutAnyRefusedMatch()
     {
-        var traffic = CalibrationObserverTests.Session1()
-            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
-            .Concat(new[]
-            {
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 1)), 120_000),
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xF00E, CalibrationObserverTests.Bytes(24, (16, 1)), 124_900),
-                // A second roulette, queued and echoed, so the reply opcode can be locked at all.
-                CalibrationObserverTests.Message(
-                    MessageDirection.Outbound, 0xC001, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
-                CalibrationObserverTests.Message(
-                    MessageDirection.Inbound, 0xC002, CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
-            });
+        // Session1 without its match message, and a second roulette queued and echoed so the reply opcode can
+        // be locked at all.
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest).Concat(new[]
+        {
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, 0xF00D, CalibrationObserverTests.Bytes(24, (16, 1)), 120_000),
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, 0xF00E, CalibrationObserverTests.Bytes(24, (16, 1)), 124_900),
+        });
 
-        var draft = Observe(traffic).Draft;
+        var draft = Derive(traffic);
         var pop = draft.Messages.FirstOrDefault(message => message.Name == "CONTENT_FINDER_POP");
 
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
@@ -533,30 +506,10 @@ public sealed class CalibrationDraftTests
         }
     }
 
-    private static (CalibrationSnapshot Snapshot, CalibrationDraft Draft) Observe(IEnumerable<DecodedMessage> traffic)
-    {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in traffic.OrderBy(message => message.Mono))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        var snapshot = observer.Snapshot();
-        return (snapshot, CalibrationDraft.Derive(snapshot, template));
-    }
-
-    private static CalibrationDraft Derive(IEnumerable<DecodedMessage> traffic)
-    {
-        var template = CalibrationObserverTests.Template();
-        var observer = new CalibrationObserver(template, Region.Cn, "calibration-session");
-        foreach (var message in traffic.OrderBy(message => message.ObservedAtUtc))
-        {
-            observer.Accept(message);
-        }
-
-        observer.Flush();
-        return CalibrationDraft.Derive(observer.Snapshot(), template);
-    }
+    /// <summary>
+    /// The draft of the traffic fed in session-time order; every message here is observed at Start + Mono,
+    /// so that is also the order of observation.
+    /// </summary>
+    private static CalibrationDraft Derive(IEnumerable<DecodedMessage> traffic) =>
+        CalibrationTrafficCases.ObserveAndDerive(traffic).Draft;
 }

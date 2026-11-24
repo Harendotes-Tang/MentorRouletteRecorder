@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -16,6 +15,7 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
 {
     private const string Session = "calibration-session";
     private const string Build = CalibrationTrafficCases.Build;
+    private const string TemplateSha = "template-sha";
     private readonly TempDirectory _root = TempDirectory.Reserve();
 
     public void Dispose() => _root.Dispose();
@@ -39,13 +39,8 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         }
     }
 
-    private static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic)
-    {
-        var observer = Observer();
-        Feed(observer, traffic);
-        observer.Flush();
-        return observer.Snapshot();
-    }
+    private static CalibrationSnapshot Observe(IEnumerable<DecodedMessage> traffic) =>
+        CalibrationTrafficCases.Observe(traffic);
 
     /// <summary>
     /// Carried evidence adopted, and one more evening played on top of it two hours later. A file
@@ -380,21 +375,20 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
     // ------------------------------------------------------------------ persistence
 
     /// <summary>
-    /// The file in tests/Fixtures/calibration-evidence was written by the evidence store before the
-    /// fields above existed. Discarding it would lose the session it records, so the layout version
-    /// does not change and every new field reads back as "not known".
+    /// One of the evidence files in tests/Fixtures/calibration-evidence, copied in and loaded. Both were written
+    /// before the queue rule and before the shared-calibration fields: they are carried with the pops started over,
+    /// three bursts each, and every shared field reads back as "not known".
     /// </summary>
-    [Fact]
-    public void AnEvidenceFileWrittenBeforeTheseFieldsExistedStillLoads()
+    /// <param name="fileName">Fixture file name.</param>
+    private CalibrationSnapshot LoadOldLayout(string fileName)
     {
         Directory.CreateDirectory(_root.Path);
         File.Copy(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.json"),
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", fileName),
             _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
-        // Written before the queue rule too: carried, with the pops started over.
-        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, "template-sha"));
-        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha");
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, TemplateSha));
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha);
 
         Assert.NotNull(carried);
         Assert.Equal(3, carried!.Clusters.Count);
@@ -404,8 +398,21 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
             Assert.Empty(cluster.TerritoryReadings);
         });
         Assert.Empty(carried.SessionHealth);
-        Assert.Empty(carried.ConnectionSessions);
         Assert.Empty(carried.Candidates);
+        return carried;
+    }
+
+    /// <summary>
+    /// The file in tests/Fixtures/calibration-evidence was written by the evidence store before the
+    /// fields above existed. Discarding it would lose the session it records, so the layout version
+    /// does not change and every new field reads back as "not known".
+    /// </summary>
+    [Fact]
+    public void AnEvidenceFileWrittenBeforeTheseFieldsExistedStillLoads()
+    {
+        var carried = LoadOldLayout("cn.2026.09.01.0000.0000.json");
+
+        Assert.Empty(carried.ConnectionSessions);
         Assert.Empty(carried.Pops);
         Assert.NotEmpty(carried.Pairs);
         var draft = CalibrationDraft.Derive(WithNextEvening(carried), CalibrationObserverTests.Template());
@@ -428,26 +435,11 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
     [Fact]
     public void AnEvidenceFileWrittenWithPerBurstJobViolationsButNoSharedFieldsStillLoads()
     {
-        Directory.CreateDirectory(_root.Path);
-        File.Copy(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.job-violations.json"),
-            _root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
+        var carried = LoadOldLayout("cn.2026.09.01.0000.0000.job-violations.json");
 
-        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root.Path, Region.Cn, Build, "template-sha"));
-        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha");
-
-        Assert.NotNull(carried);
-        Assert.Equal(3, carried!.Clusters.Count);
         Assert.Empty(carried.Clusters[0].JobViolations);
         Assert.Equal(1, carried.Clusters[1].JobViolations[CalibrationObserverTests.JobOpcode]);
         Assert.Equal(new long[] { 21, 21 }, carried.Clusters[1].JobValues[CalibrationObserverTests.JobOpcode]);
-        Assert.All(carried.Clusters, cluster =>
-        {
-            Assert.Null(cluster.Lobby);
-            Assert.Empty(cluster.TerritoryReadings);
-        });
-        Assert.Empty(carried.SessionHealth);
-        Assert.Empty(carried.Candidates);
         var draft = CalibrationDraft.Derive(WithNextEvening(carried), CalibrationObserverTests.Template());
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
         Assert.Equal(new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY" },
@@ -455,8 +447,8 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         Assert.False(draft.Progress.JobSeen);
 
         // Saved again, the violations survive in the merged layout next to the shared-calibration fields.
-        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, "template-sha", carried));
-        Assert.Equal(1, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha")!
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, carried));
+        Assert.Equal(1, CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!
             .Clusters[1].JobViolations[CalibrationObserverTests.JobOpcode]);
     }
 
@@ -471,9 +463,9 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         observer.Flush();
         var before = observer.Snapshot();
 
-        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, "template-sha", before));
+        Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, Build, TemplateSha, before));
         var text = File.ReadAllText(_root.Combine(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
-        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, "template-sha")!;
+        var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, Build, TemplateSha)!;
 
         Assert.DoesNotContain("health", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("candidate", text, StringComparison.OrdinalIgnoreCase);

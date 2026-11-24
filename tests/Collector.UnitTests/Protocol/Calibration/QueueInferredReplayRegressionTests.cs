@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;

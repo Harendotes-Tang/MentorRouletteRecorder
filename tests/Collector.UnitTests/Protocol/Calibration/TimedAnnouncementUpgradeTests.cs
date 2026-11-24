@@ -1,13 +1,11 @@
-using MentorRecorder.Collector.Capture;
+using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Storage.Repositories;
-using Bed =MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
+using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -26,30 +24,47 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
     private const ushort Announce = CalibrationTrafficCases.Announce;
     private const byte MentorRoulette = 9;
     private const int DutyTerritory = 1039;
+    private const int TownTerritory = 5000;
 
     private readonly Bed _bed = new();
 
     public void Dispose() => _bed.Dispose();
 
-    private string ProfilePath => LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build);
+    /// <summary>A live pipeline over the bed's roots with the local-profile seams wired.</summary>
+    private LiveProtocolPipeline Pipeline(LiveEventBus? bus = null) =>
+        _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot), bus);
+
+    /// <summary>
+    /// An evening in which the announcement can be recognised: two duties, two roulettes, the same shape
+    /// before each of them, and noise after it so the last burst closes.
+    /// </summary>
+    private static void PlayTheAnnouncedEvening(LiveProtocolPipeline pipeline, string session) =>
+        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+
+    /// <summary>The one live event that says a mentor match was observed.</summary>
+    private static JsonObject Matched(IEnumerable<JsonObject> payloads) => Assert.Single(payloads, payload =>
+        payload["kind"]!.GetValue<string>() == "run_state_changed" &&
+        payload["state"]!.GetValue<string>() == "MENTOR_MATCHED");
 
     private static DecodedMessage Announcement(long t) => CalibrationObserverTests.Message(
         MessageDirection.Inbound, Announce, new byte[CalibrationTrafficCases.AnnouncedLength], t);
+
+    private static DecodedMessage MentorRequest(long t, byte marker) => CalibrationObserverTests.Message(
+        MessageDirection.Outbound, CalibrationTrafficCases.Request,
+        CalibrationObserverTests.Bytes(24, (0, MentorRoulette), (23, marker)), t);
 
     [Fact]
     public async Task AnInferredProfileGainsTheAnnouncementAndPublishesTheNextMatchAsObserved()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var bus = new LiveEventBus(_bed.Db.Clock);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot), bus);
+        var pipeline = Pipeline(bus);
         pipeline.Refresh(Bed.Game());
-        Assert.DoesNotContain("MATCH_ANNOUNCED", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ANNOUNCED", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         var session = _bed.Start(pipeline);
 
-        // An evening in which the announcement can be recognised: two duties, two roulettes,
-        // the same shape before each of them.
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
 
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
@@ -57,7 +72,7 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
 
         pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
-        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
 
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
@@ -99,21 +114,20 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var bus = new LiveEventBus(_bed.Db.Clock);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot), bus);
+        var pipeline = Pipeline(bus);
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
         Bed.Feed(pipeline, session, new[] { MentorRequest(600_000, marker: 1) });
         var confirmation = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
-        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         Assert.False(confirmation.BoundInSession);
 
         Bed.Feed(pipeline, session, new[] { Announcement(610_000) }
-            .Concat(Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
         var run = Assert.Single(_bed.AllRuns());
         Assert.Equal(MentorRoulette, run.MentorRouletteId);
         Assert.NotNull(run.EnteredAtUtc);
@@ -130,7 +144,7 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
             reject.ExecuteNonQuery();
         }
 
-        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
+        Bed.Feed(pipeline, session, Bed.Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
         if (failFirstRebind)
         {
             using var recover = _bed.Db.Database.CreateCommand();
@@ -141,11 +155,9 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
 
         Bed.Feed(pipeline, session, new[] { MentorRequest(800_000, marker: 2) }
             .Append(Announcement(810_000))
-            .Concat(Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
 
-        var matched = Assert.Single(await live.DrainAsync(), payload =>
-            payload["kind"]!.GetValue<string>() == "run_state_changed" &&
-            payload["state"]!.GetValue<string>() == "MENTOR_MATCHED");
+        var matched = Matched(await live.DrainAsync());
         Assert.False(matched["match_from_queue"]!.GetValue<bool>());
         Assert.Equal(2, _bed.AllRuns().Count);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
@@ -163,19 +175,18 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
     public void AnOwedRebindThatSettlesAtTheClearKeepsTheCountsAndTheExitCreatesNothing()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
+        var pipeline = Pipeline();
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
         Bed.Feed(pipeline, session, new[] { MentorRequest(600_000, marker: 1) });
         Assert.False(pipeline.ConfirmCalibration(Bed.AllCorrect(offered)).BoundInSession);
         Bed.Feed(pipeline, session, new[] { Announcement(610_000) }
-            .Concat(Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
 
         Bed.Feed(pipeline, session, new[] { CalibrationTrafficCases.Clear(686_000) });
@@ -183,13 +194,13 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         Assert.Equal(RunResult.Completed, cleared.Result);
         Assert.False(cleared.PendingReview);
 
-        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
+        Bed.Feed(pipeline, session, Bed.Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
         Assert.Single(_bed.AllRuns());
         Assert.Equal(RunState.Idle, pipeline.RunState);
 
         var announcement = Announcement(810_000);
         Bed.Feed(pipeline, session, new[] { MentorRequest(800_000, marker: 2), announcement }
-            .Concat(Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
         var runs = _bed.AllRuns();
         Assert.Equal(2, runs.Count);
         var next = Assert.Single(runs, run => run.RunId != cleared.RunId);
@@ -203,34 +214,6 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         Assert.Equal(DutyClearNoteKind.Signal, signal.Kind);
         Assert.True(signal.Completed);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
-    }
-
-    private const int TownTerritory = 5000;
-
-    private static DecodedMessage MentorRequest(long t, byte marker) => CalibrationObserverTests.Message(
-        MessageDirection.Outbound, CalibrationTrafficCases.Request,
-        CalibrationObserverTests.Bytes(24, (0, MentorRoulette), (23, marker)), t);
-
-    /// <summary>
-    /// Gives every zone marker and territory its own last byte: the state machine ignores an event
-    /// whose payload it has already seen in the session, and a burst helper repeats its payloads.
-    /// </summary>
-    private static IEnumerable<DecodedMessage> Marked(IEnumerable<DecodedMessage> traffic, byte first)
-    {
-        var marker = first;
-        foreach (var message in traffic)
-        {
-            if (message.Opcode is CalibrationTrafficCases.ZoneInit or CalibrationTrafficCases.Territory)
-            {
-                var payload = message.Payload.ToArray();
-                payload[^1] = marker++;
-                yield return message with { Payload = payload };
-            }
-            else
-            {
-                yield return message;
-            }
-        }
     }
 
     /// <summary>
@@ -247,12 +230,11 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
         _bed.WriteSharedProfile(code.Payload, Bed.Confirmed);
         var bus = new LiveEventBus(_bed.Db.Clock);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot), bus);
+        var pipeline = Pipeline(bus);
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
         var session = _bed.Start(pipeline);
 
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
 
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
@@ -260,18 +242,16 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
 
         var confirmation = pipeline.ConfirmCalibration(Bed.AllCorrect(offered));
 
-        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Contains("MATCH_ANNOUNCED", File.ReadAllText(_bed.LocalProfilePath), StringComparison.Ordinal);
         Assert.True(confirmation.BoundInSession);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
 
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
         Bed.Feed(pipeline, session, new[] { MentorRequest(600_000, marker: 1), Announcement(610_000) }
-            .Concat(Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
 
-        var matched = Assert.Single(await live.DrainAsync(), payload =>
-            payload["kind"]!.GetValue<string>() == "run_state_changed" &&
-            payload["state"]!.GetValue<string>() == "MENTOR_MATCHED");
+        var matched = Matched(await live.DrainAsync());
         Assert.False(matched["match_from_queue"]!.GetValue<bool>());
         var run = Assert.Single(_bed.AllRuns());
         Assert.Equal(confirmation.ProfileId, run.ProtocolProfileId);
@@ -289,11 +269,10 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
         _bed.WriteSharedProfile(code.Payload, Bed.Confirmed);
         var bus = new LiveEventBus(_bed.Db.Clock);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot), bus);
+        var pipeline = Pipeline(bus);
         var shared = pipeline.Refresh(Bed.Game()).ProfileId;
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
 
@@ -302,20 +281,18 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         Assert.False(confirmation.BoundInSession);
 
         Bed.Feed(pipeline, session, new[] { Announcement(610_000) }
-            .Concat(Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
         var first = Assert.Single(_bed.AllRuns());
         Assert.Equal(shared, first.ProtocolProfileId);
         Assert.NotNull(first.EnteredAtUtc);
 
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
-        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10)
+        Bed.Feed(pipeline, session, Bed.Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10)
             .Append(MentorRequest(800_000, marker: 2))
             .Append(Announcement(810_000))
-            .Concat(Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
+            .Concat(Bed.Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
 
-        var matched = Assert.Single(await live.DrainAsync(), payload =>
-            payload["kind"]!.GetValue<string>() == "run_state_changed" &&
-            payload["state"]!.GetValue<string>() == "MENTOR_MATCHED");
+        var matched = Matched(await live.DrainAsync());
         Assert.False(matched["match_from_queue"]!.GetValue<bool>());
         Assert.Contains(_bed.AllRuns(),
             item => string.Equals(item.ProtocolProfileId, confirmation.ProfileId, StringComparison.Ordinal));
@@ -332,12 +309,11 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
     public void AProfileThatAlreadyHasTheAnnouncementIsNotAskedAgain()
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequestAnnounced);
-        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
+        var pipeline = Pipeline();
         pipeline.Refresh(Bed.Game());
         var session = _bed.Start(pipeline);
 
-        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
-            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        PlayTheAnnouncedEvening(pipeline, session);
 
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
