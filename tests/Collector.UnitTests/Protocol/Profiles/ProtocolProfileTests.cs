@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
@@ -64,13 +63,8 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document.Remove("game_build");
-        var path = ProfileTestFiles.Write(_directory.Path, "test-missing", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_SCHEMA");
-        Assert.Null(report.Profile);
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-missing", document), "E_PROFILE_SCHEMA");
     }
 
     /// <summary>
@@ -127,33 +121,13 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Equal(ProfileFieldRole.Value, message.Field("roulette_id")!.Role);
     }
 
-    /// <summary>
-    /// The shipped CN profile marks <c>finder_state</c> as a selector: the same opcode carries
-    /// the application receipt and every later state update, and only value 3 is the pop.
-    /// </summary>
-    [Fact]
-    public void ShippedCnProfile_DeclaresFinderStateAsASelector()
-    {
-        var catalog = ProfileCatalog.LoadDefault();
-        var profile = Assert.IsType<ProtocolProfile>(
-            Assert.Single(catalog.Entries, entry => entry.Report.ProfileId == "cn.2026.08.05").Profile);
-        var pop = profile.Message("CONTENT_FINDER_POP")!;
-
-        Assert.Equal(ProfileFieldRole.Selector, pop.Field("finder_state")!.Role);
-        Assert.Equal(ProfileFieldRole.Value, pop.Field("roulette_id")!.Role);
-    }
-
     [Fact]
     public void ProfileWithAWronglyTypedProperty_IsRefusedBySchema()
     {
         var document = ProfileTestFiles.Valid();
         document["mentor_roulette_id"] = "42";
-        var path = ProfileTestFiles.Write(_directory.Path, "test-badtype", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_SCHEMA");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-badtype", document), "E_PROFILE_SCHEMA");
     }
 
     [Fact]
@@ -161,24 +135,16 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["extra_field"] = 1;
-        var path = ProfileTestFiles.Write(_directory.Path, "test-extra", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_SCHEMA");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-extra", document), "E_PROFILE_SCHEMA");
     }
 
     [Fact]
     public void ProfileWhoseHashDoesNotMatchItsBody_IsRefused()
     {
-        var document = ProfileTestFiles.Valid();
-        var path = ProfileTestFiles.Write(_directory.Path, "test-hash", document, stamp: false);
+        var path = ProfileTestFiles.Write(_directory.Path, "test-hash", ProfileTestFiles.Valid(), stamp: false);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_HASH");
+        AssertRefused(path, "E_PROFILE_HASH");
     }
 
     [Fact]
@@ -189,46 +155,26 @@ public sealed class ProtocolProfileTests : IDisposable
             "\"mentor_roulette_id\": 42", "\"mentor_roulette_id\": 43", StringComparison.Ordinal);
         File.WriteAllText(path, text);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_HASH");
+        AssertRefused(path, "E_PROFILE_HASH");
     }
 
     [Fact]
     public void ProfileReferencingAFixtureThatDoesNotMatchItsHash_IsRefused()
     {
-        var fixturePath = _directory.Combine("referenced.json");
-        File.WriteAllText(fixturePath, "{\"a\":1}");
+        File.WriteAllText(_directory.Combine("referenced.json"), "{\"a\":1}");
         var document = ProfileTestFiles.Valid();
-        document["fixtures"] = new List<object>
-        {
-            new Dictionary<string, object>
-            {
-                ["path"] = "referenced.json",
-                ["sha256"] = new string('0', 64),
-            },
-        };
-        var path = ProfileTestFiles.Write(_directory.Path, "test-fixhash", document);
+        document["fixtures"] = Fixtures("referenced.json", new string('0', 64));
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_FIXTURE_HASH");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-fixhash", document), "E_PROFILE_FIXTURE_HASH");
     }
 
     [Fact]
     public void ProfileReferencingAFixtureThatMatches_IsVerified()
     {
         var fixturePath = _directory.Combine("referenced.json");
-        var content = "{\"a\":1}";
-        File.WriteAllText(fixturePath, content);
-        var digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))).ToLowerInvariant();
+        File.WriteAllText(fixturePath, "{\"a\":1}");
         var document = ProfileTestFiles.Valid();
-        document["fixtures"] = new List<object>
-        {
-            new Dictionary<string, object> { ["path"] = "referenced.json", ["sha256"] = digest },
-        };
+        document["fixtures"] = Fixtures("referenced.json", Sha256Hex(fixturePath));
         var path = ProfileTestFiles.Write(_directory.Path, "test-fixok", document);
 
         var report = ProfileLoader.Validate(path);
@@ -243,14 +189,7 @@ public sealed class ProtocolProfileTests : IDisposable
         var fixturePath = _directory.Combine("locked-fixture.bin");
         File.WriteAllText(fixturePath, "fixture content");
         var document = ProfileTestFiles.Valid();
-        document["fixtures"] = new List<object>
-        {
-            new Dictionary<string, object>
-            {
-                ["path"] = "locked-fixture.bin",
-                ["sha256"] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))).ToLowerInvariant(),
-            },
-        };
+        document["fixtures"] = Fixtures("locked-fixture.bin", Sha256Hex(fixturePath));
         var path = ProfileTestFiles.Write(_directory.Path, "test-fixlocked", document);
         var healthyPath = ProfileTestFiles.Write(_directory.Path, "test-healthy", ProfileTestFiles.Valid());
         using var locked = new FileStream(fixturePath, FileMode.Open, FileAccess.Read, FileShare.None);
@@ -271,14 +210,7 @@ public sealed class ProtocolProfileTests : IDisposable
     public void ProfileReferencingAMissingFixture_LoadsButIsNotVerified()
     {
         var document = ProfileTestFiles.Valid();
-        document["fixtures"] = new List<object>
-        {
-            new Dictionary<string, object>
-            {
-                ["path"] = "absent.json",
-                ["sha256"] = new string('a', 64),
-            },
-        };
+        document["fixtures"] = Fixtures("absent.json", new string('a', 64));
         var path = ProfileTestFiles.Write(_directory.Path, "test-fixmissing", document);
 
         var report = ProfileLoader.Validate(path);
@@ -294,12 +226,9 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "UNSUPPORTED";
         document["mentor_roulette_id"] = null!;
-        var path = ProfileTestFiles.Write(_directory.Path, "test-unsup", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_UNSUPPORTED_MESSAGES");
+        AssertRefused(
+            ProfileTestFiles.Write(_directory.Path, "test-unsup", document), "E_PROFILE_UNSUPPORTED_MESSAGES");
     }
 
     [Fact]
@@ -308,12 +237,8 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "CANDIDATE";
         document["mentor_roulette_id"] = null!;
-        var path = ProfileTestFiles.Write(_directory.Path, "test-cand", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_NO_ROULETTE");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-cand", document), "E_PROFILE_NO_ROULETTE");
     }
 
     [Fact]
@@ -321,12 +246,8 @@ public sealed class ProtocolProfileTests : IDisposable
     {
         var document = ProfileTestFiles.Valid();
         document["compatibility_status"] = "VERIFIED";
-        var path = ProfileTestFiles.Write(_directory.Path, "test-verified", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_NO_EVIDENCE");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-verified", document), "E_PROFILE_NO_EVIDENCE");
     }
 
     [Fact]
@@ -335,12 +256,8 @@ public sealed class ProtocolProfileTests : IDisposable
         var document = ProfileTestFiles.Valid();
         var messages = (List<object>)document["messages"];
         ((Dictionary<string, object>)messages[2]).Remove("victory_values");
-        var path = ProfileTestFiles.Write(_directory.Path, "test-novictory", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_NO_VICTORY");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-novictory", document), "E_PROFILE_NO_VICTORY");
     }
 
     [Fact]
@@ -350,12 +267,8 @@ public sealed class ProtocolProfileTests : IDisposable
         var messages = (List<object>)document["messages"];
         var fields = (List<object>)((Dictionary<string, object>)messages[1])["fields"];
         ((Dictionary<string, object>)fields[0])["offset"] = 7;
-        var path = ProfileTestFiles.Write(_directory.Path, "test-fieldoob", document);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_FIELD_OOB");
+        AssertRefused(ProfileTestFiles.Write(_directory.Path, "test-fieldoob", document), "E_PROFILE_FIELD_OOB");
     }
 
     [Fact]
@@ -365,10 +278,7 @@ public sealed class ProtocolProfileTests : IDisposable
         document["profile_id"] = "test-somethingelse";
         var path = ProfileTestFiles.Write(_directory.Path, "test-namemismatch", document, rewriteId: false);
 
-        var report = ProfileLoader.Validate(path);
-
-        Assert.False(report.Ok);
-        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_ID");
+        AssertRefused(path, "E_PROFILE_ID");
     }
 
     [Fact]
@@ -492,6 +402,10 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Equal(40, pop.ExpectedLength);
         Assert.Equal(16, pop.Fields.Single(f => f.Name == "roulette_id").Offset);
         Assert.Equal(9, pop.Fields.Single(f => f.Name == "finder_state").Offset);
+        // finder_state is a selector: the same opcode carries the application receipt and every
+        // later state update, and only value 3 is the pop.
+        Assert.Equal(ProfileFieldRole.Selector, pop.Field("finder_state")!.Role);
+        Assert.Equal(ProfileFieldRole.Value, pop.Field("roulette_id")!.Role);
 
         var zone = profile.Messages.Single(m => m.Name == "ZONE_INITIALIZATION");
         Assert.Equal(0x014a, zone.Opcode);
@@ -531,7 +445,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void ACnProfileWithoutDutyResultObservesTheClearButNotItsAbsence()
     {
-        var profile = InMemoryProfile(Region.Cn, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+        var profile = InMemoryProfiles.Cn();
 
         var binding = profile.ToBinding();
 
@@ -545,8 +459,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void AProfileDeclaringDutyResultNeverObservesTheClear()
     {
-        var profile = InMemoryProfile(
-            Region.Cn, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange, DeclaredResult);
+        var profile = InMemoryProfiles.Cn(InMemoryProfiles.DeclaredResult);
 
         var binding = profile.ToBinding();
 
@@ -562,7 +475,8 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void AGlobalProfileObservesTheContentSignalsSeenOnAGlobalClient()
     {
-        var profile = InMemoryProfile(Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+        var profile = InMemoryProfiles.Of(
+            Region.Global, ProfileCompatibilityStatus.Verified, InMemoryProfiles.Pop, InMemoryProfiles.Zone);
 
         var binding = profile.ToBinding();
 
@@ -571,8 +485,9 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.True(binding.ObservesDutyClear);
         Assert.True(binding.ObservesDutyStart);
         // Declaring its own result message still switches the clear off, as on CN.
-        Assert.False(InMemoryProfile(
-            Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange, DeclaredResult).ObservesDutyClear);
+        Assert.False(InMemoryProfiles.Of(
+            Region.Global, ProfileCompatibilityStatus.Verified,
+            InMemoryProfiles.Pop, InMemoryProfiles.Zone, InMemoryProfiles.DeclaredResult).ObservesDutyClear);
     }
 
     /// <summary>A region with no observation of its own keeps the UNKNOWN path.</summary>
@@ -580,7 +495,8 @@ public sealed class ProtocolProfileTests : IDisposable
     [InlineData(Region.Tc)]
     public void AnUnverifiedRegionNeverInheritsCnContentSignals(Region region)
     {
-        var profile = InMemoryProfile(region, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+        var profile = InMemoryProfiles.Of(
+            region, ProfileCompatibilityStatus.Verified, InMemoryProfiles.Pop, InMemoryProfiles.Zone);
 
         var binding = profile.ToBinding();
 
@@ -598,7 +514,7 @@ public sealed class ProtocolProfileTests : IDisposable
     [InlineData(ProfileCompatibilityStatus.Ambiguous)]
     public void ACandidateOrUnsupportedProfileDoesNotObserveTheClear(ProfileCompatibilityStatus status)
     {
-        var binding = InMemoryProfile(Region.Cn, status, PopFromServer, ZoneChange).ToBinding();
+        var binding = InMemoryProfiles.Of(Region.Cn, status, InMemoryProfiles.Pop, InMemoryProfiles.Zone).ToBinding();
 
         Assert.False(binding.IsUsable);
         Assert.False(binding.ObservesDutyClear);
@@ -608,8 +524,8 @@ public sealed class ProtocolProfileTests : IDisposable
     [Fact]
     public void AQueueInferredProfileWithoutTerritoryStaysFailClosed()
     {
-        var request = PopFromServer with { Direction = PacketDirection.ClientToServer };
-        var binding = InMemoryProfile(Region.Cn, ProfileCompatibilityStatus.Verified, request, ZoneChange)
+        var request = InMemoryProfiles.Pop with { Direction = PacketDirection.ClientToServer };
+        var binding = InMemoryProfiles.Of(Region.Cn, ProfileCompatibilityStatus.Verified, request, InMemoryProfiles.Zone)
             .ToBinding();
 
         Assert.False(binding.IsUsable);
@@ -639,34 +555,6 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.False(cnShape.CanDetectDutyResult);
         Assert.True(cnShape.ObservesDutyClear);
     }
-
-    private static readonly ProfileMessage PopFromServer = new(
-        "CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
-        Array.Empty<long>(),
-        new[]
-        {
-            new ProfileField("roulette_id", 0, ProfileFieldType.U16, 0, ProfileEndian.Little,
-                new ProfileFieldConstraints(1, null, null)),
-        });
-
-    private static readonly ProfileMessage ZoneChange = new(
-        "ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
-        Array.Empty<long>(), Array.Empty<ProfileField>());
-
-    private static readonly ProfileMessage DeclaredResult = new(
-        "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 2, null, null,
-        new long[] { 7 },
-        new[]
-        {
-            new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little, ProfileFieldConstraints.None),
-        });
-
-    /// <summary>A loaded-profile record built in memory, for the binding rules alone.</summary>
-    private static ProtocolProfile InMemoryProfile(
-        Region region, ProfileCompatibilityStatus status, params ProfileMessage[] messages) => new(
-        "in-memory", region, "2026.09.15.0000.0000", new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero),
-        status is ProfileCompatibilityStatus.Unsupported ? null : 9, status, TimeSpan.FromSeconds(120),
-        messages, Array.Empty<ProfileFixtureReference>(), "in-memory test profile", new string('0', 64), "", false);
 
     [Fact]
     public void Catalog_IgnoresOodleSignatureJsonFiles()
@@ -729,6 +617,25 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Equal(ProfileLoader.ComputeProfileHash(compact), ProfileLoader.ComputeProfileHash(spaced));
         Assert.NotEqual(ProfileLoader.ComputeProfileHash(compact), ProfileLoader.ComputeProfileHash(different));
     }
+
+    /// <summary>Validates a written profile: refused, with no profile, and with this code among its errors.</summary>
+    private static void AssertRefused(string path, string code)
+    {
+        var report = ProfileLoader.Validate(path);
+
+        Assert.False(report.Ok);
+        Assert.Null(report.Profile);
+        Assert.Contains(report.Errors, error => error.Code == code);
+    }
+
+    /// <summary>The <c>fixtures</c> list of a profile that references one file.</summary>
+    private static List<object> Fixtures(string path, string sha256) => new()
+    {
+        new Dictionary<string, object> { ["path"] = path, ["sha256"] = sha256 },
+    };
+
+    private static string Sha256Hex(string path) =>
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
     private static void Collect(JsonElement node, SortedSet<string> unsupported)
     {

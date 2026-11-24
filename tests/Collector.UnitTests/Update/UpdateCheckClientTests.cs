@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Authentication;
 using System.Text;
 using MentorRecorder.Collector.Update;
+using static MentorRecorder.Collector.UnitTests.UpdateTransport;
 using Outcome = MentorRecorder.Collector.Update.UpdateCheckOutcome;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -16,31 +17,31 @@ public sealed class UpdateCheckClientTests
 {
     private const string Metadata = "{\"version\": \"9.9.9\"}";
 
-    private static UpdateCheckClient Client(FakeTransport transport, TimeSpan? timeout = null) =>
+    private static UpdateCheckClient Client(UpdateTransport transport, TimeSpan? timeout = null) =>
         new(transport.Send, timeout ?? TimeSpan.FromSeconds(5), _ => null);
-
-    private static UpdateTransportResponse Body(Uri uri, string text)
-    {
-        var bytes = Encoding.UTF8.GetBytes(text);
-        return new UpdateTransportResponse(200, uri, null, bytes.Length, new MemoryStream(bytes));
-    }
-
-    private static UpdateTransportResponse Status(Uri uri, int status) =>
-        new(status, uri, null, 0, new MemoryStream());
-
-    private static UpdateTransportResponse Redirect(Uri uri, Uri location, int status = 302) =>
-        new(status, uri, location, 0, new MemoryStream());
 
     /// <summary>A redirect target on the same host as the metadata address, with a query string.</summary>
     private static Uri SameHost(string path) =>
         new(UpdateCheckClient.MetadataUri().GetLeftPart(UriPartial.Authority) + path, UriKind.Absolute);
 
+    /// <summary>The content host's domain, built from the client's own list rather than spelled here (NET-007).</summary>
+    private static string ContentDomain => UpdateCheckClient.AllowedHosts.Single(name =>
+        !string.Equals(name, UpdateCheckClient.MetadataUri().Host, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>A redirect target on the content host the release assets are actually served from.</summary>
-    private static Uri ContentHost(string path)
+    private static Uri ContentHost(string path) => new("https://objects." + ContentDomain + path, UriKind.Absolute);
+
+    /// <summary>Sends the metadata request through <paramref name="hops"/> redirects on its own host; returns the hops.</summary>
+    private static Uri[] RedirectChain(UpdateTransport transport, int hops)
     {
-        var host = UpdateCheckClient.AllowedHosts.Single(name =>
-            !string.Equals(name, UpdateCheckClient.MetadataUri().Host, StringComparison.OrdinalIgnoreCase));
-        return new Uri("https://objects." + host + path, UriKind.Absolute);
+        var chain = Enumerable.Range(1, hops).Select(index => SameHost("/hop/" + index)).ToArray();
+        transport.OnRedirect(UpdateCheckClient.MetadataUri(), chain[0]);
+        for (var index = 0; index < chain.Length - 1; index++)
+        {
+            transport.OnRedirect(chain[index], chain[index + 1]);
+        }
+
+        return chain;
     }
 
     // ------------------------------------------------------------------------ addresses
@@ -99,7 +100,7 @@ public sealed class UpdateCheckClientTests
 
     /// <summary>
     /// Only three runs of ASCII digits make an address: anything else a stored or published value could carry -
-    /// a suffix, a path, a query, white space, other digits - gives none.
+    /// a suffix, a path, a query, white space, other digits - gives none, neither the installer's nor its checksum's.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -114,8 +115,11 @@ public sealed class UpdateCheckClientTests
     [InlineData("1.5.1\n")]
     [InlineData("١.5.1")]
     [InlineData("v1.5.1")]
-    public void TheInstallerAddressIsRefusedForAnythingButThreePlainNumbers(string? version) =>
+    public void AnAddressIsRefusedForAnythingButThreePlainNumbers(string? version)
+    {
         Assert.Null(UpdateCheckClient.InstallerUrl(version));
+        Assert.Null(UpdateCheckClient.ChecksumUrl(version));
+    }
 
     [Fact]
     public void TheBudgetAndTheCapAreTheDeclaredOnes()
@@ -154,7 +158,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task TheKillSwitchStopsTheRequestBeforeAnythingIsSent()
     {
-        var transport = new FakeTransport();
+        var transport = new UpdateTransport();
         var client = new UpdateCheckClient(transport.Send, TimeSpan.FromSeconds(5), _ => "1");
 
         var result = await client.FetchAsync();
@@ -170,7 +174,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task APublishedVersionIsRead()
     {
-        var transport = new FakeTransport().On(UpdateCheckClient.MetadataUri(), Metadata);
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), Metadata);
 
         var result = await Client(transport).FetchAsync();
 
@@ -183,7 +187,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task APrivateRepositoryAnswersNotFoundAndIsNotAnError()
     {
-        var transport = new FakeTransport();
+        var transport = new UpdateTransport();
 
         var result = await Client(transport).FetchAsync();
 
@@ -201,8 +205,7 @@ public sealed class UpdateCheckClientTests
     [InlineData(204, Outcome.HttpStatus)]
     public async Task EveryOtherStatusIsReported(int status, Outcome expected)
     {
-        var transport = new FakeTransport().On(
-            UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Status(uri, status)));
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), status);
 
         var result = await Client(transport).FetchAsync();
 
@@ -213,7 +216,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task AMalformedDocumentIsRefusedWithoutItsContent()
     {
-        var transport = new FakeTransport().On(UpdateCheckClient.MetadataUri(), "{\"version\": \"PRIVATE\"}");
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), "{\"version\": \"PRIVATE\"}");
 
         var result = await Client(transport).FetchAsync();
 
@@ -228,8 +231,8 @@ public sealed class UpdateCheckClientTests
     public async Task ARedirectIsFollowedOneHopAtATimeToTheContentHost()
     {
         var signed = ContentHost("/release/asset?token=abc&expires=1");
-        var transport = new FakeTransport()
-            .On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Redirect(uri, signed)))
+        var transport = new UpdateTransport()
+            .OnRedirect(UpdateCheckClient.MetadataUri(), signed)
             .On(signed, Metadata);
 
         var result = await Client(transport).FetchAsync();
@@ -242,16 +245,8 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task AtMostThreeHopsAreFollowed()
     {
-        var transport = new FakeTransport();
-        var hops = Enumerable.Range(1, UpdateCheckClient.MaxRedirects + 1)
-            .Select(index => SameHost("/hop/" + index))
-            .ToArray();
-        transport.On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Redirect(uri, hops[0])));
-        for (var index = 0; index < hops.Length - 1; index++)
-        {
-            var next = hops[index + 1];
-            transport.On(hops[index], (uri, _) => Task.FromResult(Redirect(uri, next)));
-        }
+        var transport = new UpdateTransport();
+        RedirectChain(transport, UpdateCheckClient.MaxRedirects + 1);
 
         var result = await Client(transport).FetchAsync();
 
@@ -262,17 +257,8 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task ThreeHopsStillReachTheDocument()
     {
-        var transport = new FakeTransport();
-        var hops = Enumerable.Range(1, UpdateCheckClient.MaxRedirects)
-            .Select(index => SameHost("/hop/" + index))
-            .ToArray();
-        transport.On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Redirect(uri, hops[0])));
-        for (var index = 0; index < hops.Length - 1; index++)
-        {
-            var next = hops[index + 1];
-            transport.On(hops[index], (uri, _) => Task.FromResult(Redirect(uri, next)));
-        }
-
+        var transport = new UpdateTransport();
+        var hops = RedirectChain(transport, UpdateCheckClient.MaxRedirects);
         transport.On(hops[^1], Metadata);
 
         Assert.Equal(Outcome.Ok, (await Client(transport).FetchAsync()).Outcome);
@@ -281,8 +267,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task ARedirectWithoutALocationIsRefused()
     {
-        var transport = new FakeTransport().On(
-            UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Status(uri, 302)));
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), 302);
 
         var result = await Client(transport).FetchAsync();
 
@@ -296,7 +281,7 @@ public sealed class UpdateCheckClientTests
         // Built from the client's own constants so no host name is written down here, and so a
         // look-alike is exactly the allowed name with something glued to it.
         var release = UpdateCheckClient.MetadataUri().Host;
-        var content = ContentHost("/x").Host[(ContentHost("/x").Host.IndexOf('.') + 1)..];
+        var content = ContentDomain;
         var locations = new[]
         {
             "http://" + release + "/owner/repo/asset",
@@ -312,9 +297,8 @@ public sealed class UpdateCheckClientTests
 
         foreach (var location in locations)
         {
-            var transport = new FakeTransport().On(
-                UpdateCheckClient.MetadataUri(),
-                (uri, _) => Task.FromResult(Redirect(uri, new Uri(location, UriKind.Absolute))));
+            var transport = new UpdateTransport().OnRedirect(
+                UpdateCheckClient.MetadataUri(), new Uri(location, UriKind.Absolute));
 
             var result = await Client(transport).FetchAsync();
 
@@ -326,9 +310,10 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task AnAnswerFromAnAddressThatWasNotAskedIsRefused()
     {
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             UpdateCheckClient.MetadataUri(),
-            (_, _) => Task.FromResult(Body(new Uri("https://example.invalid/asset", UriKind.Absolute), Metadata)));
+            (_, _) => Task.FromResult(
+                Body(new Uri("https://example.invalid/asset", UriKind.Absolute), Encoding.UTF8.GetBytes(Metadata))));
 
         var result = await Client(transport).FetchAsync();
 
@@ -339,7 +324,7 @@ public sealed class UpdateCheckClientTests
     public async Task ARelativeLocationIsResolvedAgainstTheAddressThatSentIt()
     {
         var target = SameHost("/owner/repo/releases/download/v9.9.9/BUILD-METADATA.json");
-        var transport = new FakeTransport()
+        var transport = new UpdateTransport()
             .On(
                 UpdateCheckClient.MetadataUri(),
                 (uri, _) => Task.FromResult(new UpdateTransportResponse(
@@ -358,7 +343,7 @@ public sealed class UpdateCheckClientTests
     public async Task ADeclaredLengthOverTheCapIsRefusedBeforeTheBodyIsRead()
     {
         var served = false;
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             UpdateCheckClient.MetadataUri(),
             (uri, _) =>
             {
@@ -377,7 +362,7 @@ public sealed class UpdateCheckClientTests
     public async Task ABodyOverTheCapIsAbandonedEvenWithoutADeclaredLength()
     {
         var oversized = new byte[UpdateCheckClient.MaxBodyBytes + 1];
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             UpdateCheckClient.MetadataUri(),
             (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, null, new MemoryStream(oversized))));
 
@@ -388,7 +373,7 @@ public sealed class UpdateCheckClientTests
     public async Task ABodyExactlyAtTheCapIsStillRead()
     {
         var padded = Metadata.PadRight(UpdateCheckClient.MaxBodyBytes, ' ');
-        var transport = new FakeTransport().On(UpdateCheckClient.MetadataUri(), padded);
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), padded);
 
         var result = await Client(transport).FetchAsync();
 
@@ -401,13 +386,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task TheWholeChainRunsUnderOneBudget()
     {
-        var transport = new FakeTransport().On(
-            UpdateCheckClient.MetadataUri(),
-            async (uri, token) =>
-            {
-                await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
-                return Status(uri, 200);
-            });
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), NeverAnswers);
 
         var result = await Client(transport, TimeSpan.FromMilliseconds(50)).FetchAsync();
 
@@ -418,7 +397,7 @@ public sealed class UpdateCheckClientTests
     public async Task CancellationByTheCallerIsNotATimeout()
     {
         using var cancelled = new CancellationTokenSource();
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             UpdateCheckClient.MetadataUri(),
             async (uri, token) =>
             {
@@ -437,7 +416,7 @@ public sealed class UpdateCheckClientTests
     {
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
-        var transport = new FakeTransport().On(UpdateCheckClient.MetadataUri(), Metadata);
+        var transport = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), Metadata);
 
         var result = await Client(transport).FetchAsync(cancelled.Token);
 
@@ -472,26 +451,22 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task AReadFailureBecomesAnOutcome()
     {
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             UpdateCheckClient.MetadataUri(),
             (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, null, new FailingStream())));
 
         Assert.Equal(Outcome.TransportFailed, (await Client(transport).FetchAsync()).Outcome);
     }
 
-    private static FakeTransport Throwing(Exception error)
+    private static UpdateTransport Throwing(Exception error)
     {
-        var transport = new FakeTransport();
+        var transport = new UpdateTransport();
         return transport.On(UpdateCheckClient.MetadataUri(), (_, _) => Task.FromException<UpdateTransportResponse>(error));
     }
 
     // ------------------------------------------------------------- the installer download
 
     private const string Digest = "f258e2f34a883fa01d88b69fba3095ec80d9807c466a46d22027caa825917d8e";
-
-    private static Uri ChecksumUri(string version) => new(UpdateCheckClient.ChecksumUrl(version)!, UriKind.Absolute);
-
-    private static Uri InstallerUri(string version) => new(UpdateCheckClient.InstallerUrl(version)!, UriKind.Absolute);
 
     /// <summary>The checksum is published beside the installer, under the installer's own name plus <c>.sha256</c>.</summary>
     [Fact]
@@ -503,20 +478,12 @@ public sealed class UpdateCheckClientTests
         Assert.Equal(1024, UpdateCheckClient.MaxChecksumBytes);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("1.5.1-beta.2")]
-    [InlineData("1.5.1/../../evil")]
-    [InlineData("1.5.1?x=1")]
-    public void TheChecksumAddressIsRefusedForAnythingButThreePlainNumbers(string? version) =>
-        Assert.Null(UpdateCheckClient.ChecksumUrl(version));
-
     [Fact]
     public async Task APublishedChecksumIsReadThroughTheSameRedirectRules()
     {
         var signed = ContentHost("/release/asset?token=abc&expires=1");
-        var transport = new FakeTransport()
-            .On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, signed)))
+        var transport = new UpdateTransport()
+            .OnRedirect(ChecksumUri("9.9.9"), signed)
             .On(signed, Digest.ToUpperInvariant() + "  MentorRecorder-9.9.9-setup.exe\r\n");
 
         var result = await Client(transport).FetchChecksumAsync("9.9.9");
@@ -529,7 +496,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task AChecksumThatIsNoChecksumIsMalformed()
     {
-        var transport = new FakeTransport().On(ChecksumUri("9.9.9"), "<html>not found</html>");
+        var transport = new UpdateTransport().On(ChecksumUri("9.9.9"), "<html>not found</html>");
 
         var result = await Client(transport).FetchChecksumAsync("9.9.9");
 
@@ -541,11 +508,11 @@ public sealed class UpdateCheckClientTests
     public async Task AChecksumOverItsCapIsRefusedWhetherDeclaredOrNot()
     {
         var oversized = Encoding.ASCII.GetBytes(Digest.PadRight(UpdateCheckClient.MaxChecksumBytes + 1, ' '));
-        var declared = new FakeTransport().On(
+        var declared = new UpdateTransport().On(
             ChecksumUri("9.9.9"),
             (uri, _) => Task.FromResult(new UpdateTransportResponse(
                 200, uri, null, UpdateCheckClient.MaxChecksumBytes + 1, new MemoryStream(new byte[8]))));
-        var undeclared = new FakeTransport().On(
+        var undeclared = new UpdateTransport().On(
             ChecksumUri("9.9.9"),
             (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, null, new MemoryStream(oversized))));
 
@@ -557,7 +524,7 @@ public sealed class UpdateCheckClientTests
     public async Task AChecksumRedirectAnywhereElseIsRefused()
     {
         var elsewhere = new Uri("https://" + UpdateCheckClient.MetadataUri().Host + ".attacker.example/x", UriKind.Absolute);
-        var transport = new FakeTransport().On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, elsewhere)));
+        var transport = new UpdateTransport().OnRedirect(ChecksumUri("9.9.9"), elsewhere);
 
         var result = await Client(transport).FetchChecksumAsync("9.9.9");
 
@@ -568,13 +535,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task TheChecksumRequestRunsUnderTheCheckBudget()
     {
-        var transport = new FakeTransport().On(
-            ChecksumUri("9.9.9"),
-            async (uri, token) =>
-            {
-                await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
-                return Status(uri, 200);
-            });
+        var transport = new UpdateTransport().On(ChecksumUri("9.9.9"), NeverAnswers);
 
         var result = await Client(transport, TimeSpan.FromMilliseconds(50)).FetchChecksumAsync("9.9.9");
 
@@ -584,7 +545,7 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task TheKillSwitchStopsBothDownloadRequestsBeforeAnythingIsSent()
     {
-        var transport = new FakeTransport();
+        var transport = new UpdateTransport();
         var client = new UpdateCheckClient(transport.Send, TimeSpan.FromSeconds(5), _ => "1");
 
         var checksum = await client.FetchChecksumAsync("9.9.9");
@@ -601,8 +562,8 @@ public sealed class UpdateCheckClientTests
     {
         var signed = ContentHost("/release/installer?token=abc");
         var body = new MemoryStream(new byte[] { 1, 2, 3, 4 });
-        var transport = new FakeTransport()
-            .On(InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, signed)))
+        var transport = new UpdateTransport()
+            .OnRedirect(InstallerUri("9.9.9"), signed)
             .On(signed, (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, 4, body)));
 
         using var installer = await Client(transport).OpenInstallerAsync("9.9.9", 1024);
@@ -618,7 +579,7 @@ public sealed class UpdateCheckClientTests
     public async Task AnInstallerDeclaringMoreThanTheCapIsRefusedAndReleased()
     {
         var body = new MemoryStream(new byte[8]);
-        var transport = new FakeTransport().On(
+        var transport = new UpdateTransport().On(
             InstallerUri("9.9.9"),
             (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, 1025, body)));
 
@@ -635,8 +596,7 @@ public sealed class UpdateCheckClientTests
     [InlineData(500, Outcome.HttpStatus)]
     public async Task AnInstallerAnswerThatIsNoInstallerIsReported(int status, Outcome expected)
     {
-        var transport = new FakeTransport().On(
-            InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Status(uri, status)));
+        var transport = new UpdateTransport().On(InstallerUri("9.9.9"), status);
 
         using var installer = await Client(transport).OpenInstallerAsync("9.9.9", 1024);
 
@@ -648,17 +608,13 @@ public sealed class UpdateCheckClientTests
     [Fact]
     public async Task OnlyAPublishedVersionCanBeAsked()
     {
-        var client = Client(new FakeTransport());
+        var client = Client(new UpdateTransport());
 
         await Assert.ThrowsAsync<ArgumentException>(() => client.FetchChecksumAsync("1.0.0/../x"));
         await Assert.ThrowsAsync<ArgumentException>(() => client.OpenInstallerAsync("1.0.0-beta.1", 1024));
     }
 
     // ----------------------------------------------------- where a download may be redirected
-
-    /// <summary>The content host's domain, built from the client's own list rather than spelled here (NET-007).</summary>
-    private static string ContentDomain => UpdateCheckClient.AllowedHosts.Single(name =>
-        !string.Equals(name, UpdateCheckClient.MetadataUri().Host, StringComparison.OrdinalIgnoreCase));
 
     private static Uri OnReleaseHost(string path) =>
         new("https://" + UpdateCheckClient.MetadataUri().Host + path, UriKind.Absolute);
@@ -669,11 +625,11 @@ public sealed class UpdateCheckClientTests
     /// <summary>Asks for the checksum and for the installer through one redirect to <paramref name="target"/>, which answers.</summary>
     private static async Task<(Outcome Checksum, Outcome Installer, int Requests)> RedirectedAsync(Uri target)
     {
-        var checksum = new FakeTransport()
-            .On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, target)))
+        var checksum = new UpdateTransport()
+            .OnRedirect(ChecksumUri("9.9.9"), target)
             .On(target, Digest + "  MentorRecorder-9.9.9-setup.exe\r\n");
-        var installer = new FakeTransport()
-            .On(InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, target)))
+        var installer = new UpdateTransport()
+            .OnRedirect(InstallerUri("9.9.9"), target)
             .On(target, (uri, _) => Task.FromResult(
                 new UpdateTransportResponse(200, uri, null, 4, new MemoryStream(new byte[] { 1, 2, 3, 4 }))));
 
@@ -755,53 +711,12 @@ public sealed class UpdateCheckClientTests
     public async Task TheMetadataCheckKeepsItsOwnRedirectRule()
     {
         var target = new Uri("https://raw." + ContentDomain + "/owner/repo/main/BUILD-METADATA.json", UriKind.Absolute);
-        var transport = new FakeTransport()
-            .On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Redirect(uri, target)))
+        var transport = new UpdateTransport()
+            .OnRedirect(UpdateCheckClient.MetadataUri(), target)
             .On(target, Metadata);
 
         var result = await Client(transport).FetchAsync();
 
         Assert.Equal(Outcome.Ok, result.Outcome);
-    }
-
-    // ------------------------------------------------------------------------- test doubles
-
-    private sealed class FakeTransport
-    {
-        private readonly Dictionary<string, Func<Uri, CancellationToken, Task<UpdateTransportResponse>>> _routes =
-            new(StringComparer.Ordinal);
-
-        private readonly List<Uri> _requests = new();
-
-        public IReadOnlyList<Uri> Requests
-        {
-            get
-            {
-                lock (_requests)
-                {
-                    return _requests.ToArray();
-                }
-            }
-        }
-
-        public FakeTransport On(Uri uri, Func<Uri, CancellationToken, Task<UpdateTransportResponse>> respond)
-        {
-            _routes[uri.AbsoluteUri] = respond;
-            return this;
-        }
-
-        public FakeTransport On(Uri uri, string body) => On(uri, (requested, _) => Task.FromResult(Body(requested, body)));
-
-        public Task<UpdateTransportResponse> Send(Uri uri, CancellationToken cancellationToken)
-        {
-            lock (_requests)
-            {
-                _requests.Add(uri);
-            }
-
-            return _routes.TryGetValue(uri.AbsoluteUri, out var respond)
-                ? respond(uri, cancellationToken)
-                : Task.FromResult(Status(uri, 404));
-        }
     }
 }

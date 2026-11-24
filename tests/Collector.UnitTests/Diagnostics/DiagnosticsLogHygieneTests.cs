@@ -19,7 +19,8 @@ namespace MentorRecorder.Collector.UnitTests;
 /// The tests feed the logger every kind of secret those documents name and read the file back.
 /// The sanitizer redacts user profile paths, IPv4 and IPv6 literals, Windows SIDs and long
 /// hexadecimal runs. The short SHA-256 prefixes used as identifiers must survive it, or the
-/// redaction would cost diagnostic value without buying any privacy.
+/// redaction would cost diagnostic value without buying any privacy. The last section covers
+/// two loggers sharing one file.
 /// </summary>
 public sealed class DiagnosticsLogHygieneTests : IDisposable
 {
@@ -50,6 +51,47 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
 
         // The non-identifying tail is kept: a redacted log still has to be useful.
         Assert.Contains("MentorRecorder", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sanitize_RedactsAnyUsersProfileFolderNotJustTheCurrentOne()
+    {
+        var text = @"failed to open C:\Users\SomebodyElse\Documents\notes.txt";
+
+        var sanitized = RotatingFileLogger.Sanitize(text);
+
+        Assert.DoesNotContain("SomebodyElse", sanitized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("%USERPROFILE%", sanitized, StringComparison.Ordinal);
+        Assert.Contains(@"\Documents\notes.txt", sanitized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sanitize_RedactsTheCurrentUsersProfileFolder()
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.False(string.IsNullOrEmpty(profile), "Windows always has a user profile");
+
+        var sanitized = RotatingFileLogger.Sanitize(profile + @"\AppData\Local\x.db");
+
+        Assert.StartsWith("%USERPROFILE%", sanitized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sanitize_LeavesTextWithoutAProfilePathAlone() =>
+        Assert.Equal("queue depth 12 of 4096", RotatingFileLogger.Sanitize("queue depth 12 of 4096"));
+
+    [Fact]
+    public void Logger_WritesNoPayloadAndNoUserName()
+    {
+        var line = Write(logger => logger.Write(LogLevel.Info, "ipc", "connection_accepted", new Dictionary<string, object?>
+        {
+            ["count"] = 3,
+            ["path"] = @"C:\Users\SomebodyElse\AppData\Local\MentorRecorder\x.db",
+        }));
+
+        Assert.Contains("\"event\":\"connection_accepted\"", line, StringComparison.Ordinal);
+        Assert.Contains("\"ts\":\"2026-09-04T07:00:00.000Z\"", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("SomebodyElse", line, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -123,8 +165,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     [Fact]
     public void RotationKeepsAtMostFiveFilesOfAtMostTwoMebibytesEach()
     {
-        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(_directory.Path, clock);
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
 
         // Roughly 24 MiB of text, which is more than twice what the policy may keep.
         var filler = new string('x', 64 * 1024);
@@ -159,6 +200,22 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     }
 
     [Fact]
+    public void Logger_DeletesDaysThatHaveAgedOut()
+    {
+        var stale = _directory.Combine("collector-20260101.log");
+        var recent = _directory.Combine("collector-20260903.log");
+        File.WriteAllText(stale, "old\n");
+        File.WriteAllText(recent, "yesterday\n");
+
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        logger.Write(LogLevel.Info, "startup", "database_ready");
+
+        Assert.False(File.Exists(stale), "a log from eight months ago should have been pruned");
+        Assert.True(File.Exists(recent), "yesterday's log is still within the retention window");
+        Assert.True(File.Exists(logger.CurrentPath));
+    }
+
+    [Fact]
     public void AFailureToWriteTheLogNeverPropagates()
     {
         // Diagnostics are optional; the data is not. A log directory that cannot be created
@@ -166,9 +223,7 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         var impossible = _directory.Combine("file-not-a-directory");
         File.WriteAllText(impossible, "this is a file, so it can never be a log directory");
 
-        using var logger = new RotatingFileLogger(
-            Path.Combine(impossible, "logs"),
-            new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero)));
+        using var logger = new RotatingFileLogger(Path.Combine(impossible, "logs"), Clock());
 
         var exception = Record.Exception(() =>
         {
@@ -183,16 +238,27 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     // docs/privacy-boundary.md section 5 forbids addresses, SIDs and hex dumps in the
     // diagnostic log as firmly as it forbids other users' paths.
 
-    [Fact]
-    public void AnIPv4AddressIsNeverWrittenInClear()
+    /// <summary>
+    /// An IPv4 address, a SID and a hex dump are each replaced by their token. A value is looked
+    /// for regardless of case: a hex dump in capitals is the same dump.
+    /// </summary>
+    /// <param name="value">The forbidden value written into a field.</param>
+    /// <param name="fragment">A part of it that must not survive either.</param>
+    /// <param name="token">What the sanitizer writes instead.</param>
+    [Theory]
+    [InlineData(Address, Address, "[ip]")]
+    [InlineData(Sid, "S-1-5-21-", "[sid]")]
+    [InlineData(PayloadHex, PayloadHex, "[hex]")]
+    public void AForbiddenValueIsNeverWrittenInClear(string value, string fragment, string token)
     {
-        var text = Write(logger => logger.Write(LogLevel.Info, "capture", "adapter_selected", new Dictionary<string, object?>()
+        var text = Write(logger => logger.Write(LogLevel.Info, "capture", "value_seen", new Dictionary<string, object?>()
         {
-            ["address"] = Address,
+            ["value"] = value,
         }));
 
-        Assert.DoesNotContain(Address, text, StringComparison.Ordinal);
-        Assert.Contains("[ip]", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(value, text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(fragment, text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(token, text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -216,29 +282,35 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         Assert.Contains("on this adapter", text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void AUserSidIsNeverWrittenInClear()
-    {
-        var text = Write(logger => logger.Write(LogLevel.Info, "ipc", "pipe_created", new Dictionary<string, object?>()
-        {
-            ["owner"] = Sid,
-        }));
+    // Sanitisation must cover the component and event names and every value that only becomes
+    // text when rendered, not string fields alone (review finding L2).
 
-        Assert.DoesNotContain(Sid, text, StringComparison.Ordinal);
-        Assert.DoesNotContain("S-1-5-21-", text, StringComparison.Ordinal);
+    [Fact]
+    public void TheComponentAndEventNamesAreSanitisedLikeEveryOtherString()
+    {
+        var text = Write(logger => logger.Write(LogLevel.Warn, "ipc 10.1.2.3", "peer S-1-5-21-1-2-3-1013"));
+
+        Assert.DoesNotContain("10.1.2.3", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("S-1-5-21-1-2-3-1013", text, StringComparison.Ordinal);
+        Assert.Contains("[ip]", text, StringComparison.Ordinal);
         Assert.Contains("[sid]", text, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AHexPayloadDumpIsNeverWrittenInClear()
+    public void AFieldThatIsNotAStringUntilItIsRenderedIsSanitisedToo()
     {
-        var text = Write(logger => logger.Write(LogLevel.Warn, "capture", "decode_error", new Dictionary<string, object?>()
+        // Testing `value is string` is not enough: anything that only becomes text when the
+        // line is rendered -- a DirectoryInfo, an IPAddress, any object with a revealing
+        // ToString -- must be sanitised as well.
+        var text = Write(logger => logger.Write(LogLevel.Warn, "capture", "adapter", new Dictionary<string, object?>
         {
-            ["payload"] = PayloadHex,
+            ["folder"] = new DirectoryInfo(@"C:\Users\someone\AppData"),
+            ["peer"] = System.Net.IPAddress.Parse("fe80::1"),
         }));
 
-        Assert.DoesNotContain(PayloadHex, text, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("[hex]", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("someone", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("fe80::1", text, StringComparison.Ordinal);
+        Assert.Contains("[ip6]", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -318,27 +390,15 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     {
         var clock = new TestClock(new DateTimeOffset(2026, 10, 5, 3, 0, 0, TimeSpan.Zero));
         using var logger = new RotatingFileLogger(_directory.Combine("logs"), clock);
-        var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
-            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
-            allowSynthetic: true);
         string logPath;
-        using (var host = CollectorHost.Open(
-                   _directory.Combine("host.db"), clock, new CaptureServices(), logger, _ => selection))
+        using (var host = OpenSyntheticHost(clock, logger))
         {
             var pipeline = host.LiveProtocol!;
             const string session = "30000000-0000-4000-8000-000000000031";
             pipeline.OnCaptureStarted(session);
-            var clear = new byte[40];
-            clear[0] = 0x6D;
-            clear[4] = 0x0D;
-            clear[5] = 0xF0;
-            clear[6] = 0x03;
-            clear[7] = 0x80;
-            clear[8] = 0x03;
-            clear[11] = 0x40;
             pipeline.Accept(new Protocol.Decoded.DecodedMessage(
                 session, Protocol.Decoded.MessageDirection.Inbound, clock.UtcNow, TimeSpan.FromSeconds(1), 1000,
-                3, 61455, clear, "zone"));
+                3, 61455, DirectorBodies.Body(DirectorBodies.ClearCommand), "zone"));
             logPath = logger.CurrentPath;
         }
 
@@ -368,12 +428,8 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     {
         var clock = new TestClock(new DateTimeOffset(2026, 11, 3, 3, 0, 0, TimeSpan.Zero));
         using var logger = new RotatingFileLogger(_directory.Combine("logs"), clock);
-        var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
-            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
-            allowSynthetic: true);
         string logPath;
-        using (var host = CollectorHost.Open(
-                   _directory.Combine("host.db"), clock, new CaptureServices(), logger, _ => selection))
+        using (var host = OpenSyntheticHost(clock, logger))
         {
             // The event is raised only by the pipeline itself; its backing delegate is what a raise calls.
             var raise = (Action<string, string?, Exception?>?)typeof(LiveProtocolPipeline)
@@ -396,13 +452,72 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         Assert.Equal("no profile matches this build", notSelected["reason"]!.GetValue<string>());
     }
 
+    // ------------------------------------------------------------------- sharing ----
+    // Two writers, one log file. --capture-trace, a departing process and the serving instance
+    // can all hold the same day's file open, so the append must permit shared writes: a line the
+    // loser cannot append is dropped into a catch block, and a log that silently loses lines is
+    // worse than no log because it is trusted (review finding M7). Loss that still occurs is
+    // counted, and the count is reachable from GetStatus.
+
+    [Fact]
+    public async Task TwoLoggersOnTheSameFileBothGetTheirLinesIn()
+    {
+        const int perLogger = 60;
+        var clock = Clock();
+        using var first = new RotatingFileLogger(_directory.Path, clock);
+        using var second = new RotatingFileLogger(_directory.Path, clock);
+
+        using var start = new Barrier(2);
+        var writers = new[] { first, second }.Select(logger => Task.Run(() =>
+        {
+            start.SignalAndWait();
+            for (var i = 0; i < perLogger; i++)
+            {
+                logger.Write(LogLevel.Info, "ipc", "probe");
+            }
+        })).ToArray();
+
+        await Task.WhenAll(writers);
+
+        var lines = File.ReadAllLines(first.CurrentPath);
+        Assert.Equal(0, first.SuppressedWrites + second.SuppressedWrites);
+        Assert.Equal(2 * perLogger, lines.Length);
+    }
+
+    [Fact]
+    public void AWriteThatCannotBeMadeIsCountedRatherThanForgotten()
+    {
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        logger.Write(LogLevel.Info, "ipc", "probe");
+
+        // A directory in place of the file makes every append fail permanently, which is the
+        // case the counter has to survive.
+        var path = logger.CurrentPath;
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+
+        logger.Write(LogLevel.Warn, "ipc", "probe");
+
+        Assert.True(logger.SuppressedWrites > 0);
+    }
+
+    private static TestClock Clock() => new(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
+
     /// <summary>Writes with a fresh logger in this test's directory and returns the file text.</summary>
     private string Write(Action<RotatingFileLogger> write)
     {
-        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(_directory.Path, clock);
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
         write(logger);
         return File.ReadAllText(logger.CurrentPath, new UTF8Encoding(false));
+    }
+
+    /// <summary>A host on a database in this test's directory, reading with the synthetic CN-shape profile.</summary>
+    private CollectorHost OpenSyntheticHost(TestClock clock, RotatingFileLogger logger)
+    {
+        var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
+            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
+            allowSynthetic: true);
+        return CollectorHost.Open(_directory.Combine("host.db"), clock, new CaptureServices(), logger, _ => selection);
     }
 
     public void Dispose() => _directory.Dispose();

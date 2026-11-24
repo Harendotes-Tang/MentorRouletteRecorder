@@ -438,7 +438,7 @@ public sealed class OnlineSpeechClientTests
     public async Task ARedirectIsRefusedNotFollowed(int status)
     {
         var transport = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(status, request.Uri, "audio/wav", null, new MemoryStream(WaveFile.Silence()))));
+            FakeSpeechTransport.Body(request, new MemoryStream(WaveFile.Silence()), status: status)));
         var result = await SpeechFixtures.Client(transport).SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
 
         Assert.Equal(SpeechOutcome.Network, result.Outcome);
@@ -484,11 +484,7 @@ public sealed class OnlineSpeechClientTests
     [Fact]
     public async Task AServiceThatNeverAnswersTimesOut()
     {
-        var transport = new FakeSpeechTransport(async (request, token) =>
-        {
-            await Task.Delay(Timeout.Infinite, token);
-            return FakeSpeechTransport.Wav(request);
-        });
+        var transport = FakeSpeechTransport.NeverAnswers();
         var started = System.Diagnostics.Stopwatch.StartNew();
         var result = await SpeechFixtures.Client(transport, TimeSpan.FromMilliseconds(150))
             .SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
@@ -502,7 +498,7 @@ public sealed class OnlineSpeechClientTests
     public async Task TheBudgetAlsoCoversABodyThatTrickles()
     {
         var transport = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(200, request.Uri, "audio/wav", null, new StallingStream())));
+            FakeSpeechTransport.Body(request, new StallingStream())));
         var result = await SpeechFixtures.Client(transport, TimeSpan.FromMilliseconds(150))
             .SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
 
@@ -554,7 +550,7 @@ public sealed class OnlineSpeechClientTests
     public async Task ABodyThatFailsWhileReadingIsANetworkFailure()
     {
         var transport = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(200, request.Uri, "audio/wav", null, new FailingStream())));
+            FakeSpeechTransport.Body(request, new FailingStream())));
         var result = await SpeechFixtures.Client(transport).SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
         Assert.Equal(SpeechOutcome.Network, result.Outcome);
         Assert.Equal("READ_FAILED", result.Reason);
@@ -565,7 +561,7 @@ public sealed class OnlineSpeechClientTests
     {
         var body = new CountingStream(WaveFile.Silence());
         var transport = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(200, request.Uri, "audio/wav", OnlineSpeechClient.MaxResponseBytes + 1L, body)));
+            FakeSpeechTransport.Body(request, body, OnlineSpeechClient.MaxResponseBytes + 1L)));
         var result = await SpeechFixtures.Client(transport).SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
 
         Assert.Equal(SpeechOutcome.Format, result.Outcome);
@@ -579,8 +575,7 @@ public sealed class OnlineSpeechClientTests
         var big = new byte[OnlineSpeechClient.MaxResponseBytes + 1];
         WaveFile.Silence().CopyTo(big, 0);
         var body = new CountingStream(big);
-        var transport = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(200, request.Uri, "audio/wav", null, body)));
+        var transport = new FakeSpeechTransport((request, _) => Task.FromResult(FakeSpeechTransport.Body(request, body)));
         var result = await SpeechFixtures.Client(transport).SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100);
 
         Assert.Equal(SpeechOutcome.Format, result.Outcome);
@@ -590,7 +585,7 @@ public sealed class OnlineSpeechClientTests
         var exact = new byte[OnlineSpeechClient.MaxResponseBytes];
         SpeechFixtures.Wave(dataBytes: OnlineSpeechClient.MaxResponseBytes - 44).CopyTo(exact, 0);
         var fits = new FakeSpeechTransport((request, _) => Task.FromResult(
-            new SpeechTransportResponse(200, request.Uri, "audio/wav", null, new MemoryStream(exact))));
+            FakeSpeechTransport.Body(request, new MemoryStream(exact))));
         Assert.Equal(SpeechOutcome.Ok,
             (await SpeechFixtures.Client(fits).SynthesizeAsync(SpeechFixtures.Azure(), SpeechFixtures.Key, Text, 100)).Outcome);
     }

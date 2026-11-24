@@ -175,22 +175,18 @@ public sealed class CommandLineOptionsTests
         Assert.Null(CommandLineOptions.Parse(new[] { "--serve" }).PipeName);
     }
 
-    [Theory]
-    [InlineData("--version")]
-    [InlineData("--pipe-name-only")]
-    [InlineData("--capture-doctor")]
-    [InlineData("--list-profiles")]
-    public void EveryOneShotModeRefusesThePipeSwitch(string mode)
-    {
-        Assert.Throws<FormatException>(
-            () => CommandLineOptions.Parse(new[] { mode, "--pipe", "MentorRecorder.test.v1" }));
-    }
-
     [Fact]
     public void ReplayRefusesThePipeSwitchToo()
     {
         Assert.Throws<FormatException>(
             () => CommandLineOptions.Parse(new[] { "--replay", "f.json", "--pipe", "x" }));
+    }
+
+    [Fact]
+    public void Program_RejectsProfileFlagOutsideDecodedReplay()
+    {
+        Assert.Throws<FormatException>(() =>
+            CommandLineOptions.Parse(new[] { "--replay", "x.fixture.json", "--profile", "p.json" }));
     }
 
     [Theory]
@@ -219,12 +215,6 @@ public sealed class CommandLineOptionsTests
                 .PipeName!.Length);
     }
 
-    [Fact]
-    public void AMissingPipeNameIsRefusedRatherThanTreatedAsDefault()
-    {
-        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--serve", "--pipe" }));
-    }
-
     // ------------------------------------------------ --log-dir and the data root ----
     // Where a Collector run puts the files it owns.
     //
@@ -243,23 +233,6 @@ public sealed class CommandLineOptionsTests
         Assert.Equal(CollectorMode.Serve, options.Mode);
         Assert.Equal(@"C:\tmp\logs", options.LogDirectory);
         Assert.Null(CommandLineOptions.Parse(new[] { "--serve" }).LogDirectory);
-    }
-
-    [Theory]
-    [InlineData("--version")]
-    [InlineData("--pipe-name-only")]
-    [InlineData("--capture-doctor")]
-    [InlineData("--list-profiles")]
-    public void AOneShotModeRefusesTheLogDirectory(string mode)
-    {
-        Assert.Throws<FormatException>(
-            () => CommandLineOptions.Parse(new[] { mode, "--log-dir", @"C:\tmp\logs" }));
-    }
-
-    [Fact]
-    public void AMissingLogDirectoryValueIsRefusedRatherThanTreatedAsDefault()
-    {
-        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--serve", "--log-dir" }));
     }
 
     [Fact]
@@ -304,24 +277,121 @@ public sealed class CommandLineOptionsTests
     [Fact]
     public void TheEnvironmentVariableIsWhatTheRootReads()
     {
-        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
         var isolated = Path.Combine(Path.GetTempPath(), "MentorRecorder.RootTest", Guid.NewGuid().ToString("N"));
-        try
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, isolated);
+        using var _ = new DataDirectoryOverride(isolated);
 
-            Assert.Equal(Path.GetFullPath(isolated), DatabasePaths.RootDirectory);
-            Assert.Equal(
-                Path.Combine(Path.GetFullPath(isolated), DatabasePaths.DatabaseFileName),
-                DatabasePaths.DefaultDatabasePath);
-            Assert.Equal(
-                Path.Combine(Path.GetFullPath(isolated), DatabasePaths.LogFolderName),
-                DatabasePaths.LogDirectory);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
-        }
+        Assert.Equal(Path.GetFullPath(isolated), DatabasePaths.RootDirectory);
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath(isolated), DatabasePaths.DatabaseFileName),
+            DatabasePaths.DefaultDatabasePath);
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath(isolated), DatabasePaths.LogFolderName),
+            DatabasePaths.LogDirectory);
+    }
+
+    // ------------------------------------------- --parent-pid and --parent-start-time ----
+    // The switches that turn on the parent-process watchdog (WatchdogTests).
+
+    [Fact]
+    public void ServeAcceptsAParentPidAndDefaultsToNone()
+    {
+        var options = CommandLineOptions.Parse(new[] { "--serve", "--db", "x.db", "--parent-pid", "4242" });
+        Assert.Equal(CollectorMode.Serve, options.Mode);
+        Assert.Equal(4242, options.ParentProcessId);
+
+        // Omitted means "answer to nobody", which is what a Collector started by hand does.
+        Assert.Null(CommandLineOptions.Parse(new[] { "--serve" }).ParentProcessId);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("not-a-pid")]
+    [InlineData("99999999999999999999")]
+    public void AProcessIdThatCouldNotBeOneIsRefused(string value)
+    {
+        Assert.Throws<FormatException>(
+            () => CommandLineOptions.Parse(new[] { "--serve", "--parent-pid", value }));
+    }
+
+    // Windows reuses process ids as soon as they are free, so the watchdog is also told when its
+    // parent started: the pair (id, start time) is unique in practice (review finding M8).
+
+    [Fact]
+    public void TheStartTimeIsAcceptedAsTicksAndAsAnIsoTimestamp()
+    {
+        var ticks = new DateTimeOffset(2026, 9, 8, 10, 0, 0, TimeSpan.Zero).UtcTicks;
+        var byTicks = CommandLineOptions.Parse(
+            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", ticks.ToString() });
+        Assert.Equal(ticks, byTicks.ParentStartTime!.Value.UtcTicks);
+
+        var byText = CommandLineOptions.Parse(
+            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", "2026-09-08T10:00:00.000Z" });
+        Assert.Equal(ticks, byText.ParentStartTime!.Value.UtcTicks);
+    }
+
+    [Fact]
+    public void OmittingTheStartTimeStaysBackwardCompatible()
+    {
+        var options = CommandLineOptions.Parse(new[] { "--serve", "--parent-pid", "1234" });
+
+        Assert.Equal(1234, options.ParentProcessId);
+        Assert.Null(options.ParentStartTime);
+    }
+
+    [Theory]
+    [InlineData("not-a-time")]
+    [InlineData("-1")]
+    [InlineData("")]
+    public void AnUnreadableStartTimeIsRefused(string value)
+    {
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(
+            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", value }));
+    }
+
+    [Fact]
+    public void TheStartTimeWithoutAParentIdIsRefused()
+    {
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(
+            new[] { "--serve", "--parent-start-time", "2026-09-08T10:00:00.000Z" }));
+    }
+
+    // ------------------------------------------------------- serve-only switches ----
+
+    /// <summary>
+    /// A one-shot mode refuses every switch only the serving mode takes. One that accepted
+    /// <c>--parent-pid</c> would let a caller believe it was being supervised when there is
+    /// nothing to supervise.
+    /// </summary>
+    /// <param name="mode">The one-shot mode.</param>
+    /// <param name="switchName">A serve-only switch.</param>
+    /// <param name="value">A value that switch would accept with <c>--serve</c>.</param>
+    [Theory]
+    [InlineData("--version", "--pipe", "MentorRecorder.test.v1")]
+    [InlineData("--pipe-name-only", "--pipe", "MentorRecorder.test.v1")]
+    [InlineData("--capture-doctor", "--pipe", "MentorRecorder.test.v1")]
+    [InlineData("--list-profiles", "--pipe", "MentorRecorder.test.v1")]
+    [InlineData("--version", "--log-dir", @"C:\tmp\logs")]
+    [InlineData("--pipe-name-only", "--log-dir", @"C:\tmp\logs")]
+    [InlineData("--capture-doctor", "--log-dir", @"C:\tmp\logs")]
+    [InlineData("--list-profiles", "--log-dir", @"C:\tmp\logs")]
+    [InlineData("--version", "--parent-pid", "4242")]
+    [InlineData("--capture-doctor", "--parent-pid", "4242")]
+    public void AOneShotModeRefusesAServeOnlySwitch(string mode, string switchName, string value)
+    {
+        Assert.Throws<FormatException>(
+            () => CommandLineOptions.Parse(new[] { mode, switchName, value }));
+    }
+
+    /// <summary>A switch without its value is refused rather than treated as its default.</summary>
+    /// <param name="name">The switch, given last with nothing after it.</param>
+    [Theory]
+    [InlineData("--pipe")]
+    [InlineData("--log-dir")]
+    [InlineData("--parent-pid")]
+    public void ASwitchWithoutItsValueIsRefused(string name)
+    {
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--serve", name }));
     }
 
     [Fact]

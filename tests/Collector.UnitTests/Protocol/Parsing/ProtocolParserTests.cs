@@ -29,8 +29,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void EveryFieldTypeAndEndiannessIsReadExactlyAsDeclared()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         var payload = new byte[24];
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0), 42);
         BinaryPrimitives.WriteUInt32BigEndian(payload.AsSpan(4), 900_001);
@@ -50,8 +49,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void EndiannessIsNotGuessed()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         var payload = new byte[8];
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0), 0x0102);
         BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(2), 0x0304);
@@ -68,8 +66,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void OnlyADeclaredVictoryValueCompletesADutyResult()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
 
         parser.Accept(Message(102, new byte[] { 7, 0 }));
         parser.Accept(Message(102, new byte[] { 3, 0 }));
@@ -83,8 +80,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void TheKindOfTheLastValidEventIsKeptWithItsTime()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         Assert.Null(parser.GetParserStats().LastValidEventKind);
 
         parser.Accept(Message(102, new byte[] { 7, 0 }));
@@ -104,8 +100,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void UnknownOpcodeIsIgnoredNotRefusedAndNeverProducesAnEvent()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
 
         parser.Accept(Message(999, new byte[] { 1, 2, 3, 4 }));
         parser.Accept(Message(998, new byte[] { 1, 2, 3, 4 }));
@@ -129,7 +124,7 @@ public sealed class ProtocolParserTests : IDisposable
     [InlineData(10)]
     public void ControlSegmentsWithoutAnOpcodeDoNotCountAsParserFailures(int segmentType)
     {
-        var sink = new RecordingSink();
+        var sink = new RecordingSemanticSink();
         foreach (var profile in new ProtocolProfile?[] { _profile, null })
         {
             var parser = new ProfileMessageParser(profile, sink);
@@ -149,8 +144,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void ZeroOpcodeInAnIpcSegmentIsStillAnUnknownOpcode()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         parser.Accept(Message(0, new byte[8], segmentType: 3));
 
         // Unlike a control segment, an IPC segment with opcode 0 is a real message the
@@ -164,8 +158,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void RecordedErrorsNeverCarryPayloadBytes()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (_, parser) = NewParser(_profile);
 
         // A declared opcode with a payload length the profile refuses: the refusal is
         // recorded, and the recognisable bytes must not leak into its message.
@@ -179,8 +172,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void LengthMismatchIsRefused()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
 
         parser.Accept(Message(101, new byte[7]));
 
@@ -200,8 +192,7 @@ public sealed class ProtocolParserTests : IDisposable
         zone["min_length"] = 1;
         zone["max_length"] = 8;
         var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory.Path, "parser-oob", document));
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(profile, sink);
+        var (sink, parser) = NewParser(profile);
 
         parser.Accept(Message(101, new byte[1]));
 
@@ -214,8 +205,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void FieldOutsideItsDeclaredConstraintIsRefused()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         var payload = new byte[24];
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0), 0);
 
@@ -234,8 +224,7 @@ public sealed class ProtocolParserTests : IDisposable
         var messages = (List<object>)document["messages"];
         ((Dictionary<string, object>)messages[2])["segment_type"] = 3;
         var profile = ProfileLoader.Load(ProfileTestFiles.Write(_directory.Path, "parser-seg", document));
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(profile, sink);
+        var (sink, parser) = NewParser(profile);
 
         parser.Accept(Message(102, new byte[] { 7, 0 }, segmentType: 4));
 
@@ -248,8 +237,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void DirectionMismatchDoesNotMatchTheMessage()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
 
         parser.Accept(Message(102, new byte[] { 7, 0 }, direction: MessageDirection.Outbound));
 
@@ -262,8 +250,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void WithoutAUsableProfileEveryMessageIsRefused()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(null, sink);
+        var (sink, parser) = NewParser(null);
 
         parser.Accept(Message(100, new byte[24]));
 
@@ -277,8 +264,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void RepeatedIdenticalObservationsAreCountedAsDuplicatesAndStillForwarded()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         var message = Message(102, new byte[] { 7, 0 });
 
         parser.Accept(message);
@@ -291,28 +277,9 @@ public sealed class ProtocolParserTests : IDisposable
     }
 
     [Fact]
-    public void TheErrorRingIsBounded()
-    {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
-
-        for (var i = 0; i < ProfileMessageParser.ErrorRingCapacity + 50; i++)
-        {
-            // A declared opcode with the wrong length: a genuine refusal, unlike an
-            // undeclared opcode, which is merely ignored.
-            parser.Accept(Message(101, new byte[7]));
-        }
-
-        var stats = parser.GetParserStats();
-        Assert.Equal(ProfileMessageParser.ErrorRingCapacity + 50, stats.ParseFailed);
-        Assert.Equal(ProfileMessageParser.ErrorRingCapacity, stats.RecentErrors.Count);
-    }
-
-    [Fact]
     public void TenThousandRandomBuffersNeverThrowAndNeverInventAMentorPop()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (sink, parser) = NewParser(_profile);
         var random = new Random(20260904);
         var opcodeMessages = 0;
 
@@ -349,8 +316,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void ANullMessageIsCountedRatherThanThrown()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(_profile, sink);
+        var (_, parser) = NewParser(_profile);
 
         parser.Accept(null!);
 
@@ -369,8 +335,7 @@ public sealed class ProtocolParserTests : IDisposable
     {
         var profile = ProfileLoader.Load(
             ProfileTestFiles.Write(_directory.Path, "parser-identity", WithIdentityMessages()));
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(profile, sink);
+        var (sink, parser) = NewParser(profile);
 
         var territoryPayload = new byte[136];
         BinaryPrimitives.WriteUInt16LittleEndian(territoryPayload.AsSpan(0), 7);
@@ -399,8 +364,7 @@ public sealed class ProtocolParserTests : IDisposable
     {
         var profile = ProfileLoader.Load(
             ProfileTestFiles.Write(_directory.Path, "parser-identity-bad", WithIdentityMessages()));
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(profile, sink);
+        var (sink, parser) = NewParser(profile);
 
         // 44 is one past the last job in data/jobs/jobs.json: reading it would mean the
         // offset is wrong, so the whole message is dropped instead of naming a job.
@@ -425,8 +389,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void ASelectorFieldOutsideItsConstraintsIsIgnoredNotRefused()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(SelectorProfile(), sink);
+        var (sink, parser) = NewParser(SelectorProfile());
         var payload = new byte[24];
 
         // finder_state = 1: the application receipt, not the pop.
@@ -445,8 +408,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void ASelectorFieldOnItsDeclaredValueStillParses()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(SelectorProfile(), sink);
+        var (sink, parser) = NewParser(SelectorProfile());
         var payload = new byte[24];
         payload[22] = 3;
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0), 42);
@@ -461,8 +423,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void AValueFieldOutsideItsConstraintsIsStillAFieldConstraintRefusal()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(SelectorProfile(), sink);
+        var (sink, parser) = NewParser(SelectorProfile());
         var payload = new byte[24];
         payload[22] = 3;
 
@@ -537,8 +498,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void TheClearOnAnUndeclaredOpcodeBecomesAVictory()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
         var body = DirectorBodies.Body(DutyClearSignal.Command, 0);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
@@ -563,8 +523,7 @@ public sealed class ProtocolParserTests : IDisposable
     [InlineData(OtherDirectorOpcode)]
     public void TheClearIsRecognisedWhateverItsOpcode(int opcode)
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
 
         parser.Accept(Message(opcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
 
@@ -575,8 +534,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void ANearMissIsIgnoredNeverRefused()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(0x80000015, 1), segmentType: 3));
 
@@ -594,8 +552,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void TheCommencementOnAnUndeclaredOpcodeBecomesADutyCommenced()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
         var body = DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
@@ -615,8 +572,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void TheRemainingTimeReportBecomesADutyTimeRemaining()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
 
         parser.Accept(Message(OtherDirectorOpcode, DirectorBodies.Body(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
 
@@ -630,15 +586,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void AProfileDeclaringDutyResultStillSeesTheStartContent()
     {
-        var declared = new ProfileMessage(
-            "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 40, null, null, new long[] { 7 },
-            new[]
-            {
-                new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little,
-                    ProfileFieldConstraints.None),
-            });
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(declared), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn(InMemoryProfiles.DeclaredResult));
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
 
@@ -653,8 +601,7 @@ public sealed class ProtocolParserTests : IDisposable
     [InlineData(Region.Tc)]
     public void OtherRegionsIgnoreTheCnStartContent(Region region)
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile() with { Region = region }, sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn() with { Region = region });
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
@@ -671,15 +618,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void AProfileDeclaringDutyResultIgnoresTheClearContent()
     {
-        var declared = new ProfileMessage(
-            "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 40, null, null, new long[] { 7 },
-            new[]
-            {
-                new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little,
-                    ProfileFieldConstraints.None),
-            });
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(declared), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn(InMemoryProfiles.DeclaredResult));
         var body = DirectorBodies.Body(DutyClearSignal.Command, 0);
 
         parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
@@ -703,8 +642,7 @@ public sealed class ProtocolParserTests : IDisposable
         var announced = new ProfileMessage(
             "MATCH_ANNOUNCED", DirectorOpcode, PacketDirection.ServerToClient, null, 40, null, null,
             Array.Empty<long>(), Array.Empty<ProfileField>());
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(announced), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn(announced));
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(0x40000007, 1), segmentType: 3));
@@ -719,14 +657,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void AnObfuscatedOpcodeIsRefusedBeforeTheClearCheck()
     {
-        // Built anew rather than with 'with': Obfuscated is computed once, at construction.
-        var cn = CnProfile();
-        var profile = new ProtocolProfile(
-            cn.ProfileId, cn.Region, cn.GameBuild, cn.GeneratedAtUtc, cn.MentorRouletteId, cn.Status,
-            cn.MatchWindow, cn.Messages, cn.Fixtures, cn.ProvenanceSummary, cn.ProfileSha256, cn.SourcePath,
-            cn.FixturesVerified, new[] { DirectorOpcode });
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(profile, sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.WithObfuscated(InMemoryProfiles.Cn(), DirectorOpcode));
         Assert.True(parser.Binding.ObservesDutyClear);
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
@@ -740,8 +671,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void WithoutAUsableProfileTheClearIsRefusedLikeEverythingElse()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(null, sink);
+        var (sink, parser) = NewParser(null);
 
         parser.Accept(Message(DirectorOpcode, DirectorBodies.Body(DutyClearSignal.Command, 0), segmentType: 3));
 
@@ -759,8 +689,7 @@ public sealed class ProtocolParserTests : IDisposable
     [Fact]
     public void EveryMessageIsCountedOnce()
     {
-        var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var (sink, parser) = NewParser(InMemoryProfiles.Cn());
         var pop = new byte[8];
         BinaryPrimitives.WriteUInt16LittleEndian(pop, 9);
         var messages = new[]
@@ -795,25 +724,12 @@ public sealed class ProtocolParserTests : IDisposable
             sink.Events.Select(e => e.EventType).ToArray());
     }
 
-    /// <summary>
-    /// A VERIFIED CN profile in memory with the CN shape: a pop and a zone change, no
-    /// DUTY_RESULT. The opcodes are invented.
-    /// </summary>
-    private static ProtocolProfile CnProfile(params ProfileMessage[] extra) => new(
-        "cn-parser-test", Region.Cn, "2026.09.15.0000.0000", new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero),
-        9, ProfileCompatibilityStatus.Verified, TimeSpan.FromSeconds(120),
-        new[]
-        {
-            new ProfileMessage("CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
-                Array.Empty<long>(), new[]
-                {
-                    new ProfileField("roulette_id", 0, ProfileFieldType.U16, 0, ProfileEndian.Little,
-                        new ProfileFieldConstraints(1, null, null)),
-                }),
-            new ProfileMessage("ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
-                Array.Empty<long>(), Array.Empty<ProfileField>()),
-        }.Concat(extra).ToArray(),
-        Array.Empty<ProfileFixtureReference>(), "in-memory CN test profile", new string('0', 64), "", false);
+    /// <summary>A parser over the profile, writing its events into a fresh recording sink.</summary>
+    private static (RecordingSemanticSink Sink, ProfileMessageParser Parser) NewParser(ProtocolProfile? profile)
+    {
+        var sink = new RecordingSemanticSink();
+        return (sink, new ProfileMessageParser(profile, sink));
+    }
 
     private static DecodedMessage Message(
         int opcode,
@@ -830,13 +746,6 @@ public sealed class ProtocolParserTests : IDisposable
             (ushort)opcode,
             payload,
             "test-connection");
-
-    private sealed class RecordingSink : ISemanticEventSink
-    {
-        public List<SemanticEvent> Events { get; } = new();
-
-        public void Accept(SemanticEvent semanticEvent) => Events.Add(semanticEvent);
-    }
 
     private sealed class ThrowingSink : ISemanticEventSink
     {

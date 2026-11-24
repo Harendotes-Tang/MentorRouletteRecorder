@@ -40,18 +40,14 @@ public sealed class UpdateVersionTests
     [InlineData("0.1234567.0")]
     [InlineData("0.0.1234567")]
     [InlineData("1.2.3\n")]
+    [InlineData("1.2.3-rc.1")]
+    [InlineData("1.2.3+build.7")]
+    [InlineData("1.2.3-rc.1+build.7")]
     public void AnythingElseIsRefused(string? text)
     {
         Assert.False(UpdateVersion.TryParse(text, out var version));
         Assert.Equal(default, version);
     }
-
-    [Theory]
-    [InlineData("1.2.3-rc.1")]
-    [InlineData("1.2.3+build.7")]
-    [InlineData("1.2.3-rc.1+build.7")]
-    public void ARemoteSuffixIsMalformed(string text) =>
-        Assert.False(UpdateVersion.TryParse(text, out _));
 
     [Theory]
     [InlineData("1.2.3", 1, 2, 3, false, null)]
@@ -84,26 +80,15 @@ public sealed class UpdateVersionTests
     [InlineData("1.2.3", "1.2.3", false)]
     [InlineData("1.2.2", "1.2.3", false)]
     [InlineData("0.9.9", "1.0.0", false)]
+    // A running prerelease is older than its own release.
+    [InlineData("1.2.3", "1.2.3-rc.1", true)]
+    // Build metadata is not a prerelease: the same numbers are the same version.
+    [InlineData("1.2.3", "1.2.3+2f3a4b5", false)]
     public void NewerIsStrictlyGreater(string remote, string local, bool newer)
     {
         Assert.True(UpdateVersion.TryParse(remote, out var published));
         Assert.True(UpdateVersion.TryParseLocal(local, out var running));
         Assert.Equal(newer, UpdateVersion.IsNewer(published, running));
-    }
-
-    [Fact]
-    public void ARunningPrereleaseIsOlderThanItsOwnRelease()
-    {
-        Assert.True(UpdateVersion.TryParse("1.2.3", out var published));
-        Assert.True(UpdateVersion.TryParseLocal("1.2.3-rc.1", out var prerelease));
-        Assert.True(UpdateVersion.TryParseLocal("1.2.3", out var release));
-        Assert.True(UpdateVersion.TryParseLocal("1.2.3+2f3a4b5", out var build));
-
-        Assert.True(UpdateVersion.IsNewer(published, prerelease));
-        Assert.False(UpdateVersion.IsNewer(published, release));
-
-        // Build metadata is not a prerelease: the same numbers are the same version.
-        Assert.False(UpdateVersion.IsNewer(published, build));
     }
 
     [Theory]

@@ -19,15 +19,14 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [InlineData("f258e2f34a883fa01d88b69fba3095ec80d9807c466a46d22027caa825917d8e0  x")]
     public async Task AMalformedChecksumStopsTheDownloadBeforeTheInstallerIsAsked(string checksum)
     {
-        var transport = new Transport().Publish(Published, Installer, checksum: checksum);
+        var transport = new UpdateTransport().Publish(Published, Installer, checksum: checksum);
         var service = Service(transport);
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         AssertFailed(failed, Failure.ChecksumUnavailable);
         Assert.Equal(Published, failed.Version);
-        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), MirrorUri(InstallerFile + ".sha256") }, transport.Requests);
         AssertNothingKept();
     }
 
@@ -36,29 +35,26 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [InlineData(410)]
     public async Task AChecksumThatIsNotPublishedIsUnavailable(int status)
     {
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(ChecksumUri(Published), (uri, _) => Task.FromResult(Transport.Status(uri, status)));
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.On(ChecksumUri(Published), status);
         var service = Service(transport);
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         // 404 is the checksum that is not there; 410 is an answer of another kind, reported as such.
         AssertFailed(failed, status == 404 ? Failure.ChecksumUnavailable : Failure.HttpStatus);
-        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), MirrorUri(InstallerFile + ".sha256") }, transport.Requests);
     }
 
     [Fact]
     public async Task AChecksumLargerThanItsCapIsUnavailable()
     {
-        var transport = new Transport().Publish(
+        var transport = new UpdateTransport().Publish(
             Published, Installer, checksum: Sha(Installer).PadRight(UpdateCheckClient.MaxChecksumBytes + 1, ' '));
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.ChecksumUnavailable);
-        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
+        AssertFailed(await StartAndSettleAsync(service), Failure.ChecksumUnavailable);
+        Assert.Equal(new[] { ChecksumUri(Published), MirrorUri(InstallerFile + ".sha256") }, transport.Requests);
     }
 
     /// <summary>
@@ -69,17 +65,16 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [Fact]
     public async Task AChecksumAnswerThatBreaksOffIsUnavailableAndNoInstallerIsAsked()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         transport.On(ChecksumUri(Published), (uri, _) => Task.FromResult(new UpdateTransportResponse(
             200, uri, null, 64, new FailingStream(System.Text.Encoding.ASCII.GetBytes(Sha(Installer)[..16])))));
         var service = Service(transport);
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         AssertFailed(failed, Failure.ChecksumUnavailable);
         Assert.DoesNotContain("删除", failed.Message!.Chinese, StringComparison.Ordinal);
-        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), MirrorUri(InstallerFile + ".sha256") }, transport.Requests);
         AssertNothingKept();
     }
 
@@ -88,11 +83,10 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     {
         var tampered = (byte[])Installer.Clone();
         tampered[^1] ^= 0xFF;
-        var transport = new Transport().Publish(Published, tampered, checksum: Sha(Installer));
+        var transport = new UpdateTransport().Publish(Published, tampered, checksum: Sha(Installer));
         var service = Service(transport);
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         AssertFailed(failed, Failure.ChecksumMismatch);
         Assert.Null(failed.ReceivedBytes);
@@ -110,12 +104,11 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [InlineData(204, Failure.HttpStatus)]
     public async Task AnInstallerRequestThatFailsIsReportedByItsCause(int status, Failure expected)
     {
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(InstallerUri(Published), (uri, _) => Task.FromResult(Transport.Status(uri, status)));
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.On(InstallerUri(Published), status);
         var service = Service(transport);
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         AssertFailed(failed, expected);
         Assert.Equal(Published, failed.Version);
@@ -127,13 +120,11 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     {
         var elsewhere = new Uri(
             "https://" + UpdateCheckClient.MetadataUri().Host + ".attacker.example/installer.exe", UriKind.Absolute);
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(InstallerUri(Published), (uri, _) => Task.FromResult(Transport.Redirect(uri, elsewhere)));
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.OnRedirect(InstallerUri(Published), elsewhere);
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.HostRefused);
+        AssertFailed(await StartAndSettleAsync(service), Failure.HostRefused);
         Assert.DoesNotContain(elsewhere, transport.Requests);
         AssertNothingKept();
     }
@@ -141,18 +132,16 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [Fact]
     public async Task ARedirectLoopIsRefused()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var installer = InstallerUri(Published);
 
         // Inside the release's own folder, the one place on the release host a download's redirect may lead.
         var loop = new Uri(installer, "loop");
-        transport.On(installer, (uri, _) => Task.FromResult(Transport.Redirect(uri, loop)));
-        transport.On(loop, (uri, _) => Task.FromResult(Transport.Redirect(uri, installer)));
+        transport.OnRedirect(installer, loop);
+        transport.OnRedirect(loop, installer);
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.RedirectRefused);
+        AssertFailed(await StartAndSettleAsync(service), Failure.RedirectRefused);
         Assert.Equal(1 + UpdateCheckClient.MaxRedirects + 2, transport.Requests.Count);
         AssertNothingKept();
     }
@@ -163,39 +152,33 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [InlineData(HttpRequestError.SecureConnectionError, Failure.TlsFailed)]
     public async Task AConnectionThatCannotBeMadeIsReportedByItsCause(HttpRequestError error, Failure expected)
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         transport.On(
             InstallerUri(Published),
             (_, _) => Task.FromException<UpdateTransportResponse>(new HttpRequestException(error, "refused")));
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), expected);
+        AssertFailed(await StartAndSettleAsync(service), expected);
     }
 
     [Fact]
     public async Task AConnectionDroppedMidBodyIsATransportFailureAndNothingIsKept()
     {
-        var transport = new Transport().Publish(Published, Installer, body: new FailingStream(Installer[..10_000]));
+        var transport = new UpdateTransport().Publish(Published, Installer, body: new FailingStream(Installer[..10_000]));
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.TransportFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.TransportFailed);
         AssertNothingKept();
     }
 
     [Fact]
     public async Task ABodyShorterThanItsDeclaredLengthIsNotKept()
     {
-        var transport = new Transport().Publish(
+        var transport = new UpdateTransport().Publish(
             Published, Installer, body: new MemoryStream(Installer[..1000]), checksum: Sha(Installer[..1000]));
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.TransportFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.TransportFailed);
         AssertNothingKept();
     }
 
@@ -214,13 +197,11 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     public async Task ADeclaredLengthOverTheCapIsRefusedBeforeAByteIsStored()
     {
         var body = new CountingStream(Installer);
-        var transport = new Transport().Publish(
+        var transport = new UpdateTransport().Publish(
             Published, Installer, body: body, declaredLength: UpdateDownloadLimits.Default.MaxBytes + 1);
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.TooLarge);
+        AssertFailed(await StartAndSettleAsync(service), Failure.TooLarge);
         Assert.Equal(0, body.BytesRead);
         AssertNothingKept();
     }
@@ -229,12 +210,10 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     public async Task ABodyGrowingPastTheCapIsAbandonedTheMomentItPassesIt()
     {
         var body = new CountingStream(Installer);
-        var transport = new Transport().Publish(Published, Installer, body: body, declareLength: false);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: body, declareLength: false);
         var service = Service(transport, limits: Limits(maxBytes: 100_000));
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.TooLarge);
+        AssertFailed(await StartAndSettleAsync(service), Failure.TooLarge);
         Assert.InRange(body.BytesRead, 100_001, 100_000 + CountingStream.Chunk);
         AssertNothingKept();
     }
@@ -242,23 +221,20 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [Fact]
     public async Task ABodyExactlyAtTheCapIsKept()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, limits: Limits(maxBytes: Installer.Length));
 
-        service.Start();
-
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
     }
 
     [Fact]
     public async Task NoBytesForTheIdleTimeoutIsATimeoutAndThePartIsRemoved()
     {
         var body = new StallingStream(Installer[..1000]);
-        var transport = new Transport().Publish(Published, Installer, body: body);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: body);
         var service = Service(transport, limits: Limits(idle: TimeSpan.FromMilliseconds(150)));
 
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
 
         AssertFailed(failed, Failure.Timeout);
         Assert.True(body.Stalled.IsCompleted);
@@ -268,32 +244,22 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
     [Fact]
     public async Task AnInstallerRequestThatNeverAnswersTimesOutOnTheIdleLimit()
     {
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(
-            InstallerUri(Published),
-            async (uri, token) =>
-            {
-                await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
-                return Transport.Status(uri, 200);
-            });
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.On(InstallerUri(Published), UpdateTransport.NeverAnswers);
         var service = Service(transport, limits: Limits(idle: TimeSpan.FromMilliseconds(150)));
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.Timeout);
+        AssertFailed(await StartAndSettleAsync(service), Failure.Timeout);
     }
 
     [Fact]
     public async Task TheWholeDownloadRunsUnderOneOverallLimit()
     {
         // A byte every few milliseconds never trips the idle limit; the overall one stops it.
-        var transport = new Transport().Publish(Published, Installer, body: new TricklingStream(), declareLength: false);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: new TricklingStream(), declareLength: false);
         var service = Service(
             transport, limits: Limits(idle: TimeSpan.FromSeconds(10), total: TimeSpan.FromMilliseconds(300)));
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.Timeout);
+        AssertFailed(await StartAndSettleAsync(service), Failure.Timeout);
         AssertNothingKept();
     }
 }

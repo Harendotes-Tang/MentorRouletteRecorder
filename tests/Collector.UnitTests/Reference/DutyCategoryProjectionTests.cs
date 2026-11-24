@@ -14,6 +14,11 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class DutyCategoryProjectionTests
 {
+    private static string DisplayedCategory(MentorRun run) =>
+        Wire.Runs(new Page<MentorRun>(new[] { run }, 1, 20, 1))["items"]![0]!["duty_category"]!.GetValue<string>();
+
+    private static StatisticsRepository Statistics(TestDatabase fixture) => new(fixture.Database, fixture.Settings());
+
     public static IEnumerable<object[]> StandardAllianceRaids() => new[]
         { 92, 102, 111, 120, 168, 220, 281, 550, 636, 700, 736, 779, 866, 911, 962, 1015, 1058, 1117 }
         .Select(id => new object[] { id });
@@ -26,8 +31,7 @@ public sealed class DutyCategoryProjectionTests
         Assert.Equal("大型任务", duty.DutyCategory);
         var run = TestDatabase.Run(contentId: contentId) with
             { DutyName = duty.LocalizedName, DutyCategory = "大型任务", TerritoryId = duty.TerritoryId };
-        var display = Wire.Runs(new Page<MentorRun>(new[] { run }, 1, 20, 1));
-        Assert.Equal("团队任务", display["items"]![0]!["duty_category"]!.GetValue<string>());
+        Assert.Equal("团队任务", DisplayedCategory(run));
         Assert.Equal("大型任务", Wire.Run(run)["duty_category"]!.GetValue<string>());
         Assert.Equal("大型任务", run.DutyCategory);
     }
@@ -40,8 +44,7 @@ public sealed class DutyCategoryProjectionTests
     public void DisplayProjectsMissingOrLegacyCategory(string? category)
     {
         var run = TestDatabase.Run(contentId: 92) with { DutyCategory = category };
-        Assert.Equal("团队任务", Wire.Runs(new Page<MentorRun>(new[] { run }, 1, 20, 1))
-            ["items"]![0]!["duty_category"]!.GetValue<string>());
+        Assert.Equal("团队任务", DisplayedCategory(run));
     }
 
     [Theory]
@@ -53,8 +56,7 @@ public sealed class DutyCategoryProjectionTests
     public void DisplayPreservesExplicitNonLegacyAndUnrelatedCategories(int contentId, string category)
     {
         var run = TestDatabase.Run(contentId: contentId) with { DutyCategory = category };
-        Assert.Equal(category, Wire.Runs(new Page<MentorRun>(new[] { run }, 1, 20, 1))
-            ["items"]![0]!["duty_category"]!.GetValue<string>());
+        Assert.Equal(category, DisplayedCategory(run));
     }
 
     [Fact]
@@ -81,8 +83,7 @@ public sealed class DutyCategoryProjectionTests
         Assert.NotEqual(Assert.Single(first.Items).RunId, Assert.Single(second.Items).RunId);
         Assert.Equal(new[] { "2026-09-04" }, runs.QueryCalendarDays("2026-09", filter));
         Assert.Equal(1, runs.Query(new RunFilter { DutyCategories = new[] { "大型任务" } }, null, 1, 20).Total);
-        var settings = fixture.Settings();
-        var statistics = new StatisticsRepository(fixture.Database, settings);
+        var statistics = Statistics(fixture);
         Assert.Equal(2, statistics.GetDashboard(filter).AttemptCount);
         Assert.Equal(2, statistics.GetDungeonStats(filter).Sum(row => row.AttemptCount));
         Assert.All(statistics.GetDungeonStats(filter), row => Assert.Equal("团队任务", row.DutyCategory));
@@ -250,8 +251,7 @@ public sealed class DutyCategoryProjectionTests
 
         var filter = new RunFilter { DutyCategories = new[] { "团队任务" } };
         Assert.Equal(2, runs.Query(filter, null, 1, 20).Total);
-        var settings = fixture.Settings();
-        Assert.All(new StatisticsRepository(fixture.Database, settings).GetDungeonStats(),
+        Assert.All(Statistics(fixture).GetDungeonStats(),
             row => Assert.Equal("团队任务", row.DutyCategory));
         Assert.All(Wire.Runs(runs.Query(null, null, 1, 20))["items"]!.AsArray(),
             item => Assert.Equal("团队任务", item!["duty_category"]!.GetValue<string>()));

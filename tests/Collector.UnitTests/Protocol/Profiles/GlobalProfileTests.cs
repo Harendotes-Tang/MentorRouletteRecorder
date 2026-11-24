@@ -131,19 +131,18 @@ public sealed class GlobalProfileTests
     [Fact]
     public void TheGlobalProfileIsChosenForItsOwnBuildOnly()
     {
-        var catalog = ProfileCatalog.LoadDefault();
-        var selector = new ProfileSelector(catalog);
+        var selector = new ProfileSelector(ProfileCatalog.LoadDefault());
 
         var selected = selector.Select(Region.Global, Build);
         Assert.Equal(ProfileSelectionReason.Selected, selected.ReasonCode);
         Assert.True(selected.IsUsable);
         Assert.Equal(ProfileId, selected.Profile!.ProfileId);
 
-        Assert.Equal(ProfileSelectionReason.NoMatch, selector.Select(Region.Global, "2026.12.01.0000.0000").ReasonCode);
+        var later = selector.Select(Region.Global, "2026.12.01.0000.0000");
+        Assert.Equal(
+            (ProfileSelectionReason.NoMatch, ProfileSelector.NoProfileMatchesReason), (later.ReasonCode, later.Reason));
         Assert.False(selector.Select(Region.Cn, Build).IsUsable);
         Assert.False(selector.Select(Region.Tc, Build).IsUsable);
-        Assert.Equal(ProfileId, CalibrationTemplate.Select(catalog, Region.Global)?.Source.ProfileId);
-        Assert.Equal(ProfileSelector.NoProfileMatchesReason, selector.Select(Region.Global, "2026.12.01.0000.0000").Reason);
     }
 
     /// <summary>
@@ -154,26 +153,26 @@ public sealed class GlobalProfileTests
     [Fact]
     public void TheParserReadsTheRouletteTheTerritoryAndTheJobWhereTheRoundsFoundThem()
     {
-        var events = new List<SemanticEvent>();
-        var parser = new ProfileMessageParser(Shipped(), new ListSink(events));
+        var sink = new RecordingSemanticSink();
+        var parser = new ProfileMessageParser(Shipped(), sink);
 
-        parser.Accept(Message(1, 0x016f, Payload(40, (0, 1), (1, 19), (16, 5))));
-        parser.Accept(Message(2, 0x03bf, Payload(40, (0, 3), (2, 5))));
-        parser.Accept(Message(3, 0x03bf, Payload(40, (0, 3), (2, 9))));
-        parser.Accept(Message(4, 0x00ab, Payload(136, (2, 0x41), (3, 0x05), (6, 0xf3), (7, 0x03))));
-        parser.Accept(Message(5, 0x016f, Payload(40, (0, 2), (1, 0xff))));
+        parser.Accept(Message(1, 0x016f, CalibrationObserverTests.Bytes(40, (0, 1), (1, 19), (16, 5))));
+        parser.Accept(Message(2, 0x03bf, CalibrationObserverTests.Bytes(40, (0, 3), (2, 5))));
+        parser.Accept(Message(3, 0x03bf, CalibrationObserverTests.Bytes(40, (0, 3), (2, 9))));
+        parser.Accept(Message(4, 0x00ab, CalibrationObserverTests.Bytes(136, (2, 0x41), (3, 0x05), (6, 0xf3), (7, 0x03))));
+        parser.Accept(Message(5, 0x016f, CalibrationObserverTests.Bytes(40, (0, 2), (1, 0xff))));
 
-        Assert.Equal(19, Assert.Single(events.OfType<PlayerJob>()).JobId);
-        Assert.Equal(new[] { 5, 9 }, events.OfType<ContentFinderPop>().Select(pop => pop.RouletteId).ToArray());
-        Assert.Equal(1345, Assert.Single(events.OfType<ZoneInitialization>()).TerritoryId);
+        Assert.Equal(19, Assert.Single(sink.Events.OfType<PlayerJob>()).JobId);
+        Assert.Equal(new[] { 5, 9 }, sink.Events.OfType<ContentFinderPop>().Select(pop => pop.RouletteId).ToArray());
+        Assert.Equal(1345, Assert.Single(sink.Events.OfType<ZoneInitialization>()).TerritoryId);
         var stats = parser.GetParserStats();
         Assert.Equal(0, stats.ParseFailed);
         Assert.Equal(1, stats.Ignored);
 
         // A duty queued directly is expected to carry no roulette: an ordinary pop of no roulette,
         // which never opens a run, rather than a parse failure on the capture page.
-        parser.Accept(Message(6, 0x03bf, Payload(40, (0, 3))));
-        Assert.Equal(new[] { 5, 9, 0 }, events.OfType<ContentFinderPop>().Select(pop => pop.RouletteId).ToArray());
+        parser.Accept(Message(6, 0x03bf, CalibrationObserverTests.Bytes(40, (0, 3))));
+        Assert.Equal(new[] { 5, 9, 0 }, sink.Events.OfType<ContentFinderPop>().Select(pop => pop.RouletteId).ToArray());
         Assert.Equal(0, parser.GetParserStats().ParseFailed);
     }
 
@@ -185,26 +184,15 @@ public sealed class GlobalProfileTests
     [Fact]
     public void ValuesOutsideTheObservedRangesAreRefused()
     {
-        var events = new List<SemanticEvent>();
-        var parser = new ProfileMessageParser(Shipped(), new ListSink(events));
+        var sink = new RecordingSemanticSink();
+        var parser = new ProfileMessageParser(Shipped(), sink);
 
-        parser.Accept(Message(1, 0x03bf, Payload(40, (0, 3), (3, 1))));
-        parser.Accept(Message(2, 0x016f, Payload(40, (0, 1), (1, 44))));
-        parser.Accept(Message(3, 0x00ab, Payload(136)));
+        parser.Accept(Message(1, 0x03bf, CalibrationObserverTests.Bytes(40, (0, 3), (3, 1))));
+        parser.Accept(Message(2, 0x016f, CalibrationObserverTests.Bytes(40, (0, 1), (1, 44))));
+        parser.Accept(Message(3, 0x00ab, CalibrationObserverTests.Bytes(136)));
 
-        Assert.Empty(events);
+        Assert.Empty(sink.Events);
         Assert.Equal(3, parser.GetParserStats().ParseFailed);
-    }
-
-    private static byte[] Payload(int length, params (int Offset, byte Value)[] bytes)
-    {
-        var payload = new byte[length];
-        foreach (var (offset, value) in bytes)
-        {
-            payload[offset] = value;
-        }
-
-        return payload;
     }
 
     private static DecodedMessage Message(int second, ushort opcode, byte[] payload)
@@ -213,10 +201,5 @@ public sealed class GlobalProfileTests
         return new DecodedMessage("global-session", MessageDirection.Inbound,
             new DateTimeOffset(2026, 11, 22, 9, 24, 0, TimeSpan.Zero).Add(mono), mono, second * 1000L,
             3, opcode, payload, "zone");
-    }
-
-    private sealed class ListSink(List<SemanticEvent> events) : ISemanticEventSink
-    {
-        public void Accept(SemanticEvent semanticEvent) => events.Add(semanticEvent);
     }
 }

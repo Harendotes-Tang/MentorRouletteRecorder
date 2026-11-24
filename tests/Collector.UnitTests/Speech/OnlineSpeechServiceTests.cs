@@ -532,11 +532,7 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         Assert.Equal("NOT_RIFF_WAVE", bad.Details!["reason"]);
         Assert.False(bad.Retryable);
 
-        var slow = Service(new FakeSpeechTransport(async (request, token) =>
-        {
-            await Task.Delay(Timeout.Infinite, token);
-            return FakeSpeechTransport.Wav(request);
-        }), TimeSpan.FromMilliseconds(100));
+        var slow = Service(FakeSpeechTransport.NeverAnswers(), TimeSpan.FromMilliseconds(100));
         var timeout = await Assert.ThrowsAsync<CollectorException>(() => slow.SynthesizeAsync(new SpeechRequest(Text, 100, true), default));
         Assert.Equal(ErrorCodes.SpeechTimeout, timeout.Code);
         Assert.True(timeout.Retryable);
@@ -569,11 +565,7 @@ public sealed class OnlineSpeechServiceTests : IDisposable
     [Fact]
     public async Task ASentenceCutShortByTheServiceStoppingIsARetryableTimeout()
     {
-        var transport = new FakeSpeechTransport(async (request, token) =>
-        {
-            await Task.Delay(Timeout.Infinite, token);
-            return FakeSpeechTransport.Wav(request);
-        });
+        var transport = FakeSpeechTransport.NeverAnswers();
         var service = Service(transport, TimeSpan.FromSeconds(30));
         service.UpdateSettings(AzureUpdate());
         var inFlight = service.SynthesizeAsync(new SpeechRequest(Text, 100, true), default);

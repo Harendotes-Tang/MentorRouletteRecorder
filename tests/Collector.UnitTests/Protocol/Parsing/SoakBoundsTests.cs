@@ -1,5 +1,4 @@
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -162,7 +161,8 @@ public sealed class SoakBoundsTests
             ?? throw new InvalidOperationException("the checked-in synthetic profile must load");
     }
 
-    private static DecodedMessage Message(int index, ushort opcode) =>
+    /// <summary>One message of the flood; the payload is 8 zero bytes unless given.</summary>
+    private static DecodedMessage Message(int index, ushort opcode, byte[]? payload = null) =>
         new(
             "bounds-session",
             MessageDirection.Inbound,
@@ -171,21 +171,11 @@ public sealed class SoakBoundsTests
             index,
             61440,
             opcode,
-            new byte[8],
+            payload ?? new byte[8],
             "bounds-connection");
 
     /// <summary>A PLAYER_JOB message the synthetic profile accepts.</summary>
-    private static DecodedMessage JobMessage(int index) =>
-        new(
-            "bounds-session",
-            MessageDirection.Inbound,
-            DateTimeOffset.UnixEpoch.AddMilliseconds(index),
-            TimeSpan.FromMilliseconds(index),
-            index,
-            61440,
-            61444,
-            new byte[] { 19, 0, 0, 0 },
-            "bounds-connection");
+    private static DecodedMessage JobMessage(int index) => Message(index, JobOpcode, new byte[] { 19, 0, 0, 0 });
 
     private sealed class CountingSemanticSink : ISemanticEventSink
     {

@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.Json;
 using MentorRecorder.Collector.Replay;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -8,11 +8,16 @@ namespace MentorRecorder.Collector.UnitTests;
 /// The fixtures are the executable form of docs/state-machine.md, so their integrity is
 /// itself under test: every file has a sidecar hash, every hash matches, the checked-in
 /// <c>SHA256SUMS</c> agrees with both, and no fixture declares personal data or a verified
-/// protocol profile.
+/// protocol profile. The decoded fixtures carry invented bytes for an invented profile, and
+/// must also declare that they are synthetic: a file that could pass for a real capture must
+/// not load.
 /// </summary>
 public sealed class FixtureIntegrityTests
 {
     private static string Directory => Path.Combine(AppContext.BaseDirectory, "Fixtures");
+
+    /// <summary>Every invented profile a decoded fixture is allowed to name.</summary>
+    private static readonly string[] SyntheticProfileIds = { "synthetic-v1", "synthetic-cn-shape-v1" };
 
     /// <summary>Every fixture file, as xunit theory data.</summary>
     public static TheoryData<string> FixtureFiles
@@ -23,6 +28,23 @@ public sealed class FixtureIntegrityTests
             foreach (var path in System.IO.Directory.GetFiles(Directory, "*.fixture.json").Order(StringComparer.Ordinal))
             {
                 data.Add(Path.GetFileName(path));
+            }
+
+            return data;
+        }
+    }
+
+    /// <summary>Every decoded fixture file, relative to the fixture directory, as xunit theory data.</summary>
+    public static TheoryData<string> DecodedFixtures
+    {
+        get
+        {
+            var data = new TheoryData<string>();
+            foreach (var path in System.IO.Directory
+                         .GetFiles(Path.Combine(Directory, "decoded"), "*.decoded.json")
+                         .Order(StringComparer.Ordinal))
+            {
+                data.Add("decoded/" + Path.GetFileName(path));
             }
 
             return data;
@@ -53,22 +75,53 @@ public sealed class FixtureIntegrityTests
             names);
     }
 
-    [Theory]
-    [MemberData(nameof(FixtureFiles))]
-    public void FixtureMatchesItsSidecarHash(string fileName)
+    [Fact]
+    public void EveryExpectedDecodedFixtureIsPresent()
     {
-        var path = Path.Combine(Directory, fileName);
-        var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+        var names = System.IO.Directory.GetFiles(Path.Combine(Directory, "decoded"), "*.decoded.json")
+            .Select(Path.GetFileName)
+            .ToHashSet(StringComparer.Ordinal);
 
-        var sidecar = path + ".sha256";
-        Assert.True(File.Exists(sidecar), "missing sidecar for " + fileName);
-        Assert.Equal(actual, File.ReadAllText(sidecar).Trim().ToLowerInvariant());
+        Assert.Superset(
+            new HashSet<string?>(StringComparer.Ordinal)
+            {
+                "synthetic_complete.decoded.json",
+                "synthetic_left.decoded.json",
+                "synthetic_cancelled.decoded.json",
+                "synthetic_non_mentor.decoded.json",
+                "synthetic_duplicates.decoded.json",
+                "synthetic_len_mismatch.decoded.json",
+                "synthetic_offset_oob.decoded.json",
+                "synthetic_unknown_opcode.decoded.json",
+                "synthetic_constraint_fail.decoded.json",
+                "synthetic_build_mismatch.decoded.json",
+                "synthetic_territory_duty.decoded.json",
+                "synthetic_duty_clear.decoded.json",
+                "synthetic_duty_no_clear.decoded.json",
+                "synthetic_duty_joined.decoded.json",
+            },
+            names);
     }
 
-    [Fact]
-    public void Sha256SumsAgreesWithEveryFixture()
+    [Theory]
+    [MemberData(nameof(FixtureFiles))]
+    [MemberData(nameof(DecodedFixtures))]
+    public void FixtureMatchesItsSidecarHash(string relativePath)
     {
-        var manifest = Path.Combine(Directory, "SHA256SUMS");
+        var path = Path.Combine(Directory, relativePath);
+
+        var sidecar = path + ".sha256";
+        Assert.True(File.Exists(sidecar), "missing sidecar for " + relativePath);
+        Assert.Equal(Sha256Hex(path), File.ReadAllText(sidecar).Trim().ToLowerInvariant());
+    }
+
+    [Theory]
+    [InlineData("", "*.fixture.json")]
+    [InlineData("decoded", "*.decoded.json")]
+    public void Sha256SumsAgreesWithEveryFixture(string subdirectory, string pattern)
+    {
+        var directory = Path.Combine(Directory, subdirectory);
+        var manifest = Path.Combine(directory, "SHA256SUMS");
         Assert.True(File.Exists(manifest));
 
         var recorded = File.ReadAllLines(manifest)
@@ -76,16 +129,14 @@ public sealed class FixtureIntegrityTests
             .Select(line => line.Split("  ", 2, StringSplitOptions.None))
             .ToDictionary(parts => parts[1].Trim(), parts => parts[0].Trim(), StringComparer.Ordinal);
 
-        var files = System.IO.Directory.GetFiles(Directory, "*.fixture.json");
+        var files = System.IO.Directory.GetFiles(directory, pattern);
         Assert.Equal(files.Length, recorded.Count);
 
         foreach (var path in files)
         {
             var name = Path.GetFileName(path);
             Assert.True(recorded.ContainsKey(name), "SHA256SUMS is missing " + name);
-            Assert.Equal(
-                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant(),
-                recorded[name]);
+            Assert.Equal(Sha256Hex(path), recorded[name]);
         }
     }
 
@@ -111,6 +162,42 @@ public sealed class FixtureIntegrityTests
         Assert.Equal(
             fileName.Replace(".fixture.json", string.Empty, StringComparison.Ordinal),
             fixture.FixtureId);
+    }
+
+    [Theory]
+    [MemberData(nameof(DecodedFixtures))]
+    public void DecodedFixtureLoadsAndDeclaresItselfSynthetic(string relativePath)
+    {
+        var fixture = DecodedFixtureLoader.Load(Path.Combine(Directory, relativePath));
+
+        Assert.Equal(Path.GetFileName(relativePath).Replace(".decoded.json", string.Empty, StringComparison.Ordinal),
+            fixture.FixtureId);
+
+        // A decoded fixture may only ask for one of the invented profiles. Naming a shipped
+        // one would make a file in the test tree replayable against real opcodes, which
+        // tests/Fixtures/README.md forbids.
+        Assert.Contains(fixture.ProfileId, SyntheticProfileIds);
+        Assert.NotEmpty(fixture.Messages);
+        Assert.All(fixture.Messages, message =>
+            Assert.Equal(fixture.CaptureSessionId, message.CaptureSessionId));
+    }
+
+    [Fact]
+    public void AFixtureThatDoesNotDeclareItselfSyntheticIsRefused()
+    {
+        using var temp = new TempDirectory("DecodedTamper");
+        var path = temp.Combine("fake.decoded.json");
+        var document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")));
+        var text = document.RootElement.GetRawText()
+            .Replace("\"synthetic\":true", "\"synthetic\":false", StringComparison.Ordinal)
+            .Replace("\"synthetic\": true", "\"synthetic\": false", StringComparison.Ordinal);
+        File.WriteAllText(path, text);
+        File.WriteAllText(path + ".sha256", Sha256Hex(path));
+
+        var error = Assert.Throws<InvalidDataException>(() => DecodedFixtureLoader.Load(path));
+
+        Assert.Contains("synthetic", error.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -148,23 +235,25 @@ public sealed class FixtureIntegrityTests
         }
     }
 
-    [Fact]
-    public void TamperingWithAFixtureIsDetected()
+    [Theory]
+    [InlineData("mentor_left_v1.fixture.json", "\"roulette_id\": 42", "\"roulette_id\": 43")]
+    [InlineData("decoded/synthetic_complete.decoded.json", "61441", "61442")]
+    public void TamperingWithAFixtureIsDetected(string relativePath, string original, string edited)
     {
         using var temp = new TempDirectory("FixtureTamper");
-        var source = Path.Combine(Directory, "mentor_left_v1.fixture.json");
-        var copy = temp.Combine("mentor_left_v1.fixture.json");
+        var source = Path.Combine(Directory, relativePath);
+        var copy = temp.Combine(Path.GetFileName(source));
         File.Copy(source, copy);
         File.Copy(source + ".sha256", copy + ".sha256");
 
-        File.WriteAllText(
-            copy,
-            File.ReadAllText(copy).Replace(
-                "\"roulette_id\": 42",
-                "\"roulette_id\": " + 43.ToString(CultureInfo.InvariantCulture),
-                StringComparison.Ordinal));
+        File.WriteAllText(copy, File.ReadAllText(copy).Replace(original, edited, StringComparison.Ordinal));
 
-        var error = Assert.Throws<InvalidDataException>(() => ReplayFixtureLoader.Load(copy));
+        var decoded = relativePath.EndsWith(".decoded.json", StringComparison.Ordinal);
+        var error = Assert.Throws<InvalidDataException>(() =>
+            decoded ? DecodedFixtureLoader.Load(copy).Sha256 : ReplayFixtureLoader.Load(copy).Sha256);
         Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
     }
+
+    private static string Sha256Hex(string path) =>
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 }

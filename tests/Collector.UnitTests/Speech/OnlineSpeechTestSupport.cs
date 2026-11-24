@@ -32,6 +32,18 @@ internal sealed class FakeSpeechTransport
 
     public static SpeechTransportResponse Status(SpeechHttpRequest request, int status, string body = "") =>
         new(status, request.Uri, "text/plain", null, new MemoryStream(Encoding.UTF8.GetBytes(body)));
+
+    /// <summary>An audio/wav answer from the address asked, with this body, declared length and status.</summary>
+    public static SpeechTransportResponse Body(
+        SpeechHttpRequest request, Stream body, long? declaredLength = null, int status = 200) =>
+        new(status, request.Uri, "audio/wav", declaredLength, body);
+
+    /// <summary>A transport that never answers: every request waits until it is cancelled.</summary>
+    public static FakeSpeechTransport NeverAnswers() => new(async (request, token) =>
+    {
+        await Task.Delay(Timeout.Infinite, token);
+        return Wav(request);
+    });
 }
 
 internal static class SpeechFixtures

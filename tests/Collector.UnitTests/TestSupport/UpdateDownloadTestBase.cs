@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -51,6 +49,9 @@ public abstract class UpdateDownloadTestBase : IDisposable
     /// <summary>The Collector's data directory, under <see cref="Root"/>.</summary>
     protected string DataDirectory { get; }
 
+    /// <summary>The settings store every service of the test shares; nothing is in it until a test writes it.</summary>
+    protected SettingsRepository Settings => _settings;
+
     /// <summary>The update check behind the service <see cref="Service"/> made last.</summary>
     protected UpdateCheckService LastCheck => _checks[^1];
 
@@ -97,8 +98,12 @@ public abstract class UpdateDownloadTestBase : IDisposable
         _root.Dispose();
     }
 
+    /// <summary>An update check over the test's settings and clock, with no jitter. The caller disposes it.</summary>
+    protected UpdateCheckService CheckService(UpdateCheckClient client, string local = Local) =>
+        new(_settings, client, local, _database.Clock, () => TimeSpan.Zero);
+
     protected UpdateDownloadService Service(
-        Transport transport,
+        UpdateTransport transport,
         string? latest = Published,
         string local = Local,
         bool enabled = true,
@@ -111,7 +116,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
         }
 
         var client = new UpdateCheckClient(transport.Send, TimeSpan.FromSeconds(5), environment ?? (_ => null));
-        var check = new UpdateCheckService(_settings, client, local, _database.Clock, () => TimeSpan.Zero);
+        var check = CheckService(client, local);
         check.ApplySetting(enabled);
         var files = new UpdateDownloadFiles(DataDirectory);
         var service = new UpdateDownloadService(check, client, files, _database.Clock, () => _log, limits ?? Limits());
@@ -130,6 +135,28 @@ public abstract class UpdateDownloadTestBase : IDisposable
         }
 
         return service.Snapshot();
+    }
+
+    /// <summary>Starts a download and waits for it; for tests that do not look at what <c>Start</c> answered.</summary>
+    protected static async Task<UpdateDownloadSnapshot> StartAndSettleAsync(UpdateDownloadService service)
+    {
+        service.Start();
+        return await SettleAsync(service);
+    }
+
+    /// <summary>
+    /// Starts a download whose installer body serves <paramref name="prefix"/> bytes and then stalls, and returns once
+    /// some of it has arrived.
+    /// </summary>
+    private protected async Task<(UpdateDownloadService Service, UpdateTransport Transport, StallingStream Body)>
+        StartStalledAsync(int prefix = 20_000)
+    {
+        var body = new StallingStream(Installer[..prefix]);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: body);
+        var service = Service(transport);
+        service.Start();
+        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        return (service, transport, body);
     }
 
     /// <summary>The shipping limits, but with no start interval unless one is given.</summary>
@@ -256,104 +283,17 @@ public abstract class UpdateDownloadTestBase : IDisposable
         return bytes;
     }
 
-    protected static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    protected static string Sha(byte[] bytes) => UpdateTransport.Sha(bytes);
 
-    protected static Uri ChecksumUri(string version) => new(UpdateCheckClient.ChecksumUrl(version)!, UriKind.Absolute);
+    protected static Uri ChecksumUri(string version) => UpdateTransport.ChecksumUri(version);
 
-    protected static Uri InstallerUri(string version) => new(UpdateCheckClient.InstallerUrl(version)!, UriKind.Absolute);
+    protected static Uri InstallerUri(string version) => UpdateTransport.InstallerUri(version);
 
-    /// <summary>Answers by address, 404 for anything it was not told about, and records every request.</summary>
-    protected sealed class Transport
-    {
-        private readonly Dictionary<string, Func<Uri, CancellationToken, Task<UpdateTransportResponse>>> _routes =
-            new(StringComparer.Ordinal);
+    /// <summary>The installer's file name for <see cref="Published"/>.</summary>
+    protected static string InstallerFile => "MentorRecorder-" + Published + "-setup.exe";
 
-        private readonly List<Uri> _requests = new();
-
-        public IReadOnlyList<Uri> Requests
-        {
-            get
-            {
-                lock (_requests)
-                {
-                    return _requests.ToArray();
-                }
-            }
-        }
-
-        public static UpdateTransportResponse Status(Uri uri, int status) => new(status, uri, null, 0, new MemoryStream());
-
-        public static UpdateTransportResponse Redirect(Uri uri, Uri location) =>
-            new(302, uri, location, 0, new MemoryStream());
-
-        public Transport On(Uri uri, Func<Uri, CancellationToken, Task<UpdateTransportResponse>> respond)
-        {
-            lock (_routes)
-            {
-                _routes[uri.AbsoluteUri] = respond;
-            }
-
-            return this;
-        }
-
-        /// <summary>
-        /// Publishes a version: its checksum and its installer. <paramref name="onChecksum"/> runs while the checksum
-        /// is being asked for - after <c>updates</c> was prepared and cleared, before anything is written into it.
-        /// </summary>
-        public Transport Publish(
-            string version,
-            byte[] installer,
-            string? checksum = null,
-            Stream? body = null,
-            bool declareLength = true,
-            long? declaredLength = null,
-            TaskCompletionSource? gate = null,
-            Func<Task>? onChecksum = null)
-        {
-            var sidecar = Encoding.ASCII.GetBytes(
-                (checksum ?? Sha(installer)) + (checksum is null ? "  MentorRecorder-" + version + "-setup.exe\r\n" : string.Empty));
-            On(ChecksumUri(version), async (uri, _) =>
-            {
-                if (onChecksum is not null)
-                {
-                    await onChecksum().ConfigureAwait(false);
-                }
-
-                return new UpdateTransportResponse(200, uri, null, sidecar.Length, new MemoryStream(sidecar));
-            });
-            On(InstallerUri(version), async (uri, token) =>
-            {
-                if (gate is not null)
-                {
-                    await gate.Task.WaitAsync(token).ConfigureAwait(false);
-                }
-
-                return new UpdateTransportResponse(
-                    200,
-                    uri,
-                    null,
-                    declaredLength ?? (declareLength ? installer.Length : null),
-                    body ?? new MemoryStream(installer));
-            });
-            return this;
-        }
-
-        public Task<UpdateTransportResponse> Send(Uri uri, CancellationToken cancellationToken)
-        {
-            lock (_requests)
-            {
-                _requests.Add(uri);
-            }
-
-            Func<Uri, CancellationToken, Task<UpdateTransportResponse>>? respond;
-            lock (_routes)
-            {
-                _routes.TryGetValue(uri.AbsoluteUri, out respond);
-            }
-
-            return respond is null ? Task.FromResult(Status(uri, 404)) : respond(uri, cancellationToken);
-        }
-    }
+    /// <summary>Where the GitCode mirror serves <paramref name="file"/> of <see cref="Published"/>.</summary>
+    protected static Uri MirrorUri(string file) => UpdateCheckClient.GitCodeAssetUri(Published, file);
 
     /// <summary>Serves its bytes in fixed chunks and counts how many were taken.</summary>
     private protected sealed class CountingStream(byte[] content) : AsyncOnlyStream

@@ -29,8 +29,7 @@ public sealed class CandidateObserverTests
         using var db = new TestDatabase();
         var candidate = Profile();
         var selections = 0;
-        var normal = new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed,
-            null, Region.Cn, "test-build", "test");
+        var normal = Unsupported();
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
             _ => normal, _ => { selections++; return candidate; });
         pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "test-build" });
@@ -55,8 +54,7 @@ public sealed class CandidateObserverTests
     {
         using var db = new TestDatabase();
         var candidate = Profile();
-        var normal = new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed,
-            null, Region.Unknown, null, "test");
+        var normal = Unsupported(Region.Unknown, null);
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
             _ => normal, _ => throw new InvalidOperationException("selector must not run without a build"))
         {
@@ -96,11 +94,21 @@ public sealed class CandidateObserverTests
         new("session", direction, Start.AddMilliseconds(t), TimeSpan.FromMilliseconds(t),
             0, 3, opcode, Enumerable.Repeat(fill, length).ToArray(), connection);
 
+    /// <summary>A fresh observer of the profile in session "session", and the rows it writes.</summary>
+    private static (List<CandidateObservation> Rows, CandidateObserver Observer) Observe(ProtocolProfile profile)
+    {
+        var rows = new List<CandidateObservation>();
+        return (rows, new CandidateObserver(profile, "session", rows.Add));
+    }
+
+    /// <summary>The ordinary selection the pipeline falls back to: nothing usable for the build.</summary>
+    private static ProfileSelection Unsupported(Region region = Region.Cn, string? build = "test-build") =>
+        new(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null, region, build, "test");
+
     [Fact]
     public void QueueWindowSamplesEveryOpcodeBetweenRegistrationAndTheNextZoneLoad()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
 
         observer.Accept(Raw(0x0aaa, 16, 100));                          // before the window: ignored
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound)); // registration opens it
@@ -144,8 +152,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void AFrequentCandidateStopsWritingItsOwnRowsButStaysCountedAndKeepsItsWindow()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
         var flood = CandidateObserver.MaxRowsPerHypothesis + 50;
 
         // The finder update is the frequent one here; each also writes out the window segment.
@@ -165,8 +172,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void ASampleCountNeverExceedsWhatTheLedgerAccepts()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
 
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
         var message = Raw(0x0aaa, 16, 2000);
@@ -179,8 +185,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void DutyWindowSamplesFromTheEntryBurstAfterAFinderUpdateUntilTheNextZoneLoad()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
 
         // A teleport with no finder update in the last three minutes opens nothing.
         for (var member = 1; member <= 5; member++) observer.Accept(Message(member, 1000 + member * 10));
@@ -221,8 +226,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void QueueWindowFlushesOnTimeoutOnSessionEndAndNeverCrossesConnections()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
         observer.Accept(Raw(0x0aaa, 16, 1500));
         observer.Accept(Raw(0x0aaa, 16, 1600, connection: "other-connection")); // no window there
@@ -244,8 +248,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void QueueWindowWritesASegmentAtEveryFinderMessageAndKeepsSampling()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
         observer.Accept(Raw(0x0aaa, 16, 2000));
         observer.Accept(Raw(0x0bbb, 300, 30 * 60 * 1000));            // the pop, half an hour later
@@ -272,8 +275,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void ZoneMembersAreRecordedOnlyAsPartOfABurst()
     {
-        var rows = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", rows.Add);
+        var (rows, observer) = Observe(Profile());
         // The movement packet alone, a thousand times: nothing at all reaches the ledger.
         for (var i = 0; i < 1000; i++) observer.Accept(Message(1, i * 20));
         Assert.Empty(rows);
@@ -291,19 +293,6 @@ public sealed class CandidateObserverTests
         Assert.Equal(0xf106, rows[6].Opcode);
     }
 
-    [Fact]
-    public void QueueWindowCapsDistinctKeys()
-    {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
-        observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
-        for (var i = 0; i < CandidateObserver.MaxQueueWindowKeys + 50; i++)
-            observer.Accept(Raw((ushort)(0x1000 + i), 8, 1001 + i));
-        observer.Flush();
-        Assert.Equal(CandidateObserver.MaxQueueWindowKeys,
-            observations.Count(o => o.HypothesisName == CandidateObserver.QueueWindowSampleName));
-    }
-
     /// <summary>
     /// Review finding L-12. Every queue-window sample must carry the dropped-key count.
     /// Without it a window that hit the cap is indistinguishable from a quiet one, and the
@@ -312,8 +301,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void QueueWindowSamplesCarryHowManyKeysWereDropped()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
         for (var i = 0; i < CandidateObserver.MaxQueueWindowKeys + 50; i++)
             observer.Accept(Raw((ushort)(0x1000 + i), 8, 1001 + i));
@@ -334,8 +322,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void QueueWindowSamplesReportZeroWhenNothingWasDropped()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var (observations, observer) = Observe(QueueProfile());
         observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
         observer.Accept(Raw(0x1000, 8, 1100));
         observer.Flush();
@@ -348,8 +335,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void FiveDistinctMembersWithinThreeSeconds_EmitOneAnchorWithWindow()
     {
-        var observations = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", observations.Add);
+        var (observations, observer) = Observe(Profile());
         for (var i = 1; i <= 7; i++) observer.Accept(Message(i, i * 400));
         var anchor = Assert.Single(observations, o => o.HypothesisName == "ZONE_LOAD");
         Assert.Equal(400, anchor.FirstTMs);
@@ -364,8 +350,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void RepeatedMemberDoesNotMeetThreshold_AndQuietGapStartsNewBurst()
     {
-        var rows = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", rows.Add);
+        var (rows, observer) = Observe(Profile());
         for (var i = 0; i < 10; i++) observer.Accept(Message(1, i));
         Assert.DoesNotContain(rows, o => o.HypothesisName == "ZONE_LOAD");
         for (var burst = 0; burst < 2; burst++)
@@ -376,8 +361,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void SparseRepeatedMemberBetweenClustersDoesNotSuppressNextAnchor()
     {
-        var rows = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", rows.Add);
+        var (rows, observer) = Observe(Profile());
         for (var member = 1; member <= 5; member++) observer.Accept(Message(member, member));
         for (var t = 1000; t <= 10000; t += 1000) observer.Accept(Message(1, t));
         for (var member = 2; member <= 5; member++) observer.Accept(Message(member, 10000 + member));
@@ -387,8 +371,7 @@ public sealed class CandidateObserverTests
     [Fact]
     public void ExpiredMembersAndSeparateConnectionsNeverCombine()
     {
-        var rows = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", rows.Add);
+        var (rows, observer) = Observe(Profile());
         for (var member = 1; member <= 5; member++) observer.Accept(Message(member, member * 1000));
         observer.Accept(Message(5, 5001, connection: "different"));
         observer.Accept(Message(1, 5002, session: "different"));
@@ -398,17 +381,12 @@ public sealed class CandidateObserverTests
     [Fact]
     public void WrongDirectionLengthOpcodeAndObfuscatedAreIgnored()
     {
-        var rows = new List<CandidateObservation>();
-        var observer = new CandidateObserver(Profile(), "session", rows.Add);
+        var (rows, observer) = Observe(Profile());
         observer.Accept(Message() with { Direction = MessageDirection.Outbound });
         observer.Accept(Message() with { Payload = new byte[7] });
         observer.Accept(Message() with { Opcode = 0xffff });
         Assert.Empty(rows);
-        var blocked = Profile() with { ObfuscatedOpcodes = [0xf101] };
-        // Obfuscated is a constructor-derived value, so construct the changed profile directly.
-        blocked = new ProtocolProfile(blocked.ProfileId, blocked.Region, blocked.GameBuild, Start, null,
-            blocked.Status, blocked.MatchWindow, [], [], "test", new string('0', 64), "", false, [0xf101])
-            { Hypotheses = blocked.Hypotheses };
+        var blocked = InMemoryProfiles.WithObfuscated(Profile(), 0xf101);
         new CandidateObserver(blocked, "session", rows.Add).Accept(Message());
         Assert.Empty(rows);
     }
@@ -418,8 +396,7 @@ public sealed class CandidateObserverTests
     {
         using var db = new TestDatabase();
         var candidate = Profile();
-        var normal = new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed,
-            null, Region.Cn, "test-build", "test");
+        var normal = Unsupported();
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
             _ => normal, _ => candidate);
         var rows = new List<CandidateObservation>();
@@ -447,8 +424,7 @@ public sealed class CandidateObserverTests
     {
         using var db = new TestDatabase();
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
-            _ => new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed,
-                null, Region.Cn, "test-build", "test"), _ => Profile());
+            _ => Unsupported(), _ => Profile());
         var rows = new List<CandidateObservation>();
         pipeline.CandidateObserved += rows.Add;
         pipeline.OnCaptureStarted("session");

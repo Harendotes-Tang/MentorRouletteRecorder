@@ -1,7 +1,6 @@
 using System.Text;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -15,6 +14,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// every gate <see cref="ProfileLoader"/> enforces; only <c>profile_id</c>, <c>game_build</c>
 /// and (for retention) <c>generated_at</c> change.
 /// </summary>
+[Collection(ConsoleOutputCollection.Name)]
 public sealed class CatalogMergeTests : IDisposable
 {
     private readonly TempDirectory _root = new("CatalogMerge");
@@ -89,8 +89,6 @@ public sealed class CatalogMergeTests : IDisposable
         var boundToBuild = new ProfileSelector(catalog, new FixedGameBuildSource(Region.Cn, build));
         Assert.Equal(ProfileOrigin.Local, boundToBuild.GetProfileStatus().Origin);
     }
-
-    private sealed record FixedGameBuildSource(Region Region, string? GameBuild) : IGameBuildSource;
 
     /// <summary>
     /// The critical case (review finding F-15): a shipped and a local file claim the exact
@@ -201,10 +199,6 @@ public sealed class CatalogMergeTests : IDisposable
         Assert.All(catalog.Entries, entry => Assert.Equal(ProfileOrigin.Shipped, entry.Origin));
         Assert.All(catalog.Entries, entry => Assert.False(entry.Shadowed));
         Assert.Empty(catalog.ShadowedEntries);
-
-        var usable = catalog.Entries.Where(entry => entry.Profile?.ToBinding().IsUsable == true)
-            .Select(entry => entry.Profile!.ProfileId).OrderBy(id => id, StringComparer.Ordinal).ToArray();
-        Assert.Equal(new[] { "cn.2026.08.05", "global.2026.11.03", "synthetic-cn-shape-v1", "synthetic-v1" }, usable);
     }
 
     [Fact]
@@ -313,23 +307,15 @@ public sealed class CatalogMergeTests : IDisposable
     [Fact]
     public void FindLocalRoot_HonoursMrDataDirAndIsNullUntilTheDirectoryExists()
     {
-        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
-        try
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
+        using var _ = new DataDirectoryOverride(_root.Path);
 
-            var expected = Path.Combine(Path.GetFullPath(_root.Path), ProfileCatalog.DirectoryName);
-            Assert.Equal(expected, ProfileCatalog.LocalRootPath);
-            Assert.Null(ProfileCatalog.FindLocalRoot());
+        var expected = Path.Combine(Path.GetFullPath(_root.Path), ProfileCatalog.DirectoryName);
+        Assert.Equal(expected, ProfileCatalog.LocalRootPath);
+        Assert.Null(ProfileCatalog.FindLocalRoot());
 
-            Directory.CreateDirectory(expected);
+        Directory.CreateDirectory(expected);
 
-            Assert.Equal(expected, ProfileCatalog.FindLocalRoot());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
-        }
+        Assert.Equal(expected, ProfileCatalog.FindLocalRoot());
     }
 
     /// <summary>
@@ -414,23 +400,15 @@ public sealed class CatalogMergeTests : IDisposable
     public void Rehearsal_TheDefaultCatalogueReadsTheSwitchFromTheDataDirectory()
     {
         const string build = "2026.11.03.0000.0000";
-        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
-        try
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
-            Assert.Equal(Path.Combine(Path.GetFullPath(_root.Path), CalibrationRehearsal.FileName), CalibrationRehearsal.DefaultPath);
-            Assert.Equal("global.2026.11.03",
-                new ProfileSelector(ProfileCatalog.LoadMergedDefault()).Select(Region.Global, build).Profile?.ProfileId);
+        using var _ = new DataDirectoryOverride(_root.Path);
+        Assert.Equal(Path.Combine(Path.GetFullPath(_root.Path), CalibrationRehearsal.FileName), CalibrationRehearsal.DefaultPath);
+        Assert.Equal("global.2026.11.03",
+            new ProfileSelector(ProfileCatalog.LoadMergedDefault()).Select(Region.Global, build).Profile?.ProfileId);
 
-            File.WriteAllText(CalibrationRehearsal.DefaultPath, "{\"region\":\"GLOBAL\",\"game_build\":\"" + build + "\"}");
-            var catalog = ProfileCatalog.LoadMergedDefault();
-            Assert.Equal("global.2026.11.03", Assert.Single(catalog.WithheldEntries).Report.Profile?.ProfileId);
-            var selection = new ProfileSelector(catalog).Select(Region.Global, build);
-            Assert.Equal((ProfileSelector.NoProfileMatchesReason, ProfileSelectionReason.NoMatch), (selection.Reason, selection.ReasonCode));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
-        }
+        File.WriteAllText(CalibrationRehearsal.DefaultPath, "{\"region\":\"GLOBAL\",\"game_build\":\"" + build + "\"}");
+        var catalog = ProfileCatalog.LoadMergedDefault();
+        Assert.Equal("global.2026.11.03", Assert.Single(catalog.WithheldEntries).Report.Profile?.ProfileId);
+        var selection = new ProfileSelector(catalog).Select(Region.Global, build);
+        Assert.Equal((ProfileSelector.NoProfileMatchesReason, ProfileSelectionReason.NoMatch), (selection.Reason, selection.ReasonCode));
     }
 }

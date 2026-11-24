@@ -115,6 +115,32 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
     }
 
     [Fact]
+    public void AnExplicitOverwriteIsHonoured()
+    {
+        var thesis = _directory.Combine("thesis.docx");
+        File.WriteAllText(thesis, "十年心血");
+
+        var result = NewExport().Write(Loaded(), "0.2.2", thesis, overwrite: true);
+
+        Assert.Equal(thesis, result.TargetPath);
+        Assert.NotEqual("十年心血", File.ReadAllText(thesis));
+    }
+
+    [Fact]
+    public void TheExportersOwnGeneratedNameIsStillReplacedInPlace()
+    {
+        // A report is a fresh observation each time. Two reports in the same minute resolve to
+        // the same generated name, and refusing the second would be an error the user cannot
+        // act on.
+        var export = NewExport();
+        var first = export.Write(Loaded(), "0.2.2", _directory.Path);
+        var second = export.Write(Loaded(), "0.2.2", _directory.Path);
+
+        Assert.Equal(first.TargetPath, second.TargetPath);
+        Assert.StartsWith(DiagnosticsReportExport.FileNamePrefix, Path.GetFileName(second.TargetPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RefusesANetworkDestination()
     {
         var failure = Assert.Throws<CollectorException>(

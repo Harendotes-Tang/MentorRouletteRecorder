@@ -13,16 +13,22 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
 {
     // ----------------------------------------------------------------------------------- disk
 
+    /// <summary>A folder of the test's own outside <c>updates</c>, for a link to point at.</summary>
+    private string Elsewhere()
+    {
+        var elsewhere = Path.Combine(Root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        return elsewhere;
+    }
+
     [Fact]
     public async Task AnUpdatesFolderThatIsAFileIsADiskFailureAndNothingIsSent()
     {
         await File.WriteAllTextAsync(Updates, "not a folder");
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.DiskFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.DiskFailed);
         Assert.Empty(transport.Requests);
         Assert.Equal("not a folder", await File.ReadAllTextAsync(Updates));
     }
@@ -30,8 +36,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task AnUpdatesFolderThatIsAJunctionIsRefusedAndNothingBehindItIsTouched()
     {
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
+        var elsewhere = Elsewhere();
         var bait = new[]
         {
             Path.Combine(elsewhere, "MentorRecorder-1.0.0-setup.exe.part"),
@@ -43,13 +48,11 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
         }
 
         await Junction.CreateAsync(Updates, elsewhere);
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
 
         Assert.Equal(0, service.RemoveLeftovers());
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.DiskFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.DiskFailed);
         Assert.Empty(transport.Requests);
         Assert.All(bait, path => Assert.Equal("not ours", File.ReadAllText(path)));
         Assert.Equal(2, Directory.EnumerateFiles(elsewhere).Count());
@@ -59,12 +62,10 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     public async Task AFinalNameThatCannotBeReplacedIsADiskFailureAndThePartIsRemoved()
     {
         Directory.CreateDirectory(InstallerPath());
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.DiskFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.DiskFailed);
         Assert.False(File.Exists(PartPath()));
         Assert.True(Directory.Exists(InstallerPath()));
     }
@@ -81,15 +82,13 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [InlineData(false)]
     public async Task UpdatesCannotBeSwappedForALinkWhileADownloadUsesIt(bool moveAside)
     {
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
+        var elsewhere = Elsewhere();
         var swapped = (bool?)null;
-        var transport = new Transport().Publish(
+        var transport = new UpdateTransport().Publish(
             Published, Installer, onChecksum: () => Task.FromResult(swapped = TrySwapUpdates(elsewhere, moveAside)));
         var service = Service(transport);
 
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
 
         Assert.False(swapped, "updates must stay in place while the download uses it");
         Assert.Empty(Directory.EnumerateFileSystemEntries(elsewhere));
@@ -104,11 +103,10 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task AnInstallerRemovedAfterACancelIsNeverRemovedThroughALink()
     {
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
+        var elsewhere = Elsewhere();
         var bait = Path.Combine(elsewhere, Path.GetFileName(InstallerPath()));
         await File.WriteAllTextAsync(bait, "not ours");
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
         var swapped = false;
         service.BeforeOutcome = () =>
@@ -117,8 +115,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
             swapped = TrySwapUpdates(elsewhere);
         };
 
-        service.Start();
-        await SettleAsync(service);
+        await StartAndSettleAsync(service);
 
         Assert.True(swapped, "the download has let go of updates by now, so the swap is possible");
         Assert.Equal("not ours", await File.ReadAllTextAsync(bait));
@@ -128,13 +125,11 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task AReadyInstallerGivenUpIsNeverRemovedThroughALink()
     {
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
+        var elsewhere = Elsewhere();
         var bait = Path.Combine(elsewhere, Path.GetFileName(InstallerPath()));
         await File.WriteAllTextAsync(bait, "not ours");
-        var service = Service(new Transport().Publish(Published, Installer));
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
         Assert.True(TrySwapUpdates(elsewhere));
 
         LastCheck.ApplySetting(false);
@@ -157,15 +152,14 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
         var outsideFinal = Path.Combine(Root, "outside-final.bin");
         await File.WriteAllTextAsync(outsidePart, "precious");
         await File.WriteAllTextAsync(outsideFinal, "precious");
-        var transport = new Transport().Publish(Published, Installer, onChecksum: async () =>
+        var transport = new UpdateTransport().Publish(Published, Installer, onChecksum: async () =>
         {
             await HardLink.CreateAsync(PartPath(), outsidePart);
             await HardLink.CreateAsync(InstallerPath(), outsideFinal);
         });
         var service = Service(transport);
 
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
 
         Assert.Equal(State.Ready, ready.State);
         Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
@@ -179,15 +173,12 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [InlineData(false)]
     public async Task AJunctionAtThePartOrFinalNameIsNeverWrittenThrough(bool atPart)
     {
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
-        var transport = new Transport().Publish(
+        var elsewhere = Elsewhere();
+        var transport = new UpdateTransport().Publish(
             Published, Installer, onChecksum: () => Junction.CreateAsync(atPart ? PartPath() : InstallerPath(), elsewhere));
         var service = Service(transport);
 
-        service.Start();
-
-        AssertFailed(await SettleAsync(service), Failure.DiskFailed);
+        AssertFailed(await StartAndSettleAsync(service), Failure.DiskFailed);
         Assert.Empty(Directory.EnumerateFileSystemEntries(elsewhere));
         Assert.False(File.Exists(atPart ? InstallerPath() : PartPath()));
     }
@@ -202,13 +193,12 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task APartChangedBeforeItsRenameIsNeitherReportedReadyNorKept()
     {
-        var service = Service(new Transport().Publish(Published, Installer));
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
         var tampered = (byte[])Installer.Clone();
         tampered[1234] ^= 0xFF;
         LastFiles.BeforePromote = () => File.WriteAllBytes(PartPath(), tampered);
 
-        service.Start();
-        var settled = await SettleAsync(service);
+        var settled = await StartAndSettleAsync(service);
 
         AssertFailed(settled, Failure.ChecksumMismatch);
         AssertNothingKept();
@@ -222,14 +212,13 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task AFileSomeoneElseCanStillWriteIsNotReportedReady()
     {
-        var service = Service(new Transport().Publish(Published, Installer));
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
         FileStream? writer = null;
         LastFiles.BeforePromote = () => writer = new FileStream(
             PartPath(), FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
         try
         {
-            service.Start();
-            var settled = await SettleAsync(service);
+            var settled = await StartAndSettleAsync(service);
 
             Assert.NotNull(writer);
             AssertFailed(settled, Failure.DiskFailed);
@@ -246,10 +235,9 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public async Task ReadyNamesTheChecksumOfTheFileAtItsPath()
     {
-        var service = Service(new Transport().Publish(Published, Installer));
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
 
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
 
         Assert.Equal(State.Ready, ready.State);
         Assert.Equal(Sha(await File.ReadAllBytesAsync(ready.FilePath!)), ready.Sha256);
@@ -294,7 +282,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     {
         await SeedLeftoversAsync();
         await File.WriteAllTextAsync(InstallerPath(), "the newer version, still offered");
-        var service = Service(new Transport());
+        var service = Service(new UpdateTransport());
 
         var removed = service.RemoveLeftovers();
 
@@ -310,7 +298,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     {
         await SeedLeftoversAsync();
         await File.WriteAllTextAsync(InstallerPath(), "already installed");
-        var service = Service(new Transport(), local: Published);
+        var service = Service(new UpdateTransport(), local: Published);
 
         Assert.Equal(Ours.Length + 1, service.RemoveLeftovers());
         Assert.False(File.Exists(InstallerPath()));
@@ -319,7 +307,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     [Fact]
     public void AtStartupAMissingUpdatesFolderIsNotCreated()
     {
-        var service = Service(new Transport());
+        var service = Service(new UpdateTransport());
 
         Assert.Equal(0, service.RemoveLeftovers());
         Assert.False(Directory.Exists(Updates));
@@ -334,8 +322,7 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     public async Task LeftoversCannotBeRemovedThroughAFolderSwappedMidway()
     {
         await SeedLeftoversAsync();
-        var elsewhere = Path.Combine(Root, "elsewhere");
-        Directory.CreateDirectory(elsewhere);
+        var elsewhere = Elsewhere();
         foreach (var name in Ours)
         {
             await File.WriteAllTextAsync(Path.Combine(elsewhere, name), "not ours");
@@ -356,11 +343,10 @@ public sealed class UpdateDownloadDiskTests : UpdateDownloadTestBase
     public async Task LeftoversAreRemovedWhenADownloadStarts()
     {
         await SeedLeftoversAsync();
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
 
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
 
         Assert.Equal(
             NotOurs.Append("MentorRecorder-3.0.0-setup.exe").Append("MentorRecorder-2.0.0-setup.exe")

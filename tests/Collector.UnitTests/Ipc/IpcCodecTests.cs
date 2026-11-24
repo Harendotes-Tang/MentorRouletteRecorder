@@ -6,8 +6,8 @@ using MentorRecorder.Collector.Ipc;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The wire layer: framing under partial reads, the oversize guard, envelope decoding, and
-/// the pipe name both processes have to agree on.
+/// The wire layer: framing under partial reads, the memory a receive buffer keeps, the
+/// oversize guard, envelope decoding, and the pipe name both processes have to agree on.
 /// </summary>
 public sealed class IpcCodecTests
 {
@@ -56,6 +56,44 @@ public sealed class IpcCodecTests
         Assert.Equal("{\"n\":2}", Encoding.UTF8.GetString(second));
     }
 
+    /// <summary>
+    /// A single oversized burst must not leave a per-connection buffer holding megabytes for
+    /// the rest of the connection's life (review finding L3).
+    /// </summary>
+    [Fact]
+    public void TheReceiveBufferGivesItsMemoryBackWhenItRunsDry()
+    {
+        var buffer = new FrameBuffer();
+        var body = new byte[512 * 1024];
+        buffer.Append(FrameCodec.Encode(body));
+
+        Assert.True(buffer.Capacity > FrameBuffer.InitialCapacity);
+        Assert.Equal(FrameStatus.Ok, buffer.TryTake(out var taken));
+        Assert.Equal(body.Length, taken.Length);
+        Assert.Equal(0, buffer.Buffered);
+        Assert.Equal(FrameBuffer.InitialCapacity, buffer.Capacity);
+    }
+
+    /// <summary>
+    /// The buffer only shrinks when nothing is left in it: a partially consumed stream must
+    /// keep its bytes.
+    /// </summary>
+    [Fact]
+    public void APartiallyConsumedBufferKeepsWhatIsLeft()
+    {
+        var buffer = new FrameBuffer();
+        buffer.Append(FrameCodec.Encode(new byte[256 * 1024]));
+        buffer.Append(FrameCodec.Encode(new byte[8]));
+
+        Assert.Equal(FrameStatus.Ok, buffer.TryTake(out _));
+        Assert.Equal(FrameCodec.PrefixBytes + 8, buffer.Buffered);
+        Assert.True(buffer.Capacity > FrameBuffer.InitialCapacity);
+
+        Assert.Equal(FrameStatus.Ok, buffer.TryTake(out var second));
+        Assert.Equal(8, second.Length);
+        Assert.Equal(FrameBuffer.InitialCapacity, buffer.Capacity);
+    }
+
     [Fact]
     public void TryTake_RejectsAnOversizedDeclaredLengthBeforeAllocating()
     {
@@ -94,37 +132,21 @@ public sealed class IpcCodecTests
         Assert.Empty(request.Payload);
     }
 
-    [Fact]
-    public void ParseRequest_RejectsMalformedJson()
+    /// <summary>Malformed JSON, a protocol version other than 1, and a request id that is not a UUID.</summary>
+    /// <param name="json">The envelope as sent.</param>
+    /// <param name="code">The error it is refused with.</param>
+    [Theory]
+    [InlineData("{not json", ErrorCodes.BadRequest)]
+    [InlineData("{\"protocol_version\":2,\"request_id\":\"" + ImportRequestId + "\"," +
+        "\"message_type\":\"GetVersion\",\"payload\":{}}", ErrorCodes.ProtocolVersion)]
+    [InlineData("{\"protocol_version\":1,\"request_id\":\"not-a-uuid\"," +
+        "\"message_type\":\"GetVersion\",\"payload\":{}}", ErrorCodes.BadRequest)]
+    public void ParseRequest_RefusesAnUnusableEnvelope(string json, string code)
     {
-        var error = Assert.Throws<CollectorException>(() =>
-            IpcEnvelope.ParseRequest(Encoding.UTF8.GetBytes("{not json")));
-
-        Assert.Equal(ErrorCodes.BadRequest, error.Code);
-    }
-
-    [Fact]
-    public void ParseRequest_RejectsAWrongProtocolVersion()
-    {
-        var json = $"{{\"protocol_version\":2,\"request_id\":\"{Guid.NewGuid():D}\"," +
-            "\"message_type\":\"GetVersion\",\"payload\":{}}";
-
         var error = Assert.Throws<CollectorException>(() =>
             IpcEnvelope.ParseRequest(Encoding.UTF8.GetBytes(json)));
 
-        Assert.Equal(ErrorCodes.ProtocolVersion, error.Code);
-    }
-
-    [Fact]
-    public void ParseRequest_RejectsANonUuidRequestId()
-    {
-        var json = "{\"protocol_version\":1,\"request_id\":\"not-a-uuid\"," +
-            "\"message_type\":\"GetVersion\",\"payload\":{}}";
-
-        var error = Assert.Throws<CollectorException>(() =>
-            IpcEnvelope.ParseRequest(Encoding.UTF8.GetBytes(json)));
-
-        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal(code, error.Code);
     }
 
     private const string ImportRequestId = "00000000-0000-4000-8000-000000000001";

@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Profiles;
-using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -12,6 +11,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// queue-inferred variants only turn the pop around and, for the one that must fail binding,
 /// drop the territory message.
 /// </summary>
+[Collection(ConsoleOutputCollection.Name)]
 public sealed class CatalogSharedPrecedenceTests : IDisposable
 {
     private readonly TempDirectory _root = new("CatalogShared");
@@ -58,8 +58,6 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
     }
 
     private ProfileCatalog Merge(bool allowCandidate = false) => ProfileCatalog.LoadMerged(Shipped, Local, Shared, allowCandidate);
-
-    private sealed record FixedGameBuildSource(Region Region, string? GameBuild) : IGameBuildSource;
 
     [Fact]
     public void TheFixturesHaveTheBindingsTheTestsNeed()
@@ -338,20 +336,12 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
     [Fact]
     public void TheSharedRootLivesUnderTheDataDirectory()
     {
-        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
-        try
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root.Path);
+        using var _ = new DataDirectoryOverride(_root.Path);
 
-            var expected = Path.Combine(Path.GetFullPath(_root.Path), "protocol-profiles-shared");
-            Assert.Equal(expected, ProfileCatalog.SharedRootPath);
-            Assert.Null(ProfileCatalog.FindSharedRoot());
-            Directory.CreateDirectory(expected);
-            Assert.Equal(expected, ProfileCatalog.FindSharedRoot());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
-        }
+        var expected = Path.Combine(Path.GetFullPath(_root.Path), "protocol-profiles-shared");
+        Assert.Equal(expected, ProfileCatalog.SharedRootPath);
+        Assert.Null(ProfileCatalog.FindSharedRoot());
+        Directory.CreateDirectory(expected);
+        Assert.Equal(expected, ProfileCatalog.FindSharedRoot());
     }
 }

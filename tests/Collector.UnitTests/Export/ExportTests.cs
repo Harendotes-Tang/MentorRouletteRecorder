@@ -10,7 +10,7 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// CSV and JSON export content, local destinations, and backup retention.
+/// CSV and JSON export content and local destinations.
 /// </summary>
 public sealed class ExportTests : IDisposable
 {
@@ -84,6 +84,8 @@ public sealed class ExportTests : IDisposable
 
     [Theory]
     [InlineData("plain", "plain")]
+    [InlineData("零式伊甸希望乐园", "零式伊甸希望乐园")]
+    [InlineData("", "")]
     [InlineData("has,comma", "\"has,comma\"")]
     [InlineData("has\"quote", "\"has\"\"quote\"")]
     [InlineData("has\nnewline", "\"has\nnewline\"")]
@@ -101,6 +103,80 @@ public sealed class ExportTests : IDisposable
             "\"副本, 带逗号\"",
             File.ReadAllText(outcome.TargetPath),
             StringComparison.Ordinal);
+    }
+
+    // ---- M5: CSV formula injection -------------------------------------------------
+    // A spreadsheet cell that starts a formula can destroy something the user cannot get back
+    // (review finding M5): a path the user typed is not the exporter's property, and neither is
+    // the spreadsheet the export is opened in.
+
+    [Theory]
+    [InlineData("=HYPERLINK(\"http://evil\",\"click\")")]
+    [InlineData("+1+1")]
+    [InlineData("-1+1")]
+    [InlineData("@SUM(A1)")]
+    [InlineData("\tleading tab")]
+    [InlineData("\rleading return")]
+    public void ACellThatASpreadsheetWouldExecuteIsNeutralised(string value)
+    {
+        var escaped = RunExporter.Escape(value);
+
+        Assert.StartsWith("\"'", escaped, StringComparison.Ordinal);
+        Assert.EndsWith("\"", escaped, StringComparison.Ordinal);
+
+        // The original text is still there, one quote to its right: the user must be able to
+        // read the duty name they recorded.
+        Assert.Contains(value.Replace("\"", "\"\"", StringComparison.Ordinal), escaped, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Review finding M-10. Neutralisation belongs to free-text columns only. A reflection of
+    /// <c>"+1，很顺"</c> is still made safe, but the identifier, timestamp, enum and numeric
+    /// columns are this program's own output and must round-trip unchanged.
+    /// </summary>
+    [Fact]
+    public void OnlyFreeTextColumnsAreNeutralisedInARealExport()
+    {
+        var reflections = new RunReflectionRepository(_database.Database);
+        var run = TestDatabase.Run(durationMs: 1_500_000) with
+        {
+            DutyName = "=HYPERLINK(\"http://evil\",\"click\")",
+        };
+        _database.Database.RunInTransaction(tx =>
+        {
+            _runs.Insert(run, tx);
+            reflections.Upsert(run.RunId, ReflectionMood.Good, "+1，很顺", _database.Clock.UtcNow, tx);
+        });
+
+        var path = Target("columns.csv");
+        _exporter.ExportCsv(path, null, overwrite: false);
+        var cells = SplitCsvRow(File.ReadAllLines(path)[1]);
+
+        // Free text: neutralised.
+        Assert.StartsWith("\"'=HYPERLINK", cells[4], StringComparison.Ordinal);
+        Assert.Equal("\"'+1，很顺\"", cells[15]);
+
+        // Everything else: verbatim, with no apostrophe added.
+        Assert.Equal("COMPLETED", cells[7]);
+        Assert.Equal("1500000", cells[8]);
+        Assert.Equal("MANUAL", cells[9]);
+        Assert.Equal("0", cells[10]);
+        Assert.Equal(run.RunId, cells[11]);
+        Assert.Equal("900001", cells[12]);
+        Assert.Equal("19", cells[13]);
+        Assert.All(cells.Where((_, index) => index is not 4 and not 15), cell => Assert.DoesNotContain('\'', cell));
+    }
+
+    /// <summary>
+    /// A negative duration is a number, not text: it starts with a leading minus and must not
+    /// be quoted into a string a spreadsheet reads differently from the database.
+    /// </summary>
+    [Fact]
+    public void ANumericColumnIsNeverQuotedForItsLeadingSign()
+    {
+        Assert.Equal("-5", RunExporter.Escape("-5", freeText: false));
+        Assert.Equal("2026-09-04T01:00:00.000Z", RunExporter.Escape("2026-09-04T01:00:00.000Z", freeText: false));
+        Assert.Equal("\"'-5\"", RunExporter.Escape("-5"));
     }
 
     [Fact]
@@ -240,7 +316,6 @@ public sealed class ExportTests : IDisposable
 
         Assert.Equal(expected, CsvRunIds(csv.TargetPath));
         Assert.Equal(expected, JsonRunIds(json.TargetPath));
-        Assert.Equal(earliest.RunId, CsvRunIds(csv.TargetPath)[0]);
     }
 
     /// <summary>The sort is applied with the filter, and a descending history_date is explicit too.</summary>
@@ -300,59 +375,32 @@ public sealed class ExportTests : IDisposable
         Assert.Equal("keep", File.ReadAllText(parent));
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData(" \t ")]
-    [InlineData("directory")]
-    [InlineData("file")]
-    public void BackupDatabase_ResolvesDefaultDirectoryAndExplicitFileTargets(string? targetKind)
+    /// <summary>Splits one RFC 4180 row, keeping the quotes so the escaping stays visible.</summary>
+    private static IReadOnlyList<string> SplitCsvRow(string line)
     {
-        var service = new BackupService(_database.Database, _database.Clock);
-        var fileName = BackupService.FileNameFor(_database.Clock.UtcNow);
-        var target = targetKind switch
+        var cells = new List<string>();
+        var current = new StringBuilder();
+        var quoted = false;
+        foreach (var c in line)
         {
-            "directory" => _outputDirectory.Path,
-            "file" => Target("chosen.db"),
-            _ => targetKind,
-        };
-        var expected = targetKind switch
-        {
-            "directory" => Target(fileName),
-            "file" => Target("chosen.db"),
-            _ => Path.Combine(service.DefaultDirectory, fileName),
-        };
-
-        var result = service.CreateBackup(target);
-
-        Assert.Equal(expected, result.TargetPath);
-        Assert.True(File.Exists(expected));
-        Assert.True(result.IntegrityCheckPassed);
-    }
-
-    [Fact]
-    public void BackupDatabase_WritesAVerifiedCopyAndKeepsTheNewestFourteen()
-    {
-        var service = new BackupService(_database.Database, _database.Clock);
-        var directory = service.DefaultDirectory;
-        Directory.CreateDirectory(directory);
-
-        // Sixteen stale files plus the one this call writes must leave exactly fourteen.
-        for (var index = 0; index < 16; index++)
-        {
-            File.WriteAllText(
-                Path.Combine(directory, BackupService.FileNameFor(
-                    new DateTimeOffset(2026, 1, 1, 0, 0, index, TimeSpan.Zero))),
-                "stale");
+            if (c == '"')
+            {
+                quoted = !quoted;
+                current.Append(c);
+            }
+            else if (c == ',' && !quoted)
+            {
+                cells.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
         }
 
-        var result = service.CreateBackup();
-
-        Assert.True(File.Exists(result.TargetPath));
-        Assert.True(result.ByteCount > 0);
-        Assert.Equal(
-            BackupService.RetainedBackups,
-            Directory.GetFiles(directory, BackupService.FileNamePrefix + "*.db").Length);
+        cells.Add(current.ToString());
+        return cells;
     }
 
     public void Dispose()

@@ -1,6 +1,7 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.StateMachine;
+using static MentorRecorder.Collector.UnitTests.StateMachineEvents;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -17,8 +18,9 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class MatchAnnouncedStateMachineTests
 {
     private const int Mentor = 42;
+
+    /// <summary>The territory every <see cref="StateMachineEvents.Zone"/> enters.</summary>
     private const int DutyTerritory = 800001;
-    private static readonly DateTimeOffset Start = new(2026, 9, 19, 20, 0, 0, TimeSpan.Zero);
 
     /// <summary>A queue-inferred profile: the pop is the player's own request, entries need a known duty.</summary>
     private static MentorRunStateMachine Machine() => new(
@@ -33,14 +35,8 @@ public sealed class MatchAnnouncedStateMachineTests
     /// <summary>The window a queue-inferred profile declares: a queue, not an accept timer.</summary>
     private static readonly TimeSpan CalibrationDraftQueueWindow = TimeSpan.FromMinutes(60);
 
-    private static EventKey Key(string semantic) =>
-        new("00000000-0000-4000-8000-000000000010", PacketDirection.None, "SYNTHETIC", 0, null, semantic);
-
-    private static ContentFinderPop Queue(int seconds, int roulette = Mentor) => new()
-    {
-        Key = Key("queue-" + seconds + "-" + roulette), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), RouletteId = roulette,
-    };
+    /// <summary>The player's own queue request, which this profile reads as its pop.</summary>
+    private static ContentFinderPop Queue(int seconds, int roulette = Mentor) => Pop(seconds, roulette);
 
     private static MatchAnnounced Announced(int seconds) => new()
     {
@@ -48,11 +44,8 @@ public sealed class MatchAnnouncedStateMachineTests
         Mono = TimeSpan.FromSeconds(seconds),
     };
 
-    private static ZoneInitialization Duty(int seconds) => new()
-    {
-        Key = Key("duty-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), TerritoryId = DutyTerritory, IsDutyInstance = true,
-    };
+    /// <summary>The known duty loading.</summary>
+    private static ZoneInitialization Duty(int seconds) => Zone(seconds, contentId: null);
 
     private static ZoneInitialization Town(int seconds) => new()
     {

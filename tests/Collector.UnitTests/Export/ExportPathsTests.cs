@@ -1,4 +1,3 @@
-using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Export;
@@ -9,8 +8,8 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The properties that hold the boundaries in place: an unambiguous idempotency fingerprint,
-/// a destination check that survives links, and a log that cannot carry a user name.
+/// The properties that hold the boundaries in place: an unambiguous idempotency fingerprint
+/// and a destination check that survives links.
 /// </summary>
 public sealed class ExportPathsTests
 {
@@ -83,70 +82,6 @@ public sealed class ExportPathsTests
         var error = Assert.Throws<CollectorException>(() => service.CreateManualRun(Command("A", "BC")));
         Assert.Equal(ErrorCodes.IdempotencyConflict, error.Code);
         Assert.Equal("idempotency", error.Details!["conflict"]);
-    }
-
-    [Fact]
-    public void Sanitize_RedactsAnyUsersProfileFolderNotJustTheCurrentOne()
-    {
-        var text = @"failed to open C:\Users\SomebodyElse\Documents\notes.txt";
-
-        var sanitized = RotatingFileLogger.Sanitize(text);
-
-        Assert.DoesNotContain("SomebodyElse", sanitized, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("%USERPROFILE%", sanitized, StringComparison.Ordinal);
-        Assert.Contains(@"\Documents\notes.txt", sanitized, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Sanitize_RedactsTheCurrentUsersProfileFolder()
-    {
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        Assert.False(string.IsNullOrEmpty(profile), "Windows always has a user profile");
-
-        var sanitized = RotatingFileLogger.Sanitize(profile + @"\AppData\Local\x.db");
-
-        Assert.StartsWith("%USERPROFILE%", sanitized, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Sanitize_LeavesTextWithoutAProfilePathAlone() =>
-        Assert.Equal("queue depth 12 of 4096", RotatingFileLogger.Sanitize("queue depth 12 of 4096"));
-
-    [Fact]
-    public void Logger_WritesNoPayloadAndNoUserName()
-    {
-        using var temp = TempDirectory.Reserve("LogTests");
-        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(temp.Path, clock);
-
-        logger.Write(LogLevel.Info, "ipc", "connection_accepted", new Dictionary<string, object?>
-        {
-            ["count"] = 3,
-            ["path"] = @"C:\Users\SomebodyElse\AppData\Local\MentorRecorder\x.db",
-        });
-
-        var line = File.ReadAllText(logger.CurrentPath);
-        Assert.Contains("\"event\":\"connection_accepted\"", line, StringComparison.Ordinal);
-        Assert.Contains("\"ts\":\"2026-09-04T07:00:00.000Z\"", line, StringComparison.Ordinal);
-        Assert.DoesNotContain("SomebodyElse", line, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Logger_DeletesDaysThatHaveAgedOut()
-    {
-        using var temp = new TempDirectory("LogTests");
-        var stale = temp.Combine("collector-20260101.log");
-        var recent = temp.Combine("collector-20260903.log");
-        File.WriteAllText(stale, "old\n");
-        File.WriteAllText(recent, "yesterday\n");
-
-        var clock = new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero));
-        using var logger = new RotatingFileLogger(temp.Path, clock);
-        logger.Write(LogLevel.Info, "startup", "database_ready");
-
-        Assert.False(File.Exists(stale), "a log from eight months ago should have been pruned");
-        Assert.True(File.Exists(recent), "yesterday's log is still within the retention window");
-        Assert.True(File.Exists(logger.CurrentPath));
     }
 
     [SymbolicLinkFact]
@@ -254,22 +189,5 @@ public sealed class ExportPathsTests
     {
         var error = Assert.Throws<CollectorException>(() => ExportPaths.Resolve(path));
         Assert.Equal(ErrorCodes.ExportFailed, error.Code);
-    }
-}
-
-/// <summary>权限不足时由 xUnit 明确记录跳过，避免未执行链接断言却显示通过。</summary>
-public sealed class SymbolicLinkFactAttribute : FactAttribute
-{
-    public SymbolicLinkFactAttribute()
-    {
-        using var root = new TempDirectory("LinkCapability");
-        try
-        {
-            Directory.CreateSymbolicLink(root.Combine("link"), root.Path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Skip = "当前 Windows 环境没有创建符号链接的权限。";
-        }
     }
 }

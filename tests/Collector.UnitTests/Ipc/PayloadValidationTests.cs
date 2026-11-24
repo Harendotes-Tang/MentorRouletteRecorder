@@ -57,6 +57,35 @@ public sealed class PayloadValidationTests
         Assert.Equal("payload.surprise", error.Field);
     }
 
+    /// <summary>
+    /// An array field caps how many elements it takes; it must cap how long each one is too,
+    /// or sixteen elements of a megabyte each are a legal request (review finding L4).
+    /// </summary>
+    [Fact]
+    public void AnArrayElementLongerThanTheCapIsRefused()
+    {
+        var payload = new JsonObject
+        {
+            ["event_types"] = new JsonArray(new string('x', 200)),
+        };
+
+        var error = Assert.Throws<CollectorException>(
+            () => new PayloadReader(payload).StringArray("event_types", 16, maxLength: 64));
+
+        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal("payload.event_types", error.Field);
+    }
+
+    [Fact]
+    public void AnArrayElementInsideTheCapIsAccepted()
+    {
+        var payload = new JsonObject { ["event_types"] = new JsonArray("RunStarted", "Heartbeat") };
+
+        var values = new PayloadReader(payload).StringArray("event_types", 16, maxLength: 64);
+
+        Assert.Equal(new[] { "RunStarted", "Heartbeat" }, values);
+    }
+
     [Fact]
     public void WrongJsonType_IsRefusedRatherThanCoerced()
     {

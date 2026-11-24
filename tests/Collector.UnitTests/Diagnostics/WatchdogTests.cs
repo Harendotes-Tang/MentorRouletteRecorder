@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using MentorRecorder.Collector.Diagnostics;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The parent-process watchdog, and the command-line switch that turns it on.
+/// The parent-process watchdog. The command-line switches that turn it on are parsed in
+/// <see cref="CommandLineOptionsTests"/>.
 ///
 /// It covers one failure the Desktop cannot handle itself: being killed outright. A
 /// <c>Stop-Process -Force</c> runs none of the Desktop's shutdown code, so the Collector it
@@ -22,29 +24,24 @@ public sealed class WatchdogTests : IDisposable
     public async Task ALiveParentIsLeftAloneAndADeadOneStopsTheCollector()
     {
         var parent = StartIdleHelper();
-        var stops = 0;
-        using var watchdog = new ParentProcessWatchdog(
-            parent.Id,
-            requestStop: () => Interlocked.Increment(ref stops),
-            hardExitDelay: TimeSpan.FromMinutes(5),
-            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+        var stops = new StrongBox<int>();
+        using var watchdog = Watch(parent.Id, stops);
 
         watchdog.Start();
 
         // While the parent lives the Collector must not be stopped: an early stop is worse
         // than no watchdog at all.
         await Task.Delay(TimeSpan.FromSeconds(1));
-        Assert.Equal(0, Volatile.Read(ref stops));
+        Assert.Equal(0, Volatile.Read(ref stops.Value));
         Assert.False(watchdog.ParentExited);
 
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
 
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
 
         Assert.True(watchdog.ParentExited);
         Assert.False(watchdog.Unobservable);
-        Assert.Equal(1, Volatile.Read(ref stops));
+        Assert.Equal(1, Volatile.Read(ref stops.Value));
     }
 
     [Fact]
@@ -54,21 +51,16 @@ public sealed class WatchdogTests : IDisposable
         // enough to look, so a watch that starts late must still notice.
         var parent = StartIdleHelper();
         var deadPid = parent.Id;
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
 
-        var stops = 0;
-        using var watchdog = new ParentProcessWatchdog(
-            deadPid,
-            requestStop: () => Interlocked.Increment(ref stops),
-            hardExitDelay: TimeSpan.FromMinutes(5),
-            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+        var stops = new StrongBox<int>();
+        using var watchdog = Watch(deadPid, stops);
 
         watchdog.Start();
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
 
         Assert.True(watchdog.ParentExited);
-        Assert.Equal(1, Volatile.Read(ref stops));
+        Assert.Equal(1, Volatile.Read(ref stops.Value));
     }
 
     [Fact]
@@ -78,8 +70,7 @@ public sealed class WatchdogTests : IDisposable
         // gone. No Collector may outlive its Desktop, so the fallback is unconditional.
         var parent = StartIdleHelper();
         var deadPid = parent.Id;
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
 
         using var exited = new SemaphoreSlim(0);
         var exitCode = -1;
@@ -123,52 +114,16 @@ public sealed class WatchdogTests : IDisposable
         watchdog.Start();
         watchdog.Dispose();
 
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
         await Task.Delay(TimeSpan.FromSeconds(1));
 
         Assert.Equal(0, Volatile.Read(ref stops));
         Assert.False(watchdog.ParentExited);
     }
 
-    // ----------------------------------------------------------------- the switch ----
-
     [Fact]
-    public void ServeAcceptsAParentPidAndEveryOtherModeRefusesIt()
-    {
-        var options = CommandLineOptions.Parse(new[] { "--serve", "--db", "x.db", "--parent-pid", "4242" });
-        Assert.Equal(CollectorMode.Serve, options.Mode);
-        Assert.Equal(4242, options.ParentProcessId);
-
-        // Omitted means "answer to nobody", which is what a Collector started by hand does.
-        Assert.Null(CommandLineOptions.Parse(new[] { "--serve" }).ParentProcessId);
-
-        // A one-shot mode that accepted the switch would let a caller believe it was being
-        // supervised when there is nothing to supervise.
-        Assert.Throws<FormatException>(
-            () => CommandLineOptions.Parse(new[] { "--version", "--parent-pid", "4242" }));
-        Assert.Throws<FormatException>(
-            () => CommandLineOptions.Parse(new[] { "--capture-doctor", "--parent-pid", "4242" }));
-    }
-
-    [Theory]
-    [InlineData("0")]
-    [InlineData("-1")]
-    [InlineData("not-a-pid")]
-    [InlineData("99999999999999999999")]
-    public void AProcessIdThatCouldNotBeOneIsRefused(string value)
-    {
-        Assert.Throws<FormatException>(
-            () => CommandLineOptions.Parse(new[] { "--serve", "--parent-pid", value }));
-    }
-
-    [Fact]
-    public void AMissingProcessIdIsRefusedRatherThanTreatedAsZero()
-    {
-        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--serve", "--parent-pid" }));
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ParentProcessWatchdog(0, () => { }));
-    }
+    public void AParentIdOfZeroIsRefused() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ParentProcessWatchdog(0, () => { }));
 
     // ------------------------------------------------------------ parent identity ----
     // Parent identity in the watchdog: the process bearing the parent id must be the process the
@@ -180,62 +135,18 @@ public sealed class WatchdogTests : IDisposable
     // take no action at all (review finding M8).
 
     [Fact]
-    public void TheStartTimeIsAcceptedAsTicksAndAsAnIsoTimestamp()
-    {
-        var ticks = new DateTimeOffset(2026, 9, 8, 10, 0, 0, TimeSpan.Zero).UtcTicks;
-        var byTicks = CommandLineOptions.Parse(
-            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", ticks.ToString() });
-        Assert.Equal(ticks, byTicks.ParentStartTime!.Value.UtcTicks);
-
-        var byText = CommandLineOptions.Parse(
-            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", "2026-09-08T10:00:00.000Z" });
-        Assert.Equal(ticks, byText.ParentStartTime!.Value.UtcTicks);
-    }
-
-    [Fact]
-    public void OmittingTheStartTimeStaysBackwardCompatible()
-    {
-        var options = CommandLineOptions.Parse(new[] { "--serve", "--parent-pid", "1234" });
-
-        Assert.Equal(1234, options.ParentProcessId);
-        Assert.Null(options.ParentStartTime);
-    }
-
-    [Theory]
-    [InlineData("not-a-time")]
-    [InlineData("-1")]
-    [InlineData("")]
-    public void AnUnreadableStartTimeIsRefused(string value)
-    {
-        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(
-            new[] { "--serve", "--parent-pid", "1234", "--parent-start-time", value }));
-    }
-
-    [Fact]
-    public void TheStartTimeWithoutAParentIdIsRefused()
-    {
-        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(
-            new[] { "--serve", "--parent-start-time", "2026-09-08T10:00:00.000Z" }));
-    }
-
-    [Fact]
     public async Task AMismatchedStartTimeIsTreatedAsAnUnobservableParent()
     {
         var parent = StartIdleHelper();
-        var stops = 0;
-        using var watchdog = new ParentProcessWatchdog(
-            parent.Id,
-            requestStop: () => Interlocked.Increment(ref stops),
-            parentStartTime: new DateTimeOffset(2001, 1, 1, 0, 0, 0, TimeSpan.Zero),
-            hardExitDelay: TimeSpan.FromMinutes(5),
-            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+        var stops = new StrongBox<int>();
+        using var watchdog = Watch(parent.Id, stops, new DateTimeOffset(2001, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
         watchdog.Start();
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
 
         Assert.True(watchdog.Unobservable);
         Assert.False(watchdog.ParentExited);
-        Assert.Equal(0, Volatile.Read(ref stops));
+        Assert.Equal(0, Volatile.Read(ref stops.Value));
     }
 
     /// <summary>
@@ -260,51 +171,71 @@ public sealed class WatchdogTests : IDisposable
     }
 
     /// <summary>
-    /// The same instant stated in UTC, the form <c>--parent-start-time</c> carries, still
-    /// matches the running process.
+    /// Inside a daylight-saving fall-back one local reading stands for two instants an hour
+    /// apart, and every conversion back to UTC picks standard time. A parent started during the
+    /// daylight half of that hour then reads an hour late, the tolerance rejects it, and the
+    /// watchdog stops watching, leaving the orphaned Collector it exists to prevent
+    /// (review findings L-5 and R-12).
     /// </summary>
     [Fact]
-    public async Task AStartTimeStatedInUtcMatchesTheSameRunningProcess()
+    public void AParentStartedInsideARepeatedHourIsStillRecognised()
     {
-        var parent = StartIdleHelper();
-        var stops = 0;
-        using var watchdog = new ParentProcessWatchdog(
-            parent.Id,
-            requestStop: () => Interlocked.Increment(ref stops),
-            parentStartTime: ParentProcessWatchdog.ToUtcInstant(parent.StartTime),
-            hardExitDelay: TimeSpan.FromMinutes(5),
-            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+        var zone = FallBackZone();
+        var wall = new DateTime(2026, 11, 1, 1, 30, 0, DateTimeKind.Unspecified);
+        Assert.True(zone.IsAmbiguousTime(wall));
 
-        watchdog.Start();
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
-        await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        var candidates = ParentProcessWatchdog.CandidateInstants(wall, zone);
+        Assert.Equal(2, candidates.Count);
+        Assert.Equal(TimeSpan.FromHours(1), (candidates[0] - candidates[1]).Duration());
 
-        Assert.False(watchdog.Unobservable);
-        Assert.True(watchdog.ParentExited);
-        Assert.Equal(1, Volatile.Read(ref stops));
+        foreach (var candidate in candidates)
+        {
+            Assert.True(
+                ParentProcessWatchdog.StartTimeMatches(wall, candidate, zone),
+                "both readings of the repeated hour are the same process");
+        }
+
+        // A genuinely different instant is still a mismatch, so recycling detection stands.
+        Assert.False(ParentProcessWatchdog.StartTimeMatches(wall, candidates[0].AddHours(3), zone));
     }
 
+    /// <summary>An unambiguous reading resolves to exactly one instant.</summary>
     [Fact]
-    public async Task AMatchingStartTimeWatchesTheParentAsBefore()
+    public void AnOrdinaryStartTimeHasOneCandidateInstant()
+    {
+        var zone = FallBackZone();
+        var wall = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Unspecified);
+
+        var candidate = Assert.Single(ParentProcessWatchdog.CandidateInstants(wall, zone));
+
+        Assert.Equal(new DateTimeOffset(wall, TimeSpan.FromHours(-4)).ToUniversalTime(), candidate);
+        Assert.False(ParentProcessWatchdog.StartTimeMatches(wall, candidate.AddMinutes(5), zone));
+    }
+
+    /// <summary>
+    /// The start time matches the same running process whether it is stated in UTC, the form
+    /// <c>--parent-start-time</c> carries, or as the local reading.
+    /// </summary>
+    /// <param name="statedInUtc">Whether the start time is given as a UTC instant.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AStartTimeMatchingTheRunningProcessWatchesTheParent(bool statedInUtc)
     {
         var parent = StartIdleHelper();
-        var stops = 0;
-        using var watchdog = new ParentProcessWatchdog(
-            parent.Id,
-            requestStop: () => Interlocked.Increment(ref stops),
-            parentStartTime: new DateTimeOffset(parent.StartTime),
-            hardExitDelay: TimeSpan.FromMinutes(5),
-            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+        var stops = new StrongBox<int>();
+        var startTime = statedInUtc
+            ? ParentProcessWatchdog.ToUtcInstant(parent.StartTime)
+            : new DateTimeOffset(parent.StartTime);
+        using var watchdog = Watch(parent.Id, stops, startTime);
 
         watchdog.Start();
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
 
         Assert.False(watchdog.Unobservable);
         Assert.True(watchdog.ParentExited);
-        Assert.Equal(1, Volatile.Read(ref stops));
+        Assert.Equal(1, Volatile.Read(ref stops.Value));
     }
 
     [Fact]
@@ -315,6 +246,7 @@ public sealed class WatchdogTests : IDisposable
         // hung and the process was cut short.
         var parent = StartIdleHelper();
         var codes = new List<int>();
+        using var fired = new SemaphoreSlim(0);
         using var watchdog = new ParentProcessWatchdog(
             parent.Id,
             requestStop: () => { },
@@ -325,29 +257,19 @@ public sealed class WatchdogTests : IDisposable
                 {
                     codes.Add(code);
                 }
+
+                fired.Release();
             });
 
         watchdog.Start();
-        parent.Kill(entireProcessTree: true);
-        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
+        await KillAsync(parent);
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
         // The hard exit runs on a timer after the wait above returns. A fixed 500 ms was enough on an
         // idle machine and not under the full suite (it failed the 1.2.4 packaging gate once), so the
         // callback is waited for, and then given time to prove it does not fire twice.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
-        while (DateTime.UtcNow < deadline)
-        {
-            lock (codes)
-            {
-                if (codes.Count > 0)
-                {
-                    break;
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-        }
-
+        Assert.True(
+            await fired.WaitAsync(TimeSpan.FromSeconds(15)),
+            "the hard exit never fired after the graceful stop failed to finish");
         await Task.Delay(TimeSpan.FromMilliseconds(200));
 
         lock (codes)
@@ -356,6 +278,23 @@ public sealed class WatchdogTests : IDisposable
             Assert.Equal(ParentProcessWatchdog.HardExitCode, codes[0]);
             Assert.NotEqual(0, codes[0]);
         }
+    }
+
+    /// <summary>A watchdog with a five-minute hard exit that must not fire; each stop request is counted.</summary>
+    private static ParentProcessWatchdog Watch(
+        int parentId, StrongBox<int> stops, DateTimeOffset? parentStartTime = null) =>
+        new(
+            parentId,
+            requestStop: () => Interlocked.Increment(ref stops.Value),
+            parentStartTime: parentStartTime,
+            hardExitDelay: TimeSpan.FromMinutes(5),
+            hardExit: _ => throw new InvalidOperationException("the hard exit must not fire here"));
+
+    /// <summary>Kills a helper and waits until it is gone.</summary>
+    private static async Task KillAsync(Process parent)
+    {
+        parent.Kill(entireProcessTree: true);
+        await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
     }
 
     /// <summary>
@@ -382,6 +321,25 @@ public sealed class WatchdogTests : IDisposable
         _helpers.Add(helper);
         return helper;
     }
+
+    /// <summary>A zone with an ordinary northern-hemisphere fall-back, declared rather than read.</summary>
+    private static TimeZoneInfo FallBackZone() => TimeZoneInfo.CreateCustomTimeZone(
+        "MentorRecorder.Test",
+        TimeSpan.FromHours(-5),
+        "MentorRecorder Test",
+        "MR Standard",
+        "MR Daylight",
+        new[]
+        {
+            TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+                DateTime.MinValue.Date,
+                DateTime.MaxValue.Date,
+                TimeSpan.FromHours(1),
+                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+                    new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday),
+                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+                    new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday)),
+        });
 
     public void Dispose()
     {

@@ -9,9 +9,8 @@ using MentorRecorder.Collector.Storage;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// Lifecycle regressions from the second adversarial review: database busy budgets, the
-/// single-instance pipe gate, the pid file, the stop event, the parent watchdog and subsystem
-/// disposal.
+/// The Collector process's lifecycle, from the second adversarial review: database busy
+/// budgets, the single-instance pipe gate, the pid file, the stop event and subsystem disposal.
 /// </summary>
 public sealed class ProgramLifecycleTests
 {
@@ -183,48 +182,6 @@ public sealed class ProgramLifecycleTests
     }
 
     /// <summary>
-    /// Inside a daylight-saving fall-back one local reading stands for two instants an hour
-    /// apart, and every conversion back to UTC picks standard time. A parent started during the
-    /// daylight half of that hour then reads an hour late, the tolerance rejects it, and the
-    /// watchdog stops watching, leaving the orphaned Collector it exists to prevent
-    /// (review findings L-5 and R-12).
-    /// </summary>
-    [Fact]
-    public void AParentStartedInsideARepeatedHourIsStillRecognised()
-    {
-        var zone = FallBackZone();
-        var wall = new DateTime(2026, 11, 1, 1, 30, 0, DateTimeKind.Unspecified);
-        Assert.True(zone.IsAmbiguousTime(wall));
-
-        var candidates = ParentProcessWatchdog.CandidateInstants(wall, zone);
-        Assert.Equal(2, candidates.Count);
-        Assert.Equal(TimeSpan.FromHours(1), (candidates[0] - candidates[1]).Duration());
-
-        foreach (var candidate in candidates)
-        {
-            Assert.True(
-                ParentProcessWatchdog.StartTimeMatches(wall, candidate, zone),
-                "both readings of the repeated hour are the same process");
-        }
-
-        // A genuinely different instant is still a mismatch, so recycling detection stands.
-        Assert.False(ParentProcessWatchdog.StartTimeMatches(wall, candidates[0].AddHours(3), zone));
-    }
-
-    /// <summary>An unambiguous reading resolves to exactly one instant.</summary>
-    [Fact]
-    public void AnOrdinaryStartTimeHasOneCandidateInstant()
-    {
-        var zone = FallBackZone();
-        var wall = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Unspecified);
-
-        var candidate = Assert.Single(ParentProcessWatchdog.CandidateInstants(wall, zone));
-
-        Assert.Equal(new DateTimeOffset(wall, TimeSpan.FromHours(-4)).ToUniversalTime(), candidate);
-        Assert.False(ParentProcessWatchdog.StartTimeMatches(wall, candidate.AddMinutes(5), zone));
-    }
-
-    /// <summary>
     /// Validation and capture must not share one try: a validation controller that throws on
     /// the way out would take the capture lease and the capture source with it, the same leak
     /// as review finding L-3 one layer down (review finding R-15).
@@ -317,23 +274,4 @@ public sealed class ProgramLifecycleTests
 
     private static string TestPipeName() =>
         "MentorRecorder.test-" + Guid.NewGuid().ToString("N") + ".v1";
-
-    /// <summary>A zone with an ordinary northern-hemisphere fall-back, declared rather than read.</summary>
-    private static TimeZoneInfo FallBackZone() => TimeZoneInfo.CreateCustomTimeZone(
-        "MentorRecorder.Test",
-        TimeSpan.FromHours(-5),
-        "MentorRecorder Test",
-        "MR Standard",
-        "MR Daylight",
-        new[]
-        {
-            TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
-                DateTime.MinValue.Date,
-                DateTime.MaxValue.Date,
-                TimeSpan.FromHours(1),
-                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
-                    new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday),
-                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
-                    new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday)),
-        });
 }

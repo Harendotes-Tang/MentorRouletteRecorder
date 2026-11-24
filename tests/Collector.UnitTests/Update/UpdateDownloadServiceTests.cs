@@ -16,7 +16,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public async Task ADownloadIsAnsweredAtOnceAndEndsReadyWithTheVerifiedInstaller()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new Transport().Publish(Published, Installer, gate: gate);
+        var transport = new UpdateTransport().Publish(Published, Installer, gate: gate);
         var service = Service(transport);
 
         var answer = service.Start();
@@ -46,11 +46,10 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task AnInstallerWithoutADeclaredLengthIsKeptAndHasNoTotal()
     {
-        var transport = new Transport().Publish(Published, Installer, declareLength: false);
+        var transport = new UpdateTransport().Publish(Published, Installer, declareLength: false);
         var service = Service(transport);
 
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
 
         Assert.Equal(State.Ready, ready.State);
         Assert.Null(ready.TotalBytes);
@@ -61,7 +60,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public async Task ReceivedBytesGrowWhileDownloading()
     {
         var body = new StallingStream(Installer[..50_000]);
-        var transport = new Transport().Publish(Published, Installer, body: body);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: body);
         var service = Service(transport);
 
         service.Start();
@@ -81,11 +80,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task CancelStopsARunningDownloadAndRemovesThePart()
     {
-        var body = new StallingStream(Installer[..20_000]);
-        var transport = new Transport().Publish(Published, Installer, body: body);
-        var service = Service(transport);
-        service.Start();
-        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        var (service, _, body) = await StartStalledAsync();
         Assert.True(File.Exists(PartPath()));
 
         var answer = service.Cancel();
@@ -106,7 +101,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task ACancelBetweenTheRenameAndReadyLeavesNoInstaller()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
         service.BeforeOutcome = () =>
         {
@@ -114,8 +109,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
             service.Cancel();
         };
 
-        service.Start();
-        var settled = await SettleAsync(service);
+        var settled = await StartAndSettleAsync(service);
 
         Assert.Equal(State.Idle, settled.State);
         AssertNothingKept();
@@ -125,16 +119,15 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task CancelInAnyOtherStateChangesNothing()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
         Assert.Equal(UpdateDownloadSnapshot.Idle, service.Cancel());
 
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
         Assert.Equal(ready, service.Cancel());
         Assert.True(File.Exists(InstallerPath()));
 
-        var failing = Service(new Transport(), enabled: false);
+        var failing = Service(new UpdateTransport(), enabled: false);
         var failed = failing.Start();
         Assert.Equal(State.Failed, failed.State);
         Assert.Equal(failed, failing.Cancel());
@@ -143,11 +136,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task ACancelledDownloadCanBeStartedAgain()
     {
-        var first = new StallingStream(Installer[..20_000]);
-        var transport = new Transport().Publish(Published, Installer, body: first);
-        var service = Service(transport);
-        service.Start();
-        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        var (service, transport, _) = await StartStalledAsync();
         service.Cancel();
 
         // Once the cancelled one has finished (NothingStartsWhileACancelledDownloadIsStillFinishing).
@@ -171,7 +160,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public async Task NothingStartsWhileACancelledDownloadIsStillFinishing()
     {
         var stuck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
 
         // This installer request ignores its cancellation and answers only when the test lets it.
         transport.On(InstallerUri(Published), async (uri, _) =>
@@ -211,11 +200,10 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task ANewDownloadStartsAtMostOncePerInterval()
     {
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(InstallerUri(Published), (uri, _) => Task.FromResult(Transport.Status(uri, 503)));
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.On(InstallerUri(Published), 503);
         var service = Service(transport, limits: Limits(startInterval: TimeSpan.FromSeconds(10)));
-        service.Start();
-        var failed = await SettleAsync(service);
+        var failed = await StartAndSettleAsync(service);
         AssertFailed(failed, Failure.HttpStatus);
 
         Advance(TimeSpan.FromSeconds(9));
@@ -234,7 +222,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public async Task StartAndCancelInALoopStartsOneDownloadPerInterval()
     {
         var service = Service(
-            new Transport().Publish(Published, Installer), limits: Limits(startInterval: TimeSpan.FromSeconds(10)));
+            new UpdateTransport().Publish(Published, Installer), limits: Limits(startInterval: TimeSpan.FromSeconds(10)));
         var launched = new HashSet<Task>();
 
         for (var round = 0; round < 5; round++)
@@ -257,10 +245,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task AReadyInstallerVerifiedAMomentAgoIsNotHashedAgain()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, limits: Limits(startInterval: TimeSpan.FromSeconds(10)));
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
         var download = service.Running;
 
         Assert.Equal(ready, service.Start());
@@ -286,10 +273,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task AnUnexpectedErrorWhileAReadyInstallerIsCheckedAgainIsNotReportedAsABrokenDownload()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
         service.BeforeOutcome = () => throw new InvalidOperationException("unexpected");
 
         Advance(TimeSpan.FromSeconds(10));
@@ -307,10 +293,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task AReadyWhoseFileHasGoneIsNotReportedWhileNothingMayStart()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, limits: Limits(startInterval: TimeSpan.FromSeconds(10)));
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
         File.Delete(InstallerPath());
 
         Assert.Equal(UpdateDownloadSnapshot.Idle, service.Start());
@@ -326,10 +311,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task WithdrawStopsARunningDownloadKeepsNothingAndSaysWhy()
     {
-        var body = new StallingStream(Installer[..20_000]);
-        var service = Service(new Transport().Publish(Published, Installer, body: body));
-        service.Start();
-        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        var (service, _, body) = await StartStalledAsync();
 
         var answer = service.Withdraw();
 
@@ -342,9 +324,8 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task WithdrawGivesUpAReadyInstaller()
     {
-        var service = Service(new Transport().Publish(Published, Installer));
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
 
         AssertWithdrawn(service.Withdraw());
 
@@ -356,9 +337,8 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task WithdrawDuringARecheckGivesUpTheInstaller()
     {
-        var service = Service(new Transport().Publish(Published, Installer));
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        var service = Service(new UpdateTransport().Publish(Published, Installer));
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
         service.BeforeOutcome = () => service.Withdraw();
 
         Assert.Equal(State.Verifying, service.Start().State);
@@ -371,12 +351,12 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public void WithdrawChangesNothingWhenNoDownloadIsRunningOrReady()
     {
         // First: the services share one settings store, and the second one stores a newer version in it.
-        var nothingNewer = Service(new Transport(), latest: null);
+        var nothingNewer = Service(new UpdateTransport(), latest: null);
         var failed = nothingNewer.Start();
         AssertFailed(failed, Failure.NoUpdate);
         Assert.Equal(failed, nothingNewer.Withdraw());
 
-        var idle = Service(new Transport().Publish(Published, Installer));
+        var idle = Service(new UpdateTransport().Publish(Published, Installer));
         Assert.Equal(UpdateDownloadSnapshot.Idle, idle.Withdraw());
     }
 
@@ -393,7 +373,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     public async Task StartWhileRunningReportsTheRunningDownloadAndStartsNothing()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new Transport().Publish(Published, Installer, gate: gate);
+        var transport = new UpdateTransport().Publish(Published, Installer, gate: gate);
         var service = Service(transport);
 
         var first = service.Start();
@@ -412,10 +392,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task StartWhenReadyAndIntactDownloadsNothing()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        var ready = await SettleAsync(service);
+        var ready = await StartAndSettleAsync(service);
 
         var answer = service.Start();
         var settled = await SettleAsync(service);
@@ -430,10 +409,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task StartWhenReadyAndTamperedWithDownloadsAgain()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        await SettleAsync(service);
+        await StartAndSettleAsync(service);
 
         // Same length, other bytes: only the hash can tell.
         var tampered = (byte[])Installer.Clone();
@@ -451,10 +429,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task StartWhenReadyAndDeletedDownloadsAgain()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        await SettleAsync(service);
+        await StartAndSettleAsync(service);
         File.Delete(InstallerPath());
 
         var answer = service.Start();
@@ -469,16 +446,13 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task AFailedDownloadCanBeRetried()
     {
-        var transport = new Transport().Publish(Published, Installer);
-        transport.On(InstallerUri(Published), (uri, _) => Task.FromResult(Transport.Status(uri, 503)));
+        var transport = new UpdateTransport().Publish(Published, Installer);
+        transport.On(InstallerUri(Published), 503);
         var service = Service(transport);
-        service.Start();
-        AssertFailed(await SettleAsync(service), Failure.HttpStatus);
+        AssertFailed(await StartAndSettleAsync(service), Failure.HttpStatus);
 
         transport.Publish(Published, Installer);
-        service.Start();
-
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
     }
 
     // ------------------------------------------------------------------- nothing to download
@@ -490,7 +464,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [InlineData(null, true)]
     public void NothingIsSentWhenThereIsNoNewerVersion(string? latest, bool reinstall)
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, latest: latest);
 
         var answer = service.Start(reinstall);
@@ -505,7 +479,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public void TheSettingOffSendsNothing()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, enabled: false);
 
         var answer = service.Start(reinstall: true);
@@ -518,7 +492,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public void TheKillSwitchSendsNothing()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(
             transport, environment: name => name == UpdateCheckClient.DisableVariable ? "1" : null);
 
@@ -534,7 +508,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [InlineData("2.1.0")]
     public async Task ReinstallDownloadsThePublishedVersionWhateverThisBuildIs(string local)
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport, local: local);
 
         Assert.Equal(Failure.NoUpdate, service.Start().Failure);
@@ -552,10 +526,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task ReadyIsGivenUpWhenThereIsNoLongerAnythingToOffer()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        Assert.Equal(State.Ready, (await StartAndSettleAsync(service)).State);
 
         LastCheck.ApplySetting(false);
         var answer = service.Start();
@@ -570,11 +543,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task StoppingTheServiceCancelsARunningDownloadAndRemovesThePart()
     {
-        var body = new StallingStream(Installer[..20_000]);
-        var transport = new Transport().Publish(Published, Installer, body: body);
-        var service = Service(transport);
-        service.Start();
-        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        var (service, transport, body) = await StartStalledAsync();
         var running = service.Running!;
 
         service.Dispose();
@@ -596,15 +565,13 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task TheLogStatesStartAndEndWithoutAnyAddress()
     {
-        var transport = new Transport().Publish(Published, Installer);
+        var transport = new UpdateTransport().Publish(Published, Installer);
         var service = Service(transport);
-        service.Start();
-        await SettleAsync(service);
+        await StartAndSettleAsync(service);
 
-        transport.On(InstallerUri(Published), (uri, _) => Task.FromResult(Transport.Status(uri, 404)));
+        transport.On(InstallerUri(Published), 404);
         File.Delete(InstallerPath());
-        service.Start();
-        await SettleAsync(service);
+        await StartAndSettleAsync(service);
 
         var lines = UpdateLines();
         Assert.Equal(
@@ -626,10 +593,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public async Task ACancelledDownloadIsLoggedAsCancelled()
     {
-        var transport = new Transport().Publish(Published, Installer, body: new StallingStream(Installer[..1000]));
-        var service = Service(transport);
-        service.Start();
-        await Poll.UntilAsync(() => service.Snapshot().ReceivedBytes > 0, "the download must be under way");
+        var (service, _, _) = await StartStalledAsync(prefix: 1000);
 
         service.Cancel();
         await SettleAsync(service);

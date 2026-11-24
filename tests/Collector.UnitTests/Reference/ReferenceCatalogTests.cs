@@ -279,39 +279,24 @@ public sealed class ReferenceCatalogTests
         Assert.Equal("练级迷宫", catalog.NameOf(1, Region.Unknown));
     }
 
-    [Fact]
-    public void ParseRouletteCatalog_RejectsDuplicateIds()
+    /// <summary>A duplicate id, an empty name, an unsupported schema and an unknown region are each refused.</summary>
+    [Theory]
+    [InlineData("""
+        {"schema_version":1,"region":"CN","roulettes":[
+          {"roulette_id":1,"localized_name":"A","enabled":true},
+          {"roulette_id":1,"localized_name":"B","enabled":true}
+        ]}
+        """)]
+    [InlineData("""
+        {"schema_version":1,"region":"CN","roulettes":[
+          {"roulette_id":1,"localized_name":"","enabled":true}
+        ]}
+        """)]
+    [InlineData("""{"schema_version":2,"region":"CN","roulettes":[]}""")]
+    [InlineData("""{"schema_version":1,"region":"NOWHERE","roulettes":[]}""")]
+    public void ParseRouletteCatalog_RefusesAnUnusableDocument(string json)
     {
-        const string json = """
-            {"schema_version":1,"region":"CN","roulettes":[
-              {"roulette_id":1,"localized_name":"A","enabled":true},
-              {"roulette_id":1,"localized_name":"B","enabled":true}
-            ]}
-            """;
-
         Assert.Throws<InvalidDataException>(() => RouletteCatalog.Parse(json));
-    }
-
-    [Fact]
-    public void ParseRouletteCatalog_RejectsMissingName()
-    {
-        const string json = """
-            {"schema_version":1,"region":"CN","roulettes":[
-              {"roulette_id":1,"localized_name":"","enabled":true}
-            ]}
-            """;
-
-        Assert.Throws<InvalidDataException>(() => RouletteCatalog.Parse(json));
-    }
-
-    [Fact]
-    public void ParseRouletteCatalog_RejectsUnsupportedSchemaOrRegion()
-    {
-        const string wrongSchema = """{"schema_version":2,"region":"CN","roulettes":[]}""";
-        const string wrongRegion = """{"schema_version":1,"region":"NOWHERE","roulettes":[]}""";
-
-        Assert.Throws<InvalidDataException>(() => RouletteCatalog.Parse(wrongSchema));
-        Assert.Throws<InvalidDataException>(() => RouletteCatalog.Parse(wrongRegion));
     }
 
     [Fact]

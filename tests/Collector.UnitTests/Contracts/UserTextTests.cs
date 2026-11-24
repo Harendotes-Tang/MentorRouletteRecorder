@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
 

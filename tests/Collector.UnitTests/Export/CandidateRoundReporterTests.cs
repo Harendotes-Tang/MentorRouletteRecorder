@@ -37,8 +37,7 @@ public sealed class CandidateRoundReporterTests : IDisposable
     [Fact]
     public void TheRoundIsReadAtTheGuessedPositionsAsItUnfolds()
     {
-        var duty = DutyCatalog.Default.Documents.First(document => document.Region == Region.Global && !document.IsSample)
-            .Rows.Values.First(row => row.TerritoryId is not null);
+        var duty = FirstGlobalDuty();
         StartRound();
         Assert.Equal(new CandidateRoundReport(_fixture.Clock.UtcNow, null, null, null, null), Reporter().Read());
 
@@ -183,6 +182,30 @@ public sealed class CandidateRoundReporterTests : IDisposable
     }
 
     /// <summary>
+    /// Review finding L-16. The default evidence path follows the open database, as the
+    /// backups, the diagnostics report and the logs do. Following the data root alone was not
+    /// enough: a Collector on a throw-away database with no <c>MR_DATA_DIR</c> -- every bare
+    /// <c>dotnet test</c> -- wrote a research export into the real user's
+    /// %LOCALAPPDATA%\MentorRecorder\exports. The timestamp uses the invariant calendar so the
+    /// file name does not change with the system's regional settings.
+    /// </summary>
+    [Fact]
+    public void CandidateEvidenceDefaultsBesideTheDatabaseAndAnInvariantTimestamp()
+    {
+        var exporter = new CandidateEvidenceExporter(_ledger, _fixture.Clock, _fixture.Path);
+
+        Assert.Equal(
+            Path.Combine(Path.GetDirectoryName(_fixture.Path)!, "exports"), exporter.DefaultDirectory);
+        Assert.False(exporter.DefaultDirectory.StartsWith(
+            Storage.DatabasePaths.ResolveRoot(null) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+
+        var name = CandidateEvidenceExporter.FileNameFor(
+            new DateTimeOffset(2026, 9, 8, 21, 5, 4, TimeSpan.Zero));
+        Assert.StartsWith("candidate-evidence-20260908-210504-", name, StringComparison.Ordinal);
+        Assert.EndsWith(".json", name, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The round a tester is asked to do, start to finish, on the candidate profile that ships:
     /// the real pipeline, the real ledger with its table constraints, the report and the export.
     /// Two launches of the game, a queue that is withdrawn, a job change, the mentor queue, the
@@ -193,8 +216,7 @@ public sealed class CandidateRoundReporterTests : IDisposable
     {
         const string build = "2026.11.03.0000.0000";
         var shipped = ProfileLoader.Load(Path.Combine(ProfileCatalog.FindDefaultRoot()!, "global", "global.2026.11.03.candidate.json"));
-        var duty = DutyCatalog.Default.Documents.First(document => document.Region == Region.Global && !document.IsSample)
-            .Rows.Values.First(row => row.TerritoryId is not null);
+        var duty = FirstGlobalDuty();
         var eligible = shipped.Hypotheses.Where(h => ResearchPayloadPolicy.IsEligible(shipped, h))
             .Select(h => "0x" + h.Opcode.ToString("x4")).ToArray();
         CaptureSettingsStore.Apply(_settings, new CaptureSettingsUpdate
@@ -213,12 +235,10 @@ public sealed class CandidateRoundReporterTests : IDisposable
         void Send(int opcode, int length, bool outbound = false, int offset = 0, int value = 0, long gap = 50)
         {
             t += gap;
-            var payload = new byte[length];
-            payload[offset] = (byte)value;
-            if (value > byte.MaxValue) payload[offset + 1] = (byte)(value >> 8);
             pipeline.Accept(new Protocol.Decoded.DecodedMessage(session,
                 outbound ? Protocol.Decoded.MessageDirection.Outbound : Protocol.Decoded.MessageDirection.Inbound,
-                start.AddMilliseconds(t), TimeSpan.FromMilliseconds(t), 0, 3, (ushort)opcode, payload, "game-connection"));
+                start.AddMilliseconds(t), TimeSpan.FromMilliseconds(t), 0, 3, (ushort)opcode,
+                Payload(length, offset, value), "game-connection"));
         }
         void ZoneChange(int territory, bool withLoginOnlyMember)
         {
@@ -321,14 +341,26 @@ public sealed class CandidateRoundReporterTests : IDisposable
     /// <summary>Stores one message whose content is zero except for <paramref name="value"/> at <paramref name="offset"/>.</summary>
     private void Add(int opcode, int length, int offset, int value)
     {
-        var payload = new byte[length];
-        payload[offset] = (byte)value;
-        if (value > byte.MaxValue) payload[offset + 1] = (byte)(value >> 8);
+        var payload = Payload(length, offset, value);
         _t += 100;
         Assert.True(_ledger.Add(new CandidateObservation(Guid.NewGuid().ToString("D"), _session, "candidate-test",
             "SYNTHETIC", null, opcode == Registration ? "C2S" : "S2C", opcode, length, "0123456789ab", "abcdef012345",
             _fixture.Clock.UtcNow.AddMilliseconds(_t), _t, PayloadHex: Convert.ToHexString(payload).ToLowerInvariant())));
     }
+
+    /// <summary>A zero payload except for <paramref name="value"/>, little-endian, at <paramref name="offset"/>.</summary>
+    private static byte[] Payload(int length, int offset, int value)
+    {
+        var payload = new byte[length];
+        payload[offset] = (byte)value;
+        if (value > byte.MaxValue) payload[offset + 1] = (byte)(value >> 8);
+        return payload;
+    }
+
+    /// <summary>The first Global duty of the shipped catalogue that has a territory.</summary>
+    private static DutyInfo FirstGlobalDuty() =>
+        DutyCatalog.Default.Documents.First(document => document.Region == Region.Global && !document.IsSample)
+            .Rows.Values.First(row => row.TerritoryId is not null);
 
     public void Dispose() => _fixture.Dispose();
 }

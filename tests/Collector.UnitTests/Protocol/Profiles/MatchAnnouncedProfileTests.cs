@@ -1,5 +1,4 @@
 using MentorRecorder.Collector.Domain.Events;
-using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -88,30 +87,5 @@ public sealed class MatchAnnouncedProfileTests : IDisposable
 
         Assert.False(report.Ok);
         Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_MESSAGE_CONTEXT");
-    }
-
-    /// <summary>
-    /// The share code stays format v1. An opcode learned from this machine's timing evidence
-    /// means nothing on another machine without that evidence, so a profile carrying an
-    /// announcement is shared as the plain queue-request profile underneath it, and the receiving
-    /// machine goes looking for its own.
-    /// </summary>
-    [Fact]
-    public void AProfileCarryingAnAnnouncementSharesAsAPlainQueueRequestProfile()
-    {
-        var template = CalibrationObserverTests.Template();
-        var draft = CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequestAnnounced);
-        Assert.Contains(draft.Messages, message => message.Name == "MATCH_ANNOUNCED");
-
-        var values = CalibratedShape.Read(template, draft.Messages);
-
-        Assert.NotNull(values);
-        Assert.Equal(CalibrationMatchSource.QueueRequest, values!.MatchSource);
-        var rebuilt = CalibratedShape.Messages(template, values);
-        Assert.Null(rebuilt.Error);
-        Assert.DoesNotContain(rebuilt.Messages, message => message.Name == "MATCH_ANNOUNCED");
-        Assert.Equal(
-            draft.Messages.Where(message => message.Name != "MATCH_ANNOUNCED").Select(message => message.Name),
-            rebuilt.Messages.Select(message => message.Name));
     }
 }

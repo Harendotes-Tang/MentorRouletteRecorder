@@ -48,6 +48,14 @@ public sealed class UpdateCheckServiceTests : IDisposable
         }
     }
 
+    /// <summary>Observes, waits for the check that may have scheduled, and returns the state it left.</summary>
+    private static async Task<UpdateCheckSnapshot> ObserveAndSettleAsync(UpdateCheckService service)
+    {
+        service.Observe();
+        await SettleAsync(service);
+        return service.Snapshot();
+    }
+
     // ------------------------------------------------------------------------- scheduling
 
     [Fact]
@@ -75,11 +83,9 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport();
         var service = Service(transport);
 
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         _clock.UtcNow = T0.AddHours(23).AddMinutes(59);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.Equal(1, transport.Calls);
         Assert.Equal(T0, service.Snapshot().LastCheckedAtUtc);
@@ -91,11 +97,9 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport();
         var service = Service(transport);
 
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         _clock.UtcNow = T0 + UpdateCheckService.CheckInterval;
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.Equal(2, transport.Calls);
         Assert.Equal(T0 + UpdateCheckService.CheckInterval, service.Snapshot().LastCheckedAtUtc);
@@ -107,8 +111,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var first = Service(transport);
-        first.Observe();
-        await SettleAsync(first);
+        await ObserveAndSettleAsync(first);
 
         _clock.UtcNow = T0.AddMinutes(30);
         var restarted = Service(transport);
@@ -127,20 +130,17 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var first = Service(transport);
-        first.Observe();
-        await SettleAsync(first);
+        await ObserveAndSettleAsync(first);
 
         _clock.UtcNow = T0.AddHours(2);
         var restarted = Service(transport);
-        restarted.Observe();
-        await SettleAsync(restarted);
+        await ObserveAndSettleAsync(restarted);
         Assert.Equal(2, transport.Calls);
         Assert.Equal(T0.AddHours(2), restarted.Snapshot().LastCheckedAtUtc);
 
         // The same process, hours later: the startup check was the one for today.
         _clock.UtcNow = T0.AddHours(10);
-        restarted.Observe();
-        await SettleAsync(restarted);
+        await ObserveAndSettleAsync(restarted);
         Assert.Equal(2, transport.Calls);
     }
 
@@ -151,8 +151,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var service = Service(transport);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         _clock.UtcNow = T0.AddMinutes(5);
 
         var outcome = await service.CheckNowIfAllowedAsync();
@@ -260,14 +259,12 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var service = Service(transport);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         // A stamp in the future can only be a clock that was wrong or has been moved back;
         // waiting a further day for it to come round would leave the check dead until then.
         _clock.UtcNow = T0.AddHours(-3);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.Equal(2, transport.Calls);
         Assert.Equal(T0.AddHours(-3), service.Snapshot().LastCheckedAtUtc);
@@ -278,17 +275,14 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var service = Service(transport, jitter: () => TimeSpan.FromHours(1));
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         _clock.UtcNow = T0.AddHours(24).AddMinutes(30);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         Assert.Equal(1, transport.Calls);
 
         _clock.UtcNow = T0.AddHours(25).AddMinutes(30);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         Assert.Equal(2, transport.Calls);
     }
 
@@ -363,14 +357,11 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var service = Service(transport);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         transport.Status = 500;
         _clock.UtcNow = T0.AddHours(25);
-        service.Observe();
-        await SettleAsync(service);
-        var snapshot = service.Snapshot();
+        var snapshot = await ObserveAndSettleAsync(service);
 
         Assert.Equal(3, transport.Calls);
         Assert.Equal(T0.AddHours(25), snapshot.LastCheckedAtUtc);
@@ -385,9 +376,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport { Status = 404 };
         var service = Service(transport);
 
-        service.Observe();
-        await SettleAsync(service);
-        var snapshot = service.Snapshot();
+        var snapshot = await ObserveAndSettleAsync(service);
 
         Assert.Equal("NOT_FOUND", snapshot.LastOutcome);
         Assert.Null(snapshot.LatestVersion);
@@ -422,8 +411,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         service.Observe();
 
         service.ApplySetting(true);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.Equal(1, transport.Calls);
     }
@@ -451,8 +439,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
     {
         var transport = new Transport();
         var service = Service(transport);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
         Assert.True(service.Snapshot().UpdateAvailable);
 
         service.ApplySetting(false);
@@ -499,9 +486,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport { Version = published };
         var service = Service(transport);
 
-        service.Observe();
-        await SettleAsync(service);
-        var snapshot = service.Snapshot();
+        var snapshot = await ObserveAndSettleAsync(service);
 
         Assert.Equal(published, snapshot.LatestVersion);
         Assert.Equal(available, snapshot.UpdateAvailable);
@@ -513,8 +498,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport { Version = "1.0.0" };
         var service = Service(transport, local: "1.0.0-rc.1");
 
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.True(service.Snapshot().UpdateAvailable);
     }
@@ -525,8 +509,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var transport = new Transport { Version = "1.0.1" };
         var service = Service(transport, local: "not-a-version");
 
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.False(service.Snapshot().UpdateAvailable);
     }
@@ -544,8 +527,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
 
         var transport = new Transport();
         var service = Service(transport);
-        service.Observe();
-        await SettleAsync(service);
+        await ObserveAndSettleAsync(service);
 
         Assert.Equal("\"" + Published + "\"", _settings.GetSetting(UpdateCheckService.LatestVersionSetting));
         Assert.Equal("\"OK\"", _settings.GetSetting(UpdateCheckService.LastOutcomeSetting));

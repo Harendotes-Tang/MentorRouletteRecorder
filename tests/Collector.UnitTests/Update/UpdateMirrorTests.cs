@@ -1,18 +1,14 @@
 using System.Text;
 using System.Text.Json;
-using MentorRecorder.Collector.Storage.Repositories;
 using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class UpdateMirrorTests : UpdateDownloadTestBase
 {
-    private static UpdateCheckClient Client(Transport transport, TimeSpan? timeout = null) =>
+    private static UpdateCheckClient Client(UpdateTransport transport, TimeSpan? timeout = null) =>
         new(transport.Send, timeout, readEnvironment: _ => null);
 
-    private static Uri Mirror(string file) => UpdateCheckClient.GitCodeAssetUri(Published, file);
-    private static string Exe => "MentorRecorder-" + Published + "-setup.exe";
-    private static UpdateTransportResponse Bytes(Uri uri, byte[] bytes) => new(200, uri, null, bytes.Length, new MemoryStream(bytes));
     private static string Release(string version, bool complete = true, string type = "attach") => JsonSerializer.Serialize(new
     {
         tag_name = "v" + version,
@@ -20,12 +16,14 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         assets = (complete ? new[] { UpdateCheckClient.AssetFileName, "MentorRecorder-" + version + "-setup.exe", "MentorRecorder-" + version + "-setup.exe.sha256" } : new[] { "MentorRecorder-" + version + "-setup.exe" })
             .Select(name => new { name, type, browser_download_url = "https://attacker.invalid/file" }).ToArray()
     });
-    private static Transport MirrorInstaller(Transport transport, string? checksum = null) => transport
-        .On(Mirror(Exe + ".sha256"), (uri, _) => Task.FromResult(Bytes(uri, Encoding.ASCII.GetBytes(checksum ?? Sha(Installer)))))
-        .On(Mirror(Exe), (uri, _) => Task.FromResult(Bytes(uri, Installer)));
-    private static Transport MirrorMetadata(string listing, string metadata = "{\"version\":\"2.0.0\"}") => new Transport()
-        .On(UpdateCheckClient.GitCodeReleasesUri(), (uri, _) => Task.FromResult(Bytes(uri, Encoding.UTF8.GetBytes(listing))))
-        .On(Mirror(UpdateCheckClient.AssetFileName), (uri, _) => Task.FromResult(Bytes(uri, Encoding.UTF8.GetBytes(metadata))));
+    private static readonly string PublishedListing = "[" + Release(Published) + "]";
+    private static UpdateTransport MirrorInstaller(UpdateTransport transport, string? checksum = null) => transport
+        .On(MirrorUri(InstallerFile + ".sha256"), Encoding.ASCII.GetBytes(checksum ?? Sha(Installer)))
+        .On(MirrorUri(InstallerFile), Installer);
+    private static UpdateTransport MirrorMetadata(string listing, string metadata = "{\"version\":\"2.0.0\"}") => new UpdateTransport()
+        .On(UpdateCheckClient.GitCodeReleasesUri(), listing)
+        .On(MirrorUri(UpdateCheckClient.AssetFileName), metadata);
+    private static UpdateDownloadLimits SlowLimits() => Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) };
 
     [Fact]
     public async Task IncompleteNewestIsIgnoredAndMetadataVersionMustMatchTag()
@@ -34,10 +32,10 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         var result = await Client(transport).FetchAsync();
         Assert.Equal(Published, result.LatestVersion);
         Assert.Equal(UpdateSource.GitCode, result.Source);
-        Assert.Equal(new[] { UpdateCheckClient.MetadataUri(), UpdateCheckClient.GitCodeReleasesUri(), Mirror(UpdateCheckClient.AssetFileName) }, transport.Requests);
-        var mismatchedTransport = MirrorMetadata("[" + Release(Published) + "]", "{\"version\":\"8.0.0\"}");
+        Assert.Equal(new[] { UpdateCheckClient.MetadataUri(), UpdateCheckClient.GitCodeReleasesUri(), MirrorUri(UpdateCheckClient.AssetFileName) }, transport.Requests);
+        var mismatchedTransport = MirrorMetadata(PublishedListing, "{\"version\":\"8.0.0\"}");
         var mismatched = await Client(mismatchedTransport).FetchAsync();
-        Assert.Contains(Mirror(UpdateCheckClient.AssetFileName), mismatchedTransport.Requests);
+        Assert.Contains(MirrorUri(UpdateCheckClient.AssetFileName), mismatchedTransport.Requests);
         Assert.Equal(UpdateCheckOutcome.NotFound, mismatched.Outcome);
         Assert.Null(mismatched.LatestVersion);
     }
@@ -69,12 +67,8 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [Fact]
     public async Task PrimaryTimeoutLeavesBudgetForMirrorAndCancellationDoesNot()
     {
-        var transport = MirrorMetadata("[" + Release(Published) + "]")
-            .On(UpdateCheckClient.MetadataUri(), async (uri, token) =>
-            {
-                await Task.Delay(Timeout.Infinite, token);
-                return Transport.Status(uri, 500);
-            });
+        var transport = MirrorMetadata(PublishedListing)
+            .On(UpdateCheckClient.MetadataUri(), UpdateTransport.NeverAnswers);
         // The mirror has what the primary leaves of the budget. 400 ms left it too little on a
         // loaded build machine; the primary never answers, so a larger budget only costs time.
         var result = await Client(transport, TimeSpan.FromSeconds(3)).FetchAsync();
@@ -89,17 +83,15 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [Fact]
     public async Task StaleMirrorCannotLowerPersistedKnownVersion()
     {
-        using var database = new TestDatabase();
-        var settings = new SettingsRepository(database.Database, database.Clock);
-        settings.SetSetting(UpdateCheckService.LatestVersionSetting, "\"3.0.0\"");
-        var transport = MirrorMetadata("[" + Release(Published) + "]");
-        using var service = new UpdateCheckService(settings, Client(transport), Local, database.Clock, () => TimeSpan.Zero);
+        Settings.SetSetting(UpdateCheckService.LatestVersionSetting, "\"3.0.0\"");
+        var transport = MirrorMetadata(PublishedListing);
+        using var service = CheckService(Client(transport));
         var result = await service.CheckNowAsync();
         Assert.Equal(UpdateCheckOutcome.Ok, result.Outcome);
         Assert.Equal(UpdateSource.GitCode, result.Source);
-        Assert.Contains(Mirror(UpdateCheckClient.AssetFileName), transport.Requests);
+        Assert.Contains(MirrorUri(UpdateCheckClient.AssetFileName), transport.Requests);
         Assert.Equal("3.0.0", service.Snapshot().LatestVersion);
-        using var restarted = new UpdateCheckService(settings, Client(new Transport()), Local, database.Clock, () => TimeSpan.Zero);
+        using var restarted = CheckService(Client(new UpdateTransport()));
         Assert.Equal("3.0.0", restarted.Snapshot().LatestVersion);
     }
 
@@ -110,29 +102,26 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [Fact]
     public async Task AVersionLearnedFromTheMirrorKeepsTheMirrorLinksAcrossARestart()
     {
-        using var database = new TestDatabase();
-        var settings = new SettingsRepository(database.Database, database.Clock);
-        var transport = MirrorMetadata("[" + Release(Published) + "]")
-            .On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Transport.Status(uri, 503)));
-        using (var service = new UpdateCheckService(settings, Client(transport), Local, database.Clock, () => TimeSpan.Zero))
+        var transport = MirrorMetadata(PublishedListing)
+            .On(UpdateCheckClient.MetadataUri(), 503);
+        using (var service = CheckService(Client(transport)))
         {
             Assert.Equal(UpdateSource.GitCode, (await service.CheckNowAsync()).Source);
         }
 
-        using var restarted = new UpdateCheckService(settings, Client(new Transport()), Local, database.Clock, () => TimeSpan.Zero);
+        using var restarted = CheckService(Client(new UpdateTransport()));
         var snapshot = restarted.Snapshot();
         Assert.Equal(Published, snapshot.LatestVersion);
         Assert.Equal(UpdateCheckClient.GitCodeReleaseUrl(Published), snapshot.ReleaseUrl);
         Assert.Equal(UpdateCheckClient.GitCodeInstallerUrl(Published), snapshot.InstallerUrl);
 
-        var github = new Transport().On(UpdateCheckClient.MetadataUri(),
-            (uri, _) => Task.FromResult(Bytes(uri, Encoding.UTF8.GetBytes("{\"version\":\"" + Published + "\"}"))));
-        using (var service = new UpdateCheckService(settings, Client(github), Local, database.Clock, () => TimeSpan.Zero))
+        var github = new UpdateTransport().On(UpdateCheckClient.MetadataUri(), "{\"version\":\"" + Published + "\"}");
+        using (var service = CheckService(Client(github)))
         {
             Assert.Equal(UpdateSource.GitHub, (await service.CheckNowAsync()).Source);
         }
 
-        using var again = new UpdateCheckService(settings, Client(new Transport()), Local, database.Clock, () => TimeSpan.Zero);
+        using var again = CheckService(Client(new UpdateTransport()));
         Assert.Equal(UpdateCheckClient.ReleaseUrl, again.Snapshot().ReleaseUrl);
         Assert.Equal(UpdateCheckClient.InstallerUrl(Published), again.Snapshot().InstallerUrl);
     }
@@ -144,18 +133,16 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [Fact]
     public async Task SwitchingTheCheckOffWhileGitHubStallsAsksNoMirrorAndStampsNothing()
     {
-        using var database = new TestDatabase();
-        var settings = new SettingsRepository(database.Database, database.Clock);
         var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = MirrorMetadata("[" + Release(Published) + "]")
+        var transport = MirrorMetadata(PublishedListing)
             .On(UpdateCheckClient.MetadataUri(), async (uri, _) =>
             {
                 asked.TrySetResult();
                 await release.Task.ConfigureAwait(false);
-                return Transport.Status(uri, 503);
+                return UpdateTransport.Status(uri, 503);
             });
-        using var service = new UpdateCheckService(settings, Client(transport), Local, database.Clock, () => TimeSpan.Zero);
+        using var service = CheckService(Client(transport));
 
         service.Observe();
         await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -165,7 +152,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
 
         Assert.Equal(new[] { UpdateCheckClient.MetadataUri() }, transport.Requests);
         Assert.Null(service.Snapshot().LastCheckedAtUtc);
-        Assert.Null(settings.GetSetting(UpdateCheckService.LastCheckedSetting));
+        Assert.Null(Settings.GetSetting(UpdateCheckService.LastCheckedSetting));
     }
 
     [Theory]
@@ -174,25 +161,23 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     public async Task BrokenPrimaryBodyIsDiscardedAndCompleteMirrorIsVerified(bool throws)
     {
         Stream broken = throws ? new FailingStream(Installer[..100]) : new MemoryStream(Installer[..100]);
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: broken));
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer, body: broken));
         var service = Service(transport);
-        service.Start();
-        var result = await SettleAsync(service);
+        var result = await StartAndSettleAsync(service);
         Assert.Equal(UpdateDownloadState.Ready, result.State);
         Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
         Assert.Equal(Installer.Length, result.ReceivedBytes);
         Assert.False(File.Exists(PartPath()));
-        Assert.Equal(new[] { ChecksumUri(Published), InstallerUri(Published), Mirror(Exe + ".sha256"), Mirror(Exe) }, transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), InstallerUri(Published), MirrorUri(InstallerFile + ".sha256"), MirrorUri(InstallerFile) }, transport.Requests);
     }
 
     [Fact]
     public async Task MirrorCannotReplaceAlreadyReadPrimaryHash()
     {
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: new FailingStream(Installer[..100])), checksum: new string('0', 64));
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer, body: new FailingStream(Installer[..100])), checksum: new string('0', 64));
         var service = Service(transport);
-        service.Start();
-        AssertFailed(await SettleAsync(service), UpdateDownloadFailure.ChecksumMismatch);
-        Assert.DoesNotContain(Mirror(Exe), transport.Requests);
+        AssertFailed(await StartAndSettleAsync(service), UpdateDownloadFailure.ChecksumMismatch);
+        Assert.DoesNotContain(MirrorUri(InstallerFile), transport.Requests);
         AssertNothingKept();
     }
 
@@ -209,8 +194,8 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         const int prefix = 1024;
         var github = new PausedInstaller(prefix, failAfterResume: choice == "decline, then GitHub fails");
         var mirrorOpens = 0;
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: github))
-            .On(Mirror(Exe), async (uri, token) =>
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer, body: github))
+            .On(MirrorUri(InstallerFile), async (uri, token) =>
             {
                 var reopen = Interlocked.Increment(ref mirrorOpens) == 2;
                 if (reopen && choice == "primary ends during re-open")
@@ -220,17 +205,17 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
                 }
 
                 return reopen && choice == "mirror unavailable after accept"
-                    ? Transport.Status(uri, 404)
-                    : Bytes(uri, Installer);
+                    ? UpdateTransport.Status(uri, 404)
+                    : UpdateTransport.Body(uri, Installer);
             });
-        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        var service = Service(transport, limits: SlowLimits());
         service.Start();
         await Poll.UntilAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt after sampling");
 
         var offer = service.Snapshot();
         Assert.Equal(prefix, offer.ReceivedBytes);
         Assert.Equal(UpdateDownloadState.Downloading, offer.State);
-        Assert.Single(transport.Requests, request => request == Mirror(Exe));
+        Assert.Single(transport.Requests, request => request == MirrorUri(InstallerFile));
         Assert.Equal(offer, service.ResolveMirrorOffer(Guid.NewGuid().ToString(), useGitCode: true));
         if (choice is "accept" or "mirror unavailable after accept" or "primary ends during re-open")
         {
@@ -299,17 +284,17 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         var finishReopen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mirrorClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mirrorOpens = 0;
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: github))
-            .On(Mirror(Exe), async (uri, token) =>
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer, body: github))
+            .On(MirrorUri(InstallerFile), async (uri, token) =>
             {
                 if (Interlocked.Increment(ref mirrorOpens) == 1)
-                    return Bytes(uri, Installer);
+                    return UpdateTransport.Body(uri, Installer);
                 reopenStarted.TrySetResult();
                 await finishReopen.Task.WaitAsync(token);
                 return new UpdateTransportResponse(200, uri, null, Installer.Length,
                     new MirrorBody(mirrorClosed));
             });
-        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        var service = Service(transport, limits: SlowLimits());
         service.Start();
         await Poll.UntilAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt");
         service.ResolveMirrorOffer(service.Snapshot().MirrorOfferId!, useGitCode: true);
@@ -343,21 +328,21 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     public async Task SlowInstallerDoesNotOfferAnUnavailableOrMismatchedMirror(bool mismatched)
     {
         var github = new PausedInstaller(1024);
-        var transport = new Transport().Publish(Published, Installer, body: github);
+        var transport = new UpdateTransport().Publish(Published, Installer, body: github);
         if (mismatched)
             MirrorInstaller(transport, new string('0', 64));
 
-        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        var service = Service(transport, limits: SlowLimits());
         service.Start();
-        await Poll.UntilAsync(() => transport.Requests.Contains(Mirror(Exe + ".sha256")), "slow GitHub should probe once");
+        await Poll.UntilAsync(() => transport.Requests.Contains(MirrorUri(InstallerFile + ".sha256")), "slow GitHub should probe once");
         github.Resume();
 
         var final = await SettleAsync(service);
         Assert.Equal(UpdateDownloadState.Ready, final.State);
         Assert.Null(final.MirrorOfferId);
         Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
-        Assert.DoesNotContain(Mirror(Exe), transport.Requests);
-        Assert.Single(transport.Requests, request => request == Mirror(Exe + ".sha256"));
+        Assert.DoesNotContain(MirrorUri(InstallerFile), transport.Requests);
+        Assert.Single(transport.Requests, request => request == MirrorUri(InstallerFile + ".sha256"));
     }
 
     [Theory]
@@ -406,19 +391,11 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     }
 
     [Fact]
-    public async Task AValidPrimaryCheckDoesNotContactMirror()
-    {
-        var transport = new Transport().On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Bytes(uri, Encoding.UTF8.GetBytes("{\"version\":\"1.0.0\"}"))));
-        Assert.Equal("1.0.0", (await Client(transport).FetchAsync()).LatestVersion);
-        Assert.Single(transport.Requests);
-    }
-
-    [Fact]
     public async Task MirrorRedirectCannotChangeRepositoryOrVersion()
     {
-        var start = Mirror(Exe);
+        var start = MirrorUri(InstallerFile);
         var target = new Uri(start.AbsoluteUri.Replace("/v2.0.0/", "/v1.0.0/", StringComparison.Ordinal));
-        var transport = new Transport().On(start, (uri, _) => Task.FromResult(Transport.Redirect(uri, target)));
+        var transport = new UpdateTransport().OnRedirect(start, target);
         using var result = await Client(transport).OpenInstallerAsync(Published, Installer.Length, UpdateSource.GitCode, default);
         Assert.Equal(UpdateCheckOutcome.HostRefused, result.Result.Outcome);
         Assert.Single(transport.Requests);
@@ -429,13 +406,13 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [InlineData(false)]
     public async Task MirrorCdnRedirectMustBelongToThePinnedProject(bool correctProject)
     {
-        var start = Mirror(Exe);
+        var start = MirrorUri(InstallerFile);
         var mirrorHost = new Uri(UpdateCheckClient.GitCodeInstallerUrl(Published)!).Host;
         var project = correctProject ? UpdateCheckClient.GitCodeProjectId : "11065765";
-        var target = new Uri("https://file-cdn." + mirrorHost + "/" + project + "/releases/untagger_opaque/" + Exe + "?signature=abc");
-        var transport = new Transport()
-            .On(start, (uri, _) => Task.FromResult(Transport.Redirect(uri, target)))
-            .On(target, (uri, _) => Task.FromResult(Bytes(uri, Installer)));
+        var target = new Uri("https://file-cdn." + mirrorHost + "/" + project + "/releases/untagger_opaque/" + InstallerFile + "?signature=abc");
+        var transport = new UpdateTransport()
+            .OnRedirect(start, target)
+            .On(target, Installer);
         using var result = await Client(transport).OpenInstallerAsync(Published, Installer.Length, UpdateSource.GitCode, default);
         Assert.Equal(correctProject ? UpdateCheckOutcome.Ok : UpdateCheckOutcome.HostRefused, result.Result.Outcome);
         Assert.Equal(correctProject ? 2 : 1, transport.Requests.Count);
@@ -444,11 +421,10 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [Fact]
     public async Task OverallBudgetIsNotRenewedForMirror()
     {
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: new StallingStream(Installer[..100])));
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer, body: new StallingStream(Installer[..100])));
         var service = Service(transport, limits: Limits(total: TimeSpan.FromMilliseconds(100), idle: TimeSpan.FromSeconds(5)));
-        service.Start();
-        AssertFailed(await SettleAsync(service), UpdateDownloadFailure.Timeout);
-        Assert.DoesNotContain(Mirror(Exe + ".sha256"), transport.Requests);
+        AssertFailed(await StartAndSettleAsync(service), UpdateDownloadFailure.Timeout);
+        Assert.DoesNotContain(MirrorUri(InstallerFile + ".sha256"), transport.Requests);
         AssertNothingKept();
     }
 
@@ -456,25 +432,22 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     public async Task DisablingAfterPrimaryFailureStopsBeforeMirror()
     {
         var disabled = false;
-        var transport = MirrorInstaller(new Transport().Publish(Published, Installer))
+        var transport = MirrorInstaller(new UpdateTransport().Publish(Published, Installer))
             .On(InstallerUri(Published), (uri, _) =>
             {
                 disabled = true;
-                return Task.FromResult(Transport.Status(uri, 503));
+                return Task.FromResult(UpdateTransport.Status(uri, 503));
             });
         var service = Service(transport, environment: _ => disabled ? "1" : null);
-        service.Start();
-        AssertFailed(await SettleAsync(service), UpdateDownloadFailure.Disabled);
-        Assert.DoesNotContain(Mirror(Exe + ".sha256"), transport.Requests);
+        AssertFailed(await StartAndSettleAsync(service), UpdateDownloadFailure.Disabled);
+        Assert.DoesNotContain(MirrorUri(InstallerFile + ".sha256"), transport.Requests);
         AssertNothingKept();
     }
 
     [Fact]
     public async Task MirrorSuccessReportsVersionBoundBrowserLinks()
     {
-        using var database = new TestDatabase();
-        var settings = new SettingsRepository(database.Database, database.Clock);
-        using var service = new UpdateCheckService(settings, Client(MirrorMetadata("[" + Release(Published) + "]")), Local, database.Clock, () => TimeSpan.Zero);
+        using var service = CheckService(Client(MirrorMetadata(PublishedListing)));
         await service.CheckNowAsync();
         Assert.Equal(UpdateCheckClient.GitCodeReleaseUrl(Published), service.Snapshot().ReleaseUrl);
         Assert.Equal(UpdateCheckClient.GitCodeInstallerUrl(Published), service.Snapshot().InstallerUrl);

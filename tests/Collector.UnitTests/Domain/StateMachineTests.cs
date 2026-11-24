@@ -1,14 +1,12 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Domain.Events;
+using static MentorRecorder.Collector.UnitTests.StateMachineEvents;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class StateMachineTests
 {
-    private static readonly DateTimeOffset Start =
-        new(2026, 9, 4, 1, 0, 0, 0, TimeSpan.Zero);
-
     [Fact]
     public void Handle_FailsClosed_WhenProfileIsNotVerified()
     {
@@ -122,7 +120,7 @@ public sealed class StateMachineTests
         SemanticEvent ev = kind switch
         {
             "connection" => Connection(10),
-            "capture" => Capture(10),
+            "capture" => CaptureStop(10),
             _ => Leave(10),
         };
 
@@ -153,12 +151,6 @@ public sealed class StateMachineTests
     private static MentorRunStateMachine MachineWithoutDutyResult(StateMachineOptions? options = null) =>
         new(ProfileBinding.Live("cn-test", Region.Cn, ProfileStatus.Verified, 42, canDetectDutyResult: false),
             options, () => "00000000-0000-4000-8000-000000000002");
-
-    private static ZoneInitialization ZoneUnknown(int seconds) => new()
-    {
-        Key = Key("zone-unknown-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), IsDutyInstance = null,
-    };
 
     [Fact]
     public void UnknownDutyFlag_EntersWithinWindow_ThenClosesUnknownPendingReview()
@@ -605,6 +597,16 @@ public sealed class StateMachineTests
                 canDetectDutyResult: false, observesDutyClear: true),
             options, () => "00000000-0000-4000-8000-000000000003");
 
+    /// <summary>
+    /// A queue-inferred CN binding that sees the clear signal: the request is parked until a known
+    /// duty (territory 1036) loads within the hour.
+    /// </summary>
+    private static MentorRunStateMachine QueueMachineObservingTheClear(string runId) =>
+        new(ProfileBinding.Live("cn-queue", Region.Cn, ProfileStatus.Verified, 42,
+                canDetectDutyResult: false, matchFromQueue: true, observesDutyClear: true),
+            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = id => id == 1036 },
+            () => runId);
+
     /// <summary>Pop, territory, entry marker that names nothing, and the job seen at login.</summary>
     private static MentorRunStateMachine EnteredWithTheClearObservable(bool withJob = true)
     {
@@ -681,11 +683,7 @@ public sealed class StateMachineTests
     [Fact]
     public void TheClearDoesNotForgetAParkedQueueRequest()
     {
-        var machine = new MentorRunStateMachine(
-            ProfileBinding.Live("cn-queue", Region.Cn, ProfileStatus.Verified, 42,
-                canDetectDutyResult: false, matchFromQueue: true, observesDutyClear: true),
-            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = id => id == 1036 },
-            () => "00000000-0000-4000-8000-000000000004");
+        var machine = QueueMachineObservingTheClear("00000000-0000-4000-8000-000000000004");
 
         machine.Handle(Pop(0, 42));
         var clear = machine.Handle(Clear(30));
@@ -709,11 +707,7 @@ public sealed class StateMachineTests
     [Fact]
     public void AQueueInferredRunTheClearCompletedLeavesTheExitInertAndTheNextRequestOpensARun()
     {
-        var machine = new MentorRunStateMachine(
-            ProfileBinding.Live("cn-queue", Region.Cn, ProfileStatus.Verified, 42,
-                canDetectDutyResult: false, matchFromQueue: true, observesDutyClear: true),
-            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = id => id == 1036 },
-            () => "00000000-0000-4000-8000-000000000005");
+        var machine = QueueMachineObservingTheClear("00000000-0000-4000-8000-000000000005");
         machine.Handle(Job(0, 19));
         machine.Handle(Pop(10, 42));
         machine.Handle(Territory(59_950, 1036));
@@ -831,7 +825,7 @@ public sealed class StateMachineTests
                 Mono = TimeSpan.FromSeconds(seconds), DroppedCount = 3,
             },
             "connection" => Connection(seconds),
-            _ => Capture(seconds),
+            _ => CaptureStop(seconds),
         };
 
         var before = EnteredWithTheClearObservable();
@@ -959,83 +953,4 @@ public sealed class StateMachineTests
         Assert.True(machine.JoinedInProgress);
         Assert.False(machine.Handle(Commenced(400, 7200)).Accepted);
     }
-
-    private static DutyCommenced Commenced(int seconds, int limit) => new()
-    {
-        Key = Key("commenced-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), TimeLimitSeconds = limit,
-    };
-
-    private static DutyTimeRemaining Remaining(int seconds, int left) => new()
-    {
-        Key = Key("remaining-" + seconds + "-" + left), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), RemainingSeconds = left,
-    };
-
-    /// <summary>
-    /// The victory the parser makes of the clear signal: keyed by the message's own opcode,
-    /// epoch and payload hash, and by the fixed semantic key.
-    /// </summary>
-    private static DutyResult Clear(int seconds, long epoch = 0) => new()
-    {
-        Key = new EventKey(
-            "00000000-0000-4000-8000-000000000010", PacketDirection.ServerToClient, "61455",
-            epoch == 0 ? seconds * 1000L : epoch,
-            "1b7b8dd132a57e397bdaf964397fb17e4ea20f5a6a62f4bebc9c0f1ab0bf8566", "DUTY_RESULT:clear_signal"),
-        ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds),
-        Victory = true,
-    };
-
-    private static ContentFinderPop Pop(int seconds, int rouletteId, int? contentId = null) => new()
-    {
-        Key = Key("pop-" + seconds + "-" + rouletteId), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), RouletteId = rouletteId, ContentId = contentId,
-    };
-
-    private static ZoneInitialization Zone(int seconds, int? contentId) => new()
-    {
-        Key = Key("zone-" + seconds + "-" + contentId), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), ContentId = contentId, TerritoryId = 800001,
-        IsDutyInstance = true,
-    };
-
-    private static TerritoryObserved Territory(int milliseconds, int territoryId) => new()
-    {
-        Key = Key("territory-" + milliseconds), ObservedAtUtc = Start.AddMilliseconds(milliseconds),
-        Mono = TimeSpan.FromMilliseconds(milliseconds), TerritoryId = territoryId,
-    };
-
-    private static PlayerJob Job(int seconds, int jobId) => new()
-    {
-        Key = Key("job-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), JobId = jobId,
-    };
-
-    private static DutyResult Result(int seconds, bool victory) => new()
-    {
-        Key = Key("result-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds), Victory = victory,
-    };
-
-    private static ConnectionLost Connection(int seconds) => new()
-    {
-        Key = Key("connection-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds),
-    };
-
-    private static CaptureStopped Capture(int seconds) => new()
-    {
-        Key = Key("capture-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds),
-    };
-
-    private static ZoneLeft Leave(int seconds) => new()
-    {
-        Key = Key("leave-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-        Mono = TimeSpan.FromSeconds(seconds),
-    };
-
-    private static EventKey Key(string semantic) =>
-        new("00000000-0000-4000-8000-000000000010", PacketDirection.None, "SYNTHETIC", 0, null, semantic);
 }
