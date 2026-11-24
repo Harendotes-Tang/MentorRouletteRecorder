@@ -77,6 +77,9 @@ class AppSettings : public QObject
     Q_PROPERTY(bool dungeonSpecialChartVisible READ dungeonSpecialChartVisible WRITE setDungeonSpecialChartVisible NOTIFY dungeonChartsChanged)
     Q_PROPERTY(QStringList dungeonCategoryHiddenBuckets READ dungeonCategoryHiddenBuckets WRITE setDungeonCategoryHiddenBuckets NOTIFY dungeonChartsChanged)
     Q_PROPERTY(QStringList dungeonSpecialHiddenBuckets READ dungeonSpecialHiddenBuckets WRITE setDungeonSpecialHiddenBuckets NOTIFY dungeonChartsChanged)
+    // How 副本提醒与导随宏 was last arranged: sort order, row height, the public library's
+    // region and language choice, and when local entries were last copied.
+    Q_PROPERTY(QVariantMap dutyCommunityView READ dutyCommunityView WRITE setDutyCommunityView NOTIFY dutyCommunityViewChanged)
 
 public:
     /// 用户手填的本机分享署名，不代表历史记录或采集到的角色身份。
@@ -99,6 +102,8 @@ public:
     QStringList dungeonSpecialHiddenBuckets() const;
     void setDungeonSpecialHiddenBuckets(const QStringList &keys);
     Q_INVOKABLE void resetDungeonCharts();
+    QVariantMap dutyCommunityView() const;
+    void setDutyCommunityView(const QVariantMap &view);
     /// Floating-window preferences; the overlay controller validates semantic bounds.
     QRect statisticsOverlayGeometry() const;
     void setStatisticsOverlayGeometry(const QRect &geometry);
@@ -312,6 +317,7 @@ Q_SIGNALS:
     void ttsChanged();
     void dataChanged();
     void dungeonChartsChanged();
+    void dutyCommunityViewChanged();
 
 private:
     /// tts/<leaf> for 简体中文, tts/<language>/<leaf> otherwise.

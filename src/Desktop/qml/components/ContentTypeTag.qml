@@ -9,6 +9,8 @@ Rectangle {
 
     /// "macro" | "reminder"
     property string type: "macro"
+    /// The compact list keeps the icon alone; the word stays the accessible name.
+    property bool iconOnly: false
     readonly property bool macro: type === "macro"
     readonly property color base: macro ? Theme.blue
                                         : (Theme.eorzea ? Theme.yellow : Theme.orangeText)
@@ -18,7 +20,7 @@ Rectangle {
     readonly property string label: macro ? qsTr("宏") : qsTr("提醒")
 
     implicitHeight: 20
-    implicitWidth: content.implicitWidth + 14
+    implicitWidth: iconOnly ? 22 : content.implicitWidth + 14
     radius: Theme.eorzea ? Theme.radiusS : height / 2
     color: Qt.rgba(base.r, base.g, base.b, 0.14)
     border.width: Theme.eorzea ? 1 : 0
@@ -39,6 +41,7 @@ Rectangle {
         }
         Text {
             renderType: Theme.bodyRenderType
+            visible: !root.iconOnly
             text: root.label
             color: root.ink
             font.pixelSize: Theme.fs(11)

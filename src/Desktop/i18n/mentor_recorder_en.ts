@@ -5957,10 +5957,6 @@ SHA256: %3</translation>
         <translation>Language</translation>
     </message>
     <message>
-        <source>适用版本</source>
-        <translation>Game version</translation>
-    </message>
-    <message>
         <source>来源</source>
         <translation>Source</translation>
     </message>
@@ -5985,8 +5981,24 @@ SHA256: %3</translation>
         <translation>Status</translation>
     </message>
     <message>
+        <source>游戏版本</source>
+        <translation>Game version</translation>
+    </message>
+    <message>
+        <source>维护者核对过内容和适用范围</source>
+        <translation>A maintainer has checked the text and what it applies to</translation>
+    </message>
+    <message>
+        <source>还没有人核对过，用之前自己先看一遍</source>
+        <translation>Nobody has checked this yet; read it through before you use it</translation>
+    </message>
+    <message>
         <source>更新于</source>
         <translation>Updated</translation>
+    </message>
+    <message>
+        <source>上次使用</source>
+        <translation>Last used</translation>
     </message>
     <message>
         <source>在左边选一条查看</source>
@@ -6138,6 +6150,114 @@ SHA256: %3</translation>
     <message>
         <source>通用</source>
         <translation>General</translation>
+    </message>
+    <message>
+        <source>最近更新</source>
+        <translation>Recently updated</translation>
+    </message>
+    <message>
+        <source>已核验的在前</source>
+        <translation>Verified first</translation>
+    </message>
+    <message>
+        <source>按标题</source>
+        <translation>By title</translation>
+    </message>
+    <message>
+        <source>最近用过</source>
+        <translation>Recently used</translation>
+    </message>
+    <message>
+        <source>其他副本</source>
+        <translation>Other duties</translation>
+    </message>
+    <message>
+        <source>未标阶段</source>
+        <translation>No stage</translation>
+    </message>
+    <message>
+        <source>开场</source>
+        <translation>Opening</translation>
+    </message>
+    <message>
+        <source>全程</source>
+        <translation>Whole fight</translation>
+    </message>
+    <message>
+        <source>道中</source>
+        <translation>Trash</translation>
+    </message>
+    <message>
+        <source>尾王</source>
+        <translation>Final boss</translation>
+    </message>
+    <message>
+        <source>BOSS %1</source>
+        <translation>Boss %1</translation>
+    </message>
+    <message>
+        <source>阶段 %1</source>
+        <translation>Phase %1</translation>
+    </message>
+    <message>
+        <source>转场</source>
+        <translation>Transition</translation>
+    </message>
+    <message>
+        <source>结束</source>
+        <translation>Ending</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>Current duty</translation>
+    </message>
+    <message>
+        <source>不在副本中</source>
+        <translation>Not in a duty</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>Only entries for %1 and general ones</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favourites</translation>
+    </message>
+    <message>
+        <source>最近复制过的 30 条</source>
+        <translation>The 30 entries copied most recently</translation>
+    </message>
+    <message>
+        <source>不分副本都能用的内容，比如开场问候、通关道别</source>
+        <translation>Entries for any duty, such as a greeting at the start or a goodbye after the clear</translation>
+    </message>
+    <message>
+        <source>按副本</source>
+        <translation>By duty</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>Nothing matches</translation>
+    </message>
+    <message>
+        <source>还没有收藏。点列表里的星标，把常用的收进来。</source>
+        <translation>No favourites yet. Click the star in the list to keep the ones you use most.</translation>
+    </message>
+    <message>
+        <source>复制过的内容会出现在这里。</source>
+        <translation>Entries you copy appear here.</translation>
+    </message>
+    <message>
+        <source>%1和通用都还没有内容</source>
+        <translation>Nothing yet for %1 or under General</translation>
+    </message>
+    <message>
+        <source>这里还没有内容</source>
+        <translation>Nothing here yet</translation>
     </message>
     <message>
         <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
@@ -6336,20 +6456,12 @@ SHA256: %3</translation>
         <translation>Submission copied. Paste it into the browser form and submit.</translation>
     </message>
     <message>
-        <source>已核验</source>
-        <translation>Verified</translation>
-    </message>
-    <message>
         <source>过时</source>
         <translation>Outdated</translation>
     </message>
     <message>
         <source>已撤回</source>
         <translation>Withdrawn</translation>
-    </message>
-    <message>
-        <source>社区投稿／未核验</source>
-        <translation>Community submission / unverified</translation>
     </message>
     <message>
         <source>输入无效或操作失败。</source>
@@ -6464,6 +6576,14 @@ SHA256: %3</translation>
         <translation>Any</translation>
     </message>
     <message>
+        <source>社区投稿 · 已核验</source>
+        <translation>Community submission · verified</translation>
+    </message>
+    <message>
+        <source>社区投稿 · 未核验</source>
+        <translation>Community submission · not verified</translation>
+    </message>
+    <message>
         <source>返回列表</source>
         <translation>Back to the list</translation>
     </message>
@@ -6485,7 +6605,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>禁止攻击宏</source>
-        <translation>Don't-attack macro</translation>
+        <translation>Don&apos;t-attack macro</translation>
     </message>
     <message>
         <source>辛苦宏</source>
@@ -6680,7 +6800,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>换成你选中的目标的名字</source>
-        <translation>Replaced with your target's name</translation>
+        <translation>Replaced with your target&apos;s name</translation>
     </message>
     <message>
         <source>插入</source>
@@ -6716,7 +6836,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>开始版本不能晚于结束版本</source>
-        <translation>The starting version can't be later than the ending one</translation>
+        <translation>The starting version can&apos;t be later than the ending one</translation>
     </message>
     <message>
         <source>原来写的是「%1」</source>
@@ -6797,10 +6917,6 @@ SHA256: %3</translation>
         <translation>%1 of %2</translation>
     </message>
     <message>
-        <source>当前副本在前</source>
-        <translation>Current duty first</translation>
-    </message>
-    <message>
         <source>选择「%1」</source>
         <translation>Select “%1”</translation>
     </message>
@@ -6817,12 +6933,12 @@ SHA256: %3</translation>
         <translation>Already local</translation>
     </message>
     <message>
-        <source>没有匹配的内容</source>
-        <translation>No matching content</translation>
-    </message>
-    <message>
         <source>清除筛选</source>
         <translation>Clear filters</translation>
+    </message>
+    <message>
+        <source>在「全部」里看（%1）</source>
+        <translation>See them under All (%1)</translation>
     </message>
     <message>
         <source>去公共共享库找找</source>
@@ -6853,12 +6969,107 @@ SHA256: %3</translation>
         <translation>Hide similar</translation>
     </message>
     <message>
+        <source>排序</source>
+        <translation>Sort</translation>
+    </message>
+    <message>
+        <source>紧凑行高</source>
+        <translation>Compact rows</translation>
+    </message>
+    <message>
+        <source>全部收起</source>
+        <translation>Collapse all</translation>
+    </message>
+    <message>
+        <source>全部展开</source>
+        <translation>Expand all</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>Verified</translation>
+    </message>
+    <message>
         <source>另有 %1 条相似</source>
         <translation>%1 more similar</translation>
     </message>
     <message>
         <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
         <translation>Entries with almost the same text are grouped here; they differ only in sound cues, spacing or a few characters.</translation>
+    </message>
+    <message>
+        <source>还有 %1 项</source>
+        <translation>%1 more</translation>
+    </message>
+    <message>
+        <source>另有 %1 项是其它区服或语言的</source>
+        <translation>%1 more are for other regions or languages</translation>
+    </message>
+    <message>
+        <source>「全部」里共有 %1 项匹配</source>
+        <translation>%1 matches under All</translation>
+    </message>
+    <message>
+        <source>查看全部 %1 项</source>
+        <translation>See all %1</translation>
+    </message>
+    <message>
+        <source>显示更多</source>
+        <translation>Show more</translation>
+    </message>
+    <message>
+        <source>也显示出来</source>
+        <translation>Show them too</translation>
+    </message>
+    <message>
+        <source>去看看</source>
+        <translation>Take a look</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityRail</name>
+    <message>
+        <source>找副本</source>
+        <translation>Find a duty</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>No duty matches</translation>
+    </message>
+    <message>
+        <source>收起「%1」</source>
+        <translation>Collapse &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>展开「%1」</source>
+        <translation>Expand &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>Current duty</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>Refreshing…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>Online</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>Offline · showing the cached copy</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>Offline</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>Refresh the public library</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>Let the public library go online</translation>
     </message>
 </context>
 <context>
@@ -7007,10 +7218,6 @@ SHA256: %3</translation>
 <context>
     <name>DutyCommunityToolbar</name>
     <message>
-        <source>%1：</source>
-        <translation>%1: </translation>
-    </message>
-    <message>
         <source>搜索标题、正文、副本或作者</source>
         <translation>Search title, text, duty, or author</translation>
     </message>
@@ -7023,44 +7230,12 @@ SHA256: %3</translation>
         <translation>Server region</translation>
     </message>
     <message>
+        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <translation>The public library first shows only entries for your region and interface language; untick here to see the others</translation>
+    </message>
+    <message>
         <source>语言</source>
         <translation>Language</translation>
-    </message>
-    <message>
-        <source>BOSS / 阶段</source>
-        <translation>Boss / phase</translation>
-    </message>
-    <message>
-        <source>搜索 BOSS 或阶段</source>
-        <translation>Search bosses or phases</translation>
-    </message>
-    <message>
-        <source>没有匹配的 BOSS 或阶段</source>
-        <translation>No matching boss or phase</translation>
-    </message>
-    <message>
-        <source>这里的内容还没有标 BOSS 或阶段</source>
-        <translation>Nothing here is marked with a boss or phase yet</translation>
-    </message>
-    <message>
-        <source>当前副本与通用</source>
-        <translation>Current duty and general</translation>
-    </message>
-    <message>
-        <source>不在副本中，只看通用</source>
-        <translation>Not in a duty: general only</translation>
-    </message>
-    <message>
-        <source>只看%1和通用的内容</source>
-        <translation>Show only %1 and general entries</translation>
-    </message>
-    <message>
-        <source>现在不在副本里，打开后只显示通用的内容</source>
-        <translation>You&apos;re not in a duty; when on, only general entries are shown</translation>
-    </message>
-    <message>
-        <source>只看收藏</source>
-        <translation>Favourites only</translation>
     </message>
     <message>
         <source>清除筛选</source>
@@ -7109,42 +7284,6 @@ SHA256: %3</translation>
     <message>
         <source>从常用宏示例开始</source>
         <translation>Start from a common macro</translation>
-    </message>
-    <message>
-        <source>正在刷新…</source>
-        <translation>Refreshing…</translation>
-    </message>
-    <message>
-        <source>已联网</source>
-        <translation>Online</translation>
-    </message>
-    <message>
-        <source>联网已关闭 · 显示缓存</source>
-        <translation>Offline · showing the cache</translation>
-    </message>
-    <message>
-        <source>联网已关闭</source>
-        <translation>Offline</translation>
-    </message>
-    <message>
-        <source>允许公共库联网</source>
-        <translation>Allow public library connections</translation>
-    </message>
-    <message>
-        <source>刷新公共库</source>
-        <translation>Refresh public library</translation>
-    </message>
-    <message>
-        <source>副本</source>
-        <translation>Duty</translation>
-    </message>
-    <message>
-        <source>搜索副本名称</source>
-        <translation>Search duty names</translation>
-    </message>
-    <message>
-        <source>没有匹配的副本</source>
-        <translation>No matching duty</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7559,6 +7698,189 @@ SHA256: %3</translation>
     <message>
         <source>添加记录</source>
         <translation>Add record</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>Queue any roulette other than Mentor, wait 5 seconds, then withdraw</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>Switch job once</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>Quit the game completely, then start it again and log in</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>Queue Mentor roulette, finish the duty, then leave</translation>
+    </message>
+    <message>
+        <source>步骤 1 排的任务</source>
+        <translation>Roulette queued in step 1</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>Job before the switch</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>Job after the switch</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>Duty entered in step 4</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>A new region capture is in progress; this round can start after it ends.</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>The app is recording, so this round cannot start at the same time. Quit the game first.</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>The game is running: quit it completely first, then start.</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>Npcap is not installed, so this cannot start yet.</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>The app&apos;s settings can&apos;t be read right now. Please try again shortly.</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>Round 2: locating the roulette, duty and job</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>Recording</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>Exported</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>Not started</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>This game version already has a candidate profile listing the few messages that may carry the roulette id, the duty and the job. This round records their content so the maintainer can pin down the exact positions; only then can this region be recorded automatically. One round is enough.</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>This round records the content of a small number of message types, to find where the roulette id, the duty and the job sit in them. It is limited to the messages listed in this game version&apos;s candidate profile. A few of those candidates may not be what we think they are and could contain information related to your character. The file stays on this computer and is never uploaded automatically; you decide whether to send it to the maintainer.</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>I understand and agree that this round records the content of these messages</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>Start the game and log in now, then do the four things below in order, ticking each one when done. The app keeps recording after the game exits; you do not need to press Start again after restarting the game.</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>What the app detected</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>The app read these at the candidate positions, so they are only guesses. Check them against what actually happened in the game, and replace anything wrong or empty with the actual name.</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>Edited</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>Not detected yet; you can fill it in yourself</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>%1 of %2 message types seen · %3 recorded</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>Exported. The files are only on this computer; nothing was uploaded. Please send the two files below to the maintainer privately:</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>You can delete these two files once you have sent them; what the app itself recorded is kept for at most 30 days.</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>Exporting</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>Finish and export</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>Open containing folder</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>The current Collector cannot limit evidence to one round. Update the app and try again.</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>Pending</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>The export contains evidence from this round only.</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>This evidence has no verified round ID and cannot be exported. End this collection, then start a new round.</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>Reconnect to the Collector to finish and export this round.</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>Retry finish and export</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>End collection</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>The most recent round has ended. You can export its evidence or start a new round.</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>Start a new round</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>Export this round</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>Discard pending export</translation>
     </message>
 </context>
 <context>
@@ -15225,6 +15547,13 @@ The region cannot be changed while listening or collecting evidence.</translatio
     </message>
 </context>
 <context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>The service did not confirm the full selection. Try again.</translation>
+    </message>
+</context>
+<context>
     <name>mr::ImportRecordsController</name>
     <message>
         <source>新截图没有识别到完整记录，原批次已保留。</source>
@@ -16962,196 +17291,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
-    </message>
-</context>
-<context>
-    <name>EvidenceCandidateRound</name>
-    <message>
-        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
-        <translation>Queue any roulette other than Mentor, wait 5 seconds, then withdraw</translation>
-    </message>
-    <message>
-        <source>切换一次职业</source>
-        <translation>Switch job once</translation>
-    </message>
-    <message>
-        <source>完全退出游戏，再重新启动并登录</source>
-        <translation>Quit the game completely, then start it again and log in</translation>
-    </message>
-    <message>
-        <source>排指导者任务，完成后离开副本</source>
-        <translation>Queue Mentor roulette, finish the duty, then leave</translation>
-    </message>
-    <message>
-        <source>步骤 1 排的任务</source>
-        <translation>Roulette queued in step 1</translation>
-    </message>
-    <message>
-        <source>换职业前的职业</source>
-        <translation>Job before the switch</translation>
-    </message>
-    <message>
-        <source>换职业后的职业</source>
-        <translation>Job after the switch</translation>
-    </message>
-    <message>
-        <source>步骤 4 进的副本</source>
-        <translation>Duty entered in step 4</translation>
-    </message>
-    <message>
-        <source>编号 %1</source>
-        <translation>ID %1</translation>
-    </message>
-    <message>
-        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
-        <translation>A new region capture is in progress; this round can start after it ends.</translation>
-    </message>
-    <message>
-        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
-        <translation>The app is recording, so this round cannot start at the same time. Quit the game first.</translation>
-    </message>
-    <message>
-        <source>游戏正在运行：先完全退出游戏，再开始。</source>
-        <translation>The game is running: quit it completely first, then start.</translation>
-    </message>
-    <message>
-        <source>未安装 Npcap，暂时不能开始。</source>
-        <translation>Npcap is not installed, so this cannot start yet.</translation>
-    </message>
-    <message>
-        <source>暂时读不到软件的设置，请稍后再试。</source>
-        <translation>The app's settings can't be read right now. Please try again shortly.</translation>
-    </message>
-    <message>
-        <source>第二轮：确定任务、副本和职业的位置</source>
-        <translation>Round 2: locating the roulette, duty and job</translation>
-    </message>
-    <message>
-        <source>正在记录</source>
-        <translation>Recording</translation>
-    </message>
-    <message>
-        <source>等待游戏启动</source>
-        <translation>Waiting for the game</translation>
-    </message>
-    <message>
-        <source>已导出</source>
-        <translation>Exported</translation>
-    </message>
-    <message>
-        <source>尚未开始</source>
-        <translation>Not started</translation>
-    </message>
-    <message>
-        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
-        <translation>This game version already has a candidate profile listing the few messages that may carry the roulette id, the duty and the job. This round records their content so the maintainer can pin down the exact positions; only then can this region be recorded automatically. One round is enough.</translation>
-    </message>
-    <message>
-        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
-        <translation>This round records the content of a small number of message types, to find where the roulette id, the duty and the job sit in them. It is limited to the messages listed in this game version's candidate profile. A few of those candidates may not be what we think they are and could contain information related to your character. The file stays on this computer and is never uploaded automatically; you decide whether to send it to the maintainer.</translation>
-    </message>
-    <message>
-        <source>我已了解并同意这一轮记录这些报文的内容</source>
-        <translation>I understand and agree that this round records the content of these messages</translation>
-    </message>
-    <message>
-        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
-        <translation>Start the game and log in now, then do the four things below in order, ticking each one when done. The app keeps recording after the game exits; you do not need to press Start again after restarting the game.</translation>
-    </message>
-    <message>
-        <source>软件识别到的情况</source>
-        <translation>What the app detected</translation>
-    </message>
-    <message>
-        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
-        <translation>The app read these at the candidate positions, so they are only guesses. Check them against what actually happened in the game, and replace anything wrong or empty with the actual name.</translation>
-    </message>
-    <message>
-        <source>已修改</source>
-        <translation>Edited</translation>
-    </message>
-    <message>
-        <source>还没有识别到，可以自己填</source>
-        <translation>Not detected yet; you can fill it in yourself</translation>
-    </message>
-    <message>
-        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
-        <translation>%1 of %2 message types seen · %3 recorded</translation>
-    </message>
-    <message>
-        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
-        <translation>Exported. The files are only on this computer; nothing was uploaded. Please send the two files below to the maintainer privately:</translation>
-    </message>
-    <message>
-        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
-        <translation>You can delete these two files once you have sent them; what the app itself recorded is kept for at most 30 days.</translation>
-    </message>
-    <message>
-        <source>开始</source>
-        <translation>Start</translation>
-    </message>
-    <message>
-        <source>正在导出</source>
-        <translation>Exporting</translation>
-    </message>
-    <message>
-        <source>结束并导出</source>
-        <translation>Finish and export</translation>
-    </message>
-    <message>
-        <source>打开所在文件夹</source>
-        <translation>Open containing folder</translation>
-    </message>
-    <message>
-        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
-        <translation>The current Collector cannot limit evidence to one round. Update the app and try again.</translation>
-    </message>
-    <message>
-        <source>待处理</source>
-        <translation>Pending</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>The export contains evidence from this round only.</translation>
-    </message>
-    <message>
-        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
-        <translation>This evidence has no verified round ID and cannot be exported. End this collection, then start a new round.</translation>
-    </message>
-    <message>
-        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
-        <translation>Reconnect to the Collector to finish and export this round.</translation>
-    </message>
-    <message>
-        <source>重试结束并导出</source>
-        <translation>Retry finish and export</translation>
-    </message>
-    <message>
-        <source>结束采证</source>
-        <translation>End collection</translation>
-    </message>
-    <message>
-        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
-        <translation>The most recent round has ended. You can export its evidence or start a new round.</translation>
-    </message>
-    <message>
-        <source>开始新一轮</source>
-        <translation>Start a new round</translation>
-    </message>
-    <message>
-        <source>导出这一轮</source>
-        <translation>Export this round</translation>
-    </message>
-    <message>
-        <source>放弃本次导出</source>
-        <translation>Discard pending export</translation>
-    </message>
-</context>
-<context>
-    <name>mr::IBackend</name>
-    <message>
-        <source>后台服务未确认完整的勾选记录，请重试。</source>
-        <translation>The service did not confirm the full selection. Try again.</translation>
     </message>
 </context>
 </TS>

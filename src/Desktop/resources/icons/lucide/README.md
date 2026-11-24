@@ -3,7 +3,7 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 74 个图标中有 29 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`external-link`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
+（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 82 个图标中有 29 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`external-link`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
 其中 `circle-alert` 与 `circle-help` 在名单上仍写作 Feather 的旧名 `alert-circle` 与 `help-circle`（Lucide 后来改了名，对应关系记在生成器的 `FEATHER_RENAMES` 中）；`globe` 不在名单上。
 生成器按同一份名单把 MIT 声明与这 29 个名称一并写入 `Lucide.js` 的文件头（`fromFeather`）。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
@@ -33,6 +33,8 @@
 
 2026-11-23 新增 `external-link`（「提醒与宏」中打开浏览器的按钮用它代替文字箭头「↗」），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
 
+2026-11-25 新增 `layers`、`asterisk`、`refresh-cw`、`arrow-up-down`、`rows-3`、`chevrons-down-up`、`chevrons-up-down`、`shield-check`（「提醒与宏」副本目录的「全部」「通用」、刷新公共库、排序、紧凑行高、全部收起与展开、已核验），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
+
 2026-11-09 图标统一补齐：复选、浮窗、完成状态、窗口控制与复制操作的新增图标同样取自上述固定官方 npm 版本；浮窗旧名称由 `OverlayIcons.js` 映射到标准 Lucide 名称，运行时仍只读取本地生成库。
 
 | 文件 | SHA-256 |
@@ -40,7 +42,9 @@
 | `activity.svg` | `3d42112d2bc54483c1ba4ac89336f0a4a26d7544ed19a3dbbe950fd0b37eb8d2` |
 | `arrow-down.svg` | `755304acb9101d16746d2ebecc8cf042fe8862bbd126d027618f813b4e2f4e1c` |
 | `arrow-right.svg` | `1869af6bbcfce9193d951d8cd4308673a140624f4d44943d7c80b0abd53f6a3a` |
+| `arrow-up-down.svg` | `30018f92cc10b3d0b9e976f4bb6f3d820eac899b5777ed743458d514d3e9579c` |
 | `arrow-up.svg` | `87245df478e1673410b4bf87243938e1c377c2f73218240d1cbb0ca03b11ac98` |
+| `asterisk.svg` | `142069c62a6d12c87ce2d31b83d79abefb72bee6e27bfc0cee64a6076362ef2f` |
 | `bell-off.svg` | `725cef4d5ad6c6fd82ec3156d71e86bfe3ec35376782d4a0921bd7b11cd15288` |
 | `bell.svg` | `dbdcb73e110c7925e505b6b7a331f181e4fba0339ae12d3d916cf66079283680` |
 | `book-open-text.svg` | `8bc24f524dcb358aa4cfe76211fc6c12c40c2f1519f2a87fd916be116d7bf1f5` |
@@ -50,7 +54,9 @@
 | `chevron-down.svg` | `2fe6bf9c85691036fb6463026cd0ceb0df0f4e6d57b90badacf009a4d029c105` |
 | `chevron-left.svg` | `96ec0362ebdcfe2a8178676a814d0f8c259fc18bf79ec57e90a9d51a8b5f34fe` |
 | `chevron-right.svg` | `a4e2552008bea9a6a5cd9b3a9de8d9db39d9b923ff083ba3077114f08bcf0d26` |
+| `chevrons-down-up.svg` | `943460b4949b96c3ca8e2e635b3c2116f211d74e7b01ea687dba970649ef484a` |
 | `chevrons-down.svg` | `88bbd765e55877aec3985fb5dfd87b677a0295d255c215e83ba4e1e9cb099288` |
+| `chevrons-up-down.svg` | `2af42c95adfd1297adf145933f0cf0954d2696f443e9a5f2d960235f8011cd64` |
 | `circle-alert.svg` | `f6e3270e82d294804356ed5aa8a17948f065ac17365efdc66426efde5d2a8ffa` |
 | `circle-help.svg` | `e6113143231f67e8b8aeeb2b0712f470d0361b725d27e6cd3392ef00472011ee` |
 | `clipboard-check.svg` | `23b7297983493c8a6c8e8a125d153d6530ca65ba49f5553a126cd7fa90b5e74e` |
@@ -80,6 +86,7 @@
 | `inbox.svg` | `e567a335888a078a37e76740e654b582760b7f3f87e5cd4a14a7ca4cb41f8f47` |
 | `info.svg` | `e718a8c91a197551cf9c06c06e956f49e9f6e1f967414e18bad44f8591bcadb6` |
 | `languages.svg` | `d07e21dd6aaff5c8c9ded188afc09cc8ccb7a0041f76b1d07297fb845d5e2987` |
+| `layers.svg` | `e5f5dae86694bcca585995abbfafdfe780648efe891943f69a800882a927990d` |
 | `layout-dashboard.svg` | `fc185932ada42aabb7de6c1ccdb91ea3f440aacee14a0461aaacb8b82bcc1541` |
 | `lock-open.svg` | `c0a4cd366aa5dcbf95434e071a944fc02065c7834dd995e457e0a9d62f37f3e9` |
 | `lock.svg` | `bb33207071e22c9d18ccb7ca1ae0604902476c5d117499a72c776589f039c3a3` |
@@ -96,10 +103,13 @@
 | `panel-top-close.svg` | `44b3d83bab6444241e3216e2f4b18ced32e08bb2493c3691ebad610bee75e0f5` |
 | `plus.svg` | `6ae825b04b65ebd4593252d8a86b031a3dceb68bfde837e0f6611bc2b91e4058` |
 | `radio.svg` | `d719fbace88d9c180b9f0d17a8c47f242d9f09d64c29a9e938e3a3a123bb829e` |
+| `refresh-cw.svg` | `738d9bb85e8634ff3c29cafe4c71703980af6bc1a4b656f6ff67a77c8a5f7192` |
+| `rows-3.svg` | `fe2caa83e57f380f6d5d2d1624b779050243e1338667ada4fa322ea3e7f1ddd2` |
 | `search.svg` | `d2c492f6c3e5bfe43d0ec7f22031d10dee141531907ef923fd63f89f3f631a05` |
 | `send.svg` | `11d3a7e58866ff244fa6b88a249848c52916801b42aae2bc16d739d2bceb4acc` |
 | `server.svg` | `63254fe737b5d1c505261ce56e8ef134a1c9073c0b9b9349efe8181efaa1ed8b` |
 | `settings.svg` | `bed6ed745f25d997a1141a057f16e7b89ee2d88ad2c42f9af0819c2d02e6c5f4` |
+| `shield-check.svg` | `42f5672d065207deb46eaae95aa87ada4c4a2f3abd1d0d823a9e4bf992177829` |
 | `skull.svg` | `3f6c2d27e53b70818276cb179b0541d5d412d4db16ad2070bf1309fef9b7bba8` |
 | `sliders-horizontal.svg` | `227f58fd45bc90e5fd9a8a4c8b14fad14089e48f966895b8356efe43bcfed46a` |
 | `smile.svg` | `6d91891cf38d3d9cae4fea3dc08cf6e3e1fd00ead52e8c6c3ec57bedd2fcbc06` |

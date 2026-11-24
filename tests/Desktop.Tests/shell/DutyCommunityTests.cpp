@@ -41,6 +41,7 @@ private Q_SLOTS:
     void communitySubmissionLeavesOutWhatIsAlreadyPublic();
     void communityBrowserSubmissionWaitsForThePaste();
     void communityPublicLibraryFoldsAndFilters();
+    void communityDirectorySetsTheRangeAndGroupsTheList();
     void communityTextRulesMatchThePublisher();
 public:
     Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
@@ -161,6 +162,7 @@ QObject *openCommunityDialog(Scene &scene)
     if (QObject *alert = scene.root->findChild<QObject *>(QStringLiteral("automaticRecordingAlert")))
         QMetaObject::invokeMethod(alert, "close");
     QMetaObject::invokeMethod(dialog, "resetFilters");
+    QMetaObject::invokeMethod(dialog, "pickScope", Q_ARG(QVariant, QStringLiteral("all")));
     return dialog;
 }
 } // namespace
@@ -673,7 +675,7 @@ void DutyCommunityTests::communityBrowserSubmissionWaitsForThePaste()
 }
 
 // The public library folds entries that read alike under the first one (「另有 N 条相似」) and
-// can be narrowed to a duty and to a job (owner, 2026-11-23). The two text pairs are the
+// can be narrowed to a job (owner, 2026-11-23). The two text pairs are the
 // publisher's own test cases: 0.96 alike folds, 0.8 does not.
 void DutyCommunityTests::communityPublicLibraryFoldsAndFilters()
 {
@@ -720,20 +722,20 @@ void DutyCommunityTests::communityPublicLibraryFoldsAndFilters()
 
     // 职业: a 职能 covers its jobs and a job its 职能; 不限 is the entries without one.
     QVERIFY(scene.item(QStringLiteral("dutyCommunityJobFilter"), true));
-    QVERIFY(scene.item(QStringLiteral("dutyCommunityDutyFilter"), true));
-    const auto filteredWith = [&](const char *property, const QVariantList &choice) {
-        dialog->setProperty("jobFilter", QVariantList());
-        dialog->setProperty("dutyFilter", QVariantList());
-        dialog->setProperty(property, choice);
+    const auto setFilter = [&](const char *key, const QVariantList &choice) {
+        QVERIFY(QMetaObject::invokeMethod(dialog, "setFilter", Q_ARG(QVariant, QString::fromLatin1(key)),
+                                          Q_ARG(QVariant, QVariant(choice))));
+    };
+    const auto withJob = [&](const QString &choice) {
+        setFilter("job", {choice});
         QStringList out = rowIds(dialog->property("filtered"));
         out.sort();
         return out;
     };
-    QCOMPARE(filteredWith("jobFilter", {QStringLiteral("PLD")}), (QStringList{id(202), id(204)}));
-    QCOMPARE(filteredWith("jobFilter", {QStringLiteral("TANK")}), (QStringList{id(202), id(204)}));
-    QCOMPARE(filteredWith("jobFilter", {QStringLiteral("HEALER")}), QStringList{id(203)});
-    QCOMPARE(filteredWith("jobFilter", {QStringLiteral("ANY")}), (QStringList{id(201), id(205)}));
-    QCOMPARE(filteredWith("dutyFilter", QVariantList{QVariant(0)}), (QStringList{id(203), id(205)}));
+    QCOMPARE(withJob(QStringLiteral("PLD")), (QStringList{id(202), id(204)}));
+    QCOMPARE(withJob(QStringLiteral("TANK")), (QStringList{id(202), id(204)}));
+    QCOMPARE(withJob(QStringLiteral("HEALER")), QStringList{id(203)});
+    QCOMPARE(withJob(QStringLiteral("ANY")), (QStringList{id(201), id(205)}));
     // 不限 and the five 职能 lead, so a long list of jobs never pushes them out of the panel.
     const QVariantList jobOptions = qmlList(dialog->property("jobOptions"));
     QStringList leading;
@@ -743,17 +745,150 @@ void DutyCommunityTests::communityPublicLibraryFoldsAndFilters()
                                    QStringLiteral("MELEE"), QStringLiteral("RANGED"), QStringLiteral("CASTER")}));
     QVERIFY(dialog->property("filterActive").toBool());
 
-    // The detail names the licence in words too.
-    dialog->setProperty("dutyFilter", QVariantList());
+    // The detail names the licence by its code; what it allows is said on hover.
+    setFilter("job", {});
     QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, id(201))));
-    QTRY_VERIFY(visibleText(scene.mainWindow()->contentItem(), s("注明作者即可转载、改编（CC BY 4.0）")));
+    QTRY_VERIFY(visibleText(scene.mainWindow()->contentItem(), s("CC BY 4.0")));
+    QTRY_VERIFY(visibleText(scene.mainWindow()->contentItem(), s("社区投稿 · 未核验")));
+    QTRY_VERIFY(visibleText(scene.mainWindow()->contentItem(), QStringLiteral("2026-11-23")));
 
-    // The local list has neither filter, and a choice left on the public tab does not narrow it.
-    dialog->setProperty("jobFilter", QVariantList{QStringLiteral("PLD")});
+    // Each tab keeps its own filters: a choice left on the public tab does not narrow the local list.
+    setFilter("job", {QStringLiteral("PLD")});
     dialog->setProperty("tab", QStringLiteral("local"));
-    QTRY_VERIFY(!scene.item(QStringLiteral("dutyCommunityJobFilter"), true));
-    QCOMPARE(rowIds(dialog->property("filtered")).size(), rowIds(dialog->property("localRows")).size());
+    QTRY_COMPARE(rowIds(dialog->property("filtered")).size(), rowIds(dialog->property("localRows")).size());
     QVERIFY(!dialog->property("filterActive").toBool());
+    dialog->setProperty("tab", QStringLiteral("public"));
+    setFilter("job", {});
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// 条目很多时 (Design artifact): the directory on the left sets the range and its numbers follow
+// the filters; inside a duty the list is grouped by what BOSS / 阶段 means, however it was
+// spelt; the public library opens on the player's server and says what that hides; copying a
+// local entry puts it under 最近用过; the order chosen is remembered.
+void DutyCommunityTests::communityDirectorySetsTheRangeAndGroupsTheList()
+{
+    const auto s = [](const char *text) { return QString::fromUtf8(text); };
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    const auto id = [](int number) { return QStringLiteral("00000000-0000-4000-8000-%1").arg(number, 12, 10, QLatin1Char('0')); };
+    const auto entry = [](int number, int duty, const char *stage, const char *region = "ALL") {
+        QVariantMap row = publicEntry(number, "macro", QByteArray("/p ") + QByteArray::number(number), "", duty);
+        QVariantMap content = row.value(QStringLiteral("content")).toMap();
+        content.insert(QStringLiteral("boss"), QString::fromUtf8(stage));
+        content.insert(QStringLiteral("region"), QString::fromLatin1(region));
+        row.insert(QStringLiteral("content"), content);
+        return row;
+    };
+    const auto call = [&](const char *method, const QVariant &argument) {
+        return QMetaObject::invokeMethod(dialog, method, Q_ARG(QVariant, argument));
+    };
+    // What the list draws, as "kind label-or-id".
+    const auto drawn = [&] {
+        QStringList out;
+        for (const QVariant &value : qmlList(dialog->property("listEntries"))) {
+            const QVariantMap line = value.toMap();
+            const QString kind = line.value(QStringLiteral("kind")).toString();
+            out << kind + QLatin1Char(' ') + (kind == QLatin1String("head")
+                ? line.value(QStringLiteral("label")).toString() + QLatin1Char(' ') + line.value(QStringLiteral("count")).toString()
+                : line.value(QStringLiteral("row")).toMap().value(QStringLiteral("content")).toMap()
+                      .value(QStringLiteral("id")).toString().right(3));
+        }
+        return out;
+    };
+    dialog->setProperty("tab", QStringLiteral("public"));
+    dialog->setProperty("publicRows", QVariantList{
+        entry(301, 4, "BOSS 2"), entry(302, 4, "\xE8\x80\x81\xE4\xBA\x8C"), entry(303, 4, ""), entry(304, 0, ""),
+        entry(305, 4, "\xE6\xBD\xAE\xE6\xB1\x90\xE6\xB3\xA2"), entry(306, 4, "\xE5\xBC\x80\xE5\x9C\xBA", "GLOBAL")});
+    QVERIFY(QMetaObject::invokeMethod(dialog, "showEveryPlace"));
+
+    // 全部 is one flat list; the directory counts each duty.
+    QTRY_COMPARE(drawn().size(), 6);
+    QVERIFY(!dialog->property("listGrouped").toBool());
+    const QVariantMap counts = dialog->property("scopeCounts").toMap().value(QStringLiteral("duty")).toMap();
+    QCOMPARE(counts.value(QStringLiteral("4")).toInt(), 5);
+    QCOMPARE(counts.value(QStringLiteral("0")).toInt(), 1);
+    QVERIFY(scene.item(QStringLiteral("dutyCommunityRail"), true));
+
+    // Inside the duty: 开场, then BOSS 2 with both spellings, the spelling nobody knows as
+    // written, 未标阶段 last.
+    QVERIFY(call("pickScope", QStringLiteral("d:4")));
+    QTRY_COMPARE(drawn(), (QStringList{s("head 开场 1"), s("row 306"), s("head BOSS 2 2"), s("row 301"), s("row 302"),
+                                       s("head 潮汐波 1"), s("row 305"), s("head 未标阶段 1"), s("row 303")}));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityGroupHead"), true));
+    QVERIFY(call("toggleListGroup", QStringLiteral("d:4/p:b2")));
+    QTRY_COMPARE(drawn().size(), 7);
+    // 全选 still takes the folded group's rows.
+    QVERIFY(scene.click(QStringLiteral("dutyCommunitySelectAll")));
+    QTRY_COMPARE(qmlList(dialog->property("checkedIds")).size(), 5);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "foldAll"));
+    QTRY_COMPARE(drawn().size(), 4);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "foldAll"));
+    QTRY_COMPARE(drawn().size(), 9);
+
+    // A region filter hides the other server's entry and the list says so.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setFilter", Q_ARG(QVariant, QStringLiteral("region")),
+                                      Q_ARG(QVariant, QVariant(QVariantList{QStringLiteral("CN")}))));
+    QTRY_COMPARE(dialog->property("hiddenByPlace").toInt(), 1);
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityShowEveryPlace"), true));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityShowEveryPlace")));
+    QTRY_COMPARE(dialog->property("hiddenByPlace").toInt(), 0);
+
+    // A search marks its hit in the title and the directory's numbers become hit counts.
+    dialog->setProperty("query", QStringLiteral("Entry 301"));
+    QTRY_COMPARE(dialog->property("scopeCounts").toMap().value(QStringLiteral("all")).toInt(), 1);
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityRowTitle"), true));
+    QVERIFY(scene.item(QStringLiteral("dutyCommunityRowTitle"), true)->property("text").toString().contains(QStringLiteral("<b>Entry 301</b>")));
+    dialog->setProperty("query", QString());
+
+    // 清除筛选 drops the search and 类型 but leaves the public library's 区服 where the player
+    // put it (owner, 2026-11-25); with nothing else set the button has nothing to do.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setFilter", Q_ARG(QVariant, QStringLiteral("region")),
+                                      Q_ARG(QVariant, QVariant(QVariantList{QStringLiteral("CN")}))));
+    QVERIFY(!dialog->property("resettable").toBool());
+    QTRY_VERIFY(!scene.item(QStringLiteral("dutyCommunityResetFilters"), true));
+    dialog->setProperty("query", QStringLiteral("Entry"));
+    QVERIFY(dialog->property("resettable").toBool());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "resetFilters"));
+    QCOMPARE(dialog->property("query").toString(), QString());
+    QCOMPARE(dialog->property("hiddenByPlace").toInt(), 1);
+
+    // The order and the 区服 choice are preferences: both are still there after the saved view
+    // is read again.
+    QVERIFY(call("setSort", QStringLiteral("title")));
+    dialog->setProperty("sortPublic", QStringLiteral("updated"));
+    dialog->setProperty("publicPreset", true);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadView"));
+    QCOMPARE(dialog->property("sortPublic").toString(), QStringLiteral("title"));
+    QCOMPARE(dialog->property("hiddenByPlace").toInt(), 1);
+    QVERIFY(call("setSort", QStringLiteral("updated")));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "showEveryPlace"));
+
+    // Folding a group leaves a long list where it was instead of back at the top.
+    QVariantList many{entry(400, 4, "BOSS 1")};
+    for (int number = 401; number <= 440; ++number)
+        many << entry(number, 4, "");
+    dialog->setProperty("publicRows", many);
+    QTRY_COMPARE(drawn().size(), 43);
+    auto *rows = scene.item(QStringLiteral("dutyCommunityRows"), true);
+    QVERIFY(rows);
+    const qreal top = rows->property("originY").toReal();
+    rows->setProperty("contentY", top + 400);
+    QVERIFY(call("toggleListGroup", QStringLiteral("d:4/p:b1")));
+    QTRY_COMPARE(drawn().size(), 42);
+    QTRY_VERIFY(rows->property("contentY").toReal() > rows->property("originY").toReal() + 200);
+
+    // 最近用过 holds what was copied, on the local tab only.
+    dialog->setProperty("tab", QStringLiteral("local"));
+    const QString local = rowIds(dialog->property("localRows")).constFirst();
+    QVERIFY(call("pickScope", QStringLiteral("recent")));
+    QTRY_COMPARE(qmlList(dialog->property("listRows")).size(), 0);
+    QTRY_VERIFY(visibleText(scene.mainWindow()->contentItem(), s("复制过的内容会出现在这里。")));
+    QVERIFY(call("markUsed", local));
+    QTRY_COMPARE(rowIds(dialog->property("scopeRows")), QStringList{local});
+    dialog->setProperty("recent", QVariantMap());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "saveView"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

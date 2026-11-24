@@ -94,7 +94,7 @@ ColumnLayout {
     // (Design: 其余按类型分组), narrowed to `term`. Built while the list is open only: a server
     // has some 850 duties.
     function dutyOptions(term) {
-        const order = ["四人迷宫", "讨伐歼灭战", "大型任务", "绝境战", "深层迷宫", "行会令", "任务战斗", "禁地探索"]
+        const order = store.categoryOrder
         const rank = category => order.indexOf(category) < 0 ? order.length : order.indexOf(category)
         const rows = Runtime.app.dutyChoicesForRegion(regionKey === "ALL" ? "CN" : regionKey)
         const here = rows.find(duty => Number(duty.content_id) === currentDuty)

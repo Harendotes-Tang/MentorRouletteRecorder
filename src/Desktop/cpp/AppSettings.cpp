@@ -7,6 +7,8 @@
 #include <QDate>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <algorithm>
 #include <limits>
@@ -193,6 +195,21 @@ void AppSettings::setDungeonSpecialHiddenBuckets(const QStringList &keys)
         return;
     m_settings.setValue(QStringLiteral("dungeon_charts/special_hidden"), normalized);
     Q_EMIT dungeonChartsChanged();
+}
+
+QVariantMap AppSettings::dutyCommunityView() const
+{
+    const QByteArray stored = m_settings.value(QStringLiteral("duty_community/view")).toString().toUtf8();
+    return QJsonDocument::fromJson(stored).object().toVariantMap();
+}
+
+void AppSettings::setDutyCommunityView(const QVariantMap &view)
+{
+    if (dutyCommunityView() == view)
+        return;
+    m_settings.setValue(QStringLiteral("duty_community/view"),
+                        QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(view)).toJson(QJsonDocument::Compact)));
+    Q_EMIT dutyCommunityViewChanged();
 }
 
 void AppSettings::resetDungeonCharts()

@@ -25,23 +25,35 @@ ColumnLayout {
     readonly property var meta: {
         if (!item) return []
         const author = item.author || (row.upstream && row.upstream.author)
+        const license = item.license || (row.upstream && row.upstream.license)
+        const used = !store.remote && store.recent[item.id]
+        // Only what is filled in takes a place (Design: 没填的「职业」「游戏版本」不显示).
         const pairs = [
             [qsTr("副本"), store.dutyLabel(item)],
-            [qsTr("BOSS / 阶段"), store.stageLabel(item) || "—"],
+            [qsTr("BOSS / 阶段"), store.stageLabel(item)],
+            [qsTr("职业"), store.jobsLabel(item.role)],
+            [qsTr("游戏版本"), store.versionLabel(item.game_version)],
             [qsTr("区服"), store.regionLabel(item.region)],
             [qsTr("语言"), store.languageLabel(item.language)],
-            [qsTr("职业"), store.jobsLabel(item.role)],
-            [qsTr("适用版本"), store.versionLabel(item.game_version)],
             [qsTr("来源"), store.remote ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的"))],
             [qsTr("作者"), author ? "@" + author.login : ""],
-            [qsTr("许可"), store.licenseLabel(item.license || (row.upstream && row.upstream.license))],
-            [qsTr("状态"), item.status ? store.statusText(item.status) : ""],
-            [qsTr("更新于"), item.updated_at]
+            [qsTr("状态"), item.status ? store.statusText(item.status) : "",
+             item.status === "verified" ? qsTr("维护者核对过内容和适用范围")
+             : item.status === "community" ? qsTr("还没有人核对过，用之前自己先看一遍") : ""],
+            [qsTr("许可"), store.licenseCode(license), store.licenseDetail(license)],
+            [qsTr("投稿"), item.issue ? "#" + item.issue : ""],
+            [qsTr("更新于"), day(item.updated_at)],
+            [qsTr("上次使用"), used ? Qt.formatDateTime(new Date(used), "MM-dd HH:mm") : ""]
         ]
-        return pairs.filter(pair => pair[1]).map(pair => ({ key: pair[0], value: String(pair[1]) }))
+        return pairs.filter(pair => pair[1]).map(pair => ({ key: pair[0], value: String(pair[1]), tip: pair[2] || "" }))
     }
     spacing: 0
 
+    /// A time as the day it falls on in this computer's time zone; other text as it is.
+    function day(value) {
+        const time = new Date(value)
+        return value && !isNaN(time.getTime()) ? Qt.formatDate(time, "yyyy-MM-dd") : String(value || "")
+    }
     function escaped(text) {
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/ /g, "&nbsp;")
     }
@@ -118,6 +130,9 @@ ColumnLayout {
                         required property var modelData
                         rightPadding: 18
                         spacing: 2
+                        HoverHandler { id: over }
+                        ToolTip.visible: over.hovered && modelData.tip.length > 0
+                        ToolTip.text: modelData.tip
                         Text {
                             renderType: Theme.bodyRenderType
                             text: parent.modelData.key

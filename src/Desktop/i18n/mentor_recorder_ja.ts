@@ -5957,10 +5957,6 @@ SHA256：%3</translation>
         <translation>言語</translation>
     </message>
     <message>
-        <source>适用版本</source>
-        <translation>対応バージョン</translation>
-    </message>
-    <message>
         <source>来源</source>
         <translation>記録元</translation>
     </message>
@@ -5985,8 +5981,24 @@ SHA256：%3</translation>
         <translation>状態</translation>
     </message>
     <message>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>维护者核对过内容和适用范围</source>
+        <translation>メンテナーが内容と適用範囲を確認済みです</translation>
+    </message>
+    <message>
+        <source>还没有人核对过，用之前自己先看一遍</source>
+        <translation>まだ誰も確認していません。使う前に自分で目を通してください</translation>
+    </message>
+    <message>
         <source>更新于</source>
         <translation>更新日</translation>
+    </message>
+    <message>
+        <source>上次使用</source>
+        <translation>前回の使用</translation>
     </message>
     <message>
         <source>在左边选一条查看</source>
@@ -6138,6 +6150,114 @@ SHA256：%3</translation>
     <message>
         <source>通用</source>
         <translation>一般</translation>
+    </message>
+    <message>
+        <source>最近更新</source>
+        <translation>更新が新しい順</translation>
+    </message>
+    <message>
+        <source>已核验的在前</source>
+        <translation>確認済みを先に</translation>
+    </message>
+    <message>
+        <source>按标题</source>
+        <translation>タイトル順</translation>
+    </message>
+    <message>
+        <source>最近用过</source>
+        <translation>最近使ったもの</translation>
+    </message>
+    <message>
+        <source>其他副本</source>
+        <translation>その他のコンテンツ</translation>
+    </message>
+    <message>
+        <source>未标阶段</source>
+        <translation>フェーズ未指定</translation>
+    </message>
+    <message>
+        <source>开场</source>
+        <translation>開幕</translation>
+    </message>
+    <message>
+        <source>全程</source>
+        <translation>全体</translation>
+    </message>
+    <message>
+        <source>道中</source>
+        <translation>道中</translation>
+    </message>
+    <message>
+        <source>尾王</source>
+        <translation>ラスボス</translation>
+    </message>
+    <message>
+        <source>BOSS %1</source>
+        <translation>ボス %1</translation>
+    </message>
+    <message>
+        <source>阶段 %1</source>
+        <translation>フェーズ %1</translation>
+    </message>
+    <message>
+        <source>转场</source>
+        <translation>フェーズ移行</translation>
+    </message>
+    <message>
+        <source>结束</source>
+        <translation>終了</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>すべて</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>現在のコンテンツ</translation>
+    </message>
+    <message>
+        <source>不在副本中</source>
+        <translation>コンテンツ外</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>%1 と汎用の内容だけを表示</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>お気に入り</translation>
+    </message>
+    <message>
+        <source>最近复制过的 30 条</source>
+        <translation>最近コピーした 30 件</translation>
+    </message>
+    <message>
+        <source>不分副本都能用的内容，比如开场问候、通关道别</source>
+        <translation>どのコンテンツでも使える内容（開始時の挨拶、クリア後のお礼など）</translation>
+    </message>
+    <message>
+        <source>按副本</source>
+        <translation>コンテンツ別</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>一致する内容がありません</translation>
+    </message>
+    <message>
+        <source>还没有收藏。点列表里的星标，把常用的收进来。</source>
+        <translation>お気に入りはまだありません。一覧の星をクリックして、よく使うものを登録してください。</translation>
+    </message>
+    <message>
+        <source>复制过的内容会出现在这里。</source>
+        <translation>コピーした内容がここに表示されます。</translation>
+    </message>
+    <message>
+        <source>%1和通用都还没有内容</source>
+        <translation>%1 と汎用にはまだ内容がありません</translation>
+    </message>
+    <message>
+        <source>这里还没有内容</source>
+        <translation>ここにはまだ内容がありません</translation>
     </message>
     <message>
         <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
@@ -6336,20 +6456,12 @@ SHA256：%3</translation>
         <translation>投稿をコピーしました。ブラウザーのフォームに貼り付けて送信してください。</translation>
     </message>
     <message>
-        <source>已核验</source>
-        <translation>確認済み</translation>
-    </message>
-    <message>
         <source>过时</source>
         <translation>古い情報</translation>
     </message>
     <message>
         <source>已撤回</source>
         <translation>取り下げ済み</translation>
-    </message>
-    <message>
-        <source>社区投稿／未核验</source>
-        <translation>コミュニティ投稿／未確認</translation>
     </message>
     <message>
         <source>输入无效或操作失败。</source>
@@ -6462,6 +6574,14 @@ SHA256：%3</translation>
     <message>
         <source>不限</source>
         <translation>指定なし</translation>
+    </message>
+    <message>
+        <source>社区投稿 · 已核验</source>
+        <translation>コミュニティ投稿 · 確認済み</translation>
+    </message>
+    <message>
+        <source>社区投稿 · 未核验</source>
+        <translation>コミュニティ投稿 · 未確認</translation>
     </message>
     <message>
         <source>返回列表</source>
@@ -6797,10 +6917,6 @@ SHA256：%3</translation>
         <translation>%1 / %2 件</translation>
     </message>
     <message>
-        <source>当前副本在前</source>
-        <translation>現在のコンテンツが先</translation>
-    </message>
-    <message>
         <source>选择「%1」</source>
         <translation>「%1」を選択</translation>
     </message>
@@ -6817,12 +6933,12 @@ SHA256：%3</translation>
         <translation>ローカルにあります</translation>
     </message>
     <message>
-        <source>没有匹配的内容</source>
-        <translation>一致する項目がありません</translation>
-    </message>
-    <message>
         <source>清除筛选</source>
         <translation>絞り込みを解除</translation>
+    </message>
+    <message>
+        <source>在「全部」里看（%1）</source>
+        <translation>「すべて」で見る（%1）</translation>
     </message>
     <message>
         <source>去公共共享库找找</source>
@@ -6853,12 +6969,107 @@ SHA256：%3</translation>
         <translation>似た項目を閉じる</translation>
     </message>
     <message>
+        <source>排序</source>
+        <translation>並べ替え</translation>
+    </message>
+    <message>
+        <source>紧凑行高</source>
+        <translation>行を詰めて表示</translation>
+    </message>
+    <message>
+        <source>全部收起</source>
+        <translation>すべて折りたたむ</translation>
+    </message>
+    <message>
+        <source>全部展开</source>
+        <translation>すべて展開</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>確認済み</translation>
+    </message>
+    <message>
         <source>另有 %1 条相似</source>
         <translation>ほかに似た項目 %1 件</translation>
     </message>
     <message>
         <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
         <translation>本文がほぼ同じ項目をここにまとめています。効果音、空白、一部の文字だけが異なります。</translation>
+    </message>
+    <message>
+        <source>还有 %1 项</source>
+        <translation>あと %1 件</translation>
+    </message>
+    <message>
+        <source>另有 %1 项是其它区服或语言的</source>
+        <translation>ほかのリージョンまたは言語の内容が %1 件あります</translation>
+    </message>
+    <message>
+        <source>「全部」里共有 %1 项匹配</source>
+        <translation>「すべて」では %1 件が一致</translation>
+    </message>
+    <message>
+        <source>查看全部 %1 项</source>
+        <translation>全 %1 件を見る</translation>
+    </message>
+    <message>
+        <source>显示更多</source>
+        <translation>さらに表示</translation>
+    </message>
+    <message>
+        <source>也显示出来</source>
+        <translation>それらも表示</translation>
+    </message>
+    <message>
+        <source>去看看</source>
+        <translation>見てみる</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityRail</name>
+    <message>
+        <source>找副本</source>
+        <translation>コンテンツを探す</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>一致するコンテンツがありません</translation>
+    </message>
+    <message>
+        <source>收起「%1」</source>
+        <translation>「%1」を折りたたむ</translation>
+    </message>
+    <message>
+        <source>展开「%1」</source>
+        <translation>「%1」を展開</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>現在のコンテンツ</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>更新中…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>オンライン</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>オフライン · キャッシュを表示中</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>オフライン</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>公開ライブラリを更新</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>公開ライブラリのオンライン接続を許可</translation>
     </message>
 </context>
 <context>
@@ -7007,10 +7218,6 @@ SHA256：%3</translation>
 <context>
     <name>DutyCommunityToolbar</name>
     <message>
-        <source>%1：</source>
-        <translation>%1：</translation>
-    </message>
-    <message>
         <source>搜索标题、正文、副本或作者</source>
         <translation>タイトル・本文・コンテンツ・作者を検索</translation>
     </message>
@@ -7023,44 +7230,12 @@ SHA256：%3</translation>
         <translation>リージョン</translation>
     </message>
     <message>
+        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <translation>公開ライブラリは、まず自分のリージョンと表示言語の内容だけを表示します。ここでチェックを外すと他の内容も表示できます</translation>
+    </message>
+    <message>
         <source>语言</source>
         <translation>言語</translation>
-    </message>
-    <message>
-        <source>BOSS / 阶段</source>
-        <translation>ボス / フェーズ</translation>
-    </message>
-    <message>
-        <source>搜索 BOSS 或阶段</source>
-        <translation>ボスまたはフェーズを検索</translation>
-    </message>
-    <message>
-        <source>没有匹配的 BOSS 或阶段</source>
-        <translation>一致するボスやフェーズがありません</translation>
-    </message>
-    <message>
-        <source>这里的内容还没有标 BOSS 或阶段</source>
-        <translation>ここにはボスやフェーズが設定された内容がまだありません</translation>
-    </message>
-    <message>
-        <source>当前副本与通用</source>
-        <translation>現在のコンテンツと共通</translation>
-    </message>
-    <message>
-        <source>不在副本中，只看通用</source>
-        <translation>コンテンツ外：汎用のみ</translation>
-    </message>
-    <message>
-        <source>只看%1和通用的内容</source>
-        <translation>%1 と汎用の内容だけを表示</translation>
-    </message>
-    <message>
-        <source>现在不在副本里，打开后只显示通用的内容</source>
-        <translation>現在コンテンツ外です。オンにすると汎用の内容だけを表示します</translation>
-    </message>
-    <message>
-        <source>只看收藏</source>
-        <translation>お気に入りのみ</translation>
     </message>
     <message>
         <source>清除筛选</source>
@@ -7109,42 +7284,6 @@ SHA256：%3</translation>
     <message>
         <source>从常用宏示例开始</source>
         <translation>よく使うマクロの例から始める</translation>
-    </message>
-    <message>
-        <source>正在刷新…</source>
-        <translation>更新中…</translation>
-    </message>
-    <message>
-        <source>已联网</source>
-        <translation>オンライン</translation>
-    </message>
-    <message>
-        <source>联网已关闭 · 显示缓存</source>
-        <translation>オフライン · キャッシュを表示中</translation>
-    </message>
-    <message>
-        <source>联网已关闭</source>
-        <translation>オフライン</translation>
-    </message>
-    <message>
-        <source>允许公共库联网</source>
-        <translation>公開ライブラリへの接続を許可</translation>
-    </message>
-    <message>
-        <source>刷新公共库</source>
-        <translation>公開ライブラリを更新</translation>
-    </message>
-    <message>
-        <source>副本</source>
-        <translation>コンテンツ</translation>
-    </message>
-    <message>
-        <source>搜索副本名称</source>
-        <translation>コンテンツ名を検索</translation>
-    </message>
-    <message>
-        <source>没有匹配的副本</source>
-        <translation>一致するコンテンツがありません</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7559,6 +7698,189 @@ SHA256：%3</translation>
     <message>
         <source>添加记录</source>
         <translation>記録を追加</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>メンター以外のルーレットに申請し、5 秒待ってから取り下げる</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>ジョブを一度切り替える</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>ゲームを完全に終了し、もう一度起動してログインする</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>メンタールーレットに申請し、コンテンツを完了してから退出する</translation>
+    </message>
+    <message>
+        <source>步骤 1 排的任务</source>
+        <translation>手順 1 で申請したルーレット</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>変更前のジョブ</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>変更後のジョブ</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>手順 4 で入ったコンテンツ</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>新しい地域のデータ採取が進行中です。終了後にこのラウンドを開始できます。</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>アプリが記録中のため、このラウンドを同時に開始できません。先にゲームを終了してください。</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>ゲームが起動中です。完全に終了してから開始してください。</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>Npcap がインストールされていないため、まだ開始できません。</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>アプリの設定を読み取れません。しばらくしてからもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>第 2 ラウンド：ルーレット・コンテンツ・ジョブの位置を特定</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>記録中</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>ゲームの起動待ち</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>エクスポート済み</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>未開始</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>このゲームバージョンには、ルーレット番号・コンテンツ・ジョブを含む可能性のあるメッセージを列挙した候補プロファイルがあります。このラウンドではそれらの内容を記録し、メンテナーが正確な位置を特定します。それが済んで初めて、このリージョンを自動記録できるようになります。必要なのは 1 ラウンドだけです。</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>このラウンドでは、ルーレット番号・コンテンツ・ジョブがメッセージ内のどこにあるかを特定するため、少数の種類のメッセージの内容を記録します。対象はこのゲームバージョンの候補プロファイルに記載されたメッセージに限られます。候補の一部は想定と異なる種類である可能性があり、あなたのキャラクターに関する情報が含まれることがあります。ファイルはこのコンピューターにのみ保存され、自動でアップロードされることはありません。メンテナーに送るかどうかはあなたが決められます。</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>このラウンドでこれらのメッセージの内容が記録されることを理解し、同意します</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>ゲームを起動してログインし、下の 4 つを順番に行い、済んだものにチェックを入れてください。ゲームを終了してもアプリは記録を続けます。ゲームを再起動したあと、もう一度「開始」を押す必要はありません。</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>アプリが読み取った内容</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>これらはアプリが候補の位置から読み取ったもので、推測にすぎません。ゲーム内で実際にどうだったかと照らし合わせ、違っているものや空欄のものは実際の名前に書き換えてください。</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>修正済み</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>まだ読み取れていません。自分で入力できます</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>%1 / %2 種類のメッセージを確認 · 計 %3 件を記録</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>エクスポートしました。ファイルはこのコンピューターにのみ保存され、アップロードはされていません。下の 2 つのファイルをメンテナーに個別に送ってください：</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>メンテナーに送ったあとは、この 2 つのファイルを削除してかまいません。アプリ自体が記録した内容は最長 30 日間保持されます。</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>開始</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>エクスポート中</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>終了してエクスポート</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>保存先フォルダーを開く</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>現在の収集サービスは証拠を回ごとに限定できません。アプリを更新してから再試行してください。</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>保留中</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>出力ファイルにはこの回の証拠のみが含まれます。</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>この収集の回を確認できないため、出力できません。いったん収集を終了し、新しい回を開始してください。</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>収集サービスに再接続すると、この回を終了して出力できます。</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>終了と出力を再試行</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>収集を終了</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>直近の回は終了しています。証拠を出力するか、新しい回を開始できます。</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>新しい回を開始</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>この回を出力</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>保留中の出力を破棄</translation>
     </message>
 </context>
 <context>
@@ -15225,6 +15547,13 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>バックグラウンドサービスが選択全体を確認できませんでした。もう一度お試しください。</translation>
+    </message>
+</context>
+<context>
     <name>mr::ImportRecordsController</name>
     <message>
         <source>新截图没有识别到完整记录，原批次已保留。</source>
@@ -16962,196 +17291,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
-    </message>
-</context>
-<context>
-    <name>EvidenceCandidateRound</name>
-    <message>
-        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
-        <translation>メンター以外のルーレットに申請し、5 秒待ってから取り下げる</translation>
-    </message>
-    <message>
-        <source>切换一次职业</source>
-        <translation>ジョブを一度切り替える</translation>
-    </message>
-    <message>
-        <source>完全退出游戏，再重新启动并登录</source>
-        <translation>ゲームを完全に終了し、もう一度起動してログインする</translation>
-    </message>
-    <message>
-        <source>排指导者任务，完成后离开副本</source>
-        <translation>メンタールーレットに申請し、コンテンツを完了してから退出する</translation>
-    </message>
-    <message>
-        <source>步骤 1 排的任务</source>
-        <translation>手順 1 で申請したルーレット</translation>
-    </message>
-    <message>
-        <source>换职业前的职业</source>
-        <translation>変更前のジョブ</translation>
-    </message>
-    <message>
-        <source>换职业后的职业</source>
-        <translation>変更後のジョブ</translation>
-    </message>
-    <message>
-        <source>步骤 4 进的副本</source>
-        <translation>手順 4 で入ったコンテンツ</translation>
-    </message>
-    <message>
-        <source>编号 %1</source>
-        <translation>ID %1</translation>
-    </message>
-    <message>
-        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
-        <translation>新しい地域のデータ採取が進行中です。終了後にこのラウンドを開始できます。</translation>
-    </message>
-    <message>
-        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
-        <translation>アプリが記録中のため、このラウンドを同時に開始できません。先にゲームを終了してください。</translation>
-    </message>
-    <message>
-        <source>游戏正在运行：先完全退出游戏，再开始。</source>
-        <translation>ゲームが起動中です。完全に終了してから開始してください。</translation>
-    </message>
-    <message>
-        <source>未安装 Npcap，暂时不能开始。</source>
-        <translation>Npcap がインストールされていないため、まだ開始できません。</translation>
-    </message>
-    <message>
-        <source>暂时读不到软件的设置，请稍后再试。</source>
-        <translation>アプリの設定を読み取れません。しばらくしてからもう一度お試しください。</translation>
-    </message>
-    <message>
-        <source>第二轮：确定任务、副本和职业的位置</source>
-        <translation>第 2 ラウンド：ルーレット・コンテンツ・ジョブの位置を特定</translation>
-    </message>
-    <message>
-        <source>正在记录</source>
-        <translation>記録中</translation>
-    </message>
-    <message>
-        <source>等待游戏启动</source>
-        <translation>ゲームの起動待ち</translation>
-    </message>
-    <message>
-        <source>已导出</source>
-        <translation>エクスポート済み</translation>
-    </message>
-    <message>
-        <source>尚未开始</source>
-        <translation>未開始</translation>
-    </message>
-    <message>
-        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
-        <translation>このゲームバージョンには、ルーレット番号・コンテンツ・ジョブを含む可能性のあるメッセージを列挙した候補プロファイルがあります。このラウンドではそれらの内容を記録し、メンテナーが正確な位置を特定します。それが済んで初めて、このリージョンを自動記録できるようになります。必要なのは 1 ラウンドだけです。</translation>
-    </message>
-    <message>
-        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
-        <translation>このラウンドでは、ルーレット番号・コンテンツ・ジョブがメッセージ内のどこにあるかを特定するため、少数の種類のメッセージの内容を記録します。対象はこのゲームバージョンの候補プロファイルに記載されたメッセージに限られます。候補の一部は想定と異なる種類である可能性があり、あなたのキャラクターに関する情報が含まれることがあります。ファイルはこのコンピューターにのみ保存され、自動でアップロードされることはありません。メンテナーに送るかどうかはあなたが決められます。</translation>
-    </message>
-    <message>
-        <source>我已了解并同意这一轮记录这些报文的内容</source>
-        <translation>このラウンドでこれらのメッセージの内容が記録されることを理解し、同意します</translation>
-    </message>
-    <message>
-        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
-        <translation>ゲームを起動してログインし、下の 4 つを順番に行い、済んだものにチェックを入れてください。ゲームを終了してもアプリは記録を続けます。ゲームを再起動したあと、もう一度「開始」を押す必要はありません。</translation>
-    </message>
-    <message>
-        <source>软件识别到的情况</source>
-        <translation>アプリが読み取った内容</translation>
-    </message>
-    <message>
-        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
-        <translation>これらはアプリが候補の位置から読み取ったもので、推測にすぎません。ゲーム内で実際にどうだったかと照らし合わせ、違っているものや空欄のものは実際の名前に書き換えてください。</translation>
-    </message>
-    <message>
-        <source>已修改</source>
-        <translation>修正済み</translation>
-    </message>
-    <message>
-        <source>还没有识别到，可以自己填</source>
-        <translation>まだ読み取れていません。自分で入力できます</translation>
-    </message>
-    <message>
-        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
-        <translation>%1 / %2 種類のメッセージを確認 · 計 %3 件を記録</translation>
-    </message>
-    <message>
-        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
-        <translation>エクスポートしました。ファイルはこのコンピューターにのみ保存され、アップロードはされていません。下の 2 つのファイルをメンテナーに個別に送ってください：</translation>
-    </message>
-    <message>
-        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
-        <translation>メンテナーに送ったあとは、この 2 つのファイルを削除してかまいません。アプリ自体が記録した内容は最長 30 日間保持されます。</translation>
-    </message>
-    <message>
-        <source>开始</source>
-        <translation>開始</translation>
-    </message>
-    <message>
-        <source>正在导出</source>
-        <translation>エクスポート中</translation>
-    </message>
-    <message>
-        <source>结束并导出</source>
-        <translation>終了してエクスポート</translation>
-    </message>
-    <message>
-        <source>打开所在文件夹</source>
-        <translation>保存先フォルダーを開く</translation>
-    </message>
-    <message>
-        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
-        <translation>現在の収集サービスは証拠を回ごとに限定できません。アプリを更新してから再試行してください。</translation>
-    </message>
-    <message>
-        <source>待处理</source>
-        <translation>保留中</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>出力ファイルにはこの回の証拠のみが含まれます。</translation>
-    </message>
-    <message>
-        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
-        <translation>この収集の回を確認できないため、出力できません。いったん収集を終了し、新しい回を開始してください。</translation>
-    </message>
-    <message>
-        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
-        <translation>収集サービスに再接続すると、この回を終了して出力できます。</translation>
-    </message>
-    <message>
-        <source>重试结束并导出</source>
-        <translation>終了と出力を再試行</translation>
-    </message>
-    <message>
-        <source>结束采证</source>
-        <translation>収集を終了</translation>
-    </message>
-    <message>
-        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
-        <translation>直近の回は終了しています。証拠を出力するか、新しい回を開始できます。</translation>
-    </message>
-    <message>
-        <source>开始新一轮</source>
-        <translation>新しい回を開始</translation>
-    </message>
-    <message>
-        <source>导出这一轮</source>
-        <translation>この回を出力</translation>
-    </message>
-    <message>
-        <source>放弃本次导出</source>
-        <translation>保留中の出力を破棄</translation>
-    </message>
-</context>
-<context>
-    <name>mr::IBackend</name>
-    <message>
-        <source>后台服务未确认完整的勾选记录，请重试。</source>
-        <translation>バックグラウンドサービスが選択全体を確認できませんでした。もう一度お試しください。</translation>
     </message>
 </context>
 </TS>

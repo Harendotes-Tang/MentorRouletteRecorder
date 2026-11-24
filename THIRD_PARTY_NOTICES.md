@@ -162,7 +162,7 @@ SQLitePCLRaw 的原始包声明、包哈希、实际发布 DLL 哈希及 Apache-
 ### 内置图标（ISC License）
 
 按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.76.0，许可证 ISC，
-版权 Copyright (c) 2026 Lucide Icons and Contributors。所用 74 个图标中，`arrow-down`、`arrow-right`、
+版权 Copyright (c) 2026 Lucide Icons and Contributors。所用 82 个图标中，`arrow-down`、`arrow-right`、
 `arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、
 `circle-alert`、`circle-help`、`clock`、`external-link`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、
 `minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x` 二十九个由 Lucide 从 **Feather** 项目派生，同时受

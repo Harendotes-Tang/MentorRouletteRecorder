@@ -5957,10 +5957,6 @@ SHA256：%3</translation>
         <translation>語言</translation>
     </message>
     <message>
-        <source>适用版本</source>
-        <translation>適用版本</translation>
-    </message>
-    <message>
         <source>来源</source>
         <translation>來源</translation>
     </message>
@@ -5985,8 +5981,24 @@ SHA256：%3</translation>
         <translation>狀態</translation>
     </message>
     <message>
+        <source>游戏版本</source>
+        <translation>遊戲版本</translation>
+    </message>
+    <message>
+        <source>维护者核对过内容和适用范围</source>
+        <translation>維護者已核對內容和適用範圍</translation>
+    </message>
+    <message>
+        <source>还没有人核对过，用之前自己先看一遍</source>
+        <translation>還沒有人核對過，使用前請自己先看一遍</translation>
+    </message>
+    <message>
         <source>更新于</source>
         <translation>更新於</translation>
+    </message>
+    <message>
+        <source>上次使用</source>
+        <translation>上次使用</translation>
     </message>
     <message>
         <source>在左边选一条查看</source>
@@ -6138,6 +6150,114 @@ SHA256：%3</translation>
     <message>
         <source>通用</source>
         <translation>一般</translation>
+    </message>
+    <message>
+        <source>最近更新</source>
+        <translation>最近更新</translation>
+    </message>
+    <message>
+        <source>已核验的在前</source>
+        <translation>已查核的在前</translation>
+    </message>
+    <message>
+        <source>按标题</source>
+        <translation>依標題</translation>
+    </message>
+    <message>
+        <source>最近用过</source>
+        <translation>最近用過</translation>
+    </message>
+    <message>
+        <source>其他副本</source>
+        <translation>其他副本</translation>
+    </message>
+    <message>
+        <source>未标阶段</source>
+        <translation>未標階段</translation>
+    </message>
+    <message>
+        <source>开场</source>
+        <translation>開場</translation>
+    </message>
+    <message>
+        <source>全程</source>
+        <translation>全程</translation>
+    </message>
+    <message>
+        <source>道中</source>
+        <translation>道中</translation>
+    </message>
+    <message>
+        <source>尾王</source>
+        <translation>尾王</translation>
+    </message>
+    <message>
+        <source>BOSS %1</source>
+        <translation>BOSS %1</translation>
+    </message>
+    <message>
+        <source>阶段 %1</source>
+        <translation>階段 %1</translation>
+    </message>
+    <message>
+        <source>转场</source>
+        <translation>轉場</translation>
+    </message>
+    <message>
+        <source>结束</source>
+        <translation>結束</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>全部</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>目前副本</translation>
+    </message>
+    <message>
+        <source>不在副本中</source>
+        <translation>不在副本中</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>只看%1和通用的內容</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>收藏</translation>
+    </message>
+    <message>
+        <source>最近复制过的 30 条</source>
+        <translation>最近複製過的 30 條</translation>
+    </message>
+    <message>
+        <source>不分副本都能用的内容，比如开场问候、通关道别</source>
+        <translation>不分副本都能用的內容，例如開場問候、通關道別</translation>
+    </message>
+    <message>
+        <source>按副本</source>
+        <translation>依副本</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>沒有符合的內容</translation>
+    </message>
+    <message>
+        <source>还没有收藏。点列表里的星标，把常用的收进来。</source>
+        <translation>還沒有收藏。點清單裡的星號，把常用的收進來。</translation>
+    </message>
+    <message>
+        <source>复制过的内容会出现在这里。</source>
+        <translation>複製過的內容會出現在這裡。</translation>
+    </message>
+    <message>
+        <source>%1和通用都还没有内容</source>
+        <translation>%1和通用都還沒有內容</translation>
+    </message>
+    <message>
+        <source>这里还没有内容</source>
+        <translation>這裡還沒有內容</translation>
     </message>
     <message>
         <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
@@ -6336,20 +6456,12 @@ SHA256：%3</translation>
         <translation>投稿內文已複製，請貼到瀏覽器表單並提交。</translation>
     </message>
     <message>
-        <source>已核验</source>
-        <translation>已查核</translation>
-    </message>
-    <message>
         <source>过时</source>
         <translation>已過時</translation>
     </message>
     <message>
         <source>已撤回</source>
         <translation>已撤回</translation>
-    </message>
-    <message>
-        <source>社区投稿／未核验</source>
-        <translation>社群投稿／未查核</translation>
     </message>
     <message>
         <source>输入无效或操作失败。</source>
@@ -6462,6 +6574,14 @@ SHA256：%3</translation>
     <message>
         <source>不限</source>
         <translation>不限</translation>
+    </message>
+    <message>
+        <source>社区投稿 · 已核验</source>
+        <translation>社群投稿 · 已查核</translation>
+    </message>
+    <message>
+        <source>社区投稿 · 未核验</source>
+        <translation>社群投稿 · 未查核</translation>
     </message>
     <message>
         <source>返回列表</source>
@@ -6797,10 +6917,6 @@ SHA256：%3</translation>
         <translation>%1 / %2 項</translation>
     </message>
     <message>
-        <source>当前副本在前</source>
-        <translation>目前副本在前</translation>
-    </message>
-    <message>
         <source>选择「%1」</source>
         <translation>選擇「%1」</translation>
     </message>
@@ -6817,12 +6933,12 @@ SHA256：%3</translation>
         <translation>已在本機</translation>
     </message>
     <message>
-        <source>没有匹配的内容</source>
-        <translation>沒有符合的內容</translation>
-    </message>
-    <message>
         <source>清除筛选</source>
         <translation>清除篩選</translation>
+    </message>
+    <message>
+        <source>在「全部」里看（%1）</source>
+        <translation>在「全部」裡看（%1）</translation>
     </message>
     <message>
         <source>去公共共享库找找</source>
@@ -6853,12 +6969,107 @@ SHA256：%3</translation>
         <translation>收起相似</translation>
     </message>
     <message>
+        <source>排序</source>
+        <translation>排序</translation>
+    </message>
+    <message>
+        <source>紧凑行高</source>
+        <translation>緊湊列高</translation>
+    </message>
+    <message>
+        <source>全部收起</source>
+        <translation>全部收合</translation>
+    </message>
+    <message>
+        <source>全部展开</source>
+        <translation>全部展開</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>已查核</translation>
+    </message>
+    <message>
         <source>另有 %1 条相似</source>
         <translation>另有 %1 條相似</translation>
     </message>
     <message>
         <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
         <translation>內文幾乎相同的條目收在這裡，只是提示音、空格或個別字不同。</translation>
+    </message>
+    <message>
+        <source>还有 %1 项</source>
+        <translation>還有 %1 項</translation>
+    </message>
+    <message>
+        <source>另有 %1 项是其它区服或语言的</source>
+        <translation>另有 %1 項屬於其他區服或語言</translation>
+    </message>
+    <message>
+        <source>「全部」里共有 %1 项匹配</source>
+        <translation>「全部」裡共有 %1 項符合</translation>
+    </message>
+    <message>
+        <source>查看全部 %1 项</source>
+        <translation>查看全部 %1 項</translation>
+    </message>
+    <message>
+        <source>显示更多</source>
+        <translation>顯示更多</translation>
+    </message>
+    <message>
+        <source>也显示出来</source>
+        <translation>也顯示出來</translation>
+    </message>
+    <message>
+        <source>去看看</source>
+        <translation>去看看</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityRail</name>
+    <message>
+        <source>找副本</source>
+        <translation>找副本</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>沒有符合的副本</translation>
+    </message>
+    <message>
+        <source>收起「%1」</source>
+        <translation>收合「%1」</translation>
+    </message>
+    <message>
+        <source>展开「%1」</source>
+        <translation>展開「%1」</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>目前副本</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>正在重新整理…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>已連線</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>連線已關閉 · 顯示快取</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>連線已關閉</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>重新整理公共庫</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>允許公共庫連線</translation>
     </message>
 </context>
 <context>
@@ -7007,10 +7218,6 @@ SHA256：%3</translation>
 <context>
     <name>DutyCommunityToolbar</name>
     <message>
-        <source>%1：</source>
-        <translation>%1：</translation>
-    </message>
-    <message>
         <source>搜索标题、正文、副本或作者</source>
         <translation>搜尋標題、內文、副本或作者</translation>
     </message>
@@ -7023,44 +7230,12 @@ SHA256：%3</translation>
         <translation>伺服器地區</translation>
     </message>
     <message>
+        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <translation>公共庫先只顯示你的區服和介面語言的內容，在這裡取消勾選就能看到其他的</translation>
+    </message>
+    <message>
         <source>语言</source>
         <translation>語言</translation>
-    </message>
-    <message>
-        <source>BOSS / 阶段</source>
-        <translation>BOSS / 階段</translation>
-    </message>
-    <message>
-        <source>搜索 BOSS 或阶段</source>
-        <translation>搜尋 BOSS 或階段</translation>
-    </message>
-    <message>
-        <source>没有匹配的 BOSS 或阶段</source>
-        <translation>沒有符合的 BOSS 或階段</translation>
-    </message>
-    <message>
-        <source>这里的内容还没有标 BOSS 或阶段</source>
-        <translation>這裡的內容還沒有標 BOSS 或階段</translation>
-    </message>
-    <message>
-        <source>当前副本与通用</source>
-        <translation>目前副本與通用</translation>
-    </message>
-    <message>
-        <source>不在副本中，只看通用</source>
-        <translation>不在副本中，只看通用</translation>
-    </message>
-    <message>
-        <source>只看%1和通用的内容</source>
-        <translation>只看%1和通用的內容</translation>
-    </message>
-    <message>
-        <source>现在不在副本里，打开后只显示通用的内容</source>
-        <translation>現在不在副本裡，開啟後只顯示通用的內容</translation>
-    </message>
-    <message>
-        <source>只看收藏</source>
-        <translation>只看收藏</translation>
     </message>
     <message>
         <source>清除筛选</source>
@@ -7109,42 +7284,6 @@ SHA256：%3</translation>
     <message>
         <source>从常用宏示例开始</source>
         <translation>從常用巨集範例開始</translation>
-    </message>
-    <message>
-        <source>正在刷新…</source>
-        <translation>正在重新整理…</translation>
-    </message>
-    <message>
-        <source>已联网</source>
-        <translation>已連線</translation>
-    </message>
-    <message>
-        <source>联网已关闭 · 显示缓存</source>
-        <translation>連線已關閉 · 顯示快取</translation>
-    </message>
-    <message>
-        <source>联网已关闭</source>
-        <translation>連線已關閉</translation>
-    </message>
-    <message>
-        <source>允许公共库联网</source>
-        <translation>允許公共庫連線</translation>
-    </message>
-    <message>
-        <source>刷新公共库</source>
-        <translation>重新整理公共庫</translation>
-    </message>
-    <message>
-        <source>副本</source>
-        <translation>副本</translation>
-    </message>
-    <message>
-        <source>搜索副本名称</source>
-        <translation>搜尋副本名稱</translation>
-    </message>
-    <message>
-        <source>没有匹配的副本</source>
-        <translation>沒有符合的副本</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7559,6 +7698,189 @@ SHA256：%3</translation>
     <message>
         <source>添加记录</source>
         <translation>新增記錄</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>排一個不是指導者任務的隨機任務，等 5 秒後取消</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>切換一次職業</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>完全結束遊戲，再重新啟動並登入</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>排指導者任務，完成後離開副本</translation>
+    </message>
+    <message>
+        <source>步骤 1 排的任务</source>
+        <translation>步驟 1 排的任務</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>換職業前的職業</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>換職業後的職業</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>步驟 4 進的副本</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>編號 %1</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>新區服採證正在進行，結束後才能開始這一輪。</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>軟體正在記錄，不能同時開始這一輪。請先結束遊戲。</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>遊戲正在執行：先完全結束遊戲，再開始。</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>未安裝 Npcap，暫時無法開始。</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>暫時讀不到軟體的設定，請稍後再試。</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>第二輪：確定任務、副本和職業的位置</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>正在記錄</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>等待遊戲啟動</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>已匯出</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>尚未開始</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>這個遊戲版本已經有一份候選設定檔，列出了可能帶有任務編號、副本和職業的幾種封包。這一輪會記下它們的內容，維護者據此確定具體位置，之後才能為這個區服正式自動記錄。只需要做一輪。</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>這一輪會記錄少數幾種封包的內容，用來確定任務編號、副本和職業在封包裡的位置。範圍只限於這個遊戲版本的候選設定檔裡列出的封包；其中個別候選可能並不是我們以為的那一種，裡面可能包含與您的角色有關的資訊。檔案只儲存在這台電腦上，不會自動上傳，由您決定是否寄給維護者。</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>我已瞭解並同意這一輪記錄這些封包的內容</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>現在啟動遊戲並登入角色，再依序完成下面四件事，每完成一件就勾選。遊戲結束後軟體會自動接著記錄，重新啟動遊戲後不需要再按開始。</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>軟體識別到的情況</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>這些是軟體按候選位置讀到的，只是猜測。請對照遊戲裡的實際情況，不對或空著的直接改成實際名稱。</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>已修改</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>還沒有識別到，可以自己填</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>已看到 %1 / %2 種封包 · 共記下 %3 筆</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>已匯出。檔案只儲存在這台電腦上，沒有上傳。請把下面兩個檔案私下寄給維護者：</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>寄給維護者之後可以刪除這兩個檔案；軟體自己記下的內容最多保留 30 天。</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>開始</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>正在匯出</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>結束並匯出</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>開啟所在資料夾</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>目前的背景服務無法按輪次限定證據，請更新軟體後再試。</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>待處理</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>匯出的檔案只包含這一輪的證據。</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>這次採證沒有可確認的輪次，無法匯出。可先結束這次採證，再開始新一輪。</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>重新連線背景服務後，即可繼續結束並匯出這一輪。</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>重試結束並匯出</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>結束採證</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>最近一輪已結束，可以匯出這輪證據，也可以開始新一輪。</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>開始新一輪</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>匯出這一輪</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>放棄本次匯出</translation>
     </message>
 </context>
 <context>
@@ -15225,6 +15547,13 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>背景服務未確認完整的勾選記錄，請重試。</translation>
+    </message>
+</context>
+<context>
     <name>mr::ImportRecordsController</name>
     <message>
         <source>新截图没有识别到完整记录，原批次已保留。</source>
@@ -16962,196 +17291,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
-    </message>
-</context>
-<context>
-    <name>EvidenceCandidateRound</name>
-    <message>
-        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
-        <translation>排一個不是指導者任務的隨機任務，等 5 秒後取消</translation>
-    </message>
-    <message>
-        <source>切换一次职业</source>
-        <translation>切換一次職業</translation>
-    </message>
-    <message>
-        <source>完全退出游戏，再重新启动并登录</source>
-        <translation>完全結束遊戲，再重新啟動並登入</translation>
-    </message>
-    <message>
-        <source>排指导者任务，完成后离开副本</source>
-        <translation>排指導者任務，完成後離開副本</translation>
-    </message>
-    <message>
-        <source>步骤 1 排的任务</source>
-        <translation>步驟 1 排的任務</translation>
-    </message>
-    <message>
-        <source>换职业前的职业</source>
-        <translation>換職業前的職業</translation>
-    </message>
-    <message>
-        <source>换职业后的职业</source>
-        <translation>換職業後的職業</translation>
-    </message>
-    <message>
-        <source>步骤 4 进的副本</source>
-        <translation>步驟 4 進的副本</translation>
-    </message>
-    <message>
-        <source>编号 %1</source>
-        <translation>編號 %1</translation>
-    </message>
-    <message>
-        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
-        <translation>新區服採證正在進行，結束後才能開始這一輪。</translation>
-    </message>
-    <message>
-        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
-        <translation>軟體正在記錄，不能同時開始這一輪。請先結束遊戲。</translation>
-    </message>
-    <message>
-        <source>游戏正在运行：先完全退出游戏，再开始。</source>
-        <translation>遊戲正在執行：先完全結束遊戲，再開始。</translation>
-    </message>
-    <message>
-        <source>未安装 Npcap，暂时不能开始。</source>
-        <translation>未安裝 Npcap，暫時無法開始。</translation>
-    </message>
-    <message>
-        <source>暂时读不到软件的设置，请稍后再试。</source>
-        <translation>暫時讀不到軟體的設定，請稍後再試。</translation>
-    </message>
-    <message>
-        <source>第二轮：确定任务、副本和职业的位置</source>
-        <translation>第二輪：確定任務、副本和職業的位置</translation>
-    </message>
-    <message>
-        <source>正在记录</source>
-        <translation>正在記錄</translation>
-    </message>
-    <message>
-        <source>等待游戏启动</source>
-        <translation>等待遊戲啟動</translation>
-    </message>
-    <message>
-        <source>已导出</source>
-        <translation>已匯出</translation>
-    </message>
-    <message>
-        <source>尚未开始</source>
-        <translation>尚未開始</translation>
-    </message>
-    <message>
-        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
-        <translation>這個遊戲版本已經有一份候選設定檔，列出了可能帶有任務編號、副本和職業的幾種封包。這一輪會記下它們的內容，維護者據此確定具體位置，之後才能為這個區服正式自動記錄。只需要做一輪。</translation>
-    </message>
-    <message>
-        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
-        <translation>這一輪會記錄少數幾種封包的內容，用來確定任務編號、副本和職業在封包裡的位置。範圍只限於這個遊戲版本的候選設定檔裡列出的封包；其中個別候選可能並不是我們以為的那一種，裡面可能包含與您的角色有關的資訊。檔案只儲存在這台電腦上，不會自動上傳，由您決定是否寄給維護者。</translation>
-    </message>
-    <message>
-        <source>我已了解并同意这一轮记录这些报文的内容</source>
-        <translation>我已瞭解並同意這一輪記錄這些封包的內容</translation>
-    </message>
-    <message>
-        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
-        <translation>現在啟動遊戲並登入角色，再依序完成下面四件事，每完成一件就勾選。遊戲結束後軟體會自動接著記錄，重新啟動遊戲後不需要再按開始。</translation>
-    </message>
-    <message>
-        <source>软件识别到的情况</source>
-        <translation>軟體識別到的情況</translation>
-    </message>
-    <message>
-        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
-        <translation>這些是軟體按候選位置讀到的，只是猜測。請對照遊戲裡的實際情況，不對或空著的直接改成實際名稱。</translation>
-    </message>
-    <message>
-        <source>已修改</source>
-        <translation>已修改</translation>
-    </message>
-    <message>
-        <source>还没有识别到，可以自己填</source>
-        <translation>還沒有識別到，可以自己填</translation>
-    </message>
-    <message>
-        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
-        <translation>已看到 %1 / %2 種封包 · 共記下 %3 筆</translation>
-    </message>
-    <message>
-        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
-        <translation>已匯出。檔案只儲存在這台電腦上，沒有上傳。請把下面兩個檔案私下寄給維護者：</translation>
-    </message>
-    <message>
-        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
-        <translation>寄給維護者之後可以刪除這兩個檔案；軟體自己記下的內容最多保留 30 天。</translation>
-    </message>
-    <message>
-        <source>开始</source>
-        <translation>開始</translation>
-    </message>
-    <message>
-        <source>正在导出</source>
-        <translation>正在匯出</translation>
-    </message>
-    <message>
-        <source>结束并导出</source>
-        <translation>結束並匯出</translation>
-    </message>
-    <message>
-        <source>打开所在文件夹</source>
-        <translation>開啟所在資料夾</translation>
-    </message>
-    <message>
-        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
-        <translation>目前的背景服務無法按輪次限定證據，請更新軟體後再試。</translation>
-    </message>
-    <message>
-        <source>待处理</source>
-        <translation>待處理</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>匯出的檔案只包含這一輪的證據。</translation>
-    </message>
-    <message>
-        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
-        <translation>這次採證沒有可確認的輪次，無法匯出。可先結束這次採證，再開始新一輪。</translation>
-    </message>
-    <message>
-        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
-        <translation>重新連線背景服務後，即可繼續結束並匯出這一輪。</translation>
-    </message>
-    <message>
-        <source>重试结束并导出</source>
-        <translation>重試結束並匯出</translation>
-    </message>
-    <message>
-        <source>结束采证</source>
-        <translation>結束採證</translation>
-    </message>
-    <message>
-        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
-        <translation>最近一輪已結束，可以匯出這輪證據，也可以開始新一輪。</translation>
-    </message>
-    <message>
-        <source>开始新一轮</source>
-        <translation>開始新一輪</translation>
-    </message>
-    <message>
-        <source>导出这一轮</source>
-        <translation>匯出這一輪</translation>
-    </message>
-    <message>
-        <source>放弃本次导出</source>
-        <translation>放棄本次匯出</translation>
-    </message>
-</context>
-<context>
-    <name>mr::IBackend</name>
-    <message>
-        <source>后台服务未确认完整的勾选记录，请重试。</source>
-        <translation>背景服務未確認完整的勾選記錄，請重試。</translation>
     </message>
 </context>
 </TS>

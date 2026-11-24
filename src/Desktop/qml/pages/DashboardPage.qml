@@ -21,7 +21,7 @@ ScrollView {
         interval: 400
         running: page.forceOpenCommunity.length > 0
         onTriggered: {
-            dutyCommunityDialog.openFor(!!dutyCommunityDialog.run.run_id)
+            dutyCommunityDialog.openFor()
             if (page.forceOpenCommunity === "public" || page.forceOpenCommunity === "offline")
                 dutyCommunityDialog.tab = "public"
             else if (page.forceOpenCommunity === "new")
@@ -495,7 +495,7 @@ ScrollView {
                                 ? qsTr("%1有 %2 条提醒与宏").arg(dutyCommunityDialog.currentDutyName)
                                                             .arg(dutyCommunityDialog.currentDutyCount)
                                 : qsTr("副本提醒与导随宏")
-                            onClicked: dutyCommunityDialog.openFor(!!dutyCommunityDialog.run.run_id)
+                            onClicked: dutyCommunityDialog.openFor()
 
                             // The number of local entries written for the duty the player is in.
                             Rectangle {

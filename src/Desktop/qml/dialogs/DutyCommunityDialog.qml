@@ -5,9 +5,11 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
 import "DutyCommunityMatch.js" as Match
+import "DutyCommunityScope.js" as Scope
 
-// 副本提醒与导随宏: tabs, one row of filters, the list on the left and the chosen entry on the
-// right. Creating, editing and submitting happen in the right pane, with no second dialog.
+// 副本提醒与导随宏: tabs, one row of search and filters, then three columns - the duty directory
+// that sets the range, the list grouped inside it, and the chosen entry (Design artifact,
+// 条目很多时). Editing takes the whole dialog and submitting the right pane; no second dialog.
 // This file holds the state and the Collector calls; the panes read them through `store`.
 MotionDialog {
     id: root
@@ -40,41 +42,230 @@ MotionDialog {
     property bool confirmingDelete: false
 
     property string query: ""
-    property var typeFilter: []
-    property var regionFilter: []
-    property var languageFilter: []
-    property var stageFilter: []
-    // 副本 (content ids) and 职业 (职能 codes, job abbreviations, "ANY" for 不限) narrow the public
-    // library only; the local list has 当前副本与通用 instead.
-    property var dutyFilter: []
-    property var jobFilter: []
-    property bool dutyOnly: false
-    property bool favoriteOnly: false
+    readonly property string term: query.trim().toLowerCase()
+    // 类型 / 职业 / 区服 / 语言, kept per tab. 副本 is chosen in the directory on the left and
+    // BOSS / 阶段 became the list's groups (Design: 筛选只留四个).
+    property var filters: ({ local: { type: [], job: [], region: [], language: [] },
+                             public: { type: [], job: [], region: [], language: [] } })
+    // The public library opens on the player's server and the interface language; once the
+    // player chooses a region or language there, that choice is what is remembered.
+    property bool publicPreset: true
+    readonly property string myRegion: defaultRegion() === "ALL" ? "" : defaultRegion()
+    readonly property var presetFilter: {
+        const region = myRegion, language = defaultLanguage()
+        // No entry of this language on the server: by server alone, so it never opens empty.
+        const any = publicRows.some(row => (!region || row.content.region === region || row.content.region === "ALL")
+                                           && row.content.language === language)
+        return { region: region ? [region] : [], language: any ? [language] : [] }
+    }
+    readonly property bool preset: remote && publicPreset
+    readonly property var typeFilter: filters[tab].type
+    readonly property var jobFilter: filters[tab].job
+    readonly property var regionFilter: preset ? presetFilter.region : filters[tab].region
+    readonly property var languageFilter: preset ? presetFilter.language : filters[tab].language
+    function setFilter(key, value) {
+        const place = remote && (key === "region" || key === "language")
+        const own = Object.assign({}, filters[tab])
+        if (place) {
+            own.region = regionFilter
+            own.language = languageFilter
+            publicPreset = false
+        }
+        own[key] = value
+        const next = Object.assign({}, filters)
+        next[tab] = own
+        filters = next
+        basket = []
+        if (place) saveView()
+    }
+
+    /// What the directory limits the list to: "all", "cur" (the duty the player is in, and
+    /// 通用), "fav", "recent", "d:<content id>" (d:0 is 通用) or "t:<category>". Empty follows
+    /// the game: 当前副本 inside a duty, 全部 outside.
+    property string scope: ""
+    readonly property string activeScope: {
+        let key = scope || (inDuty ? "cur" : "all")
+        if (key === "cur" && !inDuty) key = "all"
+        if (remote && (key === "fav" || key === "recent")) key = "all"
+        return key
+    }
+    property string railQuery: ""
+    property var railOpen: ({})
+    /// Folded groups and groups shown in full, by "<scope>/<group>".
+    property var collapsed: ({})
+    property var uncapped: ({})
+    // Preferences that outlive the dialog (Design: 排序、行高、公共库的区服和语言算偏好).
+    property string sortLocal: "updated"
+    property string sortPublic: "updated"
+    property bool dense: false
+    /// When a local entry was last copied, { id: ISO time }; this computer only.
+    property var recent: ({})
+    readonly property string sortKey: activeScope === "recent" ? "used" : remote ? sortPublic : sortLocal
+    readonly property var sortOptions: remote
+        ? [{ value: "updated", label: qsTr("最近更新") }, { value: "verified", label: qsTr("已核验的在前") },
+           { value: "title", label: qsTr("按标题") }]
+        : [{ value: "updated", label: qsTr("最近更新") }, { value: "used", label: qsTr("最近用过") },
+           { value: "title", label: qsTr("按标题") }]
+    function setSort(value) {
+        if (remote) sortPublic = value
+        else sortLocal = value
+        saveView()
+    }
+    function setDense(value) { dense = value; saveView() }
+    readonly property var settings: typeof Runtime.settings !== "undefined" ? Runtime.settings : null
+    function loadView() {
+        const view = settings ? settings.dutyCommunityView : ({})
+        const list = (value, allowed) => {
+            const saved = value ? Array.from(value) : []
+            return allowed.filter(entry => saved.includes(entry))
+        }
+        sortLocal = ["updated", "used", "title"].includes(view.sortLocal) ? view.sortLocal : "updated"
+        sortPublic = ["updated", "verified", "title"].includes(view.sortPublic) ? view.sortPublic : "updated"
+        dense = view.dense === true
+        recent = view.recent && typeof view.recent === "object" ? view.recent : ({})
+        publicPreset = view.publicPreset !== false
+        const next = Object.assign({}, filters)
+        next["public"] = Object.assign({}, filters["public"], { region: list(view.publicRegion, regionKeys),
+                                                              language: list(view.publicLanguage, languageKeys) })
+        filters = next
+    }
+    function saveView() {
+        if (!settings) return
+        settings.dutyCommunityView = { sortLocal: sortLocal, sortPublic: sortPublic, dense: dense, recent: recent,
+            publicPreset: publicPreset, publicRegion: filters["public"].region, publicLanguage: filters["public"].language }
+    }
+    /// Copying a local entry is what 最近用过 remembers: the newest 30.
+    function markUsed(id) {
+        const next = Object.assign({}, recent)
+        next[id] = new Date().toISOString()
+        const keep = Object.keys(next).sort((a, b) => next[a] < next[b] ? 1 : -1).slice(0, 30)
+        const trimmed = ({})
+        for (const key of keep) trimmed[key] = next[key]
+        recent = trimmed
+        saveView()
+    }
 
     property string issueText: ""
     property string issueState: ""
     readonly property int issueNumber: /^[0-9]{1,9}$/.test(issueText) ? Number(issueText) : 0
 
     readonly property var rows: remote ? publicRows : localRows
-    readonly property var filtered: {
-        const shown = rows.filter(row => matches(row, ""))
-        if (!dutyOnly || !inDuty)
-            return shown
-        const here = row => row.content.content_id === duty.content_id
-        return shown.filter(here).concat(shown.filter(row => !here(row)))
+    /// The tab's entries after search and filters, before the directory narrows them.
+    readonly property var filtered: rows.filter(row => matches(row, ""))
+    // content id -> { category, level, name } for the duties the entries may name.
+    readonly property var dutyIndex: {
+        const map = ({})
+        if (!visible) return map
+        const regions = myRegion ? [myRegion] : []
+        for (const key of ["CN"].concat(localRows.concat(publicRows).map(row => row.content.region)))
+            if (regionKeys.includes(key) && !regions.includes(key)) regions.push(key)
+        for (const region of regions)
+            for (const entry of Runtime.app.dutyChoicesForRegion(region)) {
+                const id = Number(entry.content_id)
+                if (!map[id]) map[id] = { category: entry.duty_category || "", level: entry.duty_level || 0,
+                                          name: String(entry.duty_name || "") }
+            }
+        return map
     }
-    // The open entry and the ticked ones are rows the list shows: an entry folded in a group is
-    // reached by opening the group (select does), so nothing hidden is open or acted on.
+    readonly property var categoryOrder: ["四人迷宫", "讨伐歼灭战", "大型任务", "绝境战", "深层迷宫", "行会令", "任务战斗", "禁地探索"]
+    function categoryOf(id) { return id ? ((dutyIndex[id] || {}).category || "other") : "" }
+    function categoryLabel(category) { return category === "other" ? qsTr("其他副本") : Theme.categoryName(category) }
+    function fitsCurrent(item) {
+        return inDuty && (item.content_id === duty.content_id || item.content_id === 0)
+            && (item.region === "ALL" || item.region === duty.region)
+    }
+    function inScope(row, key) {
+        const item = row.content
+        switch (key) {
+        case "all": return true
+        case "cur": return fitsCurrent(item)
+        case "fav": return !!row.favorite
+        case "recent": return !!recent[item.id]
+        }
+        return key[0] === "d" ? item.content_id === Number(key.slice(2)) : categoryOf(item.content_id) === key.slice(2)
+    }
+    /// How many of `filtered` each directory entry holds: the numbers follow the search and the
+    /// filters, not the directory's own choice, so a search shows where its hits are.
+    readonly property var scopeCounts: {
+        const n = { all: filtered.length, cur: 0, fav: 0, recent: 0, duty: ({}), kind: ({}) }
+        for (const row of filtered) {
+            const id = row.content.content_id
+            n.duty[id] = (n.duty[id] || 0) + 1
+            if (id) { const kind = categoryOf(id); n.kind[kind] = (n.kind[kind] || 0) + 1 }
+            if (row.favorite) ++n.fav
+            if (recent[row.content.id]) ++n.recent
+            if (fitsCurrent(row.content)) ++n.cur
+        }
+        return n
+    }
+    function stageOf(item) { return item.boss || item.phase || "" }
+    function phaseLabel(phase) {
+        switch (phase.code) {
+        case "none": return qsTr("未标阶段")
+        case "open": return qsTr("开场")
+        case "all": return qsTr("全程")
+        case "trash": return qsTr("道中")
+        case "last": return qsTr("尾王")
+        case "boss": return qsTr("BOSS %1").arg(phase.n)
+        case "phase": return qsTr("阶段 %1").arg(phase.n)
+        case "trans": return qsTr("转场")
+        case "end": return qsTr("结束")
+        }
+        return phase.raw
+    }
+    /// The entries of the chosen range, in the chosen order. 最近更新 keeps a local list as the
+    /// Collector returns it: entries written here carry no time of their own.
+    readonly property var scopeRows: {
+        const key = activeScope, order = sortKey
+        let list = filtered.filter(row => inScope(row, key))
+        const at = new Map(list.map((row, index) => [row, index]))
+        const updated = row => String(row.content.updated_at || "")
+        const used = row => recent[row.content.id] || ""
+        const later = (text, a, b) => text(a) < text(b) ? 1 : text(a) > text(b) ? -1 : 0
+        const stable = (a, b) => at.get(a) - at.get(b)
+        const byUpdated = (a, b) => (remote ? later(updated, a, b) : 0) || stable(a, b)
+        const verified = row => row.content.status === "verified" ? 1 : 0
+        const compare = order === "used" ? (a, b) => later(used, a, b) || byUpdated(a, b)
+                      : order === "title" ? (a, b) => String(a.content.title).localeCompare(String(b.content.title)) || byUpdated(a, b)
+                      : order === "verified" ? (a, b) => verified(b) - verified(a) || byUpdated(a, b)
+                      : byUpdated
+        list = list.slice().sort(compare)
+        return key === "recent" ? list.slice(0, 30) : list
+    }
+    /// The size of the range without search and filters, for 「n / m 项」.
+    readonly property int scopeTotal: {
+        const n = rows.filter(row => inScope(row, activeScope)).length
+        return activeScope === "recent" ? Math.min(30, n) : n
+    }
+    /// Public entries of the range that only 区服 and 语言 hide (Design: 另有 n 项是其它区服或语言的).
+    readonly property int hiddenByPlace: {
+        if (!remote || (regionFilter.length === 0 && languageFilter.length === 0)) return 0
+        return rows.filter(row => inScope(row, activeScope) && matches(row, "place")).length - scopeRows.length
+    }
+    function showEveryPlace() {
+        const next = Object.assign({}, filters)
+        next["public"] = Object.assign({}, filters["public"], { region: [], language: [] })
+        filters = next
+        publicPreset = false
+        basket = []
+        saveView()
+    }
+    // The open entry and the ticked ones are rows of the range: an entry folded in a group of
+    // similar ones is reached by opening the group (select does), so nothing hidden is acted on.
     readonly property var shownRows: listRows.map(entry => entry.row)
+    readonly property var firstListed: (listEntries.find(entry => entry.kind === "row") || {}).row || null
     readonly property var current: mode === "edit" ? null
-        : (shownRows.find(row => row.content.id === selectedId) || shownRows[0] || null)
+        : (shownRows.find(row => row.content.id === selectedId) || firstListed)
     readonly property string currentId: current ? current.content.id : ""
     readonly property var source: current && current.upstream
         ? (publicRows.find(row => row.content.id === current.upstream.id) || {}).content : null
-    readonly property var checkedIds: basket.filter(id => shownRows.some(row => row.content.id === id))
-    readonly property bool filterActive: query.trim().length > 0 || typeFilter.length > 0 || regionFilter.length > 0
-        || languageFilter.length > 0 || stageFilter.length > 0 || dutyOnly || (!remote && favoriteOnly)
-        || (remote && (dutyFilter.length > 0 || jobFilter.length > 0))
+    readonly property var shownIds: new Set(shownRows.map(row => row.content.id))
+    readonly property var checkedIds: basket.filter(id => shownIds.has(id))
+    readonly property bool filterActive: term.length > 0 || typeFilter.length > 0 || jobFilter.length > 0
+        || regionFilter.length > 0 || languageFilter.length > 0
+    /// Whether 清除筛选 would change anything.
+    readonly property bool resettable: term.length > 0 || typeFilter.length > 0 || jobFilter.length > 0
+        || (!remote && (regionFilter.length > 0 || languageFilter.length > 0))
     // Public entries that read alike (Match.groups): { id: the id that stands for its group }.
     readonly property var similarGroups: Match.groups(publicRows)
     property var openGroups: ({})
@@ -82,9 +273,9 @@ MotionDialog {
     /// that reads like another follows its group's first row, hidden until 「另有 N 条相似」
     /// opens the group (owner, 2026-11-23).
     readonly property var listRows: {
-        if (!remote) return filtered.map(row => ({ row: row, folded: 0, member: false, group: "" }))
+        if (!remote) return scopeRows.map(row => ({ row: row, folded: 0, member: false, group: "" }))
         const members = ({}), order = []
-        for (const row of filtered) {
+        for (const row of scopeRows) {
             const group = similarGroups[row.content.id] || row.content.id
             if (!members[group]) { members[group] = []; order.push(group) }
             members[group].push(row)
@@ -109,6 +300,173 @@ MotionDialog {
             selectedId = head.row.content.id
         openGroups = next
     }
+    /// What the list draws, top to bottom: { kind: "head" | "row" | "more" | "hint" | "also" }.
+    /// Inside a duty the rows are grouped by BOSS / 阶段, inside a category by duty (eight each,
+    /// then 查看全部); other ranges are one flat list. An opened group of similar entries stays
+    /// under its first entry, whatever stage the others name.
+    readonly property var listEntries: {
+        const key = activeScope, out = []
+        const grouped = (entries, describe) => {
+            const map = ({}), list = []
+            let last = null
+            for (const entry of entries) {
+                let group = entry.member ? last : null
+                if (!group) {
+                    const made = describe(entry.row.content)
+                    group = map[made.key]
+                    if (!group) {
+                        group = map[made.key] = Object.assign({ items: [], cap: 0, go: "", stage: true }, made)
+                        list.push(group)
+                    }
+                }
+                group.items.push(entry)
+                last = group
+            }
+            return list.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
+        }
+        const byPhase = entries => grouped(entries, item => {
+            const phase = Scope.phase(stageOf(item))
+            return { key: "p:" + phase.key, order: phase.order, label: phaseLabel(phase), stage: false }
+        })
+        const byDuty = entries => grouped(entries, item => ({
+            key: "d:" + item.content_id, order: ((dutyIndex[item.content_id] || {}).level || 0) * 100000 + item.content_id,
+            label: dutyLabel(item), cap: 8, go: "d:" + item.content_id }))
+        let groups = null
+        if (key === "cur") {
+            const own = [], general = []
+            let side = own
+            for (const entry of listRows) {
+                if (!entry.member) side = entry.row.content.content_id === 0 ? general : own
+                side.push(entry)
+            }
+            // 通用 last, the starred and the lately used first; with a duty's own entries above
+            // it shows five until asked for more.
+            const used = entry => recent[entry.row.content.id] || ""
+            if (!remote)
+                general.sort((a, b) => (b.row.favorite ? 1 : 0) - (a.row.favorite ? 1 : 0)
+                                       || (used(a) < used(b) ? 1 : used(a) > used(b) ? -1 : 0))
+            groups = byPhase(own)
+            if (general.length)
+                groups.push({ key: "gen", label: qsTr("通用"), items: general, go: "", stage: true,
+                              cap: !term && general.length > 8 && own.length > 0 ? 5 : 0 })
+        } else if (key[0] === "d") {
+            groups = byPhase(listRows)
+        } else if (key[0] === "t") {
+            groups = byDuty(listRows)
+        }
+        const heads = !!groups && (groups.length > 1 || (groups.length === 1 && groups[0].key !== "p:none"))
+        const flat = !groups || groups.length === 0
+        if (flat) groups = [{ key: "flat", label: "", items: listRows, cap: 0, go: "", stage: true }]
+        for (const group of groups) {
+            const id = key + "/" + group.key
+            const open = !heads || !collapsed[id]
+            if (heads) out.push({ kind: "head", key: id, label: group.label, count: group.items.length, open: open })
+            if (!open) continue
+            const limit = group.cap && !uncapped[id] ? group.cap : group.items.length
+            for (const entry of group.items.slice(0, limit))
+                out.push({ kind: "row", key: id, row: entry.row, folded: entry.folded, member: entry.member,
+                           group: entry.group, showDuty: flat, showStage: group.stage })
+            if (group.items.length > limit)
+                out.push({ kind: "more", key: id, go: group.go, rest: group.items.length - limit, count: group.items.length })
+        }
+        if (hiddenByPlace > 0) out.push({ kind: "hint", key: "hint" })
+        if (term && key !== "all" && scopeCounts.all > scopeRows.length && scopeRows.length > 0)
+            out.push({ kind: "also", key: "also" })
+        return out
+    }
+    readonly property bool listGrouped: listEntries.some(entry => entry.kind === "head")
+    readonly property bool anyGroupOpen: listEntries.some(entry => entry.kind === "head" && entry.open)
+    function toggleListGroup(id) {
+        const next = Object.assign({}, collapsed)
+        next[id] = !next[id]
+        collapsed = next
+    }
+    function foldAll() {
+        const fold = anyGroupOpen, next = Object.assign({}, collapsed)
+        for (const entry of listEntries)
+            if (entry.kind === "head") next[entry.key] = fold
+        collapsed = next
+    }
+    function showMore(entry) {
+        if (entry.go) {
+            toggleRailGroup(categoryOf(Number(entry.go.slice(2))), true)
+            pickScope(entry.go)
+            return
+        }
+        const next = Object.assign({}, uncapped)
+        next[entry.key] = true
+        uncapped = next
+    }
+    function pickScope(key) {
+        scope = key
+        basket = []
+        selectedId = ""
+        if (mode !== "edit") mode = "view"
+    }
+    /// The directory: the fixed ranges, then the duties that have entries, by category and
+    /// level. { kind: "item" | "head" | "group" | "none" }.
+    readonly property var railEntries: {
+        const n = scopeCounts, chosen = activeScope, out = [], find = railQuery.trim().toLowerCase()
+        const item = (key, label, icon, count, more) => Object.assign(
+            { kind: "item", key: key, label: label, icon: icon, count: count, sub: "", off: false, tip: "",
+              level: 1, here: false, on: chosen === key }, more || ({}))
+        if (!find) {
+            out.push(item("all", qsTr("全部"), "layers", n.all))
+            out.push(item("cur", qsTr("当前副本"), "target", inDuty ? n.cur : 0, {
+                sub: inDuty ? currentDutyName : qsTr("不在副本中"), off: !inDuty,
+                tip: inDuty ? qsTr("只看%1和通用的内容").arg(currentDutyName) : "" }))
+            if (!remote) {
+                out.push(item("fav", qsTr("收藏"), "star", n.fav))
+                out.push(item("recent", qsTr("最近用过"), "history", Math.min(30, n.recent),
+                              { tip: qsTr("最近复制过的 30 条") }))
+            }
+            out.push(item("d:0", qsTr("通用"), "asterisk", n.duty[0] || 0,
+                          { tip: qsTr("不分副本都能用的内容，比如开场问候、通关道别") }))
+        }
+        const selected = chosen[0] === "d" ? Number(chosen.slice(2)) : 0
+        const ids = Object.keys(n.duty).map(Number).filter(id => id !== 0)
+        if (selected && !ids.includes(selected)) ids.push(selected)
+        const groups = ({})
+        let shown = 0
+        for (const id of ids) {
+            const category = categoryOf(id), label = dutyLabel({ content_id: id })
+            const names = [label, (dutyIndex[id] || {}).name || "", categoryLabel(category), category].join(" ").toLowerCase()
+            if (find && !names.includes(find) && String(id) !== find) continue
+            if (!groups[category]) groups[category] = []
+            groups[category].push({ id: id, label: label, level: (dutyIndex[id] || {}).level || 0 })
+            ++shown
+        }
+        const rank = category => categoryOrder.indexOf(category) < 0 ? categoryOrder.length : categoryOrder.indexOf(category)
+        const categories = Object.keys(groups).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+        if (find && categories.length === 0) { out.push({ kind: "none", key: "none" }); return out }
+        if (!find && categories.length > 0) out.push({ kind: "head", key: "head", label: qsTr("按副本") })
+        const marked = selected || (chosen[0] !== "t" && inDuty ? duty.content_id : 0)
+        for (const category of categories) {
+            const duties = groups[category].sort((a, b) => a.level - b.level || a.id - b.id)
+            const on = chosen === "t:" + category
+            const open = railOpen[category] !== undefined ? !!railOpen[category]
+                       : (!!find || shown <= 10 || on || duties.some(entry => entry.id === marked))
+            out.push({ kind: "group", key: "t:" + category, category: category, label: categoryLabel(category),
+                       count: n.kind[category] || 0, open: open, on: on })
+            if (open)
+                for (const entry of duties)
+                    out.push(item("d:" + entry.id, entry.label, "", n.duty[entry.id] || 0,
+                                  { level: 2, here: inDuty && entry.id === duty.content_id }))
+        }
+        return out
+    }
+    function toggleRailGroup(category, open) {
+        const next = Object.assign({}, railOpen)
+        next[category] = open
+        railOpen = next
+    }
+    /// What the empty list says, by range (Design).
+    readonly property string emptyText: scopeRows.length > 0 ? ""
+        : filterActive ? qsTr("没有匹配的内容")
+        : activeScope === "fav" ? qsTr("还没有收藏。点列表里的星标，把常用的收进来。")
+        : activeScope === "recent" ? qsTr("复制过的内容会出现在这里。")
+        : activeScope === "cur" ? qsTr("%1和通用都还没有内容").arg(currentDutyName)
+        : qsTr("这里还没有内容")
     /// Local entries written for the duty the player is in; the dashboard entry shows it.
     readonly property int currentDutyCount: inDuty
         ? localRows.filter(row => row.content.content_id === duty.content_id
@@ -127,36 +485,11 @@ MotionDialog {
         count: facet("region", item => item.region === key || item.region === "ALL") }))
     readonly property var languageOptions: languageKeys.map(key => ({ value: key, label: languageLabel(key), sub: "",
         count: facet("language", item => item.language === key) }))
-    readonly property var stageOptions: {
-        const counts = ({})
-        for (const row of rows.filter(entry => matches(entry, "stage")))
-            for (const value of [row.content.boss, row.content.phase])
-                if (value) counts[value] = (counts[value] || 0) + 1
-        for (const value of stageFilter)
-            if (counts[value] === undefined) counts[value] = 0
-        return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
-                     .map(value => ({ value: value, label: value, sub: "", count: counts[value] }))
-    }
-    /// The duties the public entries are for, 通用 first, then the most entries first.
-    readonly property var dutyOptions: {
-        if (!remote) return []
-        const counts = ({}), sample = ({})
-        for (const row of rows.filter(entry => matches(entry, "duty"))) {
-            const id = row.content.content_id
-            counts[id] = (counts[id] || 0) + 1
-            sample[id] = row.content
-        }
-        for (const id of dutyFilter)
-            if (counts[id] === undefined) { counts[id] = 0; sample[id] = { content_id: id, region: "ALL" } }
-        return Object.keys(counts).map(Number)
-            .map(id => ({ value: id, label: dutyLabel(sample[id]), sub: "", count: counts[id] }))
-            .sort((a, b) => (a.value === 0 ? -1 : b.value === 0 ? 1 : b.count - a.count || a.label.localeCompare(b.label)))
-    }
     /// 不限 and the 职能 first (the panel shows a dozen rows before a search), then the single
     /// jobs the public entries name.
     readonly property var jobOptions: {
-        if (!remote) return []
-        const parsed = rows.filter(entry => matches(entry, "job")).map(row => jobCodes(row.content.role))
+        const parsed = rows.filter(entry => inScope(entry, activeScope) && matches(entry, "job"))
+                           .map(row => jobCodes(row.content.role))
         const count = choice => parsed.filter(codes => codesMatch(codes, choice)).length
         const out = [{ value: "ANY", label: qsTr("不限职业"), sub: "", count: count("ANY") }]
             .concat(jobGroups.map(group => ({ value: group.code, label: group.label, sub: "", count: count(group.code) })))
@@ -194,6 +527,14 @@ MotionDialog {
     function licenseLabel(code) {
         const option = licenseOptions.find(entry => entry.value === code)
         return option ? option.label : String(code || "")
+    }
+    /// The detail shows the code alone (Design: 许可：CC BY 4.0) and says the rest on hover.
+    function licenseCode(code) {
+        return String(code || "").replace(/^CC-BY-SA-/, "CC BY-SA ").replace(/^CC-BY-/, "CC BY ")
+    }
+    function licenseDetail(code) {
+        const option = licenseOptions.find(entry => entry.value === code)
+        return option ? option.detail : ""
     }
     // The owner's macros (2026-11-22), as written for the CN client. The macro text is not
     // translated: /micon and /marking take names in the client's own language. The Collector
@@ -240,8 +581,8 @@ MotionDialog {
     modal: true
     focus: true
     anchors.centerIn: parent
-    width: Math.min(1080, parent ? parent.width - 24 : 1080)
-    height: Math.min(740, parent ? parent.height - 24 : 740)
+    width: Math.min(1320, parent ? parent.width - 24 : 1320)
+    height: Math.min(860, parent ? parent.height - 24 : 860)
     padding: 0
     // The title is drawn in the content, beside the tabs.
     header: null
@@ -249,6 +590,12 @@ MotionDialog {
     closePolicy: mode === "view" ? Popup.CloseOnEscape : Popup.NoAutoClose
     background: DialogFrame {}
     Overlay.modal: Rectangle { color: Theme.modalScrim(root.palette.shadow) }
+    // Ctrl + F goes to the search box (Design: 搜索的范围).
+    Shortcut {
+        sequences: [StandardKey.Find]
+        enabled: root.opened && !root.editing
+        onActivated: toolbar.focusSearch()
+    }
     // Ctrl + S saves the form (Design: Ctrl + S 保存), wherever in the dialog the focus is.
     Shortcut {
         objectName: "dutyCommunitySaveShortcut"
@@ -258,40 +605,48 @@ MotionDialog {
     }
 
     // ------------------------------------------------------------ filters --
+    // The text a search looks through, built once per entry and load.
+    property var haystacks: ({})
+    onLocalRowsChanged: haystacks = ({})
+    onPublicRowsChanged: haystacks = ({})
+    function haystack(row) {
+        const item = row.content, key = tab + "/" + item.id
+        let text = haystacks[key]
+        if (text === undefined) {
+            const author = item.author || (row.upstream && row.upstream.author) || ({})
+            text = haystacks[key] = [item.title, item.body, item.boss, item.phase, item.role, jobsLabel(item.role),
+                item.content_id, item.content_id ? Theme.dutyName(item) : qsTr("通用"),
+                (dutyIndex[item.content_id] || {}).name || "", author.login].concat(item.tags).join(" ").toLowerCase()
+        }
+        return text
+    }
+    /// `skip` leaves one filter out: its own key, or "place" for 区服 and 语言 together.
     function matches(row, skip) {
-        const item = row.content
+        const item = row.content, place = skip === "place"
         if (skip !== "type" && typeFilter.length && !typeFilter.includes(item.type)) return false
-        if (skip !== "region" && regionFilter.length && item.region !== "ALL" && !regionFilter.includes(item.region)) return false
-        if (skip !== "language" && languageFilter.length && !languageFilter.includes(item.language)) return false
-        if (skip !== "stage" && stageFilter.length && !stageFilter.includes(item.boss) && !stageFilter.includes(item.phase)) return false
-        if (remote && skip !== "duty" && dutyFilter.length && !dutyFilter.includes(item.content_id)) return false
-        if (remote && skip !== "job" && jobFilter.length) {
+        if (!place && skip !== "region" && regionFilter.length && item.region !== "ALL"
+                && !regionFilter.includes(item.region)) return false
+        if (!place && skip !== "language" && languageFilter.length && !languageFilter.includes(item.language)) return false
+        if (skip !== "job" && jobFilter.length) {
             const codes = jobCodes(item.role)
             if (!jobFilter.some(choice => codesMatch(codes, choice))) return false
         }
-        if (!remote && favoriteOnly && !row.favorite) return false
-        if (dutyOnly && ((item.content_id !== 0 && item.content_id !== duty.content_id)
-                         || (item.region !== "ALL" && item.region !== duty.region))) return false
-        const term = query.trim().toLowerCase()
-        if (!term) return true
-        const author = item.author || (row.upstream && row.upstream.author) || ({})
-        return [item.title, item.body, item.boss, item.phase, item.role, jobsLabel(item.role), item.content_id,
-                item.content_id ? Theme.dutyName(item) : "", author.login].concat(item.tags)
-            .join(" ").toLowerCase().includes(term)
+        return !term || haystack(row).includes(term)
     }
+    /// How many entries of the range a choice would leave, the other filters unchanged.
     function facet(key, accepts) {
-        return rows.filter(row => matches(row, key) && accepts(row.content)).length
+        return rows.filter(row => inScope(row, activeScope) && matches(row, key) && accepts(row.content)).length
     }
+    /// 清除筛选: the search, 类型 and 职业. On the public tab 区服 and 语言 stay as they are
+    /// (owner, 2026-11-25): they say whose content is shown and are changed on their own capsules
+    /// or by 「也显示出来」, so clearing a search never drops them.
     function resetFilters() {
         query = ""
-        typeFilter = []
-        regionFilter = []
-        languageFilter = []
-        stageFilter = []
-        dutyFilter = []
-        jobFilter = []
-        dutyOnly = false
-        favoriteOnly = false
+        const next = Object.assign({}, filters)
+        next[tab] = remote ? Object.assign({}, filters[tab], { type: [], job: [] })
+                           : { type: [], job: [], region: [], language: [] }
+        filters = next
+        basket = []
     }
 
     // -------------------------------------------------------------- labels --
@@ -434,7 +789,7 @@ MotionDialog {
             else root.loadLocal()
         }
     }
-    Component.onCompleted: if (Runtime.app.backendConnected) loadLocal()
+    Component.onCompleted: { loadView(); if (Runtime.app.backendConnected) loadLocal() }
 
     function pages(action, args, done, prior, first) {
         call(action, args, result => {
@@ -466,11 +821,7 @@ MotionDialog {
             // An entry just saved stays in view: filters that would hide it are dropped.
             const wanted = revealId
             revealId = ""
-            if (wanted && entries.some(row => row.content.id === wanted)
-                    && !filtered.some(row => row.content.id === wanted)) {
-                resetFilters()
-                selectedId = wanted
-            }
+            if (wanted) reveal(wanted)
         })
     }
     function reload() { loadLocal(); loadPublic("browse") }
@@ -482,14 +833,24 @@ MotionDialog {
     /// a successful one), so switching back and forth does not reach GitHub every time.
     function refreshPublic() { if (online && !refreshing) loadPublic("refresh") }
     onOpened: reload()
-    onDutyKeyChanged: if (visible && dutyOnly) { selectedId = ""; compare.close() }
+    onDutyKeyChanged: if (visible && activeScope === "cur") { selectedId = ""; compare.close() }
     onTabChanged: { selectedId = ""; basket = []; mode = "view"; confirmingDelete = false; if (tab === "public") refreshPublic() }
     onCurrentIdChanged: confirmingDelete = false
 
-    function openFor(currentDuty) {
+    /// Every opening starts clean (Design: 每次打开): search, 类型 and 职业 are cleared and the
+    /// directory follows the game again; sort, row height and the public library's 区服 and 语言
+    /// are preferences and stay.
+    function openFor() {
         tab = "local"
-        resetFilters()
-        dutyOnly = currentDuty
+        loadView()
+        query = ""
+        railQuery = ""
+        filters = { local: { type: [], job: [], region: [], language: [] },
+                    public: Object.assign({}, filters["public"], { type: [], job: [] }) }
+        scope = ""
+        railOpen = ({})
+        collapsed = ({})
+        uncapped = ({})
         mode = "view"
         selectedId = ""
         basket = []
@@ -509,11 +870,36 @@ MotionDialog {
         selectedId = id
         mode = "view"
     }
-    function showLocal(id) {
+    property int revealTick: 0
+    /// Brings a local entry into view (after saving it, or 在本地查看): the directory moves to
+    /// its duty - unless 当前副本 is showing and holds it - and its group opens.
+    function reveal(id) {
+        const row = localRows.find(entry => entry.content.id === id)
+        if (!row) return
         tab = "local"
-        resetFilters()
-        select(id)
+        if (!matches(row, "")) {
+            query = ""
+            const cleared = Object.assign({}, filters)
+            cleared["local"] = { type: [], job: [], region: [], language: [] }
+            filters = cleared
+        }
+        const item = row.content
+        const stay = activeScope === "cur" && fitsCurrent(item)
+        const key = stay ? "cur" : "d:" + item.content_id
+        const group = key + "/" + (stay && item.content_id === 0 ? "gen" : "p:" + Scope.phase(stageOf(item)).key)
+        const open = Object.assign({}, collapsed), full = Object.assign({}, uncapped)
+        open[group] = false
+        full[group] = true
+        collapsed = open
+        uncapped = full
+        if (item.content_id) toggleRailGroup(categoryOf(item.content_id), true)
+        scope = key
+        basket = []
+        selectedId = id
+        mode = "view"
+        ++revealTick
     }
+    function showLocal(id) { reveal(id) }
     function toggleChecked(id) {
         basket = basket.includes(id) ? basket.filter(entry => entry !== id) : basket.concat([id])
     }
@@ -526,7 +912,9 @@ MotionDialog {
         return { schema_version: 1, id: service.newId(), type: type,
             // The selected record region unless the author chooses another (owner, 2026-11-24);
             // 全部区服 while none is selected. The duty still defaults to the current one.
-            content_id: inDuty ? duty.content_id : 0, region: defaultRegion(),
+            // The duty the directory has chosen, else the one the player is in.
+            content_id: activeScope[0] === "d" ? Number(activeScope.slice(2)) : inDuty ? duty.content_id : 0,
+            region: defaultRegion(),
             language: defaultLanguage(), title: "", body: "", boss: "", phase: "", role: "", tags: [],
             game_version: "", links: [], source: "" }
     }
@@ -600,6 +988,7 @@ MotionDialog {
         call("copy", { mode: copyMode, body: row.content.body }, result => {
             if (result.status !== "copy_ready") { report(result); return }
             if (!service.copy(result.body)) { note = statusText("copy_failed"); return }
+            if (localRows.includes(row)) markUsed(row.content.id)
             copiedKey = row.content.id + copyMode
             copiedTimer.restart()
         })
@@ -713,10 +1102,10 @@ MotionDialog {
         case "submit_unconfirmed": return qsTr("提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。")
         case "closed": return qsTr("投稿已关闭。")
         case "prepared": return qsTr("投稿正文已复制，请粘贴到浏览器表单并提交。")
-        case "verified": return qsTr("已核验")
+        case "verified": return qsTr("社区投稿 · 已核验")
         case "outdated": return qsTr("过时")
         case "withdrawn": return qsTr("已撤回")
-        case "community": return qsTr("社区投稿／未核验")
+        case "community": return qsTr("社区投稿 · 未核验")
         default: return qsTr("输入无效或操作失败。") + " (" + status + ")"
         }
     }
@@ -855,6 +1244,7 @@ MotionDialog {
         }
 
         DutyCommunityToolbar {
+            id: toolbar
             Layout.fillWidth: true
             Layout.leftMargin: 24
             Layout.rightMargin: 24
@@ -886,10 +1276,22 @@ MotionDialog {
                 spacing: 0
                 visible: !root.onboarding && !root.publicBlank && !root.editing
 
+                DutyCommunityRail {
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: 232
+                    Layout.maximumWidth: 232
+                    Layout.fillHeight: true
+                    store: root
+                }
+                Rectangle {
+                    Layout.fillHeight: true
+                    implicitWidth: 1
+                    color: Theme.border
+                }
                 DutyCommunityList {
                     Layout.fillWidth: false
-                    Layout.preferredWidth: 372
-                    Layout.maximumWidth: 372
+                    Layout.preferredWidth: 384
+                    Layout.maximumWidth: 384
                     Layout.fillHeight: true
                     store: root
                 }
