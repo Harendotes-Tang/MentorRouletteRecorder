@@ -64,8 +64,7 @@ public sealed class DutyIdentityMutationTests
         var corrected = fixture.Runs.Get(runId)!;
         Assert.Null(corrected.ContentId);
         Assert.Null(corrected.TerritoryId);
-        var settings = new SettingsRepository(fixture.Database.Database, fixture.Database.Clock);
-        var row = Assert.Single(new StatisticsRepository(fixture.Database.Database, settings).GetDungeonStats());
+        var row = Assert.Single(new StatisticsRepository(fixture.Database.Database, fixture.Settings).GetDungeonStats());
         Assert.Null(row.ContentId);
         Assert.Equal(DutyCatalog.UnknownDutyName, row.DutyName);
         Assert.Equal(0, fixture.Runs.Query(

@@ -12,9 +12,7 @@ public sealed class StatisticsTests
     public void Dashboard_ReturnsNormativeEmptyValues()
     {
         using var fixture = new TestDatabase();
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var statistics = new StatisticsRepository(fixture.Database, settings);
+        var statistics = new StatisticsRepository(fixture.Database, fixture.Settings());
 
         var result = statistics.GetDashboard();
 
@@ -39,22 +37,17 @@ public sealed class StatisticsTests
     public void Dashboard_LeavesOutTheRunThatIsStillInProgress()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork), tx);
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork),
             // Finished, outcome unknown until the player confirms it: this one DOES count.
-            runs.Insert(TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork) with
+            TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork),
+            TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork) with
             {
                 EndedAtUtc = null,
                 DurationMs = null,
-            }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+            });
 
-        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var result = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
 
         Assert.Equal(2, result.AttemptCount);
         Assert.Equal(0.5, result.CompletionRate);
@@ -65,19 +58,14 @@ public sealed class StatisticsTests
     public void Dashboard_KeepsCompletionLeaveAndDisconnectSeparate()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.LeftOrAbandoned), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Disconnected), tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.Completed),
+            TestDatabase.Run(result: RunResult.Completed),
+            TestDatabase.Run(result: RunResult.Completed),
+            TestDatabase.Run(result: RunResult.LeftOrAbandoned),
+            TestDatabase.Run(result: RunResult.Disconnected));
 
-        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var result = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
 
         Assert.Equal(5, result.AttemptCount);
         Assert.Equal(3, result.CompletedCount);
@@ -90,19 +78,14 @@ public sealed class StatisticsTests
     public void Dashboard_ExcludesCancelledDeletedAndNonContributingFromTheirSpecificMetrics()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var owner = fixture.CurrentProfile();
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { ProfileId = owner }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, contributesToGoal: false) with { ProfileId = owner }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { ProfileId = owner }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, durationMs: null) with { ProfileId = owner }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { ProfileId = owner },
+            TestDatabase.Run(result: RunResult.Completed, contributesToGoal: false) with { ProfileId = owner },
+            TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { ProfileId = owner },
+            TestDatabase.Run(result: RunResult.Completed, durationMs: null) with { ProfileId = owner });
 
-        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var result = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
 
         Assert.Equal(2, result.AttemptCount);
         Assert.Equal(2, result.CompletedCount);
@@ -117,18 +100,13 @@ public sealed class StatisticsTests
     public void GroupedStats_KeepUnknownJobAndUseDutyFallback()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            for (var i = 0; i < 4; i++)
+        fixture.InsertRuns(Enumerable.Range(0, 4)
+            .Select(_ => TestDatabase.Run(jobId: null, contentId: 900001) with
             {
-                runs.Insert(TestDatabase.Run(jobId: null, contentId: 900001) with
-                {
-                    DutyName = null,
-                    DutyCategory = null,
-                }, tx);
-            }
-        });
+                DutyName = null,
+                DutyCategory = null,
+            })
+            .ToArray());
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
         var statistics = new StatisticsRepository(
             fixture.Database, settings, JobCatalog.Default, DutyCatalog.Default);
@@ -153,35 +131,30 @@ public sealed class StatisticsTests
     public void DungeonStats_GroupByTerritoryWhenNoContentIdWasObserved()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
+        fixture.InsertRuns(
             // Two runs in the same duty, identified by territory only.
-            runs.Insert(TestDatabase.Run(contentId: null) with
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
                 DutySource = DutySource.Territory,
-            }, tx);
-            runs.Insert(TestDatabase.Run(contentId: null) with
+            },
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
                 DutySource = DutySource.Territory,
-            }, tx);
+            },
 
             // A different territory is a different bucket.
-            runs.Insert(TestDatabase.Run(contentId: null) with
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 792, DutyName = "虚景跳跳乐大挑战",
                 DutySource = DutySource.Territory,
-            }, tx);
+            },
 
             // A run with an observed content id keeps its own.
-            runs.Insert(TestDatabase.Run(contentId: 900001), tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+            TestDatabase.Run(contentId: 900001));
 
-        var duties = new StatisticsRepository(fixture.Database, settings).GetDungeonStats();
+        var duties = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDungeonStats();
 
         Assert.Equal(3, duties.Count);
         var byTerritory = Assert.Single(duties, row => row.DutyName == "天然要害沙斯塔夏溶洞");
@@ -211,22 +184,18 @@ public sealed class StatisticsTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(contentId: 4) with
+        fixture.InsertRuns(
+            TestDatabase.Run(contentId: 4) with
             {
                 Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
                 DutySource = DutySource.ContentId,
-            }, tx);
-            runs.Insert(TestDatabase.Run(contentId: null) with
+            },
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
                 DutySource = DutySource.Territory,
-            }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var statistics = new StatisticsRepository(fixture.Database, settings);
+            });
+        var statistics = new StatisticsRepository(fixture.Database, fixture.Settings());
 
         var row = Assert.Single(statistics.GetDungeonStats());
         Assert.Equal(4, row.ContentId);
@@ -241,11 +210,11 @@ public sealed class StatisticsTests
         Assert.Equal(2, runs.Query(filter, null, 1, 50).Items.Count);
 
         // A stage on a shared map is not found by any single stage's content id.
-        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(contentId: null) with
+        fixture.InsertRuns(TestDatabase.Run(contentId: null) with
         {
             Region = Region.Cn, TerritoryId = 792, DutyName = "虚景跳跳乐大挑战",
             DutySource = DutySource.Territory,
-        }, tx));
+        });
         Assert.Empty(runs.Query(new RunFilter { ContentIds = new[] { 600 } }, null, 1, 50).Items);
     }
 
@@ -257,24 +226,19 @@ public sealed class StatisticsTests
     public void DungeonStats_AZoneTheReferenceFileDoesNotKnowJoinsTheOneUnknownDutyRow()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(contentId: null), tx);
-            runs.Insert(TestDatabase.Run(contentId: null) with
+        fixture.InsertRuns(
+            TestDatabase.Run(contentId: null),
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 999_999, DutySource = DutySource.Territory,
-            }, tx);
-            runs.Insert(TestDatabase.Run(contentId: null) with
+            },
+            TestDatabase.Run(contentId: null) with
             {
                 Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
                 DutySource = DutySource.Territory,
-            }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+            });
 
-        var duties = new StatisticsRepository(fixture.Database, settings).GetDungeonStats();
+        var duties = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDungeonStats();
 
         Assert.Equal(2, duties.Count);
         var unknown = Assert.Single(duties, row => row.ContentId is null);
@@ -292,23 +256,18 @@ public sealed class StatisticsTests
     public void DungeonStats_TheUnknownDutyRowIsNeverNamedAfterAnImportedFreeTextName()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(contentId: null, source: RunSource.AutoNetwork) with
+        fixture.InsertRuns(
+            TestDatabase.Run(contentId: null, source: RunSource.AutoNetwork) with
             {
                 Region = Region.Cn, TerritoryId = 999_999, DutySource = DutySource.Territory,
-            }, tx);
-            runs.Insert(TestDatabase.Run(contentId: null, source: RunSource.Import) with
+            },
+            TestDatabase.Run(contentId: null, source: RunSource.Import) with
             {
                 Region = Region.Cn, DutyName = "神兵", DutyCategory = "迷宫挑战",
                 UpdatedAtUtc = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero),
-            }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+            });
 
-        var duties = new StatisticsRepository(fixture.Database, settings).GetDungeonStats();
+        var duties = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDungeonStats();
 
         var unknown = Assert.Single(duties);
         Assert.Null(unknown.ContentId);
@@ -322,17 +281,13 @@ public sealed class StatisticsTests
     public void DungeonStats_NamesATerritoryOnlyGroupFromTheReferenceFile()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx => runs.Insert(
-            TestDatabase.Run(contentId: null) with
-            {
-                Region = Region.Cn, TerritoryId = 1036, DutyName = null, DutyCategory = null,
-                DutySource = DutySource.Territory,
-            }, tx));
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        fixture.InsertRuns(TestDatabase.Run(contentId: null) with
+        {
+            Region = Region.Cn, TerritoryId = 1036, DutyName = null, DutyCategory = null,
+            DutySource = DutySource.Territory,
+        });
 
-        var row = Assert.Single(new StatisticsRepository(fixture.Database, settings).GetDungeonStats());
+        var row = Assert.Single(new StatisticsRepository(fixture.Database, fixture.Settings()).GetDungeonStats());
 
         Assert.Equal(4, row.ContentId);
         Assert.Equal("天然要害沙斯塔夏溶洞", row.DutyName);
@@ -349,20 +304,15 @@ public sealed class StatisticsTests
     public void Dashboard_CountsJoinedInProgressOverAttemptsAndItsShareOverKnownEntries()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = true }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.LeftOrAbandoned) with { JoinedInProgress = true }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = false }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { JoinedInProgress = true }, tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { JoinedInProgress = true }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = true },
+            TestDatabase.Run(result: RunResult.LeftOrAbandoned) with { JoinedInProgress = true },
+            TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = false },
+            TestDatabase.Run(result: RunResult.Completed),
+            TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { JoinedInProgress = true },
+            TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { JoinedInProgress = true });
 
-        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var result = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
 
         Assert.Equal(4, result.AttemptCount);
         Assert.Equal(3, result.CompletedCount);
@@ -375,12 +325,9 @@ public sealed class StatisticsTests
     public void Dashboard_JoinedInProgressRateIsNullUntilAnEntryWasSeen()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx));
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        fixture.InsertRuns(TestDatabase.Run(result: RunResult.Completed));
 
-        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var result = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
 
         Assert.Equal(1, result.AttemptCount);
         Assert.Equal(0, result.JoinedInProgressCount);
@@ -391,19 +338,14 @@ public sealed class StatisticsTests
     public void GroupedStats_CarryTheJoinedInProgressCountOfEachGroup()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = true }, tx);
-            runs.Insert(TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = false }, tx);
-            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21) with { JoinedInProgress = true }, tx);
-            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21), tx);
-            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21, result: RunResult.CancelledBeforeEntry)
-                with { JoinedInProgress = true }, tx);
-        });
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var statistics = new StatisticsRepository(fixture.Database, settings);
+        fixture.InsertRuns(
+            TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = true },
+            TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = false },
+            TestDatabase.Run(contentId: 900002, jobId: 21) with { JoinedInProgress = true },
+            TestDatabase.Run(contentId: 900002, jobId: 21),
+            TestDatabase.Run(contentId: 900002, jobId: 21, result: RunResult.CancelledBeforeEntry)
+                with { JoinedInProgress = true });
+        var statistics = new StatisticsRepository(fixture.Database, fixture.Settings());
 
         var duties = statistics.GetDungeonStats();
         var jobs = statistics.GetJobStats();
@@ -420,8 +362,7 @@ public sealed class StatisticsTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
         var owners = Enum.GetValues<Region>().ToDictionary(region => region, region => fixture.CurrentProfile(region));
         fixture.Database.RunInTransaction(tx =>
         {
@@ -469,8 +410,7 @@ public sealed class StatisticsTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
+        var settings = fixture.Settings();
         var left = TestDatabase.Run(result: RunResult.LeftOrAbandoned, source: RunSource.AutoNetwork);
         var cancelled = new[]
         {
@@ -479,7 +419,7 @@ public sealed class StatisticsTests
         };
         var untouched = TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork);
         fixture.InsertWithFirstRevision(cancelled.Append(left).Append(untouched).ToArray());
-        var mutations = new MentorRecorder.Collector.Storage.Mutations.RunMutationService(fixture.Database, settings, fixture.Clock);
+        var mutations = fixture.Mutations();
         foreach (var run in cancelled)
         {
             mutations.CorrectRun(new MentorRecorder.Collector.Domain.Mutations.CorrectRunCommand(

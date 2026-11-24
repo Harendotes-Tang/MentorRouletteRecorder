@@ -5,15 +5,15 @@ namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
 /// 每个夹具独占临时数据库、时钟及变更服务；只初始化默认设置，不创建业务记录。
-/// 派生夹具负责场景数据，Dispose 释放数据库；不适用于需要 Reopen 后重建服务的测试。
+/// 派生夹具负责场景数据，Dispose 释放数据库；不适用于需要 Reopen 后重建服务的测试，
+/// 这类测试按需调用 <see cref="TestDatabase.Settings"/> 与 <see cref="TestDatabase.Mutations"/>。
 /// </summary>
 internal abstract class RunMutationTestContext : IDisposable
 {
     protected RunMutationTestContext()
     {
         Database = new TestDatabase();
-        Settings = new SettingsRepository(Database.Database, Database.Clock);
-        Settings.EnsureDefaults();
+        Settings = Database.Settings();
         Runs = new RunRepository(Database.Database);
         Revisions = new RunRevisionRepository(Database.Database);
         Service = new RunMutationService(Database.Database, Settings, Database.Clock);

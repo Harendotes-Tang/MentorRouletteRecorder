@@ -1,36 +1,15 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Queries;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Storage;
+using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class RepositoryTests
 {
-    [Theory]
-    [InlineData("带新人")]
-    [InlineData("50%")]
-    [InlineData("a_b")]
-    [InlineData(@"a\b")]
-    public void HistorySearchFindsNotesAndTreatsWildcardCharactersLiterally(string text)
-    {
-        using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        var match = TestDatabase.Run() with { Note = "备注：" + text + "。" };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(match, tx);
-            runs.Insert(TestDatabase.Run() with { Note = "50 percent, axb, ab" }, tx);
-            runs.Insert(TestDatabase.Run() with { Note = null }, tx);
-        });
-
-        var page = runs.Query(new RunFilter { Text = text }, null, 1, 50);
-        Assert.Equal(1, page.Total);
-        Assert.Equal(match.RunId, Assert.Single(page.Items).RunId);
-    }
-
     [Fact]
     public void Repositories_RoundTripSessionRunEventAndRevision()
     {
@@ -121,12 +100,7 @@ public sealed class RepositoryTests
         };
         var unknown = TestDatabase.Run(contentId: null) with { DutySource = null };
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(observed, tx);
-            runs.Insert(inferred, tx);
-            runs.Insert(unknown, tx);
-        });
+        fixture.InsertRuns(observed, inferred, unknown);
 
         Assert.Equal(DutySource.ContentId, runs.Get(observed.RunId)!.DutySource);
         Assert.Equal(DutySource.Territory, runs.Get(inferred.RunId)!.DutySource);
@@ -148,12 +122,7 @@ public sealed class RepositoryTests
         var fresh = TestDatabase.Run() with { JoinedInProgress = false };
         var unseen = TestDatabase.Run();
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(joined, tx);
-            runs.Insert(fresh, tx);
-            runs.Insert(unseen, tx);
-        });
+        fixture.InsertRuns(joined, fresh, unseen);
 
         Assert.True(runs.Get(joined.RunId)!.JoinedInProgress);
         Assert.False(runs.Get(fresh.RunId)!.JoinedInProgress);
@@ -213,6 +182,34 @@ public sealed class RepositoryTests
         delete.CommandText = "DELETE FROM run_revisions WHERE run_id = $run;";
         delete.Parameters.AddWithValue("$run", run.RunId);
         Assert.Throws<SqliteException>(() => delete.ExecuteNonQuery());
+    }
+
+    /// <summary>Persisted integer audit values must remain exact and usable by undo.</summary>
+    [Theory]
+    [InlineData(2_147_483_647L)]
+    [InlineData(9_007_199_254_740_993L)]
+    [InlineData(long.MaxValue)]
+    public void IntegerAuditValuesRoundTripWithoutFloatingPointPromotion(long value)
+    {
+        var json = RunRevisionRepository.SerializeChanges(new[]
+        {
+            new RunFieldChange(RunFields.DurationMs, value, 1L),
+        });
+        var change = Assert.Single(RunRevisionRepository.DeserializeChanges(json));
+
+        Assert.Equal(value, Assert.IsType<long>(change.OldValue));
+        Assert.Equal(value, RunFieldWriter.Apply(TestDatabase.Run(), change.Field, change.OldValue).DurationMs);
+    }
+
+    [Fact]
+    public void FractionalAuditValuesRemainInvalidForIntegerFields()
+    {
+        var change = Assert.Single(RunRevisionRepository.DeserializeChanges(
+            "[{\"field\":\"job_id\",\"old_value\":19.5,\"new_value\":24}]"));
+
+        Assert.Equal(19.5, Assert.IsType<double>(change.OldValue));
+        Assert.Throws<CollectorException>(() =>
+            RunFieldWriter.Apply(TestDatabase.Run(), change.Field, change.OldValue));
     }
 
     [Fact]

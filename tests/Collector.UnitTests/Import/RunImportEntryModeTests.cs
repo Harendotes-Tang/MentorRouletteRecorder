@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.ImportPreviews;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -71,7 +72,7 @@ public sealed class RunImportEntryModeTests
         var result = Assert.Single(preview["rows"]!.AsArray())!;
         Assert.False(result["can_import"]!.GetValue<bool>());
         Assert.Contains(result["errors"]!.AsArray(), error => error!.GetValue<string>().Contains("joined_in_progress", StringComparison.Ordinal));
-        Assert.Throws<CollectorException>(() => Commit(service, preview));
+        Assert.Throws<CollectorException>(() => CommitAll(service, preview));
         Assert.Equal(0, new RunRepository(fixture.Database).Query(null, null, 1, 20).Total);
     }
 
@@ -113,16 +114,15 @@ public sealed class RunImportEntryModeTests
         var checkedPreview = service.PreviewSource("CSV", rows: candidates);
         AssertEntryRows(checkedPreview, expected);
         var requestId = Guid.NewGuid().ToString("D");
-        var committed = Commit(service, checkedPreview, requestId);
+        var committed = CommitAll(service, checkedPreview, requestId);
         Assert.Equal(3, committed["imported_count"]!.GetValue<int>());
-        Assert.True(Commit(service, checkedPreview, requestId)["replayed"]!.GetValue<bool>());
+        Assert.True(CommitAll(service, checkedPreview, requestId)["replayed"]!.GetValue<bool>());
         var runs = new RunRepository(fixture.Database);
         var stored = committed["run_ids"]!.AsArray().Select(id => runs.Get(id!.GetValue<string>())!).ToArray();
         Assert.Equal(expected, stored.Select(run => run.JoinedInProgress));
         Assert.Equal(1, runs.Query(new RunFilter { JoinedInProgress = false }, null, 1, 20).Total);
         Assert.Equal(1, runs.Query(new RunFilter { JoinedInProgress = true }, null, 1, 20).Total);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock); settings.EnsureDefaults();
-        var stats = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var stats = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
         Assert.Equal(3, stats.AttemptCount); Assert.Equal(1, stats.JoinedInProgressCount); Assert.Equal(0.5, stats.JoinedInProgressRate);
         Assert.All(service.PreviewSource("CSV", text: csv, columnMapping: mapping)["rows"]!.AsArray(),
             row => Assert.Equal("duplicate", row!["status"]!.GetValue<string>()));
@@ -134,7 +134,7 @@ public sealed class RunImportEntryModeTests
             using var target = new TestDatabase();
             var targetService = new RunImportService(target.Database, target.Clock);
             var nativePreview = targetService.PreviewSource(kind, filePath: path, timeZone: "+08:00");
-            var nativeCommit = Commit(targetService, nativePreview);
+            var nativeCommit = CommitAll(targetService, nativePreview);
             Assert.Equal(3, nativeCommit["imported_count"]!.GetValue<int>());
             var copied = new RunRepository(target.Database).Query(null, null, 1, 20).Items;
             Assert.Single(copied, run => run.JoinedInProgress == false);
@@ -148,10 +148,6 @@ public sealed class RunImportEntryModeTests
         ["duty_name"] = "合成进入方式副本", ["job_id"] = 19,
         ["result"] = "COMPLETED", ["source_recorded_at"] = "2026-09-04",
     };
-
-    private static JsonObject Commit(RunImportService service, JsonObject preview, string? requestId = null) =>
-        service.Commit(preview["preview_id"]!.GetValue<string>(), preview["rows"]!.AsArray()
-            .Select(row => row!["row_number"]!.GetValue<int>()).ToArray(), true, requestId ?? Guid.NewGuid().ToString("D"));
 
     private static void AssertEntryRows(JsonObject preview, IEnumerable<bool?> expected)
     {

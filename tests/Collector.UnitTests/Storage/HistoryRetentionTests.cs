@@ -28,9 +28,8 @@ public sealed class HistoryRetentionTests
         public readonly LiveEventBus LiveEvents;
         public Fixture()
         {
-            var settings = new SettingsRepository(Db.Database, Db.Clock); settings.EnsureDefaults();
             LiveEvents = new LiveEventBus(Db.Clock);
-            Mutations = new RunMutationService(Db.Database, settings, Db.Clock, onPurged: LiveEvents.ForgetRuns);
+            Mutations = new RunMutationService(Db.Database, Db.Settings(), Db.Clock, onPurged: LiveEvents.ForgetRuns);
             Retention = new HistoryRetentionService(Db.Database, Db.Clock, LiveEvents.ForgetRuns); Runs = new RunRepository(Db.Database);
         }
         public CreateManualRunCommand NewCommand() => new()
@@ -412,22 +411,6 @@ public sealed class HistoryRetentionTests
     }
 
     [Fact]
-    public void CalendarCompanionsRequireRealDaysHistoryDateAndMatchingUtcBounds()
-    {
-        var filter = new JsonObject { ["date_field"] = "history_date", ["history_from_day"] = "2024-09-24", ["from_utc"] = "2024-09-24T04:00:00.000Z" };
-        Assert.Equal("2024-09-24", RequestParsers.Filter(new PayloadReader(filter))!.HistoryFromDay);
-        foreach (var badDay in new[] { "2024-02-30", "2024-9-24", "not-a-date" })
-        {
-            var invalid = filter.DeepClone().AsObject(); invalid["history_from_day"] = badDay;
-            Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(invalid)));
-        }
-        var wrongField = filter.DeepClone().AsObject(); wrongField["date_field"] = "entered_at_utc";
-        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(wrongField)));
-        var missingBound = filter.DeepClone().AsObject(); missingBound.Remove("from_utc");
-        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(missingBound)));
-    }
-
-    [Fact]
     public void PurgeKeepsReplayTombstoneAfterTheResponseWasAlreadyPruned()
     {
         using var f = new Fixture(); var command = f.NewCommand(); var run = f.Mutations.CreateManualRun(command).Run!;
@@ -440,19 +423,6 @@ public sealed class HistoryRetentionTests
         f.Batch("purge", f.Delete(run));
         Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() => f.Mutations.CreateManualRun(command)).Code);
         Assert.Null(f.Runs.Get(run.RunId));
-    }
-
-    [Fact]
-    public void ExactIdFilterSupportsTheDeclaredBoundAndRejectsMalformedIds()
-    {
-        using var f = new Fixture(); var run = f.Create();
-        var ids = new[] { run.RunId }.Concat(Enumerable.Range(0, 1999).Select(_ => Id())).ToArray();
-        Assert.Equal(run.RunId, Assert.Single(f.Runs.Query(new RunFilter { RunIds = ids }, null, 1, 50).Items).RunId);
-        var parsed = RequestParsers.Filter(new PayloadReader(new JsonObject { ["run_id"] = new JsonArray(ids.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()), ["date_field"] = "history_date" }));
-        Assert.Equal(2000, parsed!.RunIds.Count); Assert.Equal(RunDateField.HistoryDate, parsed.DateField);
-        foreach (var invalid in new[] { new JsonArray(run.RunId, run.RunId.ToUpperInvariant()), new JsonArray("invalid"), new JsonArray(ids.Concat(new[] { Id() }).Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()) })
-            Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(new JsonObject { ["run_id"] = invalid })));
-        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(new JsonObject { ["run_id"] = null })));
     }
 
     [Fact]

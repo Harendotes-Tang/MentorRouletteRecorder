@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Import;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.ImportPreviews;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -251,14 +251,12 @@ public sealed class DutyNameResolutionTests
             .Select(day => $"阿修罗歼灭战,{(oldJobAlias ? "白魔" : "骑士")},2026-10-{day:00},CN,"
                 + (explicitDisplayFacts ? "123,人工分类" : ",")));
         var parsed = RunImportSourceParser.Parse("CSV", text: csv);
-        var wholeFile = RunImportCandidateNormalizer.Hash(new JsonArray(parsed
-            .Select(row => (JsonNode)row.Values.DeepClone()).ToArray()).ToJsonString(Wire.JsonOptions));
+        var wholeFile = EarlierImports.WholeFileKey(parsed);
         var repository = new RunRepository(fixture.Database);
-        var imports = new RunImportRepository(fixture.Database);
         var earlier = new List<MentorRun>();
         foreach (var row in parsed)
         {
-            var sourceKey = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values)) + ":1";
+            var sourceKey = EarlierImports.RowKey(row);
             row.Values["source_key"] = sourceKey;
             var current = RunImportCandidateNormalizer.Normalize(row, "CSV", "synthetic-upgrade", null, fixture.Clock.UtcNow).Run!;
             Assert.Equal(944, current.ContentId);
@@ -271,27 +269,12 @@ public sealed class DutyNameResolutionTests
                 JobId = oldJobAlias ? null : current.JobId,
                 Role = oldJobAlias ? Role.Unknown : current.Role,
             };
-            var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", "synthetic-upgrade",
-                legacyKey ? wholeFile + ":" + row.RowNumber : sourceKey, RunImportCandidateNormalizer.Facts(old)));
+            var fingerprint = EarlierImports.Fingerprint("CSV", "synthetic-upgrade",
+                legacyKey ? wholeFile + ":" + row.RowNumber : sourceKey, old);
             old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
             earlier.Add(old);
-            fixture.Database.RunInTransaction(transaction =>
-            {
-                if (purged)
-                {
-                    using var command = fixture.Database.CreateCommand();
-                    command.Transaction = transaction;
-                    command.CommandText = "INSERT INTO purged_run_tombstones VALUES ($id,$fingerprint,'2026-10-22T00:00:00.000Z');";
-                    command.Parameters.AddWithValue("$id", old.RunId);
-                    command.Parameters.AddWithValue("$fingerprint", fingerprint);
-                    command.ExecuteNonQuery();
-                }
-                else
-                {
-                    repository.Insert(old, transaction);
-                    imports.Insert(old.RunId, old.ImportMetadata!, transaction);
-                }
-            });
+            if (purged) EarlierImports.Tombstone(fixture, old.RunId, fingerprint);
+            else fixture.InsertImported(old);
         }
 
         var service = new RunImportService(fixture.Database, fixture.Clock);
@@ -313,9 +296,7 @@ public sealed class DutyNameResolutionTests
             Assert.All(preview["rows"]!.AsArray(), row =>
                 Assert.Equal(purged ? "conflict" : "duplicate", row!["status"]!.GetValue<string>()));
         }
-        var result = service.Commit(preview["preview_id"]!.GetValue<string>(),
-            preview["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(),
-            true, Guid.NewGuid().ToString("D"));
+        var result = CommitAll(service, preview);
         Assert.Equal(0, result["imported_count"]!.GetValue<int>());
         Assert.Equal(5, result[purged ? "conflict_count" : "duplicate_count"]!.GetValue<int>());
         Assert.Equal(purged ? 0 : 5, repository.Query(null, null, 1, 20).Total);
@@ -326,17 +307,17 @@ public sealed class DutyNameResolutionTests
         var explicitRow = parsed[0].Values.DeepClone().AsObject();
         explicitRow["content_id"] = 69;
         var explicitPreview = service.PreviewSource("CSV", rows: new JsonArray(explicitRow), sourceName: "synthetic-upgrade");
-        Assert.Equal(69, explicitPreview["rows"]![0]!["run"]!["content_id"]!.GetValue<int>());
-        Assert.Equal("new", explicitPreview["rows"]![0]!["status"]!.GetValue<string>());
+        Assert.Equal(69, Row(explicitPreview)["run"]!["content_id"]!.GetValue<int>());
+        Assert.Equal("new", Status(explicitPreview));
         // An explicit 944 has the same current facts hash as an inferred 944. It must not
         // inherit compatibility identities that erase this newly supplied source fact.
         explicitRow["content_id"] = 944;
         var explicit944 = service.PreviewSource("CSV", rows: new JsonArray(explicitRow.DeepClone()), sourceName: "synthetic-upgrade");
-        Assert.Equal("new", explicit944["rows"]![0]!["status"]!.GetValue<string>());
-        var changedCandidate = preview["rows"]![0]!["candidate"]!.DeepClone().AsObject();
+        Assert.Equal("new", Status(explicit944));
+        var changedCandidate = Row(preview)["candidate"]!.DeepClone().AsObject();
         changedCandidate["note"] = "A newly supplied source fact";
         var changedFacts = service.PreviewSource("CSV", rows: new JsonArray(changedCandidate), sourceName: "synthetic-upgrade");
-        Assert.Equal("new", changedFacts["rows"]![0]!["status"]!.GetValue<string>());
+        Assert.Equal("new", Status(changedFacts));
         if (explicitDisplayFacts)
         {
             var changed = service.PreviewSource("CSV", text: csv.Replace("人工分类", "其他分类", StringComparison.Ordinal),
@@ -353,15 +334,14 @@ public sealed class DutyNameResolutionTests
                 using var command = fixture.Database.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = "DELETE FROM run_import_metadata WHERE run_id=$id; "
-                    + "DELETE FROM mentor_runs WHERE run_id=$id; "
-                    + "INSERT INTO purged_run_tombstones VALUES ($id,$fingerprint,'2026-10-22T00:00:00.000Z');";
+                    + "DELETE FROM mentor_runs WHERE run_id=$id;";
                 command.Parameters.AddWithValue("$id", deleted.RunId);
-                command.Parameters.AddWithValue("$fingerprint", deleted.ImportMetadata!.SourceFingerprint);
                 command.ExecuteNonQuery();
+                EarlierImports.Tombstone(fixture, deleted.RunId, deleted.ImportMetadata!.SourceFingerprint, transaction);
             });
             var current = service.PreviewSource("CSV", rows: new JsonArray(preview["rows"]!.AsArray()
                 .Select(row => row!["candidate"]!.DeepClone()).ToArray()), sourceName: "synthetic-upgrade");
-            Assert.Equal("conflict", current["rows"]![0]!["status"]!.GetValue<string>());
+            Assert.Equal("conflict", Status(current));
             Assert.Null(repository.Get(deleted.RunId));
             Assert.Equal(4, repository.Query(null, null, 1, 20).Total);
         }
@@ -403,27 +383,22 @@ public sealed class DutyNameResolutionTests
         using var fixture = new TestDatabase();
         const string csv = "duty_name,job_name,source_recorded_at\n阿修罗歼灭战,骑士,2026-10-01\n";
         var row = RunImportSourceParser.Parse("CSV", text: csv)[0];
-        var sourceKey = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values)) + ":1";
+        var sourceKey = EarlierImports.RowKey(row);
         row.Values["source_key"] = sourceKey;
         var current = RunImportCandidateNormalizer.Normalize(row, "CSV", "synthetic-upgrade", null, fixture.Clock.UtcNow);
         Assert.Equal(944, current.Run!.ContentId);
         Assert.Equal(Region.Unknown, current.Run.Region);
 
         var old = current.Run with { ContentId = null, TerritoryId = null, DutyCategory = null, DutySource = null };
-        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", "synthetic-upgrade", sourceKey,
-            RunImportCandidateNormalizer.Facts(old)));
+        var fingerprint = EarlierImports.Fingerprint("CSV", "synthetic-upgrade", sourceKey, old);
         Assert.Contains(fingerprint, current.PreviousDutyNameFingerprints!);
         old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
-        fixture.Database.RunInTransaction(transaction =>
-        {
-            new RunRepository(fixture.Database).Insert(old, transaction);
-            new RunImportRepository(fixture.Database).Insert(old.RunId, old.ImportMetadata!, transaction);
-        });
+        fixture.InsertImported(old);
 
         var preview = new RunImportService(fixture.Database, fixture.Clock)
             .PreviewSource("CSV", text: csv, sourceName: "synthetic-upgrade");
-        Assert.Equal("duplicate", preview["rows"]![0]!["status"]!.GetValue<string>());
-        Assert.Equal(old.RunId, preview["rows"]![0]!["matching_run_id"]!.GetValue<string>());
+        Assert.Equal("duplicate", Status(preview));
+        Assert.Equal(old.RunId, Row(preview)["matching_run_id"]!.GetValue<string>());
     }
 
     private static DutyCatalog Parse(string rows) => DutyCatalog.Compose(new[] { Document("CN", "v1", rows) });

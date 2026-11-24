@@ -1,8 +1,8 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.ImportPreviews;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -29,33 +29,16 @@ public sealed class RunImportReimportTests
         };
         if (stable) input["run_id"] = Guid.NewGuid().ToString("D");
         var parsed = Assert.Single(RunImportSourceParser.Parse("JSON", text: new JsonArray(input.DeepClone()).ToJsonString()));
-        if (!stable) parsed.Values["source_key"] = RunImportCandidateNormalizer.Hash(
-            RunImportCandidateNormalizer.CanonicalValues(parsed.Values)) + ":1";
+        if (!stable) parsed.Values["source_key"] = EarlierImports.RowKey(parsed);
         var normalized = RunImportCandidateNormalizer.Normalize(parsed, "JSON", "legacy-source", null, fixture.Clock.UtcNow);
         var current = normalized.Run!;
         var old = current with { GameBuild = null }; // Earlier normalizer discarded this supplied metadata.
         var identity = stable ? old.RunId : parsed.Values["source_key"]!.GetValue<string>();
-        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "JSON", "legacy-source", identity,
-            RunImportCandidateNormalizer.Facts(old)));
+        var fingerprint = EarlierImports.Fingerprint("JSON", "legacy-source", identity, old);
         Assert.Equal(fingerprint, current.ImportMetadata!.SourceFingerprint);
         old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            if (purged)
-            {
-                using var tombstone = fixture.Database.CreateCommand();
-                tombstone.Transaction = tx;
-                tombstone.CommandText = "INSERT INTO purged_run_tombstones VALUES ($id,$fingerprint,'2026-10-22T00:00:00.000Z');";
-                tombstone.Parameters.AddWithValue("$id", old.RunId);
-                tombstone.Parameters.AddWithValue("$fingerprint", fingerprint);
-                tombstone.ExecuteNonQuery();
-            }
-            else
-            {
-                new RunRepository(fixture.Database).Insert(old, tx);
-                new RunImportRepository(fixture.Database).Insert(old.RunId, old.ImportMetadata!, tx);
-            }
-        });
+        if (purged) EarlierImports.Tombstone(fixture, old.RunId, fingerprint);
+        else fixture.InsertImported(old);
         var preview = new RunImportService(fixture.Database, fixture.Clock).PreviewSource("JSON",
             text: new JsonArray(input.DeepClone()).ToJsonString(), sourceName: "legacy-source");
         Assert.Equal(purged ? "conflict" : "duplicate", Status(preview, 0));
@@ -64,13 +47,6 @@ public sealed class RunImportReimportTests
     }
 
     private const string Duty = "异界孤城特罗亚宫廷";
-
-    private static JsonObject Row(JsonObject preview, int index) => preview["rows"]![index]!.AsObject();
-    private static string Status(JsonObject preview, int index) => Row(preview, index)["status"]!.GetValue<string>();
-
-    private static JsonObject CommitAll(RunImportService service, JsonObject preview) =>
-        service.Commit(preview["preview_id"]!.GetValue<string>(),
-            preview["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(), true, Guid.NewGuid().ToString("D"));
 
     private static JsonObject PreviewCsv(RunImportService service, string path, string text)
     {
@@ -167,23 +143,7 @@ public sealed class RunImportReimportTests
         var path = CsvPath(fixture);
         const string text = "副本,职业,开始时间,结果\n" + Duty + ",战士,2026/9/1,通关\n" + Duty + ",骑士,2026/9/2,通关\n";
         var committed = CommitAll(service, PreviewCsv(service, path, text));
-        var parsed = RunImportSourceParser.Parse("CSV", path);
-        var wholeFile = RunImportCandidateNormalizer.Hash(
-            new JsonArray(parsed.Select(row => (JsonNode)row.Values.DeepClone()).ToArray()).ToJsonString(Wire.JsonOptions));
-        var runs = new RunRepository(fixture.Database);
-        var earlier = new List<string>();
-        foreach (var outcome in committed["rows"]!.AsArray())
-        {
-            var runId = outcome!["run_id"]!.GetValue<string>();
-            var legacy = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", "personal-records.csv",
-                wholeFile + ":" + outcome["row_number"]!.GetValue<int>(), RunImportCandidateNormalizer.Facts(runs.Get(runId)!)));
-            earlier.Add(legacy);
-            using var command = fixture.Database.CreateCommand();
-            command.CommandText = "UPDATE run_import_metadata SET source_fingerprint = $fingerprint WHERE run_id = $id;";
-            command.Parameters.AddWithValue("$fingerprint", legacy);
-            command.Parameters.AddWithValue("$id", runId);
-            Assert.Equal(1, command.ExecuteNonQuery());
-        }
+        var earlier = RewriteToWholeFileFingerprints(fixture, committed, path, run => run);
         var again = PreviewCsv(service, path, text);
         Assert.Equal("duplicate", Status(again, 0));
         Assert.Equal("duplicate", Status(again, 1));
@@ -191,12 +151,11 @@ public sealed class RunImportReimportTests
         // The second row as if it had been purged: its stored fingerprint survives only in the tombstone.
         using (var command = fixture.Database.CreateCommand())
         {
-            command.CommandText = "UPDATE run_import_metadata SET source_fingerprint = 'elsewhere' WHERE source_fingerprint = $fingerprint;" +
-                "INSERT INTO purged_run_tombstones VALUES ($id, $fingerprint, '2026-09-04T00:00:00.000Z');";
-            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            command.CommandText = "UPDATE run_import_metadata SET source_fingerprint = 'elsewhere' WHERE source_fingerprint = $fingerprint;";
             command.Parameters.AddWithValue("$fingerprint", earlier[1]);
             command.ExecuteNonQuery();
         }
+        EarlierImports.Tombstone(fixture, Guid.NewGuid().ToString("D"), earlier[1]);
         Assert.Equal("conflict", Status(PreviewCsv(service, path, text), 1));
     }
 
@@ -214,27 +173,12 @@ public sealed class RunImportReimportTests
         var service = new RunImportService(stored.Database, stored.Clock);
         var path = CsvPath(stored);
         var committed = CommitAll(service, PreviewCsv(service, path, text));
-        var parsed = RunImportSourceParser.Parse("CSV", path);
-        var wholeFile = RunImportCandidateNormalizer.Hash(
-            new JsonArray(parsed.Select(row => (JsonNode)row.Values.DeepClone()).ToArray()).ToJsonString(Wire.JsonOptions));
-        var runs = new RunRepository(stored.Database);
-        var earlier = new List<string>();
-        foreach (var outcome in committed["rows"]!.AsArray())
+        var earlier = RewriteToWholeFileFingerprints(stored, committed, path, run =>
         {
-            var runId = outcome!["run_id"]!.GetValue<string>();
-            var run = runs.Get(runId)!;
             Assert.NotNull(run.JobId);
             // What 1.7.3 recorded: the alias named no job, the full name 战士 did.
-            var asBefore = run.JobName == "白魔" ? run with { JobId = null } : run;
-            var legacy = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", "personal-records.csv",
-                wholeFile + ":" + outcome["row_number"]!.GetValue<int>(), RunImportCandidateNormalizer.Facts(asBefore)));
-            earlier.Add(legacy);
-            using var command = stored.Database.CreateCommand();
-            command.CommandText = "UPDATE run_import_metadata SET source_fingerprint = $fingerprint WHERE run_id = $id;";
-            command.Parameters.AddWithValue("$fingerprint", legacy);
-            command.Parameters.AddWithValue("$id", runId);
-            Assert.Equal(1, command.ExecuteNonQuery());
-        }
+            return run.JobName == "白魔" ? run with { JobId = null } : run;
+        });
         var again = PreviewCsv(service, path, text);
         Assert.Equal("duplicate", Status(again, 0));
         Assert.Equal("duplicate", Status(again, 1));
@@ -243,17 +187,39 @@ public sealed class RunImportReimportTests
         using var purged = new TestDatabase();
         foreach (var fingerprint in earlier)
         {
-            using var command = purged.Database.CreateCommand();
-            command.CommandText = "INSERT INTO purged_run_tombstones VALUES ($id, $fingerprint, '2026-09-04T00:00:00.000Z');";
-            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
-            command.Parameters.AddWithValue("$fingerprint", fingerprint);
-            command.ExecuteNonQuery();
+            EarlierImports.Tombstone(purged, Guid.NewGuid().ToString("D"), fingerprint);
         }
         var other = new RunImportService(purged.Database, purged.Clock);
         var offered = PreviewCsv(other, CsvPath(purged), text);
         Assert.Equal("conflict", Status(offered, 0));
         Assert.Equal("conflict", Status(offered, 1));
         Assert.False(Row(offered, 0)["can_import"]!.GetValue<bool>());
+    }
+
+    /// <summary>
+    /// Gives every committed row the fingerprint an earlier version stored for it: the whole file plus the row number as
+    /// its identity, over the facts that version recorded (<paramref name="asBefore"/> of the stored run).
+    /// </summary>
+    /// <returns>The fingerprints, in the order of the committed rows.</returns>
+    private static List<string> RewriteToWholeFileFingerprints(TestDatabase fixture, JsonObject committed, string path,
+        Func<MentorRun, MentorRun> asBefore)
+    {
+        var wholeFile = EarlierImports.WholeFileKey(RunImportSourceParser.Parse("CSV", path));
+        var runs = new RunRepository(fixture.Database);
+        var earlier = new List<string>();
+        foreach (var outcome in committed["rows"]!.AsArray())
+        {
+            var runId = outcome!["run_id"]!.GetValue<string>();
+            var legacy = EarlierImports.Fingerprint("CSV", Path.GetFileName(path),
+                wholeFile + ":" + outcome["row_number"]!.GetValue<int>(), asBefore(runs.Get(runId)!));
+            earlier.Add(legacy);
+            using var command = fixture.Database.CreateCommand();
+            command.CommandText = "UPDATE run_import_metadata SET source_fingerprint = $fingerprint WHERE run_id = $id;";
+            command.Parameters.AddWithValue("$fingerprint", legacy);
+            command.Parameters.AddWithValue("$id", runId);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        return earlier;
     }
 
     private static JsonObject Card(string text = "合成截图心得", string time = "2026-10-08 20:30:00", string job = "战士") => new()
@@ -354,7 +320,7 @@ public sealed class RunImportReimportTests
         }
 
         var first = PreviewCsv(service, path, text);
-        var chosen = first["rows"]![0]!["candidate"]!.DeepClone().AsObject();
+        var chosen = Row(first)["candidate"]!.DeepClone().AsObject();
         chosen["region"] = "CN";
         var again = service.PreviewSource("CSV", rows: new JsonArray(chosen), timeZone: "+08:00", sourceName: Path.GetFileName(path));
 
@@ -403,19 +369,14 @@ public sealed class RunImportReimportTests
         var path = CsvPath(fixture);
         const string text = "副本,职业,结果\n" + Duty + ",騎士,通关\n";
         var row = RunImportSourceParser.Parse("CSV", text: text)[0];
-        var sourceKey = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values)) + ":1";
+        var sourceKey = EarlierImports.RowKey(row);
         row.Values["source_key"] = sourceKey;
         var current = RunImportCandidateNormalizer.Normalize(row, "CSV", Path.GetFileName(path), "+08:00", fixture.Clock.UtcNow).Run!;
         Assert.Equal(19, current.JobId);
         var stored = current with { JobId = null, Role = Role.Unknown, Region = Region.Unknown };
-        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", Path.GetFileName(path), sourceKey,
-            RunImportCandidateNormalizer.Facts(stored)));
+        var fingerprint = EarlierImports.Fingerprint("CSV", Path.GetFileName(path), sourceKey, stored);
         stored = stored with { Region = Region.Cn, ImportMetadata = stored.ImportMetadata! with { SourceFingerprint = fingerprint } };
-        fixture.Database.RunInTransaction(transaction =>
-        {
-            new RunRepository(fixture.Database).Insert(stored, transaction);
-            new RunImportRepository(fixture.Database).Insert(stored.RunId, stored.ImportMetadata!, transaction);
-        });
+        fixture.InsertImported(stored);
 
         var first = PreviewCsv(service, path, text);
         var second = WithRegion(service, first, "CN", path);

@@ -57,10 +57,7 @@ public sealed class HistorySelectionStoreTests
         var runs = new RunRepository(fixture.Database);
         var rows = Enumerable.Range(0, 201).Select(index =>
             TestDatabase.Run(enteredAt: fixture.Clock.UtcNow.AddMinutes(index))).ToArray();
-        fixture.Database.RunInTransaction(transaction =>
-        {
-            foreach (var row in rows) runs.Insert(row, transaction);
-        });
+        fixture.InsertRuns(rows);
         var snapshot = store.Freeze(null, CancellationToken.None);
         Assert.Equal(200, snapshot.Page.Items.Count);
         Assert.Equal(201, snapshot.Page.Total);

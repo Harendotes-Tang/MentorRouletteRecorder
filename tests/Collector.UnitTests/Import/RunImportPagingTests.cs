@@ -4,7 +4,6 @@ using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -26,7 +25,7 @@ public sealed class RunImportPagingTests
     public void TwoThousandAndNinetyRowsAreFrozenBoundedAndCommitAsOneBatch()
     {
         using var fixture = new TestDatabase();
-        new SettingsRepository(fixture.Database, fixture.Clock).EnsureDefaults();
+        fixture.Settings();
         var service = new RunImportService(fixture.Database, fixture.Clock);
         var first = service.PreviewSource("XLSX", rows: Rows(2090), sourceName: "synthetic-2090", pageSize: 100);
         var selected = new List<int>();
@@ -57,7 +56,7 @@ public sealed class RunImportPagingTests
     public void CrossPageDuplicatesAndDatabaseChangesDoNotReclassifyTheFrozenSnapshot()
     {
         using var fixture = new TestDatabase();
-        new SettingsRepository(fixture.Database, fixture.Clock).EnsureDefaults();
+        fixture.Settings();
         var service = new RunImportService(fixture.Database, fixture.Clock);
         var stableId = Guid.NewGuid().ToString("D");
         var rows = Rows(102);

@@ -1,8 +1,6 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.StateMachine;
-using MentorRecorder.Collector.Protocol.Pipeline;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -22,7 +20,7 @@ public sealed class ManualFieldProtectionTests
             Result = RunResult.Completed, EndedAtUtc = manualEnd,
         });
 
-        fixture.Exit();
+        fixture.Live.Exit();
 
         var stored = fixture.Run;
         Assert.Equal(RunResult.Completed, stored.Result);
@@ -41,7 +39,7 @@ public sealed class ManualFieldProtectionTests
         {
             Specified = new HashSet<string> { RunFields.Note }, Note = "保留我写的备注",
         });
-        fixture.Exit();
+        fixture.Live.Exit();
 
         Assert.Equal("保留我写的备注", fixture.Run.Note);
         Assert.Equal(fixture.Start.AddSeconds(60), fixture.Run.EndedAtUtc);
@@ -60,8 +58,8 @@ public sealed class ManualFieldProtectionTests
         {
             Specified = new HashSet<string> { RunFields.JobId }, JobId = 24,
         });
-        fixture.Job(21, 5);
-        fixture.Exit();
+        fixture.Live.Job(21, 5);
+        fixture.Live.Exit();
 
         Assert.Equal(24, fixture.Run.JobId);
         Assert.Equal(corrected.JobName, fixture.Run.JobName);
@@ -87,9 +85,7 @@ public sealed class ManualFieldProtectionTests
             beforeUndo.RunId, beforeUndo.Revision, "恢复上一次职业选择"));
 
         var current = fixture.Run;
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
-        var merged = fixture.Database.Database.RunInTransaction(tx =>
-            protection.Merge(current, current with { JobId = 19, JobName = "自动值", Role = Role.Tank }, tx));
+        var merged = fixture.Merge(current, current with { JobId = 19, JobName = "自动值", Role = Role.Tank });
 
         Assert.Equal(24, merged.JobId);
         Assert.Equal(current.JobName, merged.JobName);
@@ -124,7 +120,7 @@ public sealed class ManualFieldProtectionTests
         Assert.Equal(19, fixture.Run.JobId);
 
         // The player really does change class now. The withdrawn edit must not block it.
-        fixture.Job(21, 5);
+        fixture.Live.Job(21, 5);
         Assert.Equal(21, fixture.Run.JobId);
 
         // Withdrawing the edit does not erase that it happened.
@@ -146,25 +142,22 @@ public sealed class ManualFieldProtectionTests
 
         CorrectJob(24);
         Undo();
-        fixture.Job(21, 5);
+        fixture.Live.Job(21, 5);
         Assert.Equal(21, fixture.Run.JobId);
         CorrectJob(secondJob);
-        fixture.Job(32, 6);
+        fixture.Live.Job(32, 6);
         Assert.Equal(secondJob, fixture.Run.JobId);
 
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
         var current = fixture.Run;
-        var merged = fixture.Database.Database.RunInTransaction(tx =>
-            protection.Merge(current, current with { JobId = 32 }, tx));
+        var merged = fixture.Merge(current, current with { JobId = 32 });
         Assert.Equal(secondJob, merged.JobId);
 
         Undo();
         Assert.Equal(21, fixture.Run.JobId);
         current = fixture.Run;
-        merged = fixture.Database.Database.RunInTransaction(tx =>
-            protection.Merge(current, current with { JobId = 32 }, tx));
+        merged = fixture.Merge(current, current with { JobId = 32 });
         Assert.Equal(32, merged.JobId);
-        fixture.Job(33, 7);
+        fixture.Live.Job(33, 7);
         Assert.Equal(33, fixture.Run.JobId);
     }
 
@@ -179,7 +172,7 @@ public sealed class ManualFieldProtectionTests
             Specified = new HashSet<string> { RunFields.EnteredAtUtc },
             EnteredAtUtc = fixture.Start.AddSeconds(enteredSeconds),
         });
-        fixture.Exit();
+        fixture.Live.Exit();
         Assert.Equal(fixture.Start.AddSeconds(enteredSeconds), fixture.Run.EnteredAtUtc);
         Assert.Equal(duration, fixture.Run.DurationMs);
         if (enteredSeconds > 60) Assert.Null(fixture.Run.EndedAtUtc);
@@ -207,7 +200,7 @@ public sealed class ManualFieldProtectionTests
             corrected.RunId, corrected.Revision, "撤销误填的结束时间"));
         Assert.Null(fixture.Run.EndedAtUtc);
 
-        fixture.Victory();
+        fixture.Live.Victory();
 
         Assert.Equal(fixture.Start.AddSeconds(60), fixture.Run.EndedAtUtc);
         Assert.Equal(RunResult.Completed, fixture.Run.Result);
@@ -228,7 +221,7 @@ public sealed class ManualFieldProtectionTests
             Specified = new HashSet<string> { RunFields.EndedAtUtc }, EndedAtUtc = manualEnd,
         });
 
-        fixture.Victory();
+        fixture.Live.Victory();
 
         Assert.Equal(manualEnd, fixture.Run.EndedAtUtc);
     }
@@ -245,7 +238,7 @@ public sealed class ManualFieldProtectionTests
         using var fixture = new Fixture();
 
         // The wall clock runs 30 s behind the stamp the entry was recorded with.
-        fixture.ExitAt(-30);
+        fixture.Live.ExitAt(-30);
 
         var stored = fixture.Run;
 
@@ -275,9 +268,8 @@ public sealed class ManualFieldProtectionTests
     {
         using var fixture = new Fixture();
         var current = fixture.Run;
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
 
-        var merged = fixture.Database.Database.RunInTransaction(tx => protection.Merge(
+        var merged = fixture.Merge(
             current,
             current with
             {
@@ -286,8 +278,7 @@ public sealed class ManualFieldProtectionTests
                 PendingReview = false,
                 EnteredAtUtc = null,
                 EndedAtUtc = null,
-            },
-            tx));
+            });
 
         Assert.Equal(RunResult.Unknown, merged.Result);
         Assert.Equal(DetectionConfidence.Low, merged.DetectionConfidence);
@@ -300,9 +291,8 @@ public sealed class ManualFieldProtectionTests
     {
         using var fixture = new Fixture();
         var current = fixture.Run;
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
 
-        var merged = fixture.Database.Database.RunInTransaction(tx => protection.Merge(
+        var merged = fixture.Merge(
             current,
             current with
             {
@@ -310,8 +300,7 @@ public sealed class ManualFieldProtectionTests
                 DetectionConfidence = DetectionConfidence.High,
                 PendingReview = false,
                 EndedAtUtc = fixture.Start.AddSeconds(60),
-            },
-            tx));
+            });
 
         Assert.Equal(RunResult.Completed, merged.Result);
         Assert.Equal(DetectionConfidence.High, merged.DetectionConfidence);
@@ -327,10 +316,54 @@ public sealed class ManualFieldProtectionTests
             Specified = new HashSet<string> { RunFields.JobId }, JobId = 24,
         });
         var current = fixture.Run with { ManuallyCorrected = false };
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
-        var merged = fixture.Database.Database.RunInTransaction(tx =>
-            protection.Merge(current, current with { JobId = 21 }, tx));
+        var merged = fixture.Merge(current, current with { JobId = 21 });
         Assert.Equal(24, merged.JobId);
+    }
+
+    /// <summary>
+    /// Until 1.3.1 every CorrectRun set <c>manually_corrected</c>, including the player saying how a
+    /// pending run went, so every automatic record on a machine already carries the flag. The rule
+    /// changed (<see cref="RunMutationRules.OverrulesTheRecord(bool, IReadOnlyList{RunFieldChange})"/>);
+    /// the rows written under the old one are re-read against their own revision chains at startup.
+    /// </summary>
+    [Fact]
+    public void RowsThatWereOnlyConfirmedLoseTheFlagAndRealCorrectionsKeepIt()
+    {
+        using var db = new TestDatabase();
+        var runs = new RunRepository(db.Database);
+        var service = db.Mutations();
+
+        MentorRun Pending()
+        {
+            var created = service.CreateManualRun(TestDatabase.ManualRun(RunResult.Unknown) with { Region = Region.Unknown });
+            var stored = runs.Get(created.RunId)!;
+            // Into review the way the machine does it: in place, without spending a revision.
+            db.Database.RunInTransaction(tx => runs.Update(stored with { PendingReview = true }, stored.Revision, tx));
+            return runs.Get(created.RunId)!;
+        }
+
+        var confirmed = Pending();
+        service.CorrectRun(new CorrectRunCommand(Guid.NewGuid().ToString("D"), confirmed.RunId, confirmed.Revision, "确认通关",
+            new RunChangeSet { Specified = new HashSet<string> { RunFields.Result }, Result = RunResult.Completed }));
+        var corrected = Pending();
+        service.CorrectRun(new CorrectRunCommand(Guid.NewGuid().ToString("D"), corrected.RunId, corrected.Revision, "职业记错了",
+            new RunChangeSet { Specified = new HashSet<string> { RunFields.JobId }, JobId = 21 }));
+
+        // What a database written by 1.3.0 and earlier looks like: both rows flagged.
+        using (var command = db.Database.CreateCommand())
+        {
+            command.CommandText = "UPDATE mentor_runs SET manually_corrected = 1;";
+            command.ExecuteNonQuery();
+        }
+
+        var changed = CorrectedFlagMaintenance.Run(db.Database);
+
+        Assert.Equal(1, changed);
+        Assert.False(runs.Get(confirmed.RunId)!.ManuallyCorrected);
+        Assert.True(runs.Get(corrected.RunId)!.ManuallyCorrected);
+        // Idempotent, and it spends no revision: the flag is derived, the audit chain is not touched.
+        Assert.Equal(0, CorrectedFlagMaintenance.Run(db.Database));
+        Assert.Equal(confirmed.Revision + 1, runs.Get(confirmed.RunId)!.Revision);
     }
 
     [Fact]
@@ -342,13 +375,11 @@ public sealed class ManualFieldProtectionTests
             Specified = new HashSet<string> { RunFields.ContentId, RunFields.DutyName, RunFields.DutyCategory },
             ContentId = 900002, DutyName = "人工副本", DutyCategory = "人工分类",
         });
-        var protection = new ManualRunFieldProtection(fixture.Database.Database);
-        var merged = fixture.Database.Database.RunInTransaction(tx =>
-            protection.Merge(corrected, corrected with
-            {
-                ContentId = 900003, TerritoryId = 800003, DutyName = "自动副本", DutyCategory = "自动分类",
-                EndedAtUtc = fixture.Start.AddSeconds(60),
-            }, tx));
+        var merged = fixture.Merge(corrected, corrected with
+        {
+            ContentId = 900003, TerritoryId = 800003, DutyName = "自动副本", DutyCategory = "自动分类",
+            EndedAtUtc = fixture.Start.AddSeconds(60),
+        });
 
         Assert.Equal(corrected.ContentId, merged.ContentId);
         Assert.Equal(corrected.TerritoryId, merged.TerritoryId);
@@ -369,7 +400,7 @@ public sealed class ManualFieldProtectionTests
     {
         using var fixture = new Fixture(withContentId: false);
 
-        fixture.Territory(1036, 2);
+        fixture.Live.Territory(1036, 2);
 
         var stored = fixture.Run;
         Assert.Equal(1036, stored.TerritoryId);
@@ -395,7 +426,7 @@ public sealed class ManualFieldProtectionTests
         var current = fixture.Run;
         fixture.Service.SoftDeleteRun(new RunReasonCommand(Guid.NewGuid().ToString("D"),
             current.RunId, current.Revision, "这条记录无需保留在统计中"));
-        fixture.Exit();
+        fixture.Live.Exit();
         var stored = fixture.Database.Database.RunInTransaction(tx =>
             fixture.Runs.GetInternal(current.RunId, tx))!;
         Assert.True(stored.SoftDeleted);
@@ -403,78 +434,44 @@ public sealed class ManualFieldProtectionTests
         Assert.Equal(0, fixture.Statistics.GetDashboard().UnfinishedPendingReview);
     }
 
+    /// <summary>
+    /// A run capture has matched and entered: with a content id the entry names the duty and the
+    /// job follows a second later; without one only the duty flag is known.
+    /// </summary>
     private sealed class Fixture : RunMutationTestContext
     {
-        private readonly string _session = Guid.NewGuid().ToString("D");
-        private readonly SemanticEventProcessor _processor;
         private readonly string _runId;
-        public DateTimeOffset Start { get; }
-        public StatisticsRepository Statistics { get; }
-        public MentorRun Run => Runs.Get(_runId)!;
 
         public Fixture(bool canDetectResult = false, bool withContentId = true)
         {
-            Start = Database.Clock.UtcNow;
             Statistics = new StatisticsRepository(Database.Database, Settings);
-            Database.Database.RunInTransaction(tx => new CaptureSessionRepository(Database.Database).Insert(
-                new CaptureSession
-                {
-                    CaptureSessionId = _session, StartedAtUtc = Start, CollectorVersion = "review",
-                    Region = Region.Cn, ProfileStatus = ProfileStatus.Verified,
-                }, tx));
-            _processor = new SemanticEventProcessor(Database.Database,
-                new MentorRunStateMachine(ProfileBinding.Live("review", Region.Cn, ProfileStatus.Verified, 42, canDetectResult)),
-                new SemanticEventProcessorOptions(_session, Region.Cn, "review", _session), Database.Clock);
-            Accept(new ContentFinderPop { Key = Key("pop", 0), ObservedAtUtc = Start, Mono = TimeSpan.Zero,
-                RouletteId = 42, ContentId = withContentId ? 900001 : null });
-            _runId = _processor.Machine.CurrentRunId!;
-            Accept(new ZoneInitialization { Key = Key("enter", 1), ObservedAtUtc = Start.AddSeconds(1),
-                Mono = TimeSpan.FromSeconds(1),
-                ContentId = withContentId ? 900001 : null,
-                TerritoryId = withContentId ? 800001 : null,
-                IsDutyInstance = withContentId ? null : true });
+            Live = new LiveRunTestBed(Database,
+                ProfileBinding.Live("review", Region.Cn, ProfileStatus.Verified, 42, canDetectResult));
+            _runId = Live.Pop(withContentId ? 900001 : null);
             if (withContentId)
             {
-                Job(19, 2);
+                Live.Enter();
+                Live.Job(19, 2);
+            }
+            else
+            {
+                Live.Enter(contentId: null, territoryId: null, isDutyInstance: true);
             }
         }
 
+        public LiveRunTestBed Live { get; }
+
+        public DateTimeOffset Start => Live.Start;
+
+        public StatisticsRepository Statistics { get; }
+
+        public MentorRun Run => Runs.Get(_runId)!;
+
         public MentorRun Correct(RunChangeSet changes) => Service.CorrectRun(new CorrectRunCommand(
             Guid.NewGuid().ToString("D"), Run.RunId, Run.Revision, "人工核对后更正", changes)).Run!;
-        /// <summary>A territory announcement observed inside the duty.</summary>
-        public void Territory(int territoryId, int seconds) => Accept(new TerritoryObserved
-        {
-            Key = Key("territory", seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-            Mono = TimeSpan.FromSeconds(seconds), TerritoryId = territoryId,
-        });
-        public void Job(int job, int seconds) => Accept(new PlayerJob
-        {
-            Key = Key("job", seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-            Mono = TimeSpan.FromSeconds(seconds), JobId = job,
-        });
-        public void Exit() => Accept(new ZoneLeft
-        {
-            Key = Key("exit", 60), ObservedAtUtc = Start.AddSeconds(60), Mono = TimeSpan.FromSeconds(60),
-        });
-        /// <summary>An exit whose wall-clock stamp is <paramref name="seconds"/> from the start.</summary>
-        public void ExitAt(int seconds) => Accept(new ZoneLeft
-        {
-            Key = Key("exit", seconds), ObservedAtUtc = Start.AddSeconds(seconds),
-            Mono = TimeSpan.FromSeconds(60),
-        });
-        public void Victory() => Accept(new DutyResult
-        {
-            Key = Key("victory", 60), ObservedAtUtc = Start.AddSeconds(60),
-            Mono = TimeSpan.FromSeconds(60), Victory = true,
-        });
-        private EventKey Key(string kind, int seconds) =>
-            new(_session, PacketDirection.ServerToClient, kind, seconds, null, kind + seconds);
-        private void Accept(SemanticEvent value)
-        {
-            Database.Clock.UtcNow = value.ObservedAtUtc;
-            Database.Clock.Elapsed = value.Mono;
-            _processor.Accept(value);
-            Assert.Null(_processor.LastStorageError);
-        }
+
+        /// <summary>What a new field protection makes of an automatic write over <paramref name="current"/>.</summary>
+        public MentorRun Merge(MentorRun current, MentorRun proposed) => Database.Database.RunInTransaction(tx =>
+            new ManualRunFieldProtection(Database.Database).Merge(current, proposed, tx));
     }
 }

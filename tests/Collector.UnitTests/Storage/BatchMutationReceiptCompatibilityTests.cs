@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
-using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -28,7 +27,7 @@ public sealed class BatchMutationReceiptCompatibilityTests
         db.Database.RunInTransaction(tx => new IdempotencyRepository(db.Database, db.Clock)
             .Store(request.RequestId, "BatchMutateRuns", legacy, tx));
         db.Reopen();
-        var mutations = Mutations(db);
+        var mutations = db.Mutations();
 
         // No target rows exist, as after a purge. Replaying must read only the stored receipt.
         var replay = mutations.BatchMutateRuns(request);
@@ -53,7 +52,7 @@ public sealed class BatchMutationReceiptCompatibilityTests
         var request = new BatchMutateRunsCommand(Guid.NewGuid().ToString("D"), "soft_delete",
             [new(SecondId, 1), new(FirstId, 1)], "legacy reason");
 
-        var outcome = Mutations(db).BatchMutateRuns(request);
+        var outcome = db.Mutations().BatchMutateRuns(request);
 
         Assert.Equal(2, outcome.ChangedCount);
         Assert.Equal(new[] { FirstId, SecondId }, outcome.RunIds);
@@ -68,7 +67,7 @@ public sealed class BatchMutationReceiptCompatibilityTests
         Assert.True(runs.Get(SecondId)!.SoftDeleted);
 
         db.Reopen();
-        var replay = Mutations(db).BatchMutateRuns(request with { Runs = request.Runs.Reverse().ToArray() });
+        var replay = db.Mutations().BatchMutateRuns(request with { Runs = request.Runs.Reverse().ToArray() });
         Assert.True(replay.IdempotentReplay);
         Assert.Equal(outcome.RunIds, replay.RunIds);
         Assert.Equal(2, new RunRepository(db.Database).Get(FirstId)!.Revision);
@@ -79,7 +78,7 @@ public sealed class BatchMutationReceiptCompatibilityTests
     public void RequestIdAlreadyUsedByASingleMutationStillReturnsConflict()
     {
         using var db = new TestDatabase();
-        var mutations = Mutations(db);
+        var mutations = db.Mutations();
         var requestId = Guid.NewGuid().ToString("D");
         var created = mutations.CreateManualRun(new CreateManualRunCommand
         {
@@ -96,12 +95,5 @@ public sealed class BatchMutationReceiptCompatibilityTests
         Assert.Equal(ErrorCodes.IdempotencyConflict, conflict.Code);
         Assert.Equal("request_id", conflict.Field);
         Assert.False(new RunRepository(db.Database).Get(created.RunId)!.SoftDeleted);
-    }
-
-    private static RunMutationService Mutations(TestDatabase db)
-    {
-        var settings = new SettingsRepository(db.Database, db.Clock);
-        settings.EnsureDefaults();
-        return new RunMutationService(db.Database, settings, db.Clock);
     }
 }

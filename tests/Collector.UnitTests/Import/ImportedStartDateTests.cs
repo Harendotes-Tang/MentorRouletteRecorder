@@ -76,9 +76,7 @@ public sealed class ImportedStartDateTests
             HistoryFromDay = "2022-09-28", HistoryToDay = "2022-09-28" };
         Assert.Equal(id, Assert.Single(runs.Query(filter, null, 1, 50).Items).RunId);
         Assert.Empty(runs.Query(filter with { DateField = RunDateField.EnteredAtUtc }, null, 1, 50).Items);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var stats = new StatisticsRepository(fixture.Database, settings, clock: fixture.Clock);
+        var stats = new StatisticsRepository(fixture.Database, fixture.Settings(), clock: fixture.Clock);
         Assert.Equal(1, stats.GetDashboard(filter).CompletedCount);
         Assert.Null(stats.GetDashboard(filter).AverageDurationMs);
         Assert.Equal(1, Assert.Single(stats.GetTrend(granularity: TrendGranularity.Day).Buckets, bucket => bucket.StartUtc.Date == day.Date).CompletedCount);
@@ -150,9 +148,7 @@ public sealed class ImportedStartDateTests
         Assert.True(saved.JoinedInProgress);
         Assert.Equal("2022-09-28", saved.ImportMetadata!.SourceRecordedAt);
         Assert.Null(saved.DurationMs);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        Assert.Equal(0, new StatisticsRepository(fixture.Database, settings).GetDashboard().CompletedCount);
+        Assert.Equal(0, new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard().CompletedCount);
     }
 
     [Fact]
@@ -272,9 +268,7 @@ public sealed class ImportedStartDateTests
             FromUtc = new DateTimeOffset(2022, 9, 28, 4, 0, 0, TimeSpan.Zero),
             ToUtc = new DateTimeOffset(2022, 9, 29, 3, 59, 59, 999, TimeSpan.Zero) };
         Assert.Equal(id, Assert.Single(runs.Query(filter, null, 1, 50).Items).RunId);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var stats = new StatisticsRepository(fixture.Database, settings, clock: fixture.Clock);
+        var stats = new StatisticsRepository(fixture.Database, fixture.Settings(), clock: fixture.Clock);
         Assert.Equal(1, stats.GetDashboard(filter).CompletedCount);
         var buckets = stats.GetTrend(granularity: TrendGranularity.Day).Buckets;
         Assert.Equal(1, Assert.Single(buckets, bucket => bucket.StartUtc.Date == new DateTime(2022, 9, 28)).CompletedCount);

@@ -57,18 +57,15 @@ public sealed class StatisticsTrendTests
     public void CountsCompletedRunsIntoTheUtcDayOfTheirMatch()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         // Anchored at noon UTC, not at "now": a run two hours before 01:19 UTC would belong to
         // yesterday's bucket.
         var today = new DateTimeOffset(DateTimeOffset.UtcNow.UtcDateTime.Date, TimeSpan.Zero).AddHours(12);
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            // Two today, one three days ago.
-            runs.Insert(TestDatabase.Run(enteredAt: today.AddHours(-1)), tx);
-            runs.Insert(TestDatabase.Run(enteredAt: today.AddHours(-2)), tx);
-            runs.Insert(TestDatabase.Run(enteredAt: today.AddDays(-3)), tx);
-        });
+        // Two today, one three days ago.
+        fixture.InsertRuns(
+            TestDatabase.Run(enteredAt: today.AddHours(-1)),
+            TestDatabase.Run(enteredAt: today.AddHours(-2)),
+            TestDatabase.Run(enteredAt: today.AddDays(-3)));
 
         var buckets = Repository(fixture).GetTrend(granularity: TrendGranularity.Day).Buckets;
 
@@ -81,16 +78,13 @@ public sealed class StatisticsTrendTests
     public void CountsOnlyCompletedRuns()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var today = DateTimeOffset.UtcNow;
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, enteredAt: today.AddHours(-1)), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.LeftOrAbandoned, enteredAt: today.AddHours(-2)), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Disconnected, enteredAt: today.AddHours(-3)), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Interrupted, enteredAt: today.AddHours(-4)), tx);
-        });
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.Completed, enteredAt: today.AddHours(-1)),
+            TestDatabase.Run(result: RunResult.LeftOrAbandoned, enteredAt: today.AddHours(-2)),
+            TestDatabase.Run(result: RunResult.Disconnected, enteredAt: today.AddHours(-3)),
+            TestDatabase.Run(result: RunResult.Interrupted, enteredAt: today.AddHours(-4)));
 
         Assert.Equal(1, Repository(fixture).GetTrend().Buckets.Sum(bucket => bucket.CompletedCount));
     }
@@ -99,13 +93,9 @@ public sealed class StatisticsTrendTests
     public void ASoftDeletedRunIsCountedNowhere()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var today = DateTimeOffset.UtcNow;
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(enteredAt: today.AddHours(-1), softDeleted: true), tx);
-        });
+        fixture.InsertRuns(TestDatabase.Run(enteredAt: today.AddHours(-1), softDeleted: true));
 
         Assert.Equal(0, Repository(fixture).GetTrend().Buckets.Sum(bucket => bucket.CompletedCount));
     }
@@ -114,14 +104,9 @@ public sealed class StatisticsTrendTests
     public void ARunWithNoMatchTimeUsesItsActualEntryDateInTheSeries()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var today = DateTimeOffset.UtcNow;
 
-        fixture.Database.RunInTransaction(tx =>
-        {
-            var run = TestDatabase.Run(enteredAt: today.AddHours(-1)) with { MatchedAtUtc = null };
-            runs.Insert(run, tx);
-        });
+        fixture.InsertRuns(TestDatabase.Run(enteredAt: today.AddHours(-1)) with { MatchedAtUtc = null });
 
         var dashboard = Repository(fixture).GetDashboard();
 
@@ -133,10 +118,9 @@ public sealed class StatisticsTrendTests
     public void ARunOlderThanTheDayWindowIsStillInTheMonthWindow()
     {
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var old = DateTimeOffset.UtcNow.AddDays(-40);
 
-        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(enteredAt: old), tx));
+        fixture.InsertRuns(TestDatabase.Run(enteredAt: old));
         var statistics = Repository(fixture);
 
         Assert.Equal(
@@ -177,12 +161,10 @@ public sealed class StatisticsTrendTests
         // The bucket is a fact about the stored UTC timestamp, not about where the Collector
         // happens to be running. A client in another zone must see the same series.
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
         var todayUtc = DateTimeOffset.UtcNow.UtcDateTime.Date;
         var justAfterMidnight = new DateTimeOffset(todayUtc, TimeSpan.Zero).AddMinutes(20);
 
-        fixture.Database.RunInTransaction(tx =>
-            runs.Insert(TestDatabase.Run(enteredAt: justAfterMidnight.AddSeconds(30)), tx));
+        fixture.InsertRuns(TestDatabase.Run(enteredAt: justAfterMidnight.AddSeconds(30)));
 
         var buckets = Repository(fixture).GetTrend().Buckets;
 
@@ -214,11 +196,9 @@ public sealed class StatisticsTrendTests
     public void TheTrendWindowEndsOnTheInjectedClock()
     {
         using var fixture = new TestDatabase();
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
         var pinned = new DateTimeOffset(2031, 3, 17, 22, 45, 0, TimeSpan.Zero);
         var statistics = new StatisticsRepository(
-            fixture.Database, settings, clock: new TestClock(pinned));
+            fixture.Database, fixture.Settings(), clock: new TestClock(pinned));
 
         var trend = statistics.GetTrend();
 
@@ -229,12 +209,8 @@ public sealed class StatisticsTrendTests
             statistics.GetDashboard().Trend.Buckets[^1].StartUtc);
     }
 
-    private static StatisticsRepository Repository(TestDatabase fixture)
-    {
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        // No clock: these cases anchor their data on the real "now", so the repository keeps
-        // its default system clock.
-        return new StatisticsRepository(fixture.Database, settings);
-    }
+    // No clock: these cases anchor their data on the real "now", so the repository keeps
+    // its default system clock.
+    private static StatisticsRepository Repository(TestDatabase fixture) =>
+        new(fixture.Database, fixture.Settings());
 }

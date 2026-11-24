@@ -1,3 +1,4 @@
+using System.Globalization;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Storage.Mutations;
@@ -18,45 +19,16 @@ public sealed class StatisticsAfterMutationTests : IDisposable
 
     public StatisticsAfterMutationTests()
     {
-        _settings = new SettingsRepository(_database.Database, _database.Clock);
-        _settings.EnsureDefaults();
+        _settings = _database.Settings();
         _statistics = new StatisticsRepository(_database.Database, _settings);
-        _mutations = new RunMutationService(_database.Database, _settings, _database.Clock);
+        _mutations = _database.Mutations();
     }
 
     private RunMutationOutcome Create(RunResult result, bool contributes = true) =>
-        _mutations.CreateManualRun(new CreateManualRunCommand
-        {
-            RequestId = Guid.NewGuid().ToString("D"),
-            Reason = "补录一次导随",
-            Region = Region.Cn,
-            Result = result,
-            ContentId = 900001,
-            JobId = 19,
-            ContributesToGoal = contributes,
-            MatchedAtUtc = new DateTimeOffset(2026, 9, 3, 10, 0, 0, TimeSpan.Zero),
-            EnteredAtUtc = result == RunResult.CancelledBeforeEntry
-                ? null
-                : new DateTimeOffset(2026, 9, 3, 10, 1, 0, TimeSpan.Zero),
-            EndedAtUtc = result == RunResult.CancelledBeforeEntry
-                ? null
-                : new DateTimeOffset(2026, 9, 3, 10, 31, 0, TimeSpan.Zero),
-        });
+        _mutations.CreateManualRun(TestDatabase.ManualRun(result) with { ContributesToGoal = contributes });
 
     private RunMutationOutcome CreateAt(RunResult result, DateTimeOffset endedAt) =>
-        _mutations.CreateManualRun(new CreateManualRunCommand
-        {
-            RequestId = Guid.NewGuid().ToString("D"),
-            Reason = "补录一次导随",
-            Region = Region.Cn,
-            Result = result,
-            ContentId = 900001,
-            JobId = 19,
-            ContributesToGoal = true,
-            MatchedAtUtc = endedAt.AddMinutes(-31),
-            EnteredAtUtc = endedAt.AddMinutes(-30),
-            EndedAtUtc = endedAt,
-        });
+        _mutations.CreateManualRun(TestDatabase.ManualRun(result, endedAt));
 
     [Fact]
     public void SoftDeletedRun_LeavesEveryStatistic()
@@ -95,8 +67,14 @@ public sealed class StatisticsAfterMutationTests : IDisposable
         Assert.Equal(1, dashboard.AchievementProgress);
     }
 
-    [Fact]
-    public void BaselineChange_RecomputesProgressAndRemaining()
+    /// <summary>
+    /// The time a baseline is saved with decides nothing: completions that ended before it are
+    /// added on top like every later one.
+    /// </summary>
+    [Theory]
+    [InlineData("2026-01-01T00:00:00Z")]
+    [InlineData("2026-09-03T12:00:00Z")]
+    public void BaselineChange_RecomputesProgressAndRemaining(string effectiveAt)
     {
         Create(RunResult.Completed);
         Create(RunResult.Completed);
@@ -106,13 +84,17 @@ public sealed class StatisticsAfterMutationTests : IDisposable
             Guid.NewGuid().ToString("D"),
             2000,
             1500,
-            new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            DateTimeOffset.Parse(effectiveAt, CultureInfo.InvariantCulture),
             "开始使用本软件前已完成 1500 次"));
 
         var dashboard = _statistics.GetDashboard();
         Assert.Equal(1500, dashboard.BaselineCompletedCount);
         Assert.Equal(1503, dashboard.AchievementProgress);
         Assert.Equal(497, dashboard.Remaining);
+        Assert.Equal(3, dashboard.CompletedCount);
+
+        CreateAt(RunResult.Completed, new DateTimeOffset(2026, 9, 3, 13, 0, 0, TimeSpan.Zero));
+        Assert.Equal(1504, _statistics.GetDashboard().AchievementProgress);
     }
 
     /// <summary>
@@ -148,46 +130,16 @@ public sealed class StatisticsAfterMutationTests : IDisposable
     }
 
     /// <summary>
-    /// The time a baseline is saved with decides nothing: completions that ended before it are
-    /// added on top like every later one.
-    /// </summary>
-    [Fact]
-    public void CompletionsThatEndedBeforeTheBaselineWasSavedAreAddedOnTop()
-    {
-        Create(RunResult.Completed);
-        Create(RunResult.Completed);
-        Create(RunResult.Completed);
-
-        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
-            Guid.NewGuid().ToString("D"),
-            2000,
-            1500,
-            new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero),
-            "开始使用本软件前已完成 1500 次"));
-
-        var dashboard = _statistics.GetDashboard();
-        Assert.Equal(1503, dashboard.AchievementProgress);
-        Assert.Equal(497, dashboard.Remaining);
-        Assert.Equal(3, dashboard.CompletedCount);
-
-        CreateAt(RunResult.Completed, new DateTimeOffset(2026, 9, 3, 13, 0, 0, TimeSpan.Zero));
-        Assert.Equal(1504, _statistics.GetDashboard().AchievementProgress);
-    }
-
-    /// <summary>
     /// A completion that lacks its end time is added like any other, whatever its entry time.
     /// </summary>
     [Fact]
     public void CompletionsWithoutAnEndTimeAreAddedOnTop()
     {
         var saved = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
-        var runs = new RunRepository(_database.Database);
         var owner = _database.CurrentProfile();
-        _database.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(-1)) with { EndedAtUtc = null, ProfileId = owner }, tx);
-            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(1)) with { EndedAtUtc = null, ProfileId = owner }, tx);
-        });
+        _database.InsertRuns(
+            TestDatabase.Run(enteredAt: saved.AddHours(-1)) with { EndedAtUtc = null, ProfileId = owner },
+            TestDatabase.Run(enteredAt: saved.AddHours(1)) with { EndedAtUtc = null, ProfileId = owner });
 
         _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
             Guid.NewGuid().ToString("D"), 2000, 1500, saved, "基数"));

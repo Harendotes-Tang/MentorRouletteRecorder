@@ -3,8 +3,6 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Pipeline;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Recovery;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -42,15 +40,14 @@ public sealed class CrashRecoveryServiceTests
             Assert.Equal(RunResult.Interrupted, recovered.Result);
             Assert.Equal(fixture.Start.AddSeconds(60), recovered.EndedAtUtc);
             Assert.True(recovered.PendingReview);
-            var marker = Assert.Single(first.Events.ListForRun(fixture.RunId),
-                item => item.EventType == CrashRecoveryService.EventType);
+            var marker = AssertOneRestartMarker(first, fixture.RunId);
             Assert.Equal(RunState.InterruptedPendingReview, marker.ToState);
         }
 
         using var second = fixture.Restart(180);
         Assert.Equal(0, second.Recovery.RecoveredCount);
         Assert.Equal(recovered, second.Runs.Get(fixture.RunId));
-        Assert.Single(second.Events.ListForRun(fixture.RunId), item => item.EventType == CrashRecoveryService.EventType);
+        AssertOneRestartMarker(second, fixture.RunId);
     }
 
     /// <summary>
@@ -87,7 +84,7 @@ public sealed class CrashRecoveryServiceTests
         using var second = fixture.Restart(240);
         Assert.Equal(0, second.Recovery.RecoveredCount);
         Assert.Equal(recovered, second.Runs.Get(fixture.RunId));
-        Assert.Single(second.Events.ListForRun(fixture.RunId), item => item.EventType == CrashRecoveryService.EventType);
+        AssertOneRestartMarker(second, fixture.RunId);
     }
 
     /// <summary>
@@ -106,8 +103,7 @@ public sealed class CrashRecoveryServiceTests
         Assert.Equal(recovered.MatchedAtUtc, recovered.EndedAtUtc);
         Assert.True(recovered.PendingReview);
 
-        var confirmed = host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, recovered.Revision,
-            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        var confirmed = Confirm(host, recovered);
         Assert.False(confirmed.PendingReview);
     }
 
@@ -143,7 +139,7 @@ public sealed class CrashRecoveryServiceTests
         using var second = fixture.Restart(180);
         Assert.Equal(0, second.Recovery.RecoveredCount);
         Assert.Equal(recovered, second.Runs.Get(fixture.RunId));
-        Assert.Single(second.Events.ListForRun(fixture.RunId), item => item.EventType == CrashRecoveryService.EventType);
+        AssertOneRestartMarker(second, fixture.RunId);
     }
 
     [Fact]
@@ -195,8 +191,7 @@ public sealed class CrashRecoveryServiceTests
         Assert.Equal(revisions, host.Revisions.ListForRun(fixture.RunId, 1, 50).Total);
         Assert.Equal(1, host.Statistics.GetDashboard().UnfinishedPendingReview);
 
-        var confirmed = host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, recovered.Revision,
-            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        var confirmed = Confirm(host, recovered);
         Assert.False(confirmed.PendingReview);
     }
 
@@ -292,9 +287,7 @@ public sealed class CrashRecoveryServiceTests
         Assert.Null(pending.EndedAtUtc);
         Assert.True(pending.PendingReview);
 
-        var error = Assert.Throws<CollectorException>(() => host.Mutations.CorrectRun(new CorrectRunCommand(
-            NewId(), fixture.RunId, pending.Revision, "确认无误",
-            new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })));
+        var error = Assert.Throws<CollectorException>(() => Confirm(host, pending));
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Equal(pending, host.Runs.Get(fixture.RunId));
 
@@ -367,15 +360,13 @@ public sealed class CrashRecoveryServiceTests
         Assert.True(recovered.PendingReview);
         Assert.Null(recovered.EnteredAtUtc);
         Assert.Equal(fixture.Start.AddSeconds(60), recovered.EndedAtUtc);
-        var marker = Assert.Single(host.Events.ListForRun(fixture.RunId),
-            item => item.EventType == CrashRecoveryService.EventType);
+        var marker = AssertOneRestartMarker(host, fixture.RunId);
         Assert.Equal(RunState.CancelledBeforeEntry, marker.ToState);
         Assert.Equal(1, host.Statistics.GetDashboard().UnfinishedPendingReview);
 
         var annotated = host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, recovered.Revision,
             "补一句说明", new RunChangeSet { Specified = new HashSet<string> { RunFields.Note }, Note = "排到了但没进" })).Run!;
-        var confirmed = host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, annotated.Revision,
-            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        var confirmed = Confirm(host, annotated);
         Assert.False(confirmed.PendingReview);
         Assert.Equal("排到了但没进", confirmed.Note);
         Assert.Equal(0, host.Statistics.GetDashboard().UnfinishedPendingReview);
@@ -410,8 +401,7 @@ public sealed class CrashRecoveryServiceTests
 
         using var second = fixture.Restart(180);
         Assert.Equal(repaired, second.Runs.Get(fixture.RunId));
-        var confirmed = second.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, repaired.Revision,
-            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        var confirmed = Confirm(second, repaired);
         Assert.False(confirmed.PendingReview);
     }
 
@@ -444,8 +434,7 @@ public sealed class CrashRecoveryServiceTests
 
         using var second = fixture.Restart(180);
         Assert.Equal(repaired, second.Runs.Get(fixture.RunId));
-        var confirmed = second.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, repaired.Revision,
-            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        var confirmed = Confirm(second, repaired);
         Assert.False(confirmed.PendingReview);
     }
 
@@ -485,7 +474,7 @@ public sealed class CrashRecoveryServiceTests
             Assert.Equal(RunFields.PendingReview, change.Field);
             Assert.True(Equals(change.OldValue, false) && Equals(change.NewValue, true));
             Assert.Equal(1, second.Statistics.GetDashboard().UnfinishedPendingReview);
-            Assert.Single(second.Events.ListForRun(fixture.RunId), item => item.EventType == CrashRecoveryService.EventType);
+            AssertOneRestartMarker(second, fixture.RunId);
             revisions = second.Revisions.ListForRun(fixture.RunId, 1, 50).Total;
         }
 
@@ -538,39 +527,19 @@ public sealed class CrashRecoveryServiceTests
         public RunMutationService Service { get; }
         public MentorRun Run => new RunRepository(_database.Database).Get(RunId)!;
 
+        /// <summary>A run capture matched without a duty id and, unless <paramref name="entered"/> is false, entered.</summary>
         public Fixture(bool entered = true)
         {
-            Start = _database.Clock.UtcNow;
-            var settings = new SettingsRepository(_database.Database, _database.Clock);
-            settings.EnsureDefaults();
-            Service = new RunMutationService(_database.Database, settings, _database.Clock);
-            var session = NewId();
-            _database.Database.RunInTransaction(tx => new CaptureSessionRepository(_database.Database).Insert(
-                new CaptureSession
-                {
-                    CaptureSessionId = session, StartedAtUtc = Start, CollectorVersion = "review",
-                    Region = Region.Cn, ProfileStatus = ProfileStatus.Verified,
-                }, tx));
-            var machine = new MentorRunStateMachine(
+            Service = _database.Mutations();
+            var live = new LiveRunTestBed(_database,
                 ProfileBinding.Live("review", Region.Cn, ProfileStatus.Verified, 42, false));
-            var processor = new SemanticEventProcessor(_database.Database, machine,
-                new SemanticEventProcessorOptions(session, Region.Cn, "review", session), _database.Clock);
-            processor.Accept(new ContentFinderPop
-            {
-                Key = new EventKey(session, PacketDirection.ServerToClient, "pop", 0, null, "pop"),
-                ObservedAtUtc = Start, Mono = TimeSpan.Zero, RouletteId = 42,
-            });
+            Start = live.Start;
+            RunId = live.Pop(contentId: null);
             if (entered)
             {
-                processor.Accept(new ZoneInitialization
-                {
-                    Key = new EventKey(session, PacketDirection.ServerToClient, "entry", 1, null, "entry"),
-                    ObservedAtUtc = Start.AddSeconds(1), Mono = TimeSpan.FromSeconds(1), IsDutyInstance = true,
-                });
+                live.Enter(contentId: null, territoryId: null, isDutyInstance: true);
             }
 
-            Assert.Null(processor.LastStorageError);
-            RunId = machine.CurrentRunId!;
             Assert.NotNull(RunId);
         }
 
@@ -658,4 +627,13 @@ public sealed class CrashRecoveryServiceTests
     }
 
     private static string NewId() => Guid.NewGuid().ToString("D");
+
+    /// <summary>The player confirms the run as it stands (确认无误), which takes it off the review list.</summary>
+    private static MentorRun Confirm(CollectorHost host, MentorRun run) =>
+        host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), run.RunId, run.Revision, "确认无误",
+            new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+
+    /// <summary>The one restart marker crash recovery left on the run.</summary>
+    private static RunEvent AssertOneRestartMarker(CollectorHost host, string runId) =>
+        Assert.Single(host.Events.ListForRun(runId), item => item.EventType == CrashRecoveryService.EventType);
 }

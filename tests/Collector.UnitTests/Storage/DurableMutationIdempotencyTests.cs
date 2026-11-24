@@ -8,6 +8,17 @@ using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
+/// <summary>
+/// The idempotency receipts behind every mutating request: how long a response is replayed, how an
+/// expired receipt is pruned, and how a request id whose response expired is still refused.
+///
+/// The idempotency table is a replay cache, not a journal.
+///
+/// Every mutating request writes one row, so the rows must be pruned: otherwise a user who
+/// corrects records for a year carries every request id they ever sent in the database file
+/// they back up. The window only has to cover "send, lose the pipe, resend", which is
+/// seconds, so a day is generous (review finding M4).
+/// </summary>
 public sealed class DurableMutationIdempotencyTests
 {
     private static string Id() => Guid.NewGuid().ToString("D");
@@ -15,17 +26,10 @@ public sealed class DurableMutationIdempotencyTests
     private sealed class Fixture : IDisposable
     {
         public readonly TestDatabase Db = new();
-        public RunMutationService Mutations => new(Db.Database, Settings(), Db.Clock);
+        public RunMutationService Mutations => Db.Mutations();
         public RunReflectionService Reflections => new(Db.Database, Db.Clock);
         public RunRepository Runs => new(Db.Database);
         public IdempotencyRepository Receipts => new(Db.Database, Db.Clock);
-
-        private SettingsRepository Settings()
-        {
-            var settings = new SettingsRepository(Db.Database, Db.Clock);
-            settings.EnsureDefaults();
-            return settings;
-        }
 
         public CreateManualRunCommand NewRun(string? requestId = null) => new()
         {
@@ -37,6 +41,13 @@ public sealed class DurableMutationIdempotencyTests
 
         public BatchMutateRunsCommand Batch(MentorRun run, string action = "soft_delete", string? requestId = null) =>
             new(requestId ?? Id(), action, [new BatchRunTarget(run.RunId, run.Revision)], "幂等回归");
+
+        public UpdateAchievementBaselineCommand Baseline(int count) =>
+            new(Id(), 2000, count, Db.Clock.UtcNow, "回归测试：保存基数");
+
+        /// <summary>Stores one receipt in a transaction of its own; the store also prunes.</summary>
+        public void Store(string requestId, string messageType, string response) =>
+            Db.Database.RunInTransaction(tx => Receipts.Store(requestId, messageType, response, tx));
 
         public void ExpireAndPrune()
         {
@@ -63,6 +74,71 @@ public sealed class DurableMutationIdempotencyTests
         Assert.NotNull(error.Details);
         Assert.Equal("idempotency", error.Details["conflict"]);
         Assert.Equal("RESPONSE_EXPIRED", error.Details["reason"]);
+    }
+
+    [Fact]
+    public void ARowOlderThanTheWindowIsRemovedByTheNextWrite()
+    {
+        using var f = new Fixture();
+        f.Store("old-request", "CorrectRun", "{\"ok\":1}");
+        Assert.NotNull(f.Receipts.TryGetResponse("old-request"));
+
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow
+            .Add(IdempotencyRepository.RetentionWindow)
+            .AddMinutes(1);
+        f.Store("new-request", "CorrectRun", "{\"ok\":2}");
+
+        Assert.Null(f.Receipts.TryGetResponse("old-request"));
+        Assert.NotNull(f.Receipts.TryGetResponse("new-request"));
+    }
+
+    [Fact]
+    public void ARowInsideTheWindowSurvives()
+    {
+        using var f = new Fixture();
+        f.Store("recent-request", "CorrectRun", "{\"ok\":1}");
+
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddHours(1);
+        f.Store("newer-request", "CorrectRun", "{\"ok\":2}");
+
+        Assert.NotNull(f.Receipts.TryGetResponse("recent-request"));
+        Assert.NotNull(f.Receipts.TryGetResponse("newer-request"));
+    }
+
+    /// <summary>
+    /// Review finding M-7. The replay cache is pruned, the audit chain is not. A resend that
+    /// arrives after the window reaches the write and breaks
+    /// <c>UNIQUE(run_revisions.request_id)</c>, which must surface as the contract's own
+    /// idempotency code rather than <c>ERR_INTERNAL</c>.
+    /// </summary>
+    [Fact]
+    public void AReplayAfterThePruneIsAContractConflictRatherThanAnInternalError()
+    {
+        using var f = new Fixture();
+        var service = f.Mutations;
+        var run = TestDatabase.Run(result: RunResult.Completed, source: RunSource.Manual);
+        f.Db.InsertWithFirstRevision(run);
+
+        var requestId = Guid.NewGuid().ToString("D");
+        var command = new RunReasonCommand(requestId, run.RunId, 1, "这条记录无需保留在统计中");
+        var first = service.SoftDeleteRun(command);
+        Assert.False(first.IdempotentReplay);
+
+        // A second attempt inside the window still replays the stored outcome verbatim.
+        Assert.True(service.SoftDeleteRun(command).IdempotentReplay);
+
+        // Move past the retention window and let another write sweep the cache.
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow
+            .Add(IdempotencyRepository.RetentionWindow)
+            .AddMinutes(1);
+        f.Store(Guid.NewGuid().ToString("D"), "CorrectRun", "{\"ok\":1}");
+        Assert.Null(f.Receipts.TryGetResponse(requestId));
+
+        var refused = Assert.Throws<CollectorException>(() => service.SoftDeleteRun(command));
+
+        Assert.Equal(ErrorCodes.IdempotencyConflict, refused.Code);
+        Assert.NotEqual(ErrorCodes.Internal, refused.Code);
+        Assert.Equal("request_id", refused.Field);
     }
 
     [Theory]
@@ -137,7 +213,7 @@ public sealed class DurableMutationIdempotencyTests
     {
         using var f = new Fixture();
         var requestId = Id();
-        f.Db.Database.RunInTransaction(tx => f.Receipts.Store(requestId, messageType, "{\"text\":\"private-body\"}", tx));
+        f.Store(requestId, messageType, "{\"text\":\"private-body\"}");
         f.ExpireAndPrune();
         Assert.Equal("null", f.StoredBody(requestId));
         Assert.Null(f.Receipts.TryGetResponse(requestId));
@@ -236,5 +312,146 @@ public sealed class DurableMutationIdempotencyTests
 
         var imports = new RunImportService(f.Db.Database, f.Db.Clock);
         AssertExpired(() => imports.Commit(Id(), [1], true, requestId));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ExpiredBaselineNeverOverwritesLaterValuesEvenWithoutRetainedAudit(bool unchanged, bool trimAudit)
+    {
+        using var f = new Fixture();
+        var settings = f.Db.Settings();
+        var service = f.Mutations;
+        var original = f.Baseline(unchanged ? 0 : 10);
+        service.UpdateAchievementBaseline(original);
+        Assert.True(service.UpdateAchievementBaseline(original).IdempotentReplay);
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(2);
+        var writes = trimAudit ? SettingsRepository.MaxBaselineAuditEntries + 1 : 1;
+        for (var index = 0; index < writes; ++index)
+            service.UpdateAchievementBaseline(f.Baseline(20 + index));
+        if (unchanged || trimAudit)
+            Assert.DoesNotContain(settings.ReadBaselineAudit(), row => row.RequestId == original.RequestId);
+        Assert.Null(f.Receipts.TryGetResponse(original.RequestId));
+
+        f.Db.Reopen();
+        settings = f.Db.Settings();
+        service = f.Mutations;
+        var later = settings.GetAchievementSettings();
+        AssertExpired(() => service.UpdateAchievementBaseline(original));
+        AssertExpired(() => service.UpdateAchievementBaseline(original with { GoalCount = 2500 }));
+        Assert.Equal(later, settings.GetAchievementSettings());
+    }
+
+    [Fact]
+    public void LegacyPrunedReceiptIsRecoveredBeforeItsLastAuditEntryIsTrimmed()
+    {
+        using var f = new Fixture();
+        var settings = f.Db.Settings();
+        var service = f.Mutations;
+        var original = f.Baseline(10);
+        service.UpdateAchievementBaseline(original);
+        // Model an older version: the response was deleted, but its bounded audit survives.
+        f.Db.Database.RunInTransaction(tx =>
+        {
+            using var command = f.Db.Database.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = "DELETE FROM ipc_idempotency WHERE request_id = $id;";
+            command.Parameters.AddWithValue("$id", original.RequestId);
+            command.ExecuteNonQuery();
+        });
+        Assert.True(f.Receipts.WasAppliedBeforePrune(original.RequestId));
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(2);
+        for (var index = 0; index < SettingsRepository.MaxBaselineAuditEntries; ++index)
+            service.UpdateAchievementBaseline(f.Baseline(20 + index));
+        Assert.DoesNotContain(settings.ReadBaselineAudit(), row => row.RequestId == original.RequestId);
+        AssertExpired(() => service.UpdateAchievementBaseline(original));
+        Assert.Equal(119, settings.GetAchievementSettings().BaselineCompletedCount);
+    }
+
+    [Fact]
+    public void ExpiredBaselineClearsResponseBodyButKeepsItsIdWhenOtherReceiptsAreRemoved()
+    {
+        using var f = new Fixture();
+        var repository = f.Receipts;
+        var baselineId = Id();
+        var ordinaryId = Id();
+        f.Db.Database.RunInTransaction(tx =>
+        {
+            repository.Store(baselineId, "UpdateAchievementBaseline", "{\"private_response\":\"expired\"}", tx);
+            repository.Store(ordinaryId, "CorrectRun", "{\"ok\":true}", tx);
+        });
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(2);
+        f.Store(Id(), "CorrectRun", "{}");
+        Assert.Null(repository.TryGetResponse(baselineId));
+        Assert.True(repository.WasAppliedBeforePrune(baselineId));
+        using var command = f.Db.Database.CreateCommand();
+        command.CommandText = "SELECT response_json FROM ipc_idempotency WHERE request_id = $id;";
+        command.Parameters.AddWithValue("$id", baselineId);
+        Assert.Equal("null", command.ExecuteScalar());
+        command.Parameters["$id"].Value = ordinaryId;
+        Assert.Null(command.ExecuteScalar());
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(-3);
+        Assert.Null(repository.TryGetResponse(baselineId));
+        Assert.True(repository.WasAppliedBeforePrune(baselineId));
+    }
+
+    [Fact]
+    public void BaselineFailureRollsBackSettingsAuditRecoveredMarkerAndResponsePruning()
+    {
+        using var f = new Fixture();
+        var settings = f.Db.Settings();
+        var service = f.Mutations;
+        var original = f.Baseline(10);
+        var legacy = f.Baseline(20);
+        service.UpdateAchievementBaseline(original);
+        service.UpdateAchievementBaseline(legacy);
+        f.Db.Database.RunInTransaction(tx =>
+        {
+            using var command = f.Db.Database.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = "DELETE FROM ipc_idempotency WHERE request_id = $id;";
+            command.Parameters.AddWithValue("$id", legacy.RequestId);
+            command.ExecuteNonQuery();
+            command.Parameters.Clear();
+            command.CommandText = "CREATE TRIGGER fail_baseline_expiry BEFORE UPDATE OF response_json ON ipc_idempotency " +
+                $"WHEN OLD.request_id = '{original.RequestId}' BEGIN SELECT RAISE(ABORT, 'expiry blocked for rollback regression'); END;";
+            command.ExecuteNonQuery();
+        });
+        var priorSettings = settings.GetAchievementSettings();
+        var priorAudit = settings.ReadBaselineAudit().ToArray();
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(2);
+        var failed = f.Baseline(30);
+        Assert.Throws<SqliteException>(() => service.UpdateAchievementBaseline(failed));
+        Assert.Equal(priorSettings, settings.GetAchievementSettings());
+        Assert.Equal(priorAudit, settings.ReadBaselineAudit());
+        var repository = f.Receipts;
+        Assert.NotNull(repository.TryGetResponse(original.RequestId));
+        Assert.Null(repository.TryGetResponse(failed.RequestId));
+        Assert.False(repository.WasAppliedBeforePrune(failed.RequestId));
+        using var lookup = f.Db.Database.CreateCommand();
+        lookup.CommandText = "SELECT COUNT(*) FROM ipc_idempotency WHERE request_id = $id;";
+        lookup.Parameters.AddWithValue("$id", legacy.RequestId);
+        Assert.Equal(0L, lookup.ExecuteScalar());
+    }
+
+    [Fact]
+    public void PruningAndReceiptInsertionRollBackTogether()
+    {
+        using var f = new Fixture();
+        var repository = f.Receipts;
+        var oldId = Id();
+        f.Store(oldId, "UpdateAchievementBaseline", "{\"ok\":true}");
+        f.Db.Clock.UtcNow = f.Db.Clock.UtcNow.AddDays(2);
+        var failedId = Id();
+        Assert.Throws<InvalidOperationException>(() => f.Db.Database.RunInTransaction(tx =>
+        {
+            repository.Store(failedId, "UpdateAchievementBaseline", "{}", tx);
+            throw new InvalidOperationException("rollback");
+        }));
+        Assert.Equal("{\"ok\":true}", repository.TryGetResponse(oldId));
+        Assert.Null(repository.TryGetResponse(failedId));
+        Assert.False(repository.WasAppliedBeforePrune(failedId));
     }
 }

@@ -1,14 +1,10 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Statistics;
 using MentorRecorder.Collector.Domain.StateMachine;
-using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -18,37 +14,12 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class CharacterProfileTests
 {
-    private sealed class Fixture : RunMutationTestContext
+    private sealed class Fixture : CharacterProfileTestContext
     {
-        public Fixture()
-        {
-            Profiles = new CharacterProfileService(Database.Database, Settings, Database.Clock);
-            Statistics = new StatisticsRepository(Database.Database, Settings, clock: Database.Clock);
-        }
-
-        public CharacterProfileService Profiles { get; }
-
-        public StatisticsRepository Statistics { get; }
-
-        public static string NewId() => Guid.NewGuid().ToString("D");
-
-        public long Current(Region region = Region.Cn) => Settings.Profiles.FindCurrent(region)!.ProfileId;
-
-        public long Add(string name, Region region = Region.Cn, int baseline = 0, bool makeCurrent = false) =>
-            Profiles.Create(new CreateCharacterProfileCommand(NewId(), region, name, 2000, baseline, makeCurrent)).ProfileId;
-
         public RunMutationOutcome Completed(Region region = Region.Cn, long? profileId = null) =>
-            Service.CreateManualRun(new CreateManualRunCommand
+            Service.CreateManualRun(TestDatabase.ManualRun() with
             {
-                RequestId = NewId(),
-                Reason = "补录一次导随",
-                Result = RunResult.Completed,
-                Region = region,
-                ProfileId = profileId,
-                ContentId = 900001,
-                JobId = 19,
-                EnteredAtUtc = new DateTimeOffset(2026, 9, 3, 10, 1, 0, TimeSpan.Zero),
-                EndedAtUtc = new DateTimeOffset(2026, 9, 3, 10, 31, 0, TimeSpan.Zero),
+                Region = region, ProfileId = profileId, MatchedAtUtc = null,
             });
 
         public BatchRunMutationOutcome Assign(long? profileId, params RunMutationOutcome[] runs) =>
@@ -144,36 +115,13 @@ public sealed class CharacterProfileTests
         using var fixture = new Fixture();
         var main = fixture.Current();
         var alt = fixture.Add("小号");
-        var session = Guid.NewGuid().ToString("D");
-        var start = fixture.Database.Clock.UtcNow;
-        fixture.Database.Database.RunInTransaction(tx => new CaptureSessionRepository(fixture.Database.Database).Insert(
-            new CaptureSession
-            {
-                CaptureSessionId = session, StartedAtUtc = start, CollectorVersion = "test",
-                Region = Region.Cn, ProfileStatus = ProfileStatus.Verified,
-            }, tx));
-        var processor = new SemanticEventProcessor(fixture.Database.Database,
-            new MentorRunStateMachine(ProfileBinding.Live("test", Region.Cn, ProfileStatus.Verified, 42, true)),
-            new SemanticEventProcessorOptions(session, Region.Cn, "test", session), fixture.Database.Clock);
-        EventKey Key(string kind, int seconds) =>
-            new(session, PacketDirection.ServerToClient, kind, seconds, null, kind + seconds);
-        void Accept(SemanticEvent value)
-        {
-            fixture.Database.Clock.UtcNow = value.ObservedAtUtc;
-            fixture.Database.Clock.Elapsed = value.Mono;
-            processor.Accept(value);
-            Assert.Null(processor.LastStorageError);
-        }
+        var live = new LiveRunTestBed(fixture.Database,
+            ProfileBinding.Live("test", Region.Cn, ProfileStatus.Verified, 42, true));
 
-        Accept(new ContentFinderPop { Key = Key("pop", 0), ObservedAtUtc = start, Mono = TimeSpan.Zero, RouletteId = 42, ContentId = 900001 });
-        var runId = processor.Machine.CurrentRunId!;
-        Accept(new ZoneInitialization
-        {
-            Key = Key("enter", 1), ObservedAtUtc = start.AddSeconds(1), Mono = TimeSpan.FromSeconds(1),
-            ContentId = 900001, TerritoryId = 800001,
-        });
+        var runId = live.Pop();
+        live.Enter();
         fixture.Profiles.Update(new UpdateCharacterProfileCommand(Fixture.NewId(), alt, null, MakeCurrent: true));
-        Accept(new DutyResult { Key = Key("victory", 60), ObservedAtUtc = start.AddSeconds(60), Mono = TimeSpan.FromSeconds(60), Victory = true });
+        live.Victory();
 
         var run = fixture.Runs.Get(runId)!;
         Assert.Equal((main, RunResult.Completed), (run.ProfileId, run.Result));

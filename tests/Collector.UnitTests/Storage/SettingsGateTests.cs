@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -22,8 +23,7 @@ public sealed class SettingsGateTests : IDisposable
 
     public SettingsGateTests()
     {
-        _settings = new SettingsRepository(_database.Database, _database.Clock);
-        _settings.EnsureDefaults();
+        _settings = _database.Settings();
     }
 
     [Fact]
@@ -61,10 +61,30 @@ public sealed class SettingsGateTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-10-03 OG-2. Every repository shares one SQLite connection, and every status
+    /// poll opens a transaction on it from the IPC thread. The transaction-less form used to run
+    /// straight on that connection: ADO.NET refused it while the other thread's transaction was
+    /// open, the shared bind swallowed the refusal and recorded nothing for the session, and a
+    /// confirmed calibration failed after its file was written. It must wait its turn instead.
+    /// </summary>
+    [Fact]
+    public void ACaptureSessionProfileUpdateWaitsForAnOpenTransactionToo()
+    {
+        var sessions = new CaptureSessionRepository(_database.Database);
+        var sessionId = _database.OpenCaptureSession(Region.Cn, "2026.08.05.0000.0000", ProfileStatus.Verified);
+        var changed = false;
+
+        AssertWaitsForTheGate(() => changed = sessions.UpdateProfile(sessionId, "cn.2026.09.01.local", ProfileStatus.Verified));
+
+        Assert.True(changed);
+        Assert.Equal("cn.2026.09.01.local", sessions.Get(sessionId)!.ProtocolProfileId);
+    }
+
+    /// <summary>
     /// Runs <paramref name="read"/> while a transaction is open and asserts that it blocks on
     /// the gate rather than throwing, and completes once the writer commits.
     /// </summary>
-    /// <param name="read">The transaction-less repository read under test.</param>
+    /// <param name="read">The transaction-less repository call under test.</param>
     private void AssertWaitsForTheGate(Func<object> read)
     {
         using var writing = new ManualResetEventSlim();

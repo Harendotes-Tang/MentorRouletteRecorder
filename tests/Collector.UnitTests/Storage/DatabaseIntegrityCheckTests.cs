@@ -178,14 +178,7 @@ public sealed class DatabaseIntegrityCheckTests : IDisposable
             command.ExecuteNonQuery();
             return 0;
         });
-        using (var file = new FileStream(_database.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-        {
-            Assert.True(file.Length > 4096 * 2, "expected at least two pages after migration");
-            file.Position = 4096;
-            var junk = new byte[256];
-            Array.Fill(junk, (byte)0xFF);
-            file.Write(junk);
-        }
+        TestDatabase.OverwriteSecondPage(_database.Path);
 
         var outcome = _database.Database.CheckIntegrity();
 

@@ -40,20 +40,10 @@ public sealed class RunCalendarDaysTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        var imports = new RunImportRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
+        foreach (var raw in new[] { "2026-09-01", "2026/9/30", "2026-09-31", "unknown" })
         {
-            foreach (var raw in new[] { "2026-09-01", "2026/9/30", "2026-09-31", "unknown" })
-            {
-                var run = TestDatabase.Run(source: RunSource.Import) with
-                {
-                    MatchedAtUtc = null, EnteredAtUtc = null, EndedAtUtc = null,
-                };
-                runs.Insert(run, tx);
-                imports.Insert(run.RunId, new RunImportMetadata("SCREENSHOT", "fixture", raw,
-                    null, run.CreatedAtUtc, Guid.NewGuid().ToString("N"), true), tx);
-            }
-        });
+            InsertArchivalDay(fixture, raw);
+        }
         Assert.Equal(new[] { "2026-09-01", "2026-09-30" }, runs.QueryCalendarDays("2026-09", null));
         Assert.Empty(runs.QueryCalendarDays("2026-10", null));
     }
@@ -63,19 +53,8 @@ public sealed class RunCalendarDaysTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        var imports = new RunImportRepository(fixture.Database);
-        var instant = DateTimeOffset.Parse("2026-09-15T23:30:00.000Z",
-            System.Globalization.CultureInfo.InvariantCulture);
-        var run = TestDatabase.Run(source: RunSource.Import) with
-        {
-            MatchedAtUtc = null, EnteredAtUtc = null, EndedAtUtc = null,
-        };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(run, tx);
-            imports.Insert(run.RunId, new RunImportMetadata("SCREENSHOT", "fixture", "2026-09-01",
-                instant, run.CreatedAtUtc, Guid.NewGuid().ToString("N"), true), tx);
-        });
+        var instant = Utc("2026-09-15T23:30:00.000Z");
+        InsertArchivalDay(fixture, "2026-09-01", instant);
         var localDay = instant.ToLocalTime().ToString("yyyy-MM-dd",
             System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(new[] { localDay }, runs.QueryCalendarDays("2026-09", null));
@@ -88,13 +67,11 @@ public sealed class RunCalendarDaysTests
         var runs = new RunRepository(fixture.Database);
         var localMidnight = new DateTimeOffset(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Unspecified),
             TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 9, 1)));
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run() with { MatchedAtUtc = localMidnight.AddMinutes(-1),
-                EnteredAtUtc = localMidnight.AddMinutes(1), EndedAtUtc = localMidnight.AddMinutes(2) }, tx);
-            runs.Insert(TestDatabase.Run() with { MatchedAtUtc = null, EnteredAtUtc = localMidnight.AddMinutes(1),
-                EndedAtUtc = localMidnight.AddMinutes(2) }, tx);
-        });
+        fixture.InsertRuns(
+            TestDatabase.Run() with { MatchedAtUtc = localMidnight.AddMinutes(-1),
+                EnteredAtUtc = localMidnight.AddMinutes(1), EndedAtUtc = localMidnight.AddMinutes(2) },
+            TestDatabase.Run() with { MatchedAtUtc = null, EnteredAtUtc = localMidnight.AddMinutes(1),
+                EndedAtUtc = localMidnight.AddMinutes(2) });
         Assert.Equal(new[] { "2026-08-31" }, runs.QueryCalendarDays("2026-08", null));
         Assert.Equal(new[] { "2026-09-01" }, runs.QueryCalendarDays("2026-09", null));
     }
@@ -108,10 +85,10 @@ public sealed class RunCalendarDaysTests
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
         var instant = Utc("2026-09-15T16:30:00.000Z");
-        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run() with
+        fixture.InsertRuns(TestDatabase.Run() with
         {
             MatchedAtUtc = instant, EnteredAtUtc = instant.AddMinutes(1), EndedAtUtc = instant.AddMinutes(20),
-        }, tx));
+        });
 
         using (DisplayTimeZone.Use(zone))
         {
@@ -124,20 +101,16 @@ public sealed class RunCalendarDaysTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
+        // America/New_York springs forward at 2026-03-08 02:00 EST and falls back at 2026-11-01 02:00 EDT:
+        // the last minute of the previous day and the first of the day on both sides, at the offset in force.
+        var instants = new[]
         {
-            // America/New_York springs forward at 2026-03-08 02:00 EST and falls back at 2026-11-01 02:00 EDT:
-            // the last minute of the previous day and the first of the day on both sides, at the offset in force.
-            foreach (var text in new[]
-                     {
-                         "2026-03-08T04:59:00.000Z", "2026-03-08T05:00:00.000Z",
-                         "2026-11-01T03:59:00.000Z", "2026-11-01T04:00:00.000Z",
-                     })
-            {
-                var at = Utc(text);
-                runs.Insert(TestDatabase.Run() with { MatchedAtUtc = at, EnteredAtUtc = at, EndedAtUtc = at.AddMinutes(20) }, tx);
-            }
-        });
+            "2026-03-08T04:59:00.000Z", "2026-03-08T05:00:00.000Z",
+            "2026-11-01T03:59:00.000Z", "2026-11-01T04:00:00.000Z",
+        }.Select(Utc);
+        fixture.InsertRuns(instants
+            .Select(at => TestDatabase.Run() with { MatchedAtUtc = at, EnteredAtUtc = at, EndedAtUtc = at.AddMinutes(20) })
+            .ToArray());
 
         using (DisplayTimeZone.Use("America/New_York"))
         {
@@ -184,7 +157,7 @@ public sealed class RunCalendarDaysTests
         // 2026-09-15 05:00 in Tokyo, 2026-09-14 16:00 in New York.
         var timedAt = Utc("2026-09-14T20:00:00.000Z");
         var timed = TestDatabase.Run() with { MatchedAtUtc = timedAt, EnteredAtUtc = timedAt, EndedAtUtc = timedAt.AddMinutes(20) };
-        fixture.Database.RunInTransaction(tx => runs.Insert(timed, tx));
+        fixture.InsertRuns(timed);
         var ascending = new RunSort(RunSortField.HistoryDate, SortDirection.Asc);
 
         // Tokyo starts 2026-09-15 at 2026-09-14T15:00Z, before the timed run; New York at 2026-09-15T04:00Z, after it.
@@ -207,7 +180,7 @@ public sealed class RunCalendarDaysTests
         var archival = InsertArchivalDay(fixture, "2026-09-15");
         var timedAt = Utc("2026-09-14T20:00:00.000Z");
         var timed = TestDatabase.Run() with { MatchedAtUtc = timedAt, EnteredAtUtc = timedAt, EndedAtUtc = timedAt.AddMinutes(20) };
-        fixture.Database.RunInTransaction(tx => runs.Insert(timed, tx));
+        fixture.InsertRuns(timed);
         var sort = new RunSort(RunSortField.HistoryDate, SortDirection.Asc);
 
         using var restore = DisplayTimeZone.Use("Asia/Tokyo");
@@ -284,20 +257,20 @@ public sealed class RunCalendarDaysTests
     private static DateTimeOffset Utc(string text) =>
         DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>An imported record known only by the day its source wrote; returns its id.</summary>
-    private static string InsertArchivalDay(TestDatabase fixture, string sourceDay)
+    /// <summary>
+    /// An imported record with no times of its own, known by the day its source wrote and by the instant the
+    /// source gave, if any; returns its id.
+    /// </summary>
+    private static string InsertArchivalDay(TestDatabase fixture, string sourceDay, DateTimeOffset? sourceInstant = null)
     {
-        var runs = new RunRepository(fixture.Database);
-        var imports = new RunImportRepository(fixture.Database);
         var run = TestDatabase.Run(source: RunSource.Import) with
         {
             MatchedAtUtc = null, EnteredAtUtc = null, EndedAtUtc = null,
         };
-        fixture.Database.RunInTransaction(tx =>
+        fixture.InsertImported(run with
         {
-            runs.Insert(run, tx);
-            imports.Insert(run.RunId, new RunImportMetadata("SCREENSHOT", "fixture", sourceDay,
-                null, run.CreatedAtUtc, Guid.NewGuid().ToString("N"), true), tx);
+            ImportMetadata = new RunImportMetadata("SCREENSHOT", "fixture", sourceDay,
+                sourceInstant, run.CreatedAtUtc, Guid.NewGuid().ToString("N"), true),
         });
         return run.RunId;
     }

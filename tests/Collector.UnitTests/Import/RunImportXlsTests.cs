@@ -209,9 +209,7 @@ public sealed class RunImportXlsTests : IDisposable
     public void DamagedNumericStyleIndexIsARowErrorAndOtherRowsSurvive()
     {
         var path = Write(workbook => { var sheet = workbook.CreateSheet(); Set(sheet.CreateRow(0), "副本", "耗时"); Set(sheet.CreateRow(1), "损坏行", ""); sheet.GetRow(1).GetCell(1).SetCellValue(120000); Set(sheet.CreateRow(2), "有效副本", "120000"); });
-        var filesystem = new NPOIFSFileSystem((Stream)File.OpenRead(path)); byte[] bytes;
-        try { using var input = filesystem.Root.CreateDocumentInputStream("Workbook"); using var output = new MemoryStream(); input.CopyTo(output); bytes = output.ToArray(); }
-        finally { filesystem.Close(); }
+        var bytes = WorkbookStream(path);
         MutateRecord(bytes, 0x0203, body => BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 21));
         var rows = RunImportSourceParser.Parse("XLS", Repackage(bytes));
         Assert.Equal(2, rows.Count); Assert.Contains(rows[0].Errors, error => error.Contains("单元格格式无法读取", StringComparison.Ordinal));
@@ -315,9 +313,24 @@ public sealed class RunImportXlsTests : IDisposable
     private byte[] WorkbookBytes()
     {
         var path = Write(workbook => { var sheet = workbook.CreateSheet(); Set(sheet.CreateRow(0), "副本"); Set(sheet.CreateRow(1), "合成副本"); });
+        return WorkbookStream(path);
+    }
+
+    /// <summary>The bytes of the OLE "Workbook" stream of an .xls file.</summary>
+    private static byte[] WorkbookStream(string path)
+    {
         var filesystem = new NPOIFSFileSystem((Stream)File.OpenRead(path));
-        try { using var stream = filesystem.Root.CreateDocumentInputStream("Workbook"); using var output = new MemoryStream(); stream.CopyTo(output); return output.ToArray(); }
-        finally { filesystem.Close(); }
+        try
+        {
+            using var stream = filesystem.Root.CreateDocumentInputStream("Workbook");
+            using var output = new MemoryStream();
+            stream.CopyTo(output);
+            return output.ToArray();
+        }
+        finally
+        {
+            filesystem.Close();
+        }
     }
 
     private string Repackage(byte[] workbook, Action<DirectoryEntry>? populate = null)

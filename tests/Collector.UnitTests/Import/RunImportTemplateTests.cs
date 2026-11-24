@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
+using static MentorRecorder.Collector.UnitTests.ImportPreviews;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -25,7 +26,7 @@ public sealed class RunImportTemplateTests : IDisposable
         Assert.Null(row.Values["joined_in_progress"]);
         using var database = new TestDatabase();
         var preview = new RunImportService(database.Database, database.Clock).PreviewSource("JSON", Template("personal-records.json"), timeZone: "+08:00");
-        Assert.False(preview["rows"]![0]!["can_import"]!.GetValue<bool>());
+        Assert.False(Row(preview)["can_import"]!.GetValue<bool>());
         Assert.Empty(new RunRepository(database.Database).Query(new(), null, 1, 50).Items);
     }
 
@@ -114,9 +115,7 @@ public sealed class RunImportTemplateTests : IDisposable
         // Desktop 重新校验时发送原始候选；展示用的职业编号不应改变来源字段或去重语义。
         var second = service.PreviewSource("XLSX", rows: new JsonArray(
             rows.Select(row => row!["candidate"]!.DeepClone()).ToArray()));
-        var committed = service.Commit(second["preview_id"]!.GetValue<string>(),
-            second["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(),
-            true, Guid.NewGuid().ToString("D"));
+        var committed = CommitAll(service, second);
         Assert.Equal(jobs.Count, committed["imported_count"]!.GetValue<int>());
         var repository = new RunRepository(database.Database);
         var runIds = committed["run_ids"]!.AsArray();

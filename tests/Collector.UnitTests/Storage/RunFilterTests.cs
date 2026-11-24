@@ -25,11 +25,7 @@ public sealed class RunFilterTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            foreach (var region in Enum.GetValues<Region>())
-                runs.Insert(TestDatabase.Run() with { Region = region }, tx);
-        });
+        fixture.InsertRuns(Enum.GetValues<Region>().Select(region => TestDatabase.Run() with { Region = region }).ToArray());
         var parsed = RequestParsers.Filter(new PayloadReader(new JsonObject { ["region"] = token }))!;
         Assert.Equal(expected, parsed.Region);
         var page = runs.Query(parsed, null, 1, 50);
@@ -58,13 +54,10 @@ public sealed class RunFilterTests
                 { [1] = new(1, 200, "繁中副本", null, Region.Tc, true), [2] = new(2, 100, "繁中另一个副本", null, Region.Tc, true) }),
         });
         using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            foreach (var owner in new[] { Region.Cn, Region.Tc, Region.Unknown })
-                foreach (var territory in new[] { 100, 200 })
-                    runs.Insert(TestDatabase.Run(contentId: null) with { Region = owner, TerritoryId = territory }, tx);
-        });
+        fixture.InsertRuns((
+            from owner in new[] { Region.Cn, Region.Tc, Region.Unknown }
+            from territory in new[] { 100, 200 }
+            select TestDatabase.Run(contentId: null) with { Region = owner, TerritoryId = territory }).ToArray());
         int Count(Region? owner)
         {
             var filter = RunFilterSql.Build(new RunFilter { Region = owner, ContentIds = new[] { 1 } }, false, catalog);
@@ -145,20 +138,13 @@ public sealed class RunFilterTests
         var joined = TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork) with { JoinedInProgress = true };
         var fresh = TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork) with { JoinedInProgress = false };
         var unseen = TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(joined, tx);
-            runs.Insert(fresh, tx);
-            runs.Insert(unseen, tx);
-        });
+        fixture.InsertRuns(joined, fresh, unseen);
 
         Assert.Equal(joined.RunId, Assert.Single(runs.Query(new RunFilter { JoinedInProgress = true }, null, 1, 50).Items).RunId);
         Assert.Equal(fresh.RunId, Assert.Single(runs.Query(new RunFilter { JoinedInProgress = false }, null, 1, 50).Items).RunId);
         Assert.Equal(3, runs.Query(new RunFilter(), null, 1, 50).Total);
 
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var statistics = new StatisticsRepository(fixture.Database, settings);
+        var statistics = new StatisticsRepository(fixture.Database, fixture.Settings());
         var dashboard = statistics.GetDashboard(new RunFilter { JoinedInProgress = true });
         Assert.Equal(1, dashboard.AttemptCount);
         Assert.Equal(1, dashboard.JoinedInProgressCount);
@@ -181,6 +167,28 @@ public sealed class RunFilterTests
         Assert.Contains("\"joined_in_progress\":true", said, StringComparison.Ordinal);
     }
 
+    // ---------------------------------------------------------------- text search ----
+
+    [Theory]
+    [InlineData("带新人")]
+    [InlineData("50%")]
+    [InlineData("a_b")]
+    [InlineData(@"a\b")]
+    public void HistorySearchFindsNotesAndTreatsWildcardCharactersLiterally(string text)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var match = TestDatabase.Run() with { Note = "备注：" + text + "。" };
+        fixture.InsertRuns(
+            match,
+            TestDatabase.Run() with { Note = "50 percent, axb, ab" },
+            TestDatabase.Run() with { Note = null });
+
+        var page = runs.Query(new RunFilter { Text = text }, null, 1, 50);
+        Assert.Equal(1, page.Total);
+        Assert.Equal(match.RunId, Assert.Single(page.Items).RunId);
+    }
+
     // ------------------------------------------------------ localized name search ----
 
     [Theory]
@@ -196,14 +204,12 @@ public sealed class RunFilterTests
         var nameMatch = TestDatabase.Run() with { JobName = nameText, Note = "unrelated" };
         var noteMatch = TestDatabase.Run() with { JobName = "白魔法师", Note = "helped " + text.ToLowerInvariant() };
         var originalNameMatch = TestDatabase.Run() with { DutyName = text + " hall", JobName = "白魔法师" };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(nameMatch, tx);
-            runs.Insert(noteMatch, tx);
-            runs.Insert(originalNameMatch, tx);
-            runs.Insert(TestDatabase.Run() with { JobName = "白魔法师", Note = "only " + nameText }, tx);
-            runs.Insert(TestDatabase.Run() with { JobName = "50 percent, axb, ab", Note = "unrelated" }, tx);
-        });
+        fixture.InsertRuns(
+            nameMatch,
+            noteMatch,
+            originalNameMatch,
+            TestDatabase.Run() with { JobName = "白魔法师", Note = "only " + nameText },
+            TestDatabase.Run() with { JobName = "50 percent, axb, ab", Note = "unrelated" });
         var filter = RequestParsers.Filter(new PayloadReader(new JsonObject
         {
             ["text"] = text, ["name_text"] = nameText,
@@ -226,12 +232,10 @@ public sealed class RunFilterTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run() with { JobName = "骑士" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped 骑士" }, tx);
-        });
+        fixture.InsertRuns(
+            TestDatabase.Run() with { JobName = "骑士" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped 骑士" });
         var filter = RequestParsers.Filter(new PayloadReader(JsonNode.Parse(json)!.AsObject()));
         Assert.Equal(expected, runs.Query(filter, null, 1, 50).Total);
     }
@@ -240,22 +244,12 @@ public sealed class RunFilterTests
     [InlineData("42")]
     [InlineData("[]")]
     [InlineData("{}")]
-    public void NameAliasRejectsNonStringValues(string value)
-    {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
-            new PayloadReader(JsonNode.Parse("{\"name_text\":" + value + "}")!.AsObject())));
-        Assert.Equal("ERR_BAD_REQUEST", error.Code);
-        Assert.Equal("payload.name_text", error.Field);
-    }
+    public void NameAliasRejectsNonStringValues(string value) =>
+        AssertRefused(JsonNode.Parse("{\"name_text\":" + value + "}")!.AsObject(), "name_text");
 
     [Fact]
-    public void NameAliasRejectsMoreThanTwoHundredCharacters()
-    {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
-            new PayloadReader(new JsonObject { ["name_text"] = new string('字', 201) })));
-        Assert.Equal("ERR_BAD_REQUEST", error.Code);
-        Assert.Equal("payload.name_text", error.Field);
-    }
+    public void NameAliasRejectsMoreThanTwoHundredCharacters() =>
+        AssertRefused(new JsonObject { ["name_text"] = new string('字', 201) }, "name_text");
 
     [Fact]
     public void NameAliasAcceptsTwoHundredCharacters()
@@ -275,17 +269,15 @@ public sealed class RunFilterTests
         var paladin = TestDatabase.Run() with { JobName = "骑士" };
         var note = TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" };
         var normal = TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "万魔殿 边境之狱4" };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(paladin, tx);
-            runs.Insert(note, tx);
-            runs.Insert(normal, tx);
-            runs.Insert(TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 22) with { JobName = "龙骑士" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "圆桌骑士歼灭战" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "零式万魔殿 边境之狱4" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" }, tx);
-        });
+        fixture.InsertRuns(
+            paladin,
+            note,
+            normal,
+            TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" },
+            TestDatabase.Run(jobId: 22) with { JobName = "龙骑士" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "圆桌骑士歼灭战" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "零式万魔殿 边境之狱4" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" });
         var filter = RequestParsers.Filter(new PayloadReader(new JsonObject
         {
             ["text"] = "Paladin", ["name_exact"] = new JsonArray("骑士", "万魔殿 边境之狱4"),
@@ -309,13 +301,11 @@ public sealed class RunFilterTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(TestDatabase.Run() with { JobName = "骑士" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" }, tx);
-            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" }, tx);
-        });
+        fixture.InsertRuns(
+            TestDatabase.Run() with { JobName = "骑士" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" },
+            TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" },
+            TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" });
         var filter = RequestParsers.Filter(new PayloadReader(JsonNode.Parse(json)!.AsObject()));
         Assert.Equal(expected, runs.Query(filter, null, 1, 50).Total);
     }
@@ -325,7 +315,7 @@ public sealed class RunFilterTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run() with { JobName = "骑士" }, tx));
+        fixture.InsertRuns(TestDatabase.Run() with { JobName = "骑士" });
         var names = new JsonArray(Enumerable.Range(0, 999)
             .Select(i => (JsonNode?)JsonValue.Create(i.ToString("D3") + new string('字', 197)))
             .Append(JsonValue.Create("骑士"))
@@ -342,11 +332,7 @@ public sealed class RunFilterTests
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
         var matching = TestDatabase.Run() with { JobName = "骑士" };
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(matching, tx);
-            runs.Insert(TestDatabase.Run() with { JobName = "暗黑骑士" }, tx);
-        });
+        fixture.InsertRuns(matching, TestDatabase.Run() with { JobName = "暗黑骑士" });
         var names = new JsonArray(Enumerable.Range(0, 4095)
             .Select(i => (JsonNode?)JsonValue.Create("名" + i))
             .Append(JsonValue.Create("骑士"))
@@ -367,27 +353,20 @@ public sealed class RunFilterTests
     [InlineData("[null]")]
     [InlineData("[\"\"]")]
     [InlineData("[\"骑士\",\"\"]")]
-    public void ExactNamesRejectAnythingButNonEmptyStrings(string value)
-    {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
-            new PayloadReader(JsonNode.Parse("{\"name_exact\":" + value + "}")!.AsObject())));
-        Assert.Equal("ERR_BAD_REQUEST", error.Code);
-        Assert.Equal("payload.name_exact", error.Field);
-    }
+    public void ExactNamesRejectAnythingButNonEmptyStrings(string value) =>
+        AssertRefused(JsonNode.Parse("{\"name_exact\":" + value + "}")!.AsObject(), "name_exact");
 
     [Fact]
     public void ExactNamesReject201CharactersAnd4097Names()
     {
-        var overlong = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
-            new JsonObject { ["name_exact"] = new JsonArray(new string('字', 201)) })));
-        Assert.Equal("payload.name_exact", overlong.Field);
-        var tooMany = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
+        AssertRefused(new JsonObject { ["name_exact"] = new JsonArray(new string('字', 201)) }, "name_exact");
+        AssertRefused(
             new JsonObject
             {
                 ["name_exact"] = new JsonArray(Enumerable.Range(0, 4097)
                     .Select(i => (JsonNode?)JsonValue.Create("名" + i)).ToArray()),
-            })));
-        Assert.Equal("payload.name_exact", tooMany.Field);
+            },
+            "name_exact");
     }
 
     [Theory]
@@ -468,13 +447,8 @@ public sealed class RunFilterTests
     [InlineData("[]")]
     [InlineData("{}")]
     [InlineData("true")]
-    public void ReflectionTextRejectsNonStringValues(string value)
-    {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
-            new PayloadReader(JsonNode.Parse("{\"reflection_text\":" + value + "}")!.AsObject())));
-        Assert.Equal("ERR_BAD_REQUEST", error.Code);
-        Assert.Equal("payload.reflection_text", error.Field);
-    }
+    public void ReflectionTextRejectsNonStringValues(string value) =>
+        AssertRefused(JsonNode.Parse("{\"reflection_text\":" + value + "}")!.AsObject(), "reflection_text");
 
     [Fact]
     public void ReflectionTextAcceptsTwoHundredCharactersAndRejectsMore()
@@ -482,8 +456,72 @@ public sealed class RunFilterTests
         var accepted = RequestParsers.Filter(new PayloadReader(
             new JsonObject { ["reflection_text"] = new string('字', 200) }));
         Assert.Equal(200, accepted!.ReflectionText!.Length);
-        var overlong = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
-            new JsonObject { ["reflection_text"] = new string('字', 201) })));
-        Assert.Equal("payload.reflection_text", overlong.Field);
+        AssertRefused(new JsonObject { ["reflection_text"] = new string('字', 201) }, "reflection_text");
+    }
+
+    // ------------------------------------------------------ calendar days and exact ids ----
+
+    [Fact]
+    public void CalendarCompanionsRequireRealDaysHistoryDateAndMatchingUtcBounds()
+    {
+        var filter = new JsonObject
+        {
+            ["date_field"] = "history_date",
+            ["history_from_day"] = "2024-09-24",
+            ["from_utc"] = "2024-09-24T04:00:00.000Z",
+        };
+        Assert.Equal("2024-09-24", RequestParsers.Filter(new PayloadReader(filter))!.HistoryFromDay);
+        foreach (var badDay in new[] { "2024-02-30", "2024-9-24", "not-a-date" })
+        {
+            var invalid = filter.DeepClone().AsObject();
+            invalid["history_from_day"] = badDay;
+            Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(invalid)));
+        }
+        var wrongField = filter.DeepClone().AsObject();
+        wrongField["date_field"] = "entered_at_utc";
+        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(wrongField)));
+        var missingBound = filter.DeepClone().AsObject();
+        missingBound.Remove("from_utc");
+        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(missingBound)));
+    }
+
+    [Fact]
+    public void ExactIdFilterSupportsTheDeclaredBoundAndRejectsMalformedIds()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var run = TestDatabase.Run();
+        fixture.InsertRuns(run);
+        var ids = new[] { run.RunId }
+            .Concat(Enumerable.Range(0, 1999).Select(_ => Guid.NewGuid().ToString("D")))
+            .ToArray();
+        Assert.Equal(run.RunId, Assert.Single(runs.Query(new RunFilter { RunIds = ids }, null, 1, 50).Items).RunId);
+        var parsed = RequestParsers.Filter(new PayloadReader(new JsonObject
+        {
+            ["run_id"] = new JsonArray(ids.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+            ["date_field"] = "history_date",
+        }));
+        Assert.Equal(2000, parsed!.RunIds.Count);
+        Assert.Equal(RunDateField.HistoryDate, parsed.DateField);
+        foreach (var invalid in new[]
+        {
+            new JsonArray(run.RunId, run.RunId.ToUpperInvariant()),
+            new JsonArray("invalid"),
+            new JsonArray(ids.Concat(new[] { Guid.NewGuid().ToString("D") }).Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+        })
+        {
+            Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(new JsonObject { ["run_id"] = invalid })));
+        }
+        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(new JsonObject { ["run_id"] = null })));
+    }
+
+    /// <summary>The filter parser refuses the payload with ERR_BAD_REQUEST and names the offending field.</summary>
+    /// <param name="payload">Filter payload carrying the one bad field.</param>
+    /// <param name="field">Name of that field inside the payload.</param>
+    private static void AssertRefused(JsonObject payload, string field)
+    {
+        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(payload)));
+        Assert.Equal("ERR_BAD_REQUEST", error.Code);
+        Assert.Equal("payload." + field, error.Field);
     }
 }

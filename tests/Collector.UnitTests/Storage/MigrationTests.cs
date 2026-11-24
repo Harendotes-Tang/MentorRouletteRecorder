@@ -57,13 +57,17 @@ public sealed class MigrationTests
     }
 
     /// <summary>
-    /// Review finding M-5. <c>duty_source</c> records whether the duty on a run was observed
-    /// as a content id, inferred from a territory, or typed by a person. It is nullable so
-    /// every row written before this migration stays valid, and it accepts nothing outside
-    /// the three declared tokens.
+    /// Columns added to <c>mentor_runs</c> later are nullable, so every row written before their
+    /// migration stays valid, and accept nothing outside their declared values.
+    /// Review finding M-5: <c>duty_source</c> records whether the duty on a run was observed as a
+    /// content id, inferred from a territory, or typed by a person, and accepts nothing outside the
+    /// three declared tokens. Schema 11: <c>joined_in_progress</c> reads as "not seen" while null,
+    /// and accepts nothing but 0 and 1.
     /// </summary>
-    [Fact]
-    public void Migration_AddsANullableDutySourceWithAClosedVocabulary()
+    [Theory]
+    [InlineData("duty_source", "'GUESS'")]
+    [InlineData("joined_in_progress", "2")]
+    public void Migration_AddsANullableColumnWithAClosedVocabulary(string column, string rejected)
     {
         using var fixture = new TestDatabase();
 
@@ -71,21 +75,20 @@ public sealed class MigrationTests
         {
             columns.CommandText =
                 "SELECT \"notnull\", dflt_value FROM pragma_table_info('mentor_runs') " +
-                "WHERE name = 'duty_source';";
+                $"WHERE name = '{column}';";
             using var reader = columns.ExecuteReader();
             Assert.True(reader.Read());
             Assert.Equal(0, reader.GetInt32(0));
             Assert.True(reader.IsDBNull(1));
         }
 
-        var runs = new RunRepository(fixture.Database);
         var run = TestDatabase.Run();
-        fixture.Database.RunInTransaction(tx => runs.Insert(run, tx));
+        fixture.InsertRuns(run);
 
-        using var rejected = fixture.Database.CreateCommand();
-        rejected.CommandText = "UPDATE mentor_runs SET duty_source = 'GUESS' WHERE run_id = $id;";
-        rejected.Parameters.AddWithValue("$id", run.RunId);
-        var error = Assert.Throws<SqliteException>(() => rejected.ExecuteNonQuery());
+        using var update = fixture.Database.CreateCommand();
+        update.CommandText = $"UPDATE mentor_runs SET {column} = {rejected} WHERE run_id = $id;";
+        update.Parameters.AddWithValue("$id", run.RunId);
+        var error = Assert.Throws<SqliteException>(() => update.ExecuteNonQuery());
         Assert.Equal(19, error.SqliteErrorCode);
     }
 
@@ -121,8 +124,7 @@ public sealed class MigrationTests
     {
         using var fixture = new TestDatabase();
         var run = TestDatabase.Run();
-        var runs = new RunRepository(fixture.Database);
-        fixture.Database.RunInTransaction(tx => runs.Insert(run, tx));
+        fixture.InsertRuns(run);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -252,14 +254,7 @@ public sealed class MigrationTests
         }
 
         fixture.Database.Dispose();
-        using (var file = new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-        {
-            Assert.True(file.Length > 4096 * 2, "expected at least two pages after migration");
-            file.Position = 4096;
-            var junk = new byte[256];
-            Array.Fill(junk, (byte)0xFF);
-            file.Write(junk);
-        }
+        TestDatabase.OverwriteSecondPage(fixture.Path);
 
         var error = Assert.Throws<CollectorException>(() =>
             SqliteDatabase.Open(fixture.Path, fixture.Clock));
@@ -354,38 +349,6 @@ public sealed class MigrationTests
         Assert.DoesNotContain("只读模式", error.Message, StringComparison.Ordinal);
         Assert.Contains("无法启动", error.Message, StringComparison.Ordinal);
         Assert.Contains(System.IO.Path.GetFileName(fixture.Path), error.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Schema 11. <c>joined_in_progress</c> is nullable so every row written before it stays valid
-    /// and reads as "not seen", and it accepts nothing but 0 and 1.
-    /// </summary>
-    [Fact]
-    public void Migration_AddsANullableJoinedInProgressFlagLimitedToZeroAndOne()
-    {
-        using var fixture = new TestDatabase();
-
-        using (var columns = fixture.Database.CreateCommand())
-        {
-            columns.CommandText =
-                "SELECT \"notnull\", dflt_value FROM pragma_table_info('mentor_runs') " +
-                "WHERE name = 'joined_in_progress';";
-            using var reader = columns.ExecuteReader();
-            Assert.True(reader.Read());
-            Assert.Equal(0, reader.GetInt32(0));
-            Assert.True(reader.IsDBNull(1));
-        }
-
-        var runs = new RunRepository(fixture.Database);
-        var run = TestDatabase.Run();
-        fixture.Database.RunInTransaction(tx => runs.Insert(run, tx));
-        Assert.Null(runs.Get(run.RunId)!.JoinedInProgress);
-
-        using var rejected = fixture.Database.CreateCommand();
-        rejected.CommandText = "UPDATE mentor_runs SET joined_in_progress = 2 WHERE run_id = $id;";
-        rejected.Parameters.AddWithValue("$id", run.RunId);
-        var error = Assert.Throws<SqliteException>(() => rejected.ExecuteNonQuery());
-        Assert.Equal(19, error.SqliteErrorCode);
     }
 
     [Fact]

@@ -37,7 +37,7 @@ public sealed class ReflectionTests : IDisposable
     private MentorRun Seed(MentorRun? run = null)
     {
         var seeded = run ?? TestDatabase.Run();
-        _database.Database.RunInTransaction(tx => _runs.Insert(seeded, tx));
+        _database.InsertRuns(seeded);
         return seeded;
     }
 
@@ -51,6 +51,17 @@ public sealed class ReflectionTests : IDisposable
     // parses into. The in-memory shape would exercise a different reader.
     private static PayloadReader Payload(JsonObject payload) =>
         new((JsonNode.Parse(payload.ToJsonString()) as JsonObject)!);
+
+    /// <summary>A <c>SetRunReflection</c> payload the parser accepts, for a test to change one field of.</summary>
+    private static JsonObject Valid(string mood = "good", string text = "文字") => new()
+    {
+        ["run_id"] = NewId(),
+        ["mood"] = mood,
+        ["text"] = text,
+    };
+
+    private static CollectorException Refused(JsonObject payload) =>
+        Assert.Throws<CollectorException>(() => RequestParsers.SetRunReflection(NewId(), Payload(payload)));
 
     // -- storage ------------------------------------------------------------------------
 
@@ -154,14 +165,7 @@ public sealed class ReflectionTests : IDisposable
     [Fact]
     public void Parser_RefusesAnUnknownMood()
     {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.SetRunReflection(
-            NewId(),
-            Payload(new JsonObject
-            {
-                ["run_id"] = NewId(),
-                ["mood"] = "great",
-                ["text"] = "文字",
-            })));
+        var error = Refused(Valid(mood: "great"));
 
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Equal("payload.mood", error.Field);
@@ -170,14 +174,7 @@ public sealed class ReflectionTests : IDisposable
     [Fact]
     public void Parser_RefusesTextLongerThanTwoThousandCharacters()
     {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.SetRunReflection(
-            NewId(),
-            Payload(new JsonObject
-            {
-                ["run_id"] = NewId(),
-                ["mood"] = "good",
-                ["text"] = new string('心', ReflectionText.MaxLength + 1),
-            })));
+        var error = Refused(Valid(text: new string('心', ReflectionText.MaxLength + 1)));
 
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Equal("payload.text", error.Field);
@@ -187,13 +184,7 @@ public sealed class ReflectionTests : IDisposable
     public void Parser_AcceptsExactlyTwoThousandCharacters()
     {
         var command = RequestParsers.SetRunReflection(
-            NewId(),
-            Payload(new JsonObject
-            {
-                ["run_id"] = NewId(),
-                ["mood"] = "ok",
-                ["text"] = new string('心', ReflectionText.MaxLength),
-            }));
+            NewId(), Payload(Valid("ok", new string('心', ReflectionText.MaxLength))));
 
         Assert.Equal(ReflectionText.MaxLength, command.Text!.Length);
     }
@@ -201,17 +192,10 @@ public sealed class ReflectionTests : IDisposable
     [Fact]
     public void Parser_RefusesAFieldTheContractDoesNotDeclare()
     {
-        var error = Assert.Throws<CollectorException>(() => RequestParsers.SetRunReflection(
-            NewId(),
-            Payload(new JsonObject
-            {
-                ["run_id"] = NewId(),
-                ["mood"] = "good",
-                ["text"] = "文字",
-                ["reason"] = "心得不需要理由",
-            })));
+        var payload = Valid();
+        payload["reason"] = "心得不需要理由";
 
-        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal(ErrorCodes.BadRequest, Refused(payload).Code);
     }
 
     [Fact]

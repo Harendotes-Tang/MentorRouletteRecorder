@@ -1,14 +1,10 @@
-using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -24,28 +20,14 @@ public sealed class CharacterIdentityTests
     private const string Alt = "22222222222222222222222222222222";
     private const string Third = "33333333333333333333333333333333";
 
-    private sealed class Fixture : RunMutationTestContext
+    private sealed class Fixture : CharacterProfileTestContext
     {
         public Fixture()
         {
-            Profiles = new CharacterProfileService(Database.Database, Settings, Database.Clock);
             Identities = new CharacterIdentityService(Database.Database, Settings, Database.Clock);
-            Statistics = new StatisticsRepository(Database.Database, Settings, clock: Database.Clock);
         }
 
-        public CharacterProfileService Profiles { get; }
-
         public CharacterIdentityService Identities { get; }
-
-        public StatisticsRepository Statistics { get; }
-
-        public static string NewId() => Guid.NewGuid().ToString("D");
-
-        public long Current(Region region = Region.Cn) => Settings.Profiles.FindCurrent(region)!.ProfileId;
-
-        public long Add(string name, Region region = Region.Cn, bool makeCurrent = false, long? identityId = null) =>
-            Profiles.Create(new CreateCharacterProfileCommand(NewId(), region, name, 2000, 0, makeCurrent, identityId))
-                .ProfileId;
 
         public CharacterIdentityObservation Login(string digest, Region region = Region.Cn) =>
             Identities.Observe(region, Key, digest);
@@ -54,31 +36,13 @@ public sealed class CharacterIdentityTests
             Identities.Resolve(new ResolveCharacterIdentityCommand(NewId(), identityId, action, profileId));
 
         /// <summary>Matches one run while the character behind <paramref name="digest"/> is logged in.</summary>
-        public string Match(string? digest, bool loggedInNow = true)
-        {
-            var session = Guid.NewGuid().ToString("D");
-            var start = Database.Clock.UtcNow;
-            Database.Database.RunInTransaction(tx => new CaptureSessionRepository(Database.Database).Insert(
-                new CaptureSession
-                {
-                    CaptureSessionId = session, StartedAtUtc = start, CollectorVersion = "test",
-                    Region = Region.Cn, ProfileStatus = ProfileStatus.Verified,
-                }, tx));
-            var processor = new SemanticEventProcessor(Database.Database,
-                new MentorRunStateMachine(ProfileBinding.Live("test", Region.Cn, ProfileStatus.Verified, 42, true)),
-                new SemanticEventProcessorOptions(session, Region.Cn, "test", session), Database.Clock,
+        public string Match(string? digest, bool loggedInNow = true) =>
+            new LiveRunTestBed(Database,
+                ProfileBinding.Live("test", Region.Cn, ProfileStatus.Verified, 42, true),
                 identityAtMatch: digest is null
                     ? null
-                    : new Func<SqliteTransaction, CharacterIdentityObservation?>(
-                        tx => Identities.Observe(Region.Cn, Key, digest, tx, loggedInNow)));
-            processor.Accept(new ContentFinderPop
-            {
-                Key = new EventKey(session, PacketDirection.ServerToClient, "pop", 0, null, "pop0"),
-                ObservedAtUtc = start, Mono = TimeSpan.Zero, RouletteId = 42, ContentId = 900001,
-            });
-            Assert.Null(processor.LastStorageError);
-            return processor.Machine.CurrentRunId!;
-        }
+                    : tx => Identities.Observe(Region.Cn, Key, digest, tx, loggedInNow))
+                .Pop();
 
         public int BoundTo(long profileId) =>
             Statistics.GetProfiles().Single(value => value.Profile.ProfileId == profileId).IdentityCount;

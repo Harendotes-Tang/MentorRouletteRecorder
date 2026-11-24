@@ -3,6 +3,7 @@ using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Storage.Repositories;
 using MentorRecorder.Collector.Contracts.Errors;
+using static MentorRecorder.Collector.UnitTests.ImportPreviews;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -56,10 +57,10 @@ public sealed class RunImportDateTimeTests
             ContentId = null, TerritoryId = null, DutyName = "边界日期副本",
             EnteredAtUtc = UtcTimestamp.Parse(localTime), MatchedAtUtc = null, EndedAtUtc = null, DurationMs = null,
         };
-        fixture.Database.RunInTransaction(tx => new RunRepository(fixture.Database).Insert(local, tx));
+        fixture.InsertRuns(local);
         var preview = new RunImportService(fixture.Database, fixture.Clock)
             .PreviewSource("ROWS", rows: new JsonArray(Candidate(entered)));
-        var row = preview["rows"]![0]!;
+        var row = Row(preview);
         Assert.Equal(nearby ? "possible_duplicate" : "new", row["status"]!.GetValue<string>());
         Assert.Equal(nearby ? local.RunId : null, row["matching_run_id"]?.GetValue<string>());
     }
@@ -67,8 +68,6 @@ public sealed class RunImportDateTimeTests
     // --------------------------------------------- the region of local game times ----
     // Audit 2026-10-20 H2-4: game times written without a zone are read in the region the user picks. The
     // candidate keeps them as written, so choosing another region and checking again reads them again.
-
-    private static JsonObject Row(JsonObject preview) => preview["rows"]![0]!.AsObject();
 
     [Fact]
     public void ChangingTheRegionRereadsLocalGameTimes()
@@ -151,15 +150,13 @@ public sealed class RunImportDateTimeTests
         var preview = source == "CSV"
             ? service.PreviewSource("CSV", text: string.Join(',', input.Select(pair => pair.Key)) + "\n" + string.Join(',', input.Select(pair => pair.Value!.GetValue<string>())) + "\n")
             : service.PreviewSource("ROWS", rows: new JsonArray(input));
-        var row = preview["rows"]![0]!.AsObject();
+        var row = Row(preview);
         Assert.False(row["can_import"]!.GetValue<bool>());
         Assert.NotEmpty(row["errors"]!.AsArray());
         Assert.Null(row["run"]);
         Assert.Throws<CollectorException>(() => service.Commit(preview["preview_id"]!.GetValue<string>(),
             new[] { row["row_number"]!.GetValue<int>() }, true, Guid.NewGuid().ToString("D")));
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var stats = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        var stats = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
         Assert.Equal(0, stats.CompletedCount);
         Assert.Equal(0, stats.AchievementProgress);
     }
@@ -178,7 +175,7 @@ public sealed class RunImportDateTimeTests
         {
             ["duty_name"] = "明确日期回归", ["result"] = "UNKNOWN", ["entered_at_utc"] = timestamp,
         }));
-        var row = preview["rows"]![0]!.AsObject();
+        var row = Row(preview);
         Assert.True(row["can_import"]!.GetValue<bool>());
         Assert.Empty(row["errors"]!.AsArray());
         Assert.Equal(expected, row["run"]!["entered_at_utc"]!.GetValue<string>());
