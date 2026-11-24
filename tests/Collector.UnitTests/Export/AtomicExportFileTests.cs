@@ -10,7 +10,7 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>回归检查：写入失败时保留原文件、禁止覆盖模式下的并发提交、真实文件锁冲突与超大页码查询。</summary>
-public sealed class StorageExportAtomicityTests : IDisposable
+public sealed class AtomicExportFileTests : IDisposable
 {
     private readonly TestDatabase _database = new();
 
