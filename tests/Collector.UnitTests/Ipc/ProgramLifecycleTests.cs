@@ -1,63 +1,16 @@
 using System.Diagnostics;
 using System.IO.Pipes;
-using Microsoft.Data.Sqlite;
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The Collector process's lifecycle, from the second adversarial review: database busy
-/// budgets, the single-instance pipe gate, the pid file, the stop event and subsystem disposal.
+/// The Collector process's lifecycle, from the second adversarial review: the single-instance
+/// pipe gate, the pid file, the stop event and subsystem disposal.
 /// </summary>
 public sealed class ProgramLifecycleTests
 {
-    /// <summary>
-    /// The live-capture path must lower both <c>PRAGMA busy_timeout</c> and
-    /// <c>CommandTimeout</c>. Lowering only the pragma leaves Microsoft.Data.Sqlite's own retry
-    /// loop bounded by the connection's five-second default, and three attempts upstream then
-    /// stall the pipeline for fifteen seconds while a zone-change burst fills the bounded queue
-    /// (review findings L-11 and R-1).
-    /// </summary>
-    [Fact]
-    public void ALockedDatabaseIsGivenUpOnQuicklyOnTheLivePathAndPatientlyOnTheManualOne()
-    {
-        using var fixture = new TestDatabase();
-        using var blocker = OpenSecondConnection(fixture.Path);
-        using (var begin = blocker.CreateCommand())
-        {
-            // A write transaction on another connection: every writer behind it now waits.
-            begin.CommandText = "BEGIN IMMEDIATE;";
-            begin.ExecuteNonQuery();
-        }
-
-        var live = Stopwatch.StartNew();
-        var liveFailure = Assert.Throws<CollectorException>(
-            () => fixture.Database.RunLiveCaptureTransaction(_ => WriteSetting(fixture)));
-        live.Stop();
-
-        Assert.Equal(ErrorCodes.DbBusy, liveFailure.Code);
-        Assert.True(
-            live.Elapsed < TimeSpan.FromSeconds(2),
-            "the live path must give up inside its own budget, not the connection default; took " + live.Elapsed);
-
-        // Both budgets are handed back, so a manual mutation is still allowed to be patient.
-        Assert.Equal(SqliteDatabase.DefaultBusyTimeoutMs, fixture.Database.BusyTimeoutMs);
-        Assert.Equal(5, fixture.Database.CommandTimeoutSeconds);
-
-        var manual = Stopwatch.StartNew();
-        var manualFailure = Assert.Throws<CollectorException>(
-            () => fixture.Database.RunInTransaction(_ => WriteSetting(fixture)));
-        manual.Stop();
-
-        Assert.Equal(ErrorCodes.DbBusy, manualFailure.Code);
-        Assert.True(
-            manual.Elapsed > TimeSpan.FromSeconds(3),
-            "a person waiting for their own correction would rather wait than retype it; took " + manual.Elapsed);
-    }
-
     /// <summary>
     /// <c>WaitNamedPipe</c> answers three different questions and the gate must keep them
     /// apart. "Busy" is a healthy Collector serving somebody else, and probing it can only ever
@@ -247,29 +200,6 @@ public sealed class ProgramLifecycleTests
         Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_download_dispose"));
         Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_check_dispose"));
         Assert.True(order.IndexOf("shared_calibration_stop") < order.IndexOf("capture_dispose"));
-    }
-
-    private static void WriteSetting(TestDatabase fixture)
-    {
-        using var command = fixture.Database.CreateCommand();
-        command.CommandText =
-            "INSERT INTO settings(key, value_json, updated_at_utc) VALUES('review.r1', '1', '2026-09-09T00:00:00.000Z') " +
-            "ON CONFLICT(key) DO UPDATE SET value_json = '1';";
-        command.ExecuteNonQuery();
-    }
-
-    private static SqliteConnection OpenSecondConnection(string path)
-    {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadWrite,
-            Cache = SqliteCacheMode.Private,
-            Pooling = false,
-            DefaultTimeout = 1,
-        }.ConnectionString);
-        connection.Open();
-        return connection;
     }
 
     private static string TestPipeName() =>

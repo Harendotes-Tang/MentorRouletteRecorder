@@ -6,14 +6,17 @@ using static MentorRecorder.Collector.UnitTests.StateMachineEvents;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// What a queue-inferred profile does once it also knows when the popup appeared.
+/// What the run state machine does for a queue-inferred profile, with and without knowing when the
+/// popup appeared.
 ///
 /// Such a profile creates the run only when the duty loads, because until then "the player
-/// queued" is all it has. That is right for the record and wrong for the player, who wanted to be
-/// told the moment the popup was on screen and got silence instead. An announcement recognised by
-/// its timing carries no roulette, so it changes nothing about what is recorded: it only moves
-/// MENTOR_MATCHED forward to the moment the server said so, and says that this one was observed
-/// rather than inferred.
+/// queued" is all it has. Without an announcement the zone it lands in must be a duty the duty
+/// table knows, and a queue that was cancelled, stopped, lost or replaced creates nothing later.
+///
+/// That is right for the record and wrong for the player, who wanted to be told the moment the
+/// popup was on screen and got silence instead. An announcement recognised by its timing carries
+/// no roulette, so it changes nothing about what is recorded: it only moves MENTOR_MATCHED forward
+/// to the moment the server said so, and says that this one was observed rather than inferred.
 /// </summary>
 public sealed class MatchAnnouncedStateMachineTests
 {
@@ -52,6 +55,13 @@ public sealed class MatchAnnouncedStateMachineTests
         Key = Key("town-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
         Mono = TimeSpan.FromSeconds(seconds), TerritoryId = 100, IsDutyInstance = null,
     };
+
+    /// <summary>A queue-inferred profile whose duty table is <paramref name="knownDuty"/> (none when null).</summary>
+    private static MentorRunStateMachine QueueMachine(Func<int, bool>? knownDuty) =>
+        new(
+            ProfileBinding.Live("cn.local", Region.Cn, ProfileStatus.Verified, Mentor, matchFromQueue: true),
+            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = knownDuty },
+            () => "00000000-0000-4000-8000-000000000003");
 
     /// <summary>
     /// The point of the whole feature: the popup is on the player's screen and the software can
@@ -319,5 +329,148 @@ public sealed class MatchAnnouncedStateMachineTests
 
         Assert.True(written <= MentorRunStateMachine.MaxAnnouncedRefreshes,
             $"{written} trail rows for one match");
+    }
+
+    // ---- no announcement: the duty table decides, and only a standing queue counts ----
+
+    /// <summary>
+    /// Cancelling may be invisible to a calibrated profile. A subsequent ordinary teleport
+    /// must leave neither an active run nor an incomplete history row.
+    /// </summary>
+    [Fact]
+    public void AnInferredProfileRefusesAZoneChangeThatIsNotAKnownDuty()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+
+        Assert.Empty(machine.Handle(Queue(0)).Commands);
+        Assert.Empty(machine.Handle(Territory(10_000, 5000)).Commands);
+        Assert.Empty(machine.Handle(ZoneUnknown(11)).Commands);
+        Assert.Equal(RunState.Idle, machine.State);
+        Assert.Null(machine.CurrentRunId);
+    }
+
+    /// <summary>The same machine enters as soon as the zone it lands in is a duty.</summary>
+    [Fact]
+    public void AnInferredProfileEntersWhenTheZoneIsAKnownDuty()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+
+        Assert.Equal(RunState.Idle, machine.Handle(Queue(0)).ToState);
+        Assert.Equal(RunState.Idle, machine.Handle(Territory(10_000, 1039)).ToState);
+        var entered = machine.Handle(ZoneUnknown(11));
+        Assert.Equal(RunState.Idle, entered.FromState);
+        Assert.Equal(RunState.EnteredDuty, entered.ToState);
+        Assert.Single(entered.Commands.OfType<CreateRunCommand>());
+        Assert.Single(entered.Commands.OfType<EnterDutyCommand>());
+    }
+
+    /// <summary>No duty table means the question cannot be answered, so no run is created.</summary>
+    [Fact]
+    public void AnInferredProfileWithNoDutyTableEntersNothing()
+    {
+        var machine = QueueMachine(null);
+
+        Assert.Equal(RunState.Idle, machine.Handle(Queue(0)).ToState);
+        Assert.Equal(RunState.Idle, machine.Handle(Territory(10_000, 1039)).ToState);
+        Assert.Equal(RunState.Idle, machine.Handle(ZoneUnknown(11)).ToState);
+        Assert.Null(machine.CurrentRunId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    public void TeleportingWhileStillQueuedDoesNotLoseTheLaterDuty(bool? dutyFlag)
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        machine.Handle(Territory(10_000, 5000));
+        Assert.Empty(machine.Handle(ZoneUnknown(11) with { IsDutyInstance = dutyFlag }).Commands);
+
+        machine.Handle(Territory(1_800_000, 1039));
+        var entered = machine.Handle(ZoneUnknown(1801));
+        Assert.Equal(RunState.EnteredDuty, entered.ToState);
+        Assert.Equal(Start, Assert.Single(entered.Commands.OfType<CreateRunCommand>()).MatchedAtUtc);
+        Assert.Equal(Start.AddSeconds(1801),
+            Assert.Single(entered.Commands.OfType<EnterDutyCommand>()).EnteredAtUtc);
+    }
+
+    [Theory]
+    [InlineData("cancel")]
+    [InlineData("stop")]
+    [InlineData("disconnect")]
+    [InlineData("gap")]
+    [InlineData("other_roulette")]
+    [InlineData("reset")]
+    public void AnInvalidatedQueueCannotCreateALaterRun(string signal)
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        var key = Key(signal);
+        SemanticEvent invalidation = signal switch
+        {
+            "cancel" => new MatchCancelled { Key = key, ObservedAtUtc = Start.AddSeconds(5), Mono = TimeSpan.FromSeconds(5) },
+            "stop" => CaptureStop(5),
+            "disconnect" => Connection(5),
+            "gap" => new EventSequenceGap { Key = key, ObservedAtUtc = Start.AddSeconds(5), Mono = TimeSpan.FromSeconds(5), DroppedCount = 1 },
+            _ => Queue(5, roulette: 2),
+        };
+        if (signal == "reset") machine.Reset();
+        else Assert.Empty(machine.Handle(invalidation).Commands);
+
+        machine.Handle(Territory(10_000, 1039));
+        Assert.Empty(machine.Handle(ZoneUnknown(11)).Commands);
+        Assert.Null(machine.CurrentRunId);
+        Assert.Equal(RunState.Idle, machine.State);
+    }
+
+    [Fact]
+    public void AStaleQueueCannotBeRevivedByAMatchingContentId()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0) with { ContentId = 123 });
+        Assert.Empty(machine.Handle(ZoneUnknown(3601) with { ContentId = 123, TerritoryId = 1039 }).Commands);
+        Assert.Null(machine.CurrentRunId);
+    }
+
+    [Fact]
+    public void RequeueingUsesTheLatestRequestAndCreatesOnlyOneRunAtEntry()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        Assert.Empty(machine.Handle(Queue(20)).Commands);
+        machine.Handle(Territory(30_000, 1039));
+        var entered = machine.Handle(ZoneUnknown(31));
+        Assert.Equal(Start.AddSeconds(20),
+            Assert.Single(entered.Commands.OfType<CreateRunCommand>()).MatchedAtUtc);
+        Assert.Empty(machine.Handle(ZoneUnknown(31)).Commands);
+    }
+
+    [Fact]
+    public void ANewQueueAfterAnEnteredDutyDoesNotCreateAnotherPendingRecord()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        machine.Handle(Territory(10_000, 1039));
+        machine.Handle(ZoneUnknown(11));
+        var next = machine.Handle(Queue(100));
+        Assert.Single(next.Commands.OfType<FinishRunCommand>());
+        Assert.Empty(next.Commands.OfType<CreateRunCommand>());
+        Assert.Equal(RunState.Idle, next.ToState);
+        Assert.Null(machine.CurrentRunId);
+        machine.Handle(Territory(110_000, 1039));
+        Assert.Single(machine.Handle(ZoneUnknown(111)).Commands.OfType<CreateRunCommand>());
+    }
+
+    /// <summary>An ordinary profile is untouched by the duty-table rule.</summary>
+    [Fact]
+    public void AnObservedProfileStillEntersOnAnyZoneChangeInsideTheWindow()
+    {
+        var machine = new MentorRunStateMachine(
+            ProfileBinding.Live("cn-test", Region.Cn, ProfileStatus.Verified, Mentor),
+            new StateMachineOptions { MatchWindow = TimeSpan.FromSeconds(120) },
+            () => "00000000-0000-4000-8000-000000000004");
+
+        Assert.Equal(RunState.MentorMatched, machine.Handle(Pop(0, Mentor)).ToState);
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(ZoneUnknown(11)).ToState);
     }
 }

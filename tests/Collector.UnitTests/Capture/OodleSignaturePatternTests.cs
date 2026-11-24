@@ -1,6 +1,5 @@
 using Machina.FFXIV.Memory;
 using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Diagnostics;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -106,21 +105,6 @@ public sealed class OodleSignaturePatternTests
                 evidence.Target,
                 OodleSignaturePattern.ResolveRelativeTarget(image, hit, pattern.Length));
         }
-    }
-
-    [Theory]
-    [InlineData(@"Copied from D:\APPS\FF14\最终幻想XIV\game\ffxiv_dx11.exe.")]
-    [InlineData(@"Copied from E:\Square Enix\game\ffxiv_dx11.EXE.")]
-    [InlineData(@"Copied from D:\John's Games\game\ffxiv_dx11.exe.")]
-    [InlineData(@"Copied from \\server\share\FF XIV\game\ffxiv_dx11.exe.")]
-    [InlineData("Copied from F:/Games/FFXIV/game/ffxiv_dx11.exe.")]
-    public void SanitizerRemovesTheWholeGameInstallPath(string message)
-    {
-        var sanitized = RotatingFileLogger.Sanitize(message);
-
-        Assert.Equal("Copied from [game-dir].", sanitized);
-        Assert.DoesNotContain("ffxiv_dx11", sanitized, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(":\\", sanitized, StringComparison.Ordinal);
     }
 
     private static int[] Parse(string text)

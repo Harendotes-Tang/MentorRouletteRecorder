@@ -1,7 +1,5 @@
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
-using MentorRecorder.Collector.Capture;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
@@ -441,21 +439,6 @@ public sealed class HistoryRetentionTests
         Assert.Contains(ids[^1], restarted.PendingImageCleanup());
         Assert.Equal(1, restarted.AcknowledgeImageCleanup(new[] { ids[^1] }));
         Assert.Equal(2000, restarted.PendingImageCleanup().Count);
-    }
-
-    [Fact]
-    public void ExactIdExportWritesOnlySelectionAndMissingIdDoesNotWriteAFile()
-    {
-        using var f = new Fixture(); var first = f.Create(); var other = f.Create(); var second = f.Create();
-        var exporter = new RunExporter(f.Runs, f.Db.Clock, f.Db.Database);
-        var path = Path.Combine(Path.GetDirectoryName(f.Db.Path)!, "selected.json");
-        var outcome = exporter.ExportJson(path, new RunFilter { RunIds = new[] { second.RunId, first.RunId } }, false);
-        Assert.Equal(2, outcome.RowCount);
-        var ids = JsonNode.Parse(File.ReadAllText(path))!.AsArray().Select(node => node!["run_id"]!.GetValue<string>()).ToArray();
-        Assert.DoesNotContain(other.RunId, ids); Assert.Contains(first.RunId, ids); Assert.Contains(second.RunId, ids);
-        var missing = Path.Combine(Path.GetDirectoryName(f.Db.Path)!, "missing.json");
-        Assert.Throws<CollectorException>(() => exporter.ExportJson(missing, new RunFilter { RunIds = new[] { first.RunId, Id() } }, false));
-        Assert.False(File.Exists(missing));
     }
 
     [Fact]

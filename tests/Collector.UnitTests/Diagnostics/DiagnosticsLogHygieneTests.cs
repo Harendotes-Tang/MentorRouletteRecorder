@@ -17,8 +17,8 @@ namespace MentorRecorder.Collector.UnitTests;
 /// directions, lengths, parsed id fields, profile ids, counts and durations.
 ///
 /// The tests feed the logger every kind of secret those documents name and read the file back.
-/// The sanitizer redacts user profile paths, IPv4 and IPv6 literals, Windows SIDs and long
-/// hexadecimal runs. The short SHA-256 prefixes used as identifiers must survive it, or the
+/// The sanitizer redacts user profile paths, the game's install folder, IPv4 and IPv6 literals,
+/// Windows SIDs and long hexadecimal runs. The short SHA-256 prefixes used as identifiers must survive it, or the
 /// redaction would cost diagnostic value without buying any privacy. The last section covers
 /// two loggers sharing one file.
 /// </summary>
@@ -79,6 +79,21 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
     [Fact]
     public void Sanitize_LeavesTextWithoutAProfilePathAlone() =>
         Assert.Equal("queue depth 12 of 4096", RotatingFileLogger.Sanitize("queue depth 12 of 4096"));
+
+    [Theory]
+    [InlineData(@"Copied from D:\APPS\FF14\最终幻想XIV\game\ffxiv_dx11.exe.")]
+    [InlineData(@"Copied from E:\Square Enix\game\ffxiv_dx11.EXE.")]
+    [InlineData(@"Copied from D:\John's Games\game\ffxiv_dx11.exe.")]
+    [InlineData(@"Copied from \\server\share\FF XIV\game\ffxiv_dx11.exe.")]
+    [InlineData("Copied from F:/Games/FFXIV/game/ffxiv_dx11.exe.")]
+    public void SanitizerRemovesTheWholeGameInstallPath(string message)
+    {
+        var sanitized = RotatingFileLogger.Sanitize(message);
+
+        Assert.Equal("Copied from [game-dir].", sanitized);
+        Assert.DoesNotContain("ffxiv_dx11", sanitized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(":\\", sanitized, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void Logger_WritesNoPayloadAndNoUserName()

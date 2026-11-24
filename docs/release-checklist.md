@@ -55,15 +55,15 @@
 | 3 | 没有 Npcap 时优雅降级（不崩溃、给指引） | `CaptureControllerTests.RefusesToStart_WithoutNpcap`、`ReportsUnavailable_WhenNpcapIsMissing`；`--capture-doctor` 退出码 1 并打印安装指引 | **PASS** | `artifacts/test-results/run-<UTC 时间>-<随机编号>/MentorRecorder.Collector.UnitTests.trx`；`LifecycleProcessTests.TheVersionAndDoctorModesRunWithoutOpeningAnythingAtAll` |
 | 4 | 合成样本重放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（14 个 decoded 测试样本 × 2）、`ReplayIntegrationTests`（10 个语义测试样本）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
 | 5 | 同一份测试样本重放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（14 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
-| 6 | 成就基线可设置并影响进度 | `MutationTests.UpdateAchievementBaseline_StoresGoalBaselineAndAudit`、`StatisticsAfterMutationTests.BaselineChange_RecomputesProgressAndRemaining`、`PipeServerTests.UpdateAchievementBaseline_IsServedAndIdempotent` | **PASS** | 两个 TRX |
+| 6 | 成就基线可设置并影响进度 | `AchievementBaselineTests.UpdateAchievementBaseline_StoresGoalBaselineAndAudit`、`StatisticsAfterMutationTests.BaselineChange_RecomputesProgressAndRemaining`、`PipeServerTests.UpdateAchievementBaseline_IsServedAndIdempotent` | **PASS** | 两个 TRX |
 | 7 | 仪表盘数字与固定数据集一致 | `StatisticsTests.Dashboard_*`（6 项）、`ReplayTests.Replay_ProducesTransitionsFinalRunDatabaseWritesAndStatistics` | **PASS** | 单元 TRX；期望值在测试中独立计算，不取自实现 |
 | 8 | 按副本分组的次数统计 | `PipeServerTests.Statistics_AreServedForEveryTable`（`GetDungeonStats`）、`StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback` | **PASS** | 两个 TRX |
 | 9 | 各项比率（完成率 / 中途退出率 / 断线率）互不混淆 | `StatisticsTests.Dashboard_KeepsCompletionLeaveAndDisconnectSeparate`、`StatisticsAfterMutationTests.DisconnectedAndInterrupted_AreNeverFoldedIntoTheLeaveRate` | **PASS** | 单元 TRX |
 | 10 | 未知职业单独分组，不丢弃 | `StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback`、`ReferenceCatalogTests.DefaultJobCatalog_MapsKnownAndUnknownJobs` | **PASS** | 单元 TRX |
 | 11 | 平均时长只统计有真实时长的记录 | `StatisticsAfterMutationTests.CancelledBeforeEntry_IsNeverAnAttemptAndItsShareIsNull`、`ReplayIntegrationTests.CancelledFixture_HasNoEntryTimeAndNoDuration`、`CompletedFixture_MeasuresDurationFromTheMonotonicReadings` | **PASS** | 两个 TRX |
-| 12 | 手工订正产生可追溯的 revision 链 | `MutationTests`（35 项，含 `CorrectRun_KeepsTheOriginalValuesReachableThroughRevisionOne`、`RunRevisions_RefuseUpdateAndDelete`） | **PASS** | 单元 TRX |
+| 12 | 手工订正产生可追溯的 revision 链 | `MutationTests`（28 项，含 `CorrectRun_KeepsTheOriginalValuesReachableThroughRevisionOne`、`RunRevisions_RefuseUpdateAndDelete`） | **PASS** | 单元 TRX |
 | 13 | 软删除后从统计中排除，恢复后重新计入 | `StatisticsAfterMutationTests.SoftDeletedRun_LeavesEveryStatistic`、`RestoredRun_ReturnsToEveryStatistic`、`MutationTests.SoftDeleteThenRestore_KeepsTheWholeRevisionChain` | **PASS** | 单元 TRX |
-| 14 | CSV / JSON 导出 | `ExportTests`（12 项，含 RFC 4180 转义、BOM、列顺序、路径越界拒绝） | **PASS** | 单元 TRX |
+| 14 | CSV / JSON 导出 | `ExportTests`（18 项，含 RFC 4180 转义、BOM、列顺序、公式注入防护、路径越界拒绝；备份与保留在 `BackupServiceTests`，8 项） | **PASS** | 单元 TRX |
 | 15 | 图表能渲染 | ctest `MentorRecorderQmlLoad` / `QmlDetailPanel` / `QmlEditDialog` / `QmlBaselineDialog`（offscreen 截图） | **PASS** | `build/tests/Desktop.Tests/qml-*.png`；图表实现在 `src/Desktop/qml/charts/` |
 | 16 | 高 DPI | `main.cpp` 设置 `HighDpiScaleFactorRoundingPolicy::PassThrough`；截图用例在 1280×800 下渲染通过 | **PARTIAL** | `src/Desktop/cpp/main.cpp:569-570`。**尚未**在缩放大于 100% 的真实显示器上人工核对；offscreen 截图恒为 1.0 倍。逐项步骤见第 8 节「高 DPI 人工核对」，该节待人工执行 |
 | 17 | 命名管道 ACL 只授权当前用户 | `LifecyclePipeSecurityTests`（3 项）：从真实管道句柄读 DACL，断言只有一条 Allow 规则且身份是当前用户 SID；并断言 Everyone / Authenticated Users / NETWORK / ANONYMOUS / Users / INTERACTIVE 都不在其中 | **PASS** | 集成 TRX |
@@ -75,9 +75,9 @@
 | 23 | 崩溃后重启：已进入副本的未完结记录变 INTERRUPTED + 待复核（从未进本的记为 CANCELLED_BEFORE_ENTRY + 待复核），重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
 | 24 | 单实例：第二个 `--serve` 非零退出，第一个继续服务 | `LifecycleProcessTests.ASecondServeIsRefusedAndTheFirstKeepsServing` | **PASS** | 集成 TRX |
 | 25 | 长时间运行不泄漏、计数自洽 | `SoakTests.AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact`（默认 15 s，`MR_SOAK_MINUTES` 可延长） | **PASS** | 见第 4 节实测数字 |
-| 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（14 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
+| 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（22 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
 | 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序与开发构建（`MR_DEV_BUILD`：带有开发口味标记，或缺少正式口味标记） | **PASS** | 见第 2 节 |
-| 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（21 项，含父进程身份核对）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
+| 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（11 项，含父进程身份核对与夏令时回拨；`--parent-pid` / `--parent-start-time` 的解析在 `CommandLineOptionsTests`）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
 | 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` 或 `vX.Y.Z-beta.N` tag，把工作区 `CHANGELOG.md` 里的同名段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。tag 中没有同名段落的旧流程先行版无可保护，跳过。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
 | 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载安装包」，确认下载进度持续更新、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
 
@@ -275,13 +275,13 @@ OK: <N> self-test case(s) passed; the checker rejects what it must.
 UUID 的分段更短。将这些短串一并删除不会额外隐藏任何秘密，却会使日志无法区分两张网卡、
 两个会话，从而失去日志本身的用途。
 
-原先标记为 **Skip** 的三个用例（`AnIPv4AddressIsNeverWrittenInClear`、
-`AUserSidIsNeverWrittenInClear`、`AHexPayloadDumpIsNeverWrittenInClear`）
+原先标记为 **Skip** 的三个用例（IPv4、SID、十六进制串，
+现为 `AForbiddenValueIsNeverWrittenInClear` 的三行数据）
 **未经修改**即已通过。此外新增两项：
 `AnIPv6AddressIsNeverWrittenInClearInEitherForm` 覆盖完整式与 `::` 压缩式，
 两种形态各包含单独出现与嵌在句子中两种写法；
 `TheShortHashPrefixesUsedAsIdentifiersSurviveTheRedaction` 反向断言 12 位指纹与
-UUID 原样保留。`DiagnosticsLogHygieneTests` 现共 14 项，**0 跳过**。
+UUID 原样保留。`DiagnosticsLogHygieneTests` 现共 22 项，**0 跳过**。
 
 其余约束仍然成立：异常只记录类型与消息，不记录堆栈；每行是一个带固定信封的 JSON 对象；
 诊断所需的计数字段照常放行；日志按大小滚动，最多 5 个文件，每个 2 MiB；

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
@@ -8,6 +9,11 @@ using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
+/// <summary>
+/// The repositories and the transactions they write in: what survives a round trip, what the
+/// revision chain refuses, how long a write waits behind a locked database, and what a failed or
+/// busy transaction leaves behind.
+/// </summary>
 public sealed class RepositoryTests
 {
     [Fact]
@@ -74,6 +80,84 @@ public sealed class RepositoryTests
         Assert.Throws<InvalidOperationException>(() => fixture.Database.RunLiveCaptureTransaction(
             _ => throw new InvalidOperationException("boom")));
         Assert.Equal(SqliteDatabase.DefaultBusyTimeoutMs, fixture.Database.BusyTimeoutMs);
+    }
+
+    /// <summary>
+    /// The live-capture path must lower both <c>PRAGMA busy_timeout</c> and
+    /// <c>CommandTimeout</c>. Lowering only the pragma leaves Microsoft.Data.Sqlite's own retry
+    /// loop bounded by the connection's five-second default, and three attempts upstream then
+    /// stall the pipeline for fifteen seconds while a zone-change burst fills the bounded queue
+    /// (review findings L-11 and R-1).
+    /// </summary>
+    [Fact]
+    public void ALockedDatabaseIsGivenUpOnQuicklyOnTheLivePathAndPatientlyOnTheManualOne()
+    {
+        using var fixture = new TestDatabase();
+        using var blocker = OpenSecondConnection(fixture.Path);
+        using (var begin = blocker.CreateCommand())
+        {
+            // A write transaction on another connection: every writer behind it now waits.
+            begin.CommandText = "BEGIN IMMEDIATE;";
+            begin.ExecuteNonQuery();
+        }
+
+        var live = Stopwatch.StartNew();
+        var liveFailure = Assert.Throws<CollectorException>(
+            () => fixture.Database.RunLiveCaptureTransaction(_ => WriteSetting(fixture)));
+        live.Stop();
+
+        Assert.Equal(ErrorCodes.DbBusy, liveFailure.Code);
+        Assert.True(
+            live.Elapsed < TimeSpan.FromSeconds(2),
+            "the live path must give up inside its own budget, not the connection default; took " + live.Elapsed);
+
+        // Both budgets are handed back, so a manual mutation is still allowed to be patient.
+        Assert.Equal(SqliteDatabase.DefaultBusyTimeoutMs, fixture.Database.BusyTimeoutMs);
+        Assert.Equal(5, fixture.Database.CommandTimeoutSeconds);
+
+        var manual = Stopwatch.StartNew();
+        var manualFailure = Assert.Throws<CollectorException>(
+            () => fixture.Database.RunInTransaction(_ => WriteSetting(fixture)));
+        manual.Stop();
+
+        Assert.Equal(ErrorCodes.DbBusy, manualFailure.Code);
+        Assert.True(
+            manual.Elapsed > TimeSpan.FromSeconds(3),
+            "a person waiting for their own correction would rather wait than retype it; took " + manual.Elapsed);
+    }
+
+    [Fact]
+    public void BusyAtTransactionStartUsesTheRetryableContractError()
+    {
+        using var fixture = new TestDatabase();
+        fixture.Database.Read(connection => { connection.DefaultTimeout = 1; return 0; });
+        using var other = OpenSecondConnection(fixture.Path);
+        var workCalled = false;
+        using (var transaction = other.BeginTransaction())
+        {
+            var error = Assert.Throws<CollectorException>(() =>
+                fixture.Database.RunInTransaction(_ => { workCalled = true; }));
+            Assert.Equal(ErrorCodes.DbBusy, error.Code);
+            Assert.True(error.Retryable);
+            Assert.False(workCalled);
+            Assert.IsType<SqliteException>(error.InnerException);
+        }
+        fixture.Database.RunInTransaction(_ => { workCalled = true; });
+        Assert.True(workCalled);
+    }
+
+    [Fact]
+    public void NonSqliteFailureStillRollsBackTheWholeTransaction()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        Assert.Throws<InvalidOperationException>(() => fixture.Database.RunInTransaction(transaction =>
+        {
+            runs.Insert(TestDatabase.Run(), transaction);
+            throw new InvalidOperationException("Injected failure after the write.");
+        }));
+
+        Assert.Equal(0, runs.Query(null, null, 1, 50).Total);
     }
 
     private static int ReadBusyTimeout(SqliteDatabase database)
@@ -184,6 +268,26 @@ public sealed class RepositoryTests
         Assert.Throws<SqliteException>(() => delete.ExecuteNonQuery());
     }
 
+    [Fact]
+    public void HighestAcceptedPageIsEmptyForBothRunAndRevisionQueries()
+    {
+        using var fixture = new TestDatabase();
+        var created = fixture.Mutations().CreateManualRun(new CreateManualRunCommand
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            Reason = "分页回归检查",
+            Result = RunResult.CancelledBeforeEntry,
+        });
+        var runs = new RunRepository(fixture.Database).Query(null, null, int.MaxValue, 200);
+        var revisions = new RunRevisionRepository(fixture.Database)
+            .ListForRun(created.RunId, int.MaxValue, 200);
+
+        Assert.Equal(1, runs.Total);
+        Assert.Empty(runs.Items);
+        Assert.Equal(1, revisions.Total);
+        Assert.Empty(revisions.Items);
+    }
+
     /// <summary>Persisted integer audit values must remain exact and usable by undo.</summary>
     [Theory]
     [InlineData(2_147_483_647L)]
@@ -225,6 +329,30 @@ public sealed class RepositoryTests
 
         repository = new IdempotencyRepository(fixture.Database, fixture.Clock);
         Assert.Equal("{\"revision\":2}", repository.TryGetResponse(requestId));
+    }
+
+    private static void WriteSetting(TestDatabase fixture)
+    {
+        using var command = fixture.Database.CreateCommand();
+        command.CommandText =
+            "INSERT INTO settings(key, value_json, updated_at_utc) VALUES('review.r1', '1', '2026-09-09T00:00:00.000Z') " +
+            "ON CONFLICT(key) DO UPDATE SET value_json = '1';";
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>A second, unpooled connection to the same file that gives up on a lock after one second.</summary>
+    private static SqliteConnection OpenSecondConnection(string path)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWrite,
+            Cache = SqliteCacheMode.Private,
+            Pooling = false,
+            DefaultTimeout = 1,
+        }.ConnectionString);
+        connection.Open();
+        return connection;
     }
 
     private static RunRevision CreateRevision(MentorRun run) => new()

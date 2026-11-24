@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -142,9 +141,10 @@ public sealed class RunMutationRuleTests
     // ----------------------------------------- hand-entered records without times ----
     // A hand-entered record may have no entry or end time, whatever its result
     // (docs/manual-correction.md §7); its known result still counts it as an attempt
-    // (docs/statistics-definitions.md §2), and its duration stays unknown.
+    // (docs/statistics-definitions.md §2; StatisticsTests counts them), and its duration stays unknown.
 
-    private static MentorRun Timeless(RunResult result) =>
+    /// <summary>A hand-entered record with no entry time, no end time and no duration.</summary>
+    internal static MentorRun Timeless(RunResult result) =>
         TestDatabase.Run(result: result, source: RunSource.Manual) with
         {
             EnteredAtUtc = null,
@@ -183,39 +183,6 @@ public sealed class RunMutationRuleTests
         };
         var failure = Assert.Throws<RunRuleViolationException>(() => RunMutationRules.ValidateFinalValue(run, false));
         Assert.Equal(RunRuleViolationKind.EnteredAfterEnded, failure.Kind);
-    }
-
-    [Fact]
-    public void ManualRunsWithoutTimesCountByTheirResultLikeImportedHistory()
-    {
-        using var fixture = new TestDatabase();
-        var runs = new RunRepository(fixture.Database);
-        var owner = fixture.CurrentProfile();
-        fixture.Database.RunInTransaction(tx =>
-        {
-            runs.Insert(Timeless(RunResult.Completed) with { ProfileId = owner }, tx);
-            runs.Insert(Timeless(RunResult.LeftOrAbandoned), tx);
-            // Unknown and cancelled-before-entry prove no entry, so they are no attempt.
-            runs.Insert(Timeless(RunResult.Unknown), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.Manual), tx);
-            // A capture without an entry time whose result says it was entered - only a person's
-            // correction gives it one - counts by that result too, so a corrected completion is never
-            // a completion without an attempt (audit 2026-11-03, D1-2).
-            runs.Insert(TestDatabase.Run(result: RunResult.Interrupted, source: RunSource.AutoNetwork) with
-            {
-                EnteredAtUtc = null,
-                DurationMs = null,
-            }, tx);
-        });
-        var settings = fixture.Settings();
-
-        var dashboard = new StatisticsRepository(fixture.Database, settings).GetDashboard();
-
-        Assert.Equal(3, dashboard.AttemptCount);
-        Assert.Equal(1, dashboard.CompletedCount);
-        Assert.Equal(1, dashboard.AchievementProgress);
-        Assert.Equal(1.0 / 3, dashboard.CompletionRate!.Value, 6);
-        Assert.Null(dashboard.AverageDurationMs);
     }
 
     private static MentorRun ValidRun() => new()

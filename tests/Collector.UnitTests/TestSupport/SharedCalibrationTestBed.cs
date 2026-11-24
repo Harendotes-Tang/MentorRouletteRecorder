@@ -251,9 +251,16 @@ internal sealed class SharedCalibrationTestBed : IDisposable
     // ------------------------------------------------------------------ codes
 
     /// <summary>The code a player who played <paramref name="name"/> on evening A would share.</summary>
-    public SharedCode CodeFromEveningA(string name)
+    public SharedCode CodeFromEveningA(string name) => ExportEveningA(name, Root);
+
+    /// <summary>
+    /// <see cref="CodeFromEveningA"/> without a bed: that player's calibration is written to a folder of its own
+    /// under <paramref name="root"/> and exported as a share code.
+    /// </summary>
+    internal static SharedCode ExportEveningA(string name, string root)
     {
-        var written = WriteLocalProfile(name, root: Path.Combine(Root, "evening-a", Guid.NewGuid().ToString("N")));
+        var written = LocalProfileWriter.Write(CalibrationTrafficCases.Derive(name), Template, Build, Confirmed,
+            Path.Combine(root, "evening-a", Guid.NewGuid().ToString("N"))).Path;
         var exported = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written), Template);
         Assert.Null(exported.Reason);
         return new SharedCode(exported.Payload!, exported.Code!, exported.CodeSha256!);

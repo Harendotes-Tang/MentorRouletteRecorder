@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
-using MentorRecorder.Collector.Domain.Statistics;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -399,6 +398,7 @@ public sealed class StatisticsTests
         Assert.Equal(2, Assert.Single(statistics.GetJobStats(new RunFilter { Region = Region.Tc })).CompletedCount);
         Assert.Equal(2, statistics.GetResultStats(new RunFilter { Region = Region.Tc }).AttemptCount);
     }
+
     /// <summary>
     /// Audit 2026-11-03 D1-2. Entry and end times are optional for every source (owner's rule of 2026-10-21), so a
     /// capture the player corrects to 实际已通关 may have no entry time. Every completion is an attempt: a result that
@@ -442,5 +442,39 @@ public sealed class StatisticsTests
         Assert.Equal(3, statistics.GetDungeonStats().Sum(row => row.AttemptCount));
         Assert.All(statistics.GetDungeonStats(), row => Assert.True(row.CompletionRate is null or <= 1));
         Assert.Equal(3, statistics.GetJobStats().Sum(row => row.AttemptCount));
+    }
+
+    /// <summary>
+    /// A hand-entered record may have no entry or end time whatever its result (docs/manual-correction.md §7);
+    /// its known result still counts it as an attempt (docs/statistics-definitions.md §2) and its duration
+    /// stays unknown, as for imported history.
+    /// </summary>
+    [Fact]
+    public void ManualRunsWithoutTimesCountByTheirResultLikeImportedHistory()
+    {
+        using var fixture = new TestDatabase();
+        var owner = fixture.CurrentProfile();
+        fixture.InsertRuns(
+            RunMutationRuleTests.Timeless(RunResult.Completed) with { ProfileId = owner },
+            RunMutationRuleTests.Timeless(RunResult.LeftOrAbandoned),
+            // Unknown and cancelled-before-entry prove no entry, so they are no attempt.
+            RunMutationRuleTests.Timeless(RunResult.Unknown),
+            TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.Manual),
+            // A capture without an entry time whose result says it was entered - only a person's
+            // correction gives it one - counts by that result too, so a corrected completion is never
+            // a completion without an attempt (audit 2026-11-03, D1-2).
+            TestDatabase.Run(result: RunResult.Interrupted, source: RunSource.AutoNetwork) with
+            {
+                EnteredAtUtc = null,
+                DurationMs = null,
+            });
+
+        var dashboard = new StatisticsRepository(fixture.Database, fixture.Settings()).GetDashboard();
+
+        Assert.Equal(3, dashboard.AttemptCount);
+        Assert.Equal(1, dashboard.CompletedCount);
+        Assert.Equal(1, dashboard.AchievementProgress);
+        Assert.Equal(1.0 / 3, dashboard.CompletionRate!.Value, 6);
+        Assert.Null(dashboard.AverageDurationMs);
     }
 }

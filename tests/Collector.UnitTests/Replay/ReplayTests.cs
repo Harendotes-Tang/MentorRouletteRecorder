@@ -1,11 +1,19 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Protocol.Calibration;
+using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Replay;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// Offline replay: the semantic-event fixture through the state machine and the decoded fixtures
-/// through the parser. The integrity checks that keep both synthetic are <see cref="FixtureIntegrityTests"/>.
+/// Offline replay: the semantic-event fixture through the state machine, and decoded traffic (the
+/// shipped decoded fixtures, and an evening written for a queue-inferred local profile) through the
+/// parser. The integrity checks that keep the fixtures synthetic are <see cref="FixtureIntegrityTests"/>.
 /// </summary>
 [Collection(ConsoleOutputCollection.Name)]
 public sealed class ReplayTests
@@ -129,6 +137,76 @@ public sealed class ReplayTests
 
         Assert.Equal("synthetic-v1", result.ProfileId);
         Assert.Equal(RunState.Completed, result.FinalState);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void QueueInferredReplayStartsOnlyForAKnownDuty(bool knownDuty)
+    {
+        using var root = TempDirectory.Reserve("QueueReplay");
+        try
+        {
+            var template = CalibrationObserverTests.Template();
+            var draft = CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest);
+            var written = LocalProfileWriter.Write(draft, template, CalibrationTrafficCases.Build,
+                DateTimeOffset.Parse("2026-09-01T00:00:00Z"), root.Path);
+            var profile = ProfileLoader.Load(written.Path);
+            Assert.True(profile.ToBinding().MatchFromQueue);
+            var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest)
+                .Select(message =>
+                {
+                    var payload = message.Payload.ToArray();
+                    if (message.Opcode == CalibrationTrafficCases.Request && payload[0] == 1)
+                    {
+                        payload[0] = (byte)profile.MentorRouletteId.GetValueOrDefault();
+                    }
+                    if (!knownDuty && message.Opcode == CalibrationTrafficCases.Territory &&
+                        BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(2)) == 1039)
+                    {
+                        // A normal overworld territory must still fail the queue inference guard.
+                        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2), 5000);
+                    }
+                    return message with { Payload = payload, Epoch = (long)message.Mono.TotalMilliseconds };
+                }).ToArray();
+            var fixture = new
+            {
+                format_version = 1,
+                fixture_id = "queue-inferred-review-regression",
+                synthetic = true,
+                profile = profile.ProfileId,
+                game_build = CalibrationTrafficCases.Build,
+                messages = traffic.Select(message => new
+                {
+                    t_ms = (long)message.Mono.TotalMilliseconds,
+                    epoch = message.Epoch,
+                    segment_type = message.SegmentType,
+                    opcode = message.Opcode,
+                    direction = message.Direction == MessageDirection.Inbound ? "SERVER_TO_CLIENT" : "CLIENT_TO_SERVER",
+                    payload_hex = Convert.ToHexString(message.Payload.Span),
+                }),
+            };
+            var path = root.Combine("queue.decoded.json");
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(fixture);
+            File.WriteAllBytes(path, bytes);
+            File.WriteAllText(path + ".sha256", Convert.ToHexString(SHA256.HashData(bytes)));
+
+            var replay = DecodedReplayRunner.Run(path, written.Path, root.Combine("replay.db"));
+
+            Assert.True(replay.ProfileUsable);
+            Assert.True(replay.BuildMatched);
+            Assert.True(replay.Parser.ParseOk > 0);
+            Assert.Equal(0, replay.Parser.ParseFailed);
+            Assert.Equal(knownDuty ? 1 : 0, replay.Runs.Count);
+            if (knownDuty)
+            {
+                Assert.Contains(replay.Transitions, transition => transition.RunId is not null);
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+        }
     }
 
     [Fact]

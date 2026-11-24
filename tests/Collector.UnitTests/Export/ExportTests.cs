@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Export;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -334,6 +333,29 @@ public sealed class ExportTests : IDisposable
 
         Assert.Equal(new[] { earliest.RunId, latest.RunId }, CsvRunIds(ascending.TargetPath));
         Assert.Equal(new[] { latest.RunId, earliest.RunId }, CsvRunIds(descending.TargetPath));
+    }
+
+    /// <summary>An export of chosen records writes exactly those, and one id that is not there writes no file at all.</summary>
+    [Fact]
+    public void ExactIdExportWritesOnlySelectionAndMissingIdDoesNotWriteAFile()
+    {
+        var first = TestDatabase.Run();
+        var other = TestDatabase.Run();
+        var second = TestDatabase.Run();
+        Seed(first, other, second);
+        var path = Target("selected.json");
+
+        var outcome = _exporter.ExportJson(path, new RunFilter { RunIds = new[] { second.RunId, first.RunId } }, false);
+
+        Assert.Equal(2, outcome.RowCount);
+        var ids = JsonRunIds(path);
+        Assert.DoesNotContain(other.RunId, ids);
+        Assert.Contains(first.RunId, ids);
+        Assert.Contains(second.RunId, ids);
+        var missing = Target("missing.json");
+        Assert.Throws<CollectorException>(() => _exporter.ExportJson(
+            missing, new RunFilter { RunIds = new[] { first.RunId, Guid.NewGuid().ToString("D") } }, false));
+        Assert.False(File.Exists(missing));
     }
 
     [Fact]

@@ -21,15 +21,8 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     private static CalibrationTemplate Template => SharedCalibrationTestBed.Template;
 
     /// <summary>The code a player who played <paramref name="name"/> on evening A would share.</summary>
-    private ShareCodePayload CodeFromEveningA(string name)
-    {
-        var draft = CalibrationTrafficCases.Derive(name);
-        var written = LocalProfileWriter.Write(draft, Template, CalibrationTrafficCases.Build, SharedCalibrationTestBed.Confirmed,
-            _root.Combine("evening-a", Guid.NewGuid().ToString("N")));
-        var exported = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), Template);
-        Assert.Null(exported.Reason);
-        return exported.Payload!;
-    }
+    private ShareCodePayload CodeFromEveningA(string name) =>
+        SharedCalibrationTestBed.ExportEveningA(name, _root.Path).Payload;
 
     private static DeclaredCandidate Candidate(ShareCodePayload payload) =>
         SharedCandidateVerifier.Candidate(payload, Template) ?? throw new InvalidOperationException("no candidate");

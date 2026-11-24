@@ -1,21 +1,17 @@
 using System.Text;
-using Microsoft.Data.Sqlite;
-using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Export;
-using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
-/// <summary>回归检查：写入失败时保留原文件、禁止覆盖模式下的并发提交、真实文件锁冲突与超大页码查询。</summary>
+/// <summary>
+/// <see cref="AtomicExportFile"/>：写入失败、取消或校验不通过时保留原文件且不留临时文件；禁止覆盖模式下的并发提交只有一个成功；
+/// 真实文件锁冲突时原文件同样完好。
+/// </summary>
 public sealed class AtomicExportFileTests : IDisposable
 {
-    private readonly TestDatabase _database = new();
+    private readonly TempDirectory _directory = new("AtomicExport");
 
-    private string DirectoryPath => Path.GetDirectoryName(_database.Path)!;
-    private string Target(string name) => Path.Combine(DirectoryPath, name);
+    private string Target(string name) => _directory.Combine(name);
 
     [Theory]
     [InlineData(false)]
@@ -131,68 +127,8 @@ public sealed class AtomicExportFileTests : IDisposable
         AssertNoTemporaryFiles();
     }
 
-    [Fact]
-    public void BusyAtTransactionStartUsesTheRetryableContractError()
-    {
-        _database.Database.Read(connection => { connection.DefaultTimeout = 1; return 0; });
-        using var other = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = _database.Path,
-            Mode = SqliteOpenMode.ReadWrite,
-            Pooling = false,
-            DefaultTimeout = 1,
-        }.ConnectionString);
-        other.Open();
-        var workCalled = false;
-        using (var transaction = other.BeginTransaction())
-        {
-            var error = Assert.Throws<CollectorException>(() =>
-                _database.Database.RunInTransaction(_ => { workCalled = true; }));
-            Assert.Equal(ErrorCodes.DbBusy, error.Code);
-            Assert.True(error.Retryable);
-            Assert.False(workCalled);
-            Assert.IsType<SqliteException>(error.InnerException);
-        }
-        _database.Database.RunInTransaction(_ => { workCalled = true; });
-        Assert.True(workCalled);
-    }
-
-    [Fact]
-    public void NonSqliteFailureStillRollsBackTheWholeTransaction()
-    {
-        var runs = new RunRepository(_database.Database);
-        Assert.Throws<InvalidOperationException>(() => _database.Database.RunInTransaction(transaction =>
-        {
-            runs.Insert(TestDatabase.Run(), transaction);
-            throw new InvalidOperationException("Injected failure after the write.");
-        }));
-
-        Assert.Equal(0, runs.Query(null, null, 1, 50).Total);
-    }
-
-    [Fact]
-    public void HighestAcceptedPageIsEmptyForBothRunAndRevisionQueries()
-    {
-        var settings = _database.Settings();
-        var mutations = new RunMutationService(_database.Database, settings, _database.Clock);
-        var created = mutations.CreateManualRun(new CreateManualRunCommand
-        {
-            RequestId = Guid.NewGuid().ToString("D"),
-            Reason = "分页回归检查",
-            Result = RunResult.CancelledBeforeEntry,
-        });
-        var runs = new RunRepository(_database.Database).Query(null, null, int.MaxValue, 200);
-        var revisions = new RunRevisionRepository(_database.Database)
-            .ListForRun(created.RunId, int.MaxValue, 200);
-
-        Assert.Equal(1, runs.Total);
-        Assert.Empty(runs.Items);
-        Assert.Equal(1, revisions.Total);
-        Assert.Empty(revisions.Items);
-    }
-
     private void AssertNoTemporaryFiles() =>
-        Assert.Empty(Directory.GetFiles(DirectoryPath, ".mentor-export-*.tmp", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(_directory.Path, ".mentor-export-*.tmp", SearchOption.AllDirectories));
 
-    public void Dispose() => _database.Dispose();
+    public void Dispose() => _directory.Dispose();
 }

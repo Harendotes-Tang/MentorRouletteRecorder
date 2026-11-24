@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Import;
@@ -9,8 +8,9 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The idempotency receipts behind every mutating request: how long a response is replayed, how an
-/// expired receipt is pruned, and how a request id whose response expired is still refused.
+/// The idempotency receipts behind every mutating request: when a resend counts as the same request,
+/// how long a response is replayed, how an expired receipt is pruned, and how a request id whose
+/// response expired is still refused.
 ///
 /// The idempotency table is a replay cache, not a journal.
 ///
@@ -75,6 +75,68 @@ public sealed class DurableMutationIdempotencyTests
         Assert.Equal("idempotency", error.Details["conflict"]);
         Assert.Equal("RESPONSE_EXPIRED", error.Details["reason"]);
     }
+
+    // ---- what makes a resend the same request: an unambiguous fingerprint of its body ----
+
+    [Fact]
+    public void Fingerprint_DistinguishesAShiftedFieldBoundary()
+    {
+        // Plain concatenation would make these two hash alike, and the second request would
+        // then be mistaken for a replay of the first.
+        var first = MutationSnapshotCodec.Fingerprint("AB", "C");
+        var second = MutationSnapshotCodec.Fingerprint("A", "BC");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void Fingerprint_DistinguishesAbsentFromEmpty() =>
+        Assert.NotEqual(
+            MutationSnapshotCodec.Fingerprint("x", null, "y"),
+            MutationSnapshotCodec.Fingerprint("x", string.Empty, "y"));
+
+    [Fact]
+    public void Fingerprint_IsStableForTheSameParts() =>
+        Assert.Equal(
+            MutationSnapshotCodec.Fingerprint("a", null, "b"),
+            MutationSnapshotCodec.Fingerprint("a", null, "b"));
+
+    [Fact]
+    public void Canonical_DistinguishesAValueThatLooksLikeAnotherField()
+    {
+        // A duty name may legitimately contain any character, including whatever a naive
+        // encoding would have used as its separator.
+        var honest = new RunChangeSet
+        {
+            Specified = new HashSet<string>(StringComparer.Ordinal) { RunFields.DutyName, RunFields.Note },
+            DutyName = "A",
+            Note = "B",
+        };
+        var forged = new RunChangeSet
+        {
+            Specified = new HashSet<string>(StringComparer.Ordinal) { RunFields.DutyName, RunFields.Note },
+            DutyName = "A;note=B",
+            Note = null,
+        };
+
+        Assert.NotEqual(
+            MutationSnapshotCodec.Canonical(honest), MutationSnapshotCodec.Canonical(forged));
+    }
+
+    [Fact]
+    public void SameRequestIdWithADifferentCreateBody_IsRefused()
+    {
+        using var f = new Fixture();
+        var command = f.NewRun() with { DutyName = "AB", Note = "C" };
+        f.Mutations.CreateManualRun(command);
+
+        var error = Assert.Throws<CollectorException>(() =>
+            f.Mutations.CreateManualRun(command with { DutyName = "A", Note = "BC" }));
+        Assert.Equal(ErrorCodes.IdempotencyConflict, error.Code);
+        Assert.Equal("idempotency", error.Details!["conflict"]);
+    }
+
+    // ---- how long a response is replayed, and what is left once it expires ----
 
     [Fact]
     public void ARowOlderThanTheWindowIsRemovedByTheNextWrite()

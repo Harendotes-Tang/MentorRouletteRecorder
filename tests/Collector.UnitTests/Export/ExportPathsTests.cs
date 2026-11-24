@@ -1,89 +1,13 @@
-using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Export;
-using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The properties that hold the boundaries in place: an unambiguous idempotency fingerprint
-/// and a destination check that survives links.
+/// <see cref="ExportPaths"/>: an export goes only to a local destination, and the check that keeps
+/// it there survives links.
 /// </summary>
 public sealed class ExportPathsTests
 {
-    [Fact]
-    public void Fingerprint_DistinguishesAShiftedFieldBoundary()
-    {
-        // Plain concatenation would make these two hash alike, and the second request would
-        // then be mistaken for a replay of the first.
-        var first = MutationSnapshotCodec.Fingerprint("AB", "C");
-        var second = MutationSnapshotCodec.Fingerprint("A", "BC");
-
-        Assert.NotEqual(first, second);
-    }
-
-    [Fact]
-    public void Fingerprint_DistinguishesAbsentFromEmpty() =>
-        Assert.NotEqual(
-            MutationSnapshotCodec.Fingerprint("x", null, "y"),
-            MutationSnapshotCodec.Fingerprint("x", string.Empty, "y"));
-
-    [Fact]
-    public void Fingerprint_IsStableForTheSameParts() =>
-        Assert.Equal(
-            MutationSnapshotCodec.Fingerprint("a", null, "b"),
-            MutationSnapshotCodec.Fingerprint("a", null, "b"));
-
-    [Fact]
-    public void Canonical_DistinguishesAValueThatLooksLikeAnotherField()
-    {
-        // A duty name may legitimately contain any character, including whatever a naive
-        // encoding would have used as its separator.
-        var honest = new RunChangeSet
-        {
-            Specified = new HashSet<string>(StringComparer.Ordinal) { RunFields.DutyName, RunFields.Note },
-            DutyName = "A",
-            Note = "B",
-        };
-        var forged = new RunChangeSet
-        {
-            Specified = new HashSet<string>(StringComparer.Ordinal) { RunFields.DutyName, RunFields.Note },
-            DutyName = "A;note=B",
-            Note = null,
-        };
-
-        Assert.NotEqual(
-            MutationSnapshotCodec.Canonical(honest), MutationSnapshotCodec.Canonical(forged));
-    }
-
-    [Fact]
-    public void SameRequestIdWithADifferentCreateBody_IsRefused()
-    {
-        using var database = new TestDatabase();
-        var settings = database.Settings();
-        var service = new RunMutationService(database.Database, settings, database.Clock);
-        var requestId = Guid.NewGuid().ToString("D");
-
-        CreateManualRunCommand Command(string dutyName, string? note) => new()
-        {
-            RequestId = requestId,
-            Reason = "补录",
-            Result = RunResult.Completed,
-            DutyName = dutyName,
-            Note = note,
-            EnteredAtUtc = new DateTimeOffset(2026, 9, 3, 10, 0, 0, TimeSpan.Zero),
-            EndedAtUtc = new DateTimeOffset(2026, 9, 3, 10, 30, 0, TimeSpan.Zero),
-        };
-
-        service.CreateManualRun(Command("AB", "C"));
-
-        var error = Assert.Throws<CollectorException>(() => service.CreateManualRun(Command("A", "BC")));
-        Assert.Equal(ErrorCodes.IdempotencyConflict, error.Code);
-        Assert.Equal("idempotency", error.Details!["conflict"]);
-    }
-
     [SymbolicLinkFact]
     public void ExportPaths_ResolveFinalPathFollowsALocalDirectoryLink()
     {
