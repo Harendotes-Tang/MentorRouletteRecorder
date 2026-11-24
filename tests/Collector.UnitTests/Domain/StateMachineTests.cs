@@ -227,6 +227,48 @@ public sealed class StateMachineTests
         Assert.False(finish.PendingReview);
     }
 
+    /// <summary>An explicit exit finishes the run with the result the profile can vouch for.</summary>
+    [Theory]
+    [InlineData("zone", false)]
+    [InlineData("instance", false)]
+    [InlineData("nonduty", false)]
+    [InlineData("zone", true)]
+    [InlineData("instance", true)]
+    [InlineData("nonduty", true)]
+    public void ExplicitExitsRespectTheProfilesResultCapability(string exitKind, bool canDetectResult)
+    {
+        var start = new DateTimeOffset(2026, 9, 8, 0, 0, 0, TimeSpan.Zero);
+        var machine = new MentorRunStateMachine(
+            ProfileBinding.Live("review", Region.Cn, ProfileStatus.Verified, 42, canDetectResult));
+        machine.Handle(new ContentFinderPop
+        {
+            Key = ReviewKey("pop", 0), ObservedAtUtc = start, Mono = TimeSpan.Zero, RouletteId = 42,
+        });
+        machine.Handle(new ZoneInitialization
+        {
+            Key = ReviewKey("entry", 1), ObservedAtUtc = start.AddSeconds(1),
+            Mono = TimeSpan.FromSeconds(1), IsDutyInstance = true,
+        });
+        var key = ReviewKey(exitKind, 2);
+        var time = start.AddSeconds(2);
+        var mono = TimeSpan.FromSeconds(2);
+        SemanticEvent exit = exitKind switch
+        {
+            "zone" => new ZoneLeft { Key = key, ObservedAtUtc = time, Mono = mono },
+            "instance" => new InstanceLeft { Key = key, ObservedAtUtc = time, Mono = mono },
+            _ => new ZoneInitialization { Key = key, ObservedAtUtc = time, Mono = mono, IsDutyInstance = false },
+        };
+
+        var finished = Assert.Single(machine.Handle(exit).Commands.OfType<FinishRunCommand>());
+
+        Assert.Equal(canDetectResult ? RunResult.LeftOrAbandoned : RunResult.Unknown, finished.Result);
+        Assert.Equal(!canDetectResult, finished.PendingReview);
+        if (!canDetectResult) Assert.Equal(DetectionConfidence.Low, finished.Confidence);
+    }
+
+    private static EventKey ReviewKey(string kind, long epoch) =>
+        new("review", PacketDirection.ServerToClient, kind, epoch, null, kind + epoch);
+
     [Fact]
     public void UnknownDutyFlag_VictoryStillCompletesBeforeTheExit()
     {

@@ -1,7 +1,5 @@
 using System.Buffers.Binary;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
-using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
@@ -10,51 +8,13 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// How capture finishes and stores an automatically recorded run. An explicit exit from the duty ends the run
-/// with the result the profile can vouch for: left, or unknown and pending review when the profile cannot
-/// detect results. Automatic changes that all fall in one millisecond still each publish the updated row and
-/// the statistics, an unchanged duplicate publishes nothing, and the stored row stays at revision 1.
+/// How capture stores an automatically recorded run: automatic changes that all fall in one millisecond still
+/// each publish the updated row and the statistics, an unchanged duplicate publishes nothing, and the stored
+/// row stays at revision 1. Its subject is LiveProtocolPipeline; it stays here until ProtocolPipelineTests is
+/// split under the test-file size limit.
 /// </summary>
 public sealed class AutomaticRunRecordingTests
 {
-    [Theory]
-    [InlineData("zone", false)]
-    [InlineData("instance", false)]
-    [InlineData("nonduty", false)]
-    [InlineData("zone", true)]
-    [InlineData("instance", true)]
-    [InlineData("nonduty", true)]
-    public void ExplicitExitsRespectTheProfilesResultCapability(string exitKind, bool canDetectResult)
-    {
-        var start = new DateTimeOffset(2026, 9, 8, 0, 0, 0, TimeSpan.Zero);
-        var machine = new MentorRunStateMachine(
-            ProfileBinding.Live("review", Region.Cn, ProfileStatus.Verified, 42, canDetectResult));
-        machine.Handle(new ContentFinderPop
-        {
-            Key = Key("pop", 0), ObservedAtUtc = start, Mono = TimeSpan.Zero, RouletteId = 42,
-        });
-        machine.Handle(new ZoneInitialization
-        {
-            Key = Key("entry", 1), ObservedAtUtc = start.AddSeconds(1),
-            Mono = TimeSpan.FromSeconds(1), IsDutyInstance = true,
-        });
-        var key = Key(exitKind, 2);
-        var time = start.AddSeconds(2);
-        var mono = TimeSpan.FromSeconds(2);
-        SemanticEvent exit = exitKind switch
-        {
-            "zone" => new ZoneLeft { Key = key, ObservedAtUtc = time, Mono = mono },
-            "instance" => new InstanceLeft { Key = key, ObservedAtUtc = time, Mono = mono },
-            _ => new ZoneInitialization { Key = key, ObservedAtUtc = time, Mono = mono, IsDutyInstance = false },
-        };
-
-        var finished = Assert.Single(machine.Handle(exit).Commands.OfType<FinishRunCommand>());
-
-        Assert.Equal(canDetectResult ? RunResult.LeftOrAbandoned : RunResult.Unknown, finished.Result);
-        Assert.Equal(!canDetectResult, finished.PendingReview);
-        if (!canDetectResult) Assert.Equal(DetectionConfidence.Low, finished.Confidence);
-    }
-
     [Fact]
     public async Task AutomaticChangesInOneMillisecondStillPublishUpdatedRowsAndStatistics()
     {
@@ -95,7 +55,4 @@ public sealed class AutomaticRunRecordingTests
         Assert.Equal(db.Clock.UtcNow, stored.UpdatedAtUtc);
         Assert.Equal(RunResult.Completed, stored.Result);
     }
-
-    private static EventKey Key(string kind, long epoch) =>
-        new("review", PacketDirection.ServerToClient, kind, epoch, null, kind + epoch);
 }
