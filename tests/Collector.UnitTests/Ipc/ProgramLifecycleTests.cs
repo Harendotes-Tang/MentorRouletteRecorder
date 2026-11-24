@@ -13,7 +13,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// single-instance pipe gate, the pid file, the stop event, the parent watchdog and subsystem
 /// disposal.
 /// </summary>
-public sealed class ReviewLifecycleRegressionTests
+public sealed class ProgramLifecycleTests
 {
     /// <summary>
     /// The live-capture path must lower both <c>PRAGMA busy_timeout</c> and

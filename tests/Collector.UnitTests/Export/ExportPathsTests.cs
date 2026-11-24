@@ -12,7 +12,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// The properties that hold the boundaries in place: an unambiguous idempotency fingerprint,
 /// a destination check that survives links, and a log that cannot carry a user name.
 /// </summary>
-public sealed class HardeningTests
+public sealed class ExportPathsTests
 {
     [Fact]
     public void Fingerprint_DistinguishesAShiftedFieldBoundary()

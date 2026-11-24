@@ -9,7 +9,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// Audit 2026-10-20 H1-5: a copy that fails its own integrity check is never published. These tests make the
 /// check fail (the read-only connection that opens the copy refuses), so the guarantee is tested, not assumed.
 /// </summary>
-public sealed class BackupIntegrityTests : IDisposable
+public sealed class BackupServiceTests : IDisposable
 {
     private readonly TempDirectory _directory = new("BackupIntegrity");
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 10, 21, 8, 0, 0, TimeSpan.Zero));
