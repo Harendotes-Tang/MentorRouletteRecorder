@@ -5,7 +5,7 @@ using MentorRecorder.Collector.Ipc;
 namespace MentorRecorder.Collector.IntegrationTests;
 
 /// <summary>分页边界和大响应通过真实命名管道返回，不能截断记录或破坏后续请求。</summary>
-public sealed class IpcPaginationRegressionTests
+public sealed class IpcPagingTests
 {
     [Theory]
     [InlineData("GetDungeonStats")]
