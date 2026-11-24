@@ -6,7 +6,7 @@ using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
 
-public sealed class CalibrationDraftRegressionTests
+public sealed class CalibrationDraftTests
 {
     private const ushort Decoy = 0xB0FF;
     private const ushort LobbyAnchor = 0xE100;
