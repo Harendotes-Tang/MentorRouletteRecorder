@@ -11,7 +11,6 @@
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "RunListModel.h"
-#include "StatsModels.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -140,29 +139,6 @@ public:
     QHash<QString, QString> failures;
     QList<Pending> pending;
     int serial = 0;
-};
-
-// IpcClient fails before returning from request() while disconnected. Also
-// answer synchronously on success so the complete reply contract is exercised.
-class ImmediateBackend final : public mr::IBackend
-{
-public:
-    QString backendName() const override { return QStringLiteral("mock"); }
-    bool isConnected() const override { return !fail; }
-    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
-    {
-        auto *reply = new mr::BackendReply(QStringLiteral("immediate"), type, this);
-        if (fail) {
-            reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("Collector disconnected"));
-        } else {
-            reply->succeed({{QStringLiteral("items"), QJsonArray{QJsonObject{
-                                {QStringLiteral("run_id"), QStringLiteral("fixture")}}}},
-                            {QStringLiteral("page_info"), QJsonObject{
-                                {QStringLiteral("total"), 1}, {QStringLiteral("page"), 1}}}});
-        }
-        return reply;
-    }
-    bool fail = false;
 };
 
 // SettingsPage reads Tts.available / statusText / voices / voiceId and calls
@@ -581,7 +557,6 @@ private Q_SLOTS:
     void historyPagerStaysInsideTheWindow_data();
     void historyPagerStaysInsideTheWindow();
     void achievementTabDropsADraftWhenTheRegionChangesElsewhere();
-    void immediateModelFailureClearsLoadingAndOldRows();
     void historyLoadFailureIsNotShownAsNoMatches();
     void statisticsLoadFailureIsNotShownAsZero();
     void historyKeepsAHalfTypedDateAndDoesNotQueryWithoutIt();
@@ -615,8 +590,6 @@ private Q_SLOTS:
     void externalHistoryFilterCancelsPendingDebounce();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome_data();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome();
-    void hoverFadeRestsOnTheHoverColour_data();
-    void hoverFadeRestsOnTheHoverColour();
     void styleSwitchShowsTheStyleOnScreen_data();
     void styleSwitchShowsTheStyleOnScreen();
     void settingsTabsShowTheirOwnControls_data();
@@ -803,43 +776,6 @@ ApplicationWindow {
     QCOMPARE(baseline->property("text").toString(), QStringLiteral("70"));
     QVERIFY(!tab->property("achievementEdited").toBool());
     QCOMPARE(tab->property("baselineErrorText").toString(), QString());
-}
-
-void UiWorkflowRegressionTests::immediateModelFailureClearsLoadingAndOldRows()
-{
-    ImmediateBackend backend;
-    mr::RunListModel runs;
-    mr::DungeonStatsModel dungeons;
-    mr::JobStatsModel jobs;
-    runs.setBackend(&backend);
-    dungeons.setBackend(&backend);
-    jobs.setBackend(&backend);
-    QSignalSpy runFailures(&runs, &mr::RunListModel::loadFailed);
-    QSignalSpy dungeonFailures(&dungeons, &mr::StatsRowsModel::loadFailed);
-    QSignalSpy jobFailures(&jobs, &mr::StatsRowsModel::loadFailed);
-    runs.reload();
-    dungeons.reload();
-    jobs.reload();
-    QCOMPARE(runs.rowCount(), 1);
-    QCOMPARE(dungeons.rowCount(), 1);
-    QCOMPARE(jobs.rowCount(), 1);
-    backend.fail = true;
-    runs.reload();
-    dungeons.reload();
-    jobs.reload();
-    QVERIFY(!runs.isLoading());
-    QVERIFY(!dungeons.isLoading());
-    QVERIFY(!jobs.isLoading());
-    QCOMPARE(runs.rowCount(), 0);
-    QCOMPARE(dungeons.rowCount(), 0);
-    QCOMPARE(jobs.rowCount(), 0);
-    QCOMPARE(runFailures.count(), 1);
-    QCOMPARE(dungeonFailures.count(), 1);
-    QCOMPARE(jobFailures.count(), 1);
-    QCoreApplication::processEvents();
-    QCOMPARE(runFailures.count(), 1);
-    QCOMPARE(dungeonFailures.count(), 1);
-    QCOMPARE(jobFailures.count(), 1);
 }
 
 // 审查 OD-3 / OK-4：查询失败时清空的列表不是「没有符合筛选条件的记录」，页头也
@@ -2118,80 +2054,6 @@ void UiWorkflowRegressionTests::mockCorrectionAcknowledgesOnlyExplicitOutcome()
         }
         QCOMPARE(acknowledgements, initialPending && !finalPending ? 1 : 0);
     }
-}
-
-// ColorAnimation interpolates straight RGBA, and "transparent" is #00000000: a fade from it
-// to the classic light fill (#f2f2f7) passes through half-opaque grey, so every sidebar
-// item the pointer crosses flashes a dark plate. A control at rest must hold its hover
-// colour at zero alpha, so the fade only ever changes alpha. Each control declares that
-// colour as `hoverColor` (a classic ghost button hovers to accent-100, everything else to
-// the fill).
-void UiWorkflowRegressionTests::hoverFadeRestsOnTheHoverColour_data()
-{
-    QTest::addColumn<QString>("style");
-    QTest::addColumn<QString>("theme");
-    for (const auto &style : {QStringLiteral("classic"), QStringLiteral("eorzea")}) {
-        for (const auto &theme : {QStringLiteral("light"), QStringLiteral("dark")})
-            QTest::newRow(qPrintable(style + QLatin1Char('-') + theme)) << style << theme;
-    }
-}
-
-void UiWorkflowRegressionTests::hoverFadeRestsOnTheHoverColour()
-{
-    QFETCH(QString, style);
-    QFETCH(QString, theme);
-    WorkflowBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    controller.setThemeMode(theme);
-    QQmlEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
-    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-    QQmlComponent component(&engine);
-    component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 400; height: 200; visible: true
-    Column {
-        NavItem { objectName: "nav"; width: 180; number: "01"; label: "nav" }
-        AppButton { objectName: "ghost"; variant: "ghost"; text: "ghost" }
-        AppButton { objectName: "primary"; variant: "primary"; text: "primary" }
-    }
-})", QUrl());
-    const std::unique_ptr<QObject> root(component.create());
-    QString errors;
-    for (const auto &error : component.errors())
-        errors += error.toString() + QLatin1Char('\n');
-    QVERIFY2(root, qPrintable(errors));
-
-    for (const auto &name : {QStringLiteral("nav"), QStringLiteral("ghost")}) {
-        const QObject *control = root->findChild<QObject *>(name);
-        QVERIFY2(control, qPrintable(name));
-        QVERIFY2(!control->property("hovered").toBool(), qPrintable(name));
-        const QVariant hoverValue = control->property("hoverColor");
-        QVERIFY2(hoverValue.isValid(), qPrintable(name + QStringLiteral(" declares no hoverColor")));
-        const QColor hover = hoverValue.value<QColor>();
-        QVERIFY2(hover.alpha() > 0, qPrintable(name));
-        const auto *background = control->property("background").value<QObject *>();
-        QVERIFY2(background, qPrintable(name));
-        const QColor rest = background->property("color").value<QColor>();
-        const QString detail = QStringLiteral("%1 rests on %2, hover is %3")
-                                   .arg(name, rest.name(QColor::HexArgb), hover.name(QColor::HexArgb));
-        QVERIFY2(rest.alpha() == 0, qPrintable(detail));
-        QVERIFY2(rest.rgb() == hover.rgb(), qPrintable(detail));
-    }
-
-    // In eorzea the primary button's base sits under the gold gradient, which hides at
-    // once when the style flips to classic; a base resting on transparent black then
-    // fades up to the accent through black.
-    const QObject *primary = root->findChild<QObject *>(QStringLiteral("primary"));
-    QVERIFY(primary);
-    const auto *primaryBackground = primary->property("background").value<QObject *>();
-    QVERIFY(primaryBackground);
-    const QColor primaryRest = primaryBackground->property("color").value<QColor>();
-    QVERIFY2(primaryRest.rgba() != qRgba(0, 0, 0, 0),
-             qPrintable(QStringLiteral("primary rests on %1").arg(primaryRest.name(QColor::HexArgb))));
 }
 
 // The prototype drives both the skin and the 界面风格 segment from one value (curStyle()).

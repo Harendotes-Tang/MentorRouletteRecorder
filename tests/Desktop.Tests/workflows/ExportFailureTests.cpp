@@ -9,6 +9,7 @@
 #include "MockBackend.h"
 
 #include <QDesktopServices>
+#include <QJsonArray>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -324,6 +325,28 @@ private Q_SLOTS:
         QCOMPARE(backend.exports.value(QStringLiteral("ExportJson")).value(QStringLiteral("sort")).toObject(),
                  QJsonObject({{QStringLiteral("field"), QStringLiteral("duty_name")},
                               {QStringLiteral("direction"), QStringLiteral("desc")}}));
+    }
+    // The checked rows are exported by their ids alone, deleted ones included, whatever else
+    // the history filter says; with nothing checked the export takes the filter again.
+    void exactExportIdsIgnoreOtherFiltersAndIncludeExplicitlySelectedDeletedRows()
+    {
+        const QString firstId = QStringLiteral("00000000-0000-0000-0000-000000000001");
+        const QString secondId = QStringLiteral("00000000-0000-0000-0000-000000000002");
+        RecordingExportBackend backend;
+        QTemporaryDir dir;
+        mr::ExportController exporter;
+        exporter.setBackend(&backend);
+        exporter.setTargetOverride(dir.path());
+        exporter.setHistoryFilter({{QStringLiteral("text"), QStringLiteral("原筛选")}});
+        exporter.setCheckedRunIds({firstId, secondId});
+        exporter.exportCsv();
+        const auto filter = backend.exports.value(QStringLiteral("ExportCsv")).value(QStringLiteral("filter")).toObject();
+        QCOMPARE(filter.value(QStringLiteral("run_id")).toArray(), QJsonArray({firstId, secondId}));
+        QVERIFY(filter.value(QStringLiteral("include_deleted")).toBool());
+        QVERIFY(!filter.contains(QStringLiteral("text")));
+        exporter.setCheckedRunIds({});
+        exporter.exportJson();
+        QCOMPARE(backend.exports.value(QStringLiteral("ExportJson")).value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("原筛选"));
     }
     // RequestParsers.Sort and RunExporter.LoadPages (contracts/CHANGELOG.md 2026-11-03): an
     // export takes the RunSort QueryRuns takes, counts the rows QueryRuns lists, and refuses

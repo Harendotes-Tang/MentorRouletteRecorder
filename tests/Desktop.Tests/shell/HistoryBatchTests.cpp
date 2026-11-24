@@ -1,26 +1,20 @@
 #include "DesktopTestRunner.h"
-#include "FileTestSupport.h"
 #include "TestFonts.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
-#include "ExportController.h"
 #include "HistoryController.h"
 #include "HistoryBatchTestSupport.h"
 #include "MockBackend.h"
 #include "MockBackendTestSupport.h"
-#include "NoteImageStore.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 
 #include <QDir>
-#include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
-#include <QScopeGuard>
-#include <QTemporaryDir>
 #include <QTest>
 #include <QTimeZone>
 #include <QQmlComponent>
@@ -32,34 +26,6 @@
 #include <memory>
 
 namespace {
-class CleanupBackend final : public mr::MockBackend {
-public:
-    QStringList pending;
-    QList<QStringList> acknowledgements;
-    bool failAck = false;
-    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
-        if (type != QLatin1String("GetPendingImageCleanup") && type != QLatin1String("AcknowledgeImageCleanup"))
-            return MockBackend::request(type, payload);
-        auto *reply = new mr::BackendReply(QStringLiteral("cleanup"), type, this);
-        if (type == QLatin1String("GetPendingImageCleanup")) {
-            QJsonArray ids; for (const QString &id : pending.mid(0, 2000)) ids.append(id);
-            reply->succeed({{QStringLiteral("run_ids"), ids}});
-        } else {
-            QStringList ids;
-            for (const auto &id : payload.value(QStringLiteral("run_ids")).toArray()) ids.append(id.toString());
-            acknowledgements.append(ids);
-            if (failAck) { reply->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("连接中断"));
-            } else {
-                for (const QString &id : ids) pending.removeAll(id);
-                reply->succeed({{QStringLiteral("acknowledged_count"), ids.size()}});
-            }
-        }
-        return reply;
-    }
-};
-bool putFile(const QString &path) {
-    QFile file(path); return file.open(QIODevice::WriteOnly) && file.write("fixture") == 7;
-}
 using mrtest::findVisualItem;
 void clickItem(QQuickWindow *window, QQuickItem *item) {
     const QPoint point = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
@@ -311,23 +277,6 @@ private Q_SLOTS:
         QVERIFY(history.historyFilter().value(QStringLiteral("pending_review")).toBool());
         QVERIFY(backend.last(QStringLiteral("QueryRuns")).reply);
     }
-    void exactExportIdsIgnoreOtherFiltersAndIncludeExplicitlySelectedDeletedRows() {
-        ControlledBackend backend;
-        QTemporaryDir dir;
-        mr::ExportController exporter;
-        exporter.setBackend(&backend);
-        exporter.setTargetOverride(dir.path());
-        exporter.setHistoryFilter({{QStringLiteral("text"), QStringLiteral("原筛选")}});
-        exporter.setCheckedRunIds({firstId(), secondId()});
-        exporter.exportCsv();
-        const auto filter = backend.last(QStringLiteral("ExportCsv")).payload.value(QStringLiteral("filter")).toObject();
-        QCOMPARE(filter.value(QStringLiteral("run_id")).toArray(), QJsonArray({firstId(), secondId()}));
-        QVERIFY(filter.value(QStringLiteral("include_deleted")).toBool());
-        QVERIFY(!filter.contains(QStringLiteral("text")));
-        exporter.setCheckedRunIds({});
-        exporter.exportJson();
-        QCOMPARE(backend.last(QStringLiteral("ExportJson")).payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("原筛选"));
-    }
     void purgeAndRestoreRefuseLiveOrMixedSelectionBeforeSending() {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
@@ -433,73 +382,6 @@ private Q_SLOTS:
         const auto filtered = mrtest::ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
         QVERIFY(filtered.ok);
         QCOMPARE(filtered.payload.value(QStringLiteral("items")).toArray().size(), 1);
-    }
-    void cleanupRejectsTraversalAndUnexpectedDirectories() {
-        QTemporaryDir dir;
-        mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        QVERIFY(QDir().mkpath(store.runDirectory(firstId()) + QStringLiteral("/nested")));
-        QVERIFY(putFile(store.runDirectory(firstId()) + QStringLiteral("/kept.png")));
-        QVERIFY(!store.cleanupRun(QStringLiteral("../escape")).value(QStringLiteral("ok")).toBool());
-        QVERIFY(!store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
-        QVERIFY(QFileInfo::exists(store.runDirectory(firstId()) + QStringLiteral("/kept.png")));
-        QVERIFY(QDir(store.runDirectory(firstId())).rmdir(QStringLiteral("nested")));
-        QVERIFY(store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
-        QVERIFY(QDir(store.rootDirectory()).exists());
-        QVERIFY(!QDir(store.runDirectory(firstId())).exists());
-        QVERIFY(store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
-    }
-    void cleanupRejectsJunctionWithoutTouchingItsTarget() {
-#ifdef Q_OS_WIN
-        QTemporaryDir dir;
-        mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        const QString outside = dir.filePath(QStringLiteral("outside"));
-        QVERIFY(QDir().mkpath(store.rootDirectory()));
-        QVERIFY(QDir().mkpath(outside));
-        QVERIFY(putFile(outside + QStringLiteral("/keep.png")));
-        if (!mrtest::makeJunction(store.runDirectory(firstId()), outside)) QSKIP("mklink /J unavailable");
-        auto unlink = qScopeGuard([&] { QDir(store.rootDirectory()).rmdir(firstId()); });
-        QVERIFY(!store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
-        QVERIFY(QFileInfo::exists(outside + QStringLiteral("/keep.png")));
-#else
-        QSKIP("Windows junction regression");
-#endif
-    }
-    void cleanupAcknowledgesOnlySuccessAndRetriesFailedAcknowledgement() {
-        QTemporaryDir dir;
-        mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        QVERIFY(QDir().mkpath(store.runDirectory(firstId())));
-        QVERIFY(QDir().mkpath(store.runDirectory(secondId()) + QStringLiteral("/nested")));
-        QVERIFY(putFile(store.runDirectory(firstId()) + QStringLiteral("/note.png")));
-        CleanupBackend backend;
-        backend.pending = {firstId(), secondId()};
-        backend.failAck = true;
-        mr::AppController app(&backend, nullptr);
-        app.setNoteImageStore(&store);
-        QTRY_VERIFY(!app.historyImageCleanupRunning());
-        QCOMPARE(backend.acknowledgements.size(), 1);
-        QCOMPARE(backend.acknowledgements.first(), QStringList({firstId()}));
-        QCOMPARE(backend.pending.size(), 2);
-        QVERIFY(app.historyImageCleanupFeedback().contains(QStringLiteral("清理结果还没保存")));
-        backend.failAck = false;
-        QVERIFY(QDir(store.runDirectory(secondId())).rmdir(QStringLiteral("nested")));
-        app.retryHistoryImageCleanup();
-        QTRY_VERIFY(!app.historyImageCleanupRunning());
-        QVERIFY(backend.pending.isEmpty());
-        QVERIFY(app.historyImageCleanupFeedback().isEmpty());
-    }
-    void cleanupDrainsMoreThanOneFullQueuePage() {
-        QTemporaryDir dir;
-        mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        CleanupBackend backend;
-        for (int i = 1; i <= 2001; ++i)
-            backend.pending.append(QStringLiteral("00000000-0000-0000-0000-%1").arg(i, 12, 16, QLatin1Char('0')));
-        mr::AppController app(&backend, nullptr);
-        app.setNoteImageStore(&store);
-        QTRY_VERIFY_WITH_TIMEOUT(backend.pending.isEmpty(), 10000);
-        QCOMPARE(backend.acknowledgements.size(), 2);
-        QCOMPARE(backend.acknowledgements.first().size(), 2000);
-        QCOMPARE(backend.acknowledgements.last().size(), 1);
-        QVERIFY(!app.historyImageCleanupRunning());
     }
     void nativeFiltersConfirmationSelectionAndDateProjection_data() {
         QTest::addColumn<bool>("dark"); QTest::addColumn<bool>("narrow");

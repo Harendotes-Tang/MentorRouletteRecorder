@@ -1,11 +1,19 @@
 #include "DesktopTestRunner.h"
+#include "MotionSceneFixture.h"
 #include "QmlComponentTestSupport.h"
+#include "TestCollectorGuard.h"
+#include "AppController.h"
 #include "QmlRuntime.h"
 #include <QGuiApplication>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QSignalSpy>
 #include <QTest>
+
+#include <memory>
 
 namespace {
 class ControlMotionTests final : public QObject
@@ -17,6 +25,8 @@ private slots:
     void pressedControlKeepsItsHitArea();
     void reducedMotionSettlesSwitchKnob();
     void reducedMotionCompletesColourFeedback();
+    void hoverFadeRestsOnTheHoverColour_data();
+    void hoverFadeRestsOnTheHoverColour();
 };
 
 void ControlMotionTests::pressedControlKeepsItsHitArea_data()
@@ -105,10 +115,87 @@ Window { width: 200; height: 100; visible: true
     runtime->setValue(mr::QmlRuntime::Field::ReduceMotion, true);
     QCOMPARE(surface->property("color").value<QColor>(), surface->property("selectedColour").value<QColor>());
 }
+
+// ColorAnimation interpolates straight RGBA, and "transparent" is #00000000: a fade from it
+// to the classic light fill (#f2f2f7) passes through half-opaque grey, so every sidebar
+// item the pointer crosses flashes a dark plate. A control at rest must hold its hover
+// colour at zero alpha, so the fade only ever changes alpha. Each control declares that
+// colour as `hoverColor` (a classic ghost button hovers to accent-100, everything else to
+// the fill).
+void ControlMotionTests::hoverFadeRestsOnTheHoverColour_data()
+{
+    QTest::addColumn<QString>("style");
+    QTest::addColumn<QString>("theme");
+    for (const auto &style : {QStringLiteral("classic"), QStringLiteral("eorzea")}) {
+        for (const auto &theme : {QStringLiteral("light"), QStringLiteral("dark")})
+            QTest::newRow(qPrintable(style + QLatin1Char('-') + theme)) << style << theme;
+    }
+}
+
+void ControlMotionTests::hoverFadeRestsOnTheHoverColour()
+{
+    QFETCH(QString, style);
+    QFETCH(QString, theme);
+    QuietBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    controller.setThemeMode(theme);
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 400; height: 200; visible: true
+    Column {
+        NavItem { objectName: "nav"; width: 180; number: "01"; label: "nav" }
+        AppButton { objectName: "ghost"; variant: "ghost"; text: "ghost" }
+        AppButton { objectName: "primary"; variant: "primary"; text: "primary" }
+    }
+})", QUrl());
+    const std::unique_ptr<QObject> root(component.create());
+    QString errors;
+    for (const auto &error : component.errors())
+        errors += error.toString() + QLatin1Char('\n');
+    QVERIFY2(root, qPrintable(errors));
+
+    for (const auto &name : {QStringLiteral("nav"), QStringLiteral("ghost")}) {
+        const QObject *control = root->findChild<QObject *>(name);
+        QVERIFY2(control, qPrintable(name));
+        QVERIFY2(!control->property("hovered").toBool(), qPrintable(name));
+        const QVariant hoverValue = control->property("hoverColor");
+        QVERIFY2(hoverValue.isValid(), qPrintable(name + QStringLiteral(" declares no hoverColor")));
+        const QColor hover = hoverValue.value<QColor>();
+        QVERIFY2(hover.alpha() > 0, qPrintable(name));
+        const auto *background = control->property("background").value<QObject *>();
+        QVERIFY2(background, qPrintable(name));
+        const QColor rest = background->property("color").value<QColor>();
+        const QString detail = QStringLiteral("%1 rests on %2, hover is %3")
+                                   .arg(name, rest.name(QColor::HexArgb), hover.name(QColor::HexArgb));
+        QVERIFY2(rest.alpha() == 0, qPrintable(detail));
+        QVERIFY2(rest.rgb() == hover.rgb(), qPrintable(detail));
+    }
+
+    // In eorzea the primary button's base sits under the gold gradient, which hides at
+    // once when the style flips to classic; a base resting on transparent black then
+    // fades up to the accent through black.
+    const QObject *primary = root->findChild<QObject *>(QStringLiteral("primary"));
+    QVERIFY(primary);
+    const auto *primaryBackground = primary->property("background").value<QObject *>();
+    QVERIFY(primaryBackground);
+    const QColor primaryRest = primaryBackground->property("color").value<QColor>();
+    QVERIFY2(primaryRest.rgba() != qRgba(0, 0, 0, 0),
+             qPrintable(QStringLiteral("primary rests on %1").arg(primaryRest.name(QColor::HexArgb))));
+}
 } // namespace
 
 MR_DESKTOP_TEST_SUITE(ControlMotion)
 {
+    // The hover test builds an AppController: never against the user's Collector
+    // or data folder (TestCollectorGuard.h). Must precede any construction.
+    mrtest::disableCollectorLaunch();
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
     ControlMotionTests tests;

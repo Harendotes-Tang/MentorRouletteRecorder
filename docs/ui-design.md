@@ -550,7 +550,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 | 维护者工具 | `CaptureMaintainerSection.qml`（+ `CaptureValidationEvidenceCard.qml`） | 仅 `App.maintainerToolsVisible` |
 
 页面只读取 `App`、`Fmt`、`Theme`，不读取 `Settings`。
-因此 `SharedCalibrationCardTests` 与 `CapturePageTests` 只需提供这三个上下文便可加载整页。
+因此 `CapturePageTests` 与 `SharedCalibrationCardTests` 共用的 `tests/Desktop.Tests/support/CapturePageScene.h`
+只提供 `App`、`Fmt`、`Jobs`、`Roles` 与 `ReduceMotion` 这几个上下文便可加载整页，不提供 `Settings`。
 启动自检的禁词不变：普通页面不得出现「开始捕获」「停止捕获」「开始验证」「维护者工具」「对照核对」。
 
 **首张卡片**（`captureHeroPanel`）的上半部分由 `CaptureHeroCopy` 决定说什么。还没有读到捕获状态时
@@ -2279,7 +2280,7 @@ divider 细边与 600 字重 accent 字色。
 `"transparent"` 等于 `#00000000`，而 `ColorAnimation` 按 RGBA 直线插值，
 从该值渐变到经典浅色的 `#f2f2f7` 时中间态是半透明灰，鼠标划过侧栏时每一项都会闪出深灰块。
 静止态应写作 `Theme.clear(目标色)`，即同一颜色、透明度为 0，渐变便只改变透明度。
-`UiWorkflowRegressionTests::hoverFadeRestsOnTheHoverColour` 在四种风格与主题的组合下
+`ControlMotionTests::hoverFadeRestsOnTheHoverColour` 在四种风格与主题的组合下
 检查导航项与透明文字按钮各自的 `hoverColor`，经典风格下透明文字按钮的悬停色为 accent-100；
 该测试同时检查主按钮的底色从不停留在透明黑上。
 艾欧泽亚风格下主按钮底色藏在金色渐变之下，切换到经典风格时渐变立即消失，

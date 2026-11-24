@@ -2,9 +2,11 @@
 #include "IBackend.h"
 #include "MockBackend.h"
 #include "RunListModel.h"
+#include "StatsModels.h"
 
 #include <QJsonArray>
 #include <QPointer>
+#include <QSignalSpy>
 #include <QTest>
 
 namespace {
@@ -49,6 +51,29 @@ public:
                        {QStringLiteral("page_info"),
                         QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("total"), total}}}});
     }
+};
+
+// IpcClient fails before returning from request() while disconnected. Also
+// answer synchronously on success so the complete reply contract is exercised.
+class ImmediateBackend final : public mr::IBackend
+{
+public:
+    QString backendName() const override { return QStringLiteral("mock"); }
+    bool isConnected() const override { return !fail; }
+    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    {
+        auto *reply = new mr::BackendReply(QStringLiteral("immediate"), type, this);
+        if (fail) {
+            reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("Collector disconnected"));
+        } else {
+            reply->succeed({{QStringLiteral("items"), QJsonArray{QJsonObject{
+                                {QStringLiteral("run_id"), QStringLiteral("fixture")}}}},
+                            {QStringLiteral("page_info"), QJsonObject{
+                                {QStringLiteral("total"), 1}, {QStringLiteral("page"), 1}}}});
+        }
+        return reply;
+    }
+    bool fail = false;
 };
 }
 
@@ -291,6 +316,43 @@ private Q_SLOTS:
         model.setPageSize(7);
         QCOMPARE(model.page(), 1);
         backend.answerNextQuery(1, 0);
+    }
+
+    void immediateModelFailureClearsLoadingAndOldRows()
+    {
+        ImmediateBackend backend;
+        mr::RunListModel runs;
+        mr::DungeonStatsModel dungeons;
+        mr::JobStatsModel jobs;
+        runs.setBackend(&backend);
+        dungeons.setBackend(&backend);
+        jobs.setBackend(&backend);
+        QSignalSpy runFailures(&runs, &mr::RunListModel::loadFailed);
+        QSignalSpy dungeonFailures(&dungeons, &mr::StatsRowsModel::loadFailed);
+        QSignalSpy jobFailures(&jobs, &mr::StatsRowsModel::loadFailed);
+        runs.reload();
+        dungeons.reload();
+        jobs.reload();
+        QCOMPARE(runs.rowCount(), 1);
+        QCOMPARE(dungeons.rowCount(), 1);
+        QCOMPARE(jobs.rowCount(), 1);
+        backend.fail = true;
+        runs.reload();
+        dungeons.reload();
+        jobs.reload();
+        QVERIFY(!runs.isLoading());
+        QVERIFY(!dungeons.isLoading());
+        QVERIFY(!jobs.isLoading());
+        QCOMPARE(runs.rowCount(), 0);
+        QCOMPARE(dungeons.rowCount(), 0);
+        QCOMPARE(jobs.rowCount(), 0);
+        QCOMPARE(runFailures.count(), 1);
+        QCOMPARE(dungeonFailures.count(), 1);
+        QCOMPARE(jobFailures.count(), 1);
+        QCoreApplication::processEvents();
+        QCOMPARE(runFailures.count(), 1);
+        QCOMPARE(dungeonFailures.count(), 1);
+        QCOMPARE(jobFailures.count(), 1);
     }
 };
 } // namespace
