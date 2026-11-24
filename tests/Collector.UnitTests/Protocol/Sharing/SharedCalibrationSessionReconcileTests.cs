@@ -21,7 +21,7 @@ public sealed class SharedCalibrationSessionReconcileTests : IDisposable
     private (SharedCode Code, ProtocolProfile Profile) SharedProfileOnDisk()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var built = SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>());
+        var built = Bed.BuildSharedProfile(code.Payload);
         SharedProfileFiles.Write(built, _bed.SharedRoot);
         return (code, built.Profile!);
     }

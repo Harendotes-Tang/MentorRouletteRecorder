@@ -29,16 +29,7 @@ public sealed class SharedProfileBuilderTests : IDisposable
 
     public void Dispose() => _root.Dispose();
 
-    public static TheoryData<string> Cases()
-    {
-        var data = new TheoryData<string>();
-        foreach (var name in CalibrationTrafficCases.All)
-        {
-            data.Add(name);
-        }
-
-        return data;
-    }
+    public static TheoryData<string> Cases() => new(CalibrationTrafficCases.All);
 
     private ProtocolProfile WriteLocal(string name)
     {

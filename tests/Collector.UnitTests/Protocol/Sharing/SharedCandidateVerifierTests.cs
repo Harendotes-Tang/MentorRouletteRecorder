@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -15,18 +14,17 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class SharedCandidateVerifierTests : IDisposable
 {
-    private static readonly DateTimeOffset Confirmed = new(2026, 9, 9, 12, 30, 0, TimeSpan.Zero);
     private readonly TempDirectory _root = TempDirectory.Reserve();
 
     public void Dispose() => _root.Dispose();
 
-    private static CalibrationTemplate Template => CalibrationObserverTests.Template();
+    private static CalibrationTemplate Template => SharedCalibrationTestBed.Template;
 
     /// <summary>The code a player who played <paramref name="name"/> on evening A would share.</summary>
     private ShareCodePayload CodeFromEveningA(string name)
     {
         var draft = CalibrationTrafficCases.Derive(name);
-        var written = LocalProfileWriter.Write(draft, Template, CalibrationTrafficCases.Build, Confirmed,
+        var written = LocalProfileWriter.Write(draft, Template, CalibrationTrafficCases.Build, SharedCalibrationTestBed.Confirmed,
             _root.Combine("evening-a", Guid.NewGuid().ToString("N")));
         var exported = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), Template);
         Assert.Null(exported.Reason);
@@ -42,8 +40,6 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         Assert.True(observer.RegisterCandidate(candidate));
         return observer;
     }
-
-    private static CaptureSessionHealth Healthy(string session) => new(session, CaptureSilentReason.None, 0, 0);
 
     /// <summary>Plays one capture session of traffic, <paramref name="hour"/> hours after the helpers' clock.</summary>
     private static void Play(
@@ -65,8 +61,15 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         observer.Flush();
         if (recordHealth)
         {
-            Assert.True(observer.RecordSessionHealth(health ?? Healthy(session)));
+            Assert.True(observer.RecordSessionHealth(health ?? SharedCalibrationTestBed.Healthy(session)));
         }
+    }
+
+    /// <summary>Two healthy capture sessions of the same traffic, a day apart: what a contradiction needs.</summary>
+    private static void PlayTwoEvenings(CalibrationObserver observer, IEnumerable<DecodedMessage> traffic)
+    {
+        Play(observer, "evening-b1", 24, traffic);
+        Play(observer, "evening-b2", 48, traffic);
     }
 
     /// <summary>Judged by the strict gate unless a test says otherwise: an imported code must have every criterion pass.</summary>
@@ -141,31 +144,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         Assert.Equal(SharedGate.Optional, GateOf(imported, CalibratedShape.JobName));
     }
 
-    [Theory]
-    [MemberData(nameof(WrongOpcodes))]
-    public void AWrongOpcodeContradictsAPublishedCodeTooWhateverTheGate(string name, string which)
-    {
-        var candidate = Candidate(Wrong(CodeFromEveningA(name), which));
-        var observer = Watching(candidate);
-
-        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(name));
-        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(name));
-
-        var result = Verify(observer, candidate, SharedCandidateProvenance.Published);
-        Assert.Equal(SharedVerdict.Contradicted, result.Verdict);
-        Assert.Equal(CriterionFor(which), Assert.Single(result.Criteria, criterion => criterion.Verdict == SharedVerdict.Contradicted).Message);
-    }
-
-    public static TheoryData<string> Cases()
-    {
-        var data = new TheoryData<string>();
-        foreach (var name in CalibrationTrafficCases.All)
-        {
-            data.Add(name);
-        }
-
-        return data;
-    }
+    public static TheoryData<string> Cases() => new(CalibrationTrafficCases.All);
 
     [Theory]
     [MemberData(nameof(Cases))]
@@ -235,6 +214,11 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         var contradicted = Assert.Single(afterTwo.Criteria, criterion => criterion.Verdict == SharedVerdict.Contradicted);
         Assert.Equal(CriterionFor(which), contradicted.Message);
         Assert.Equal(2, contradicted.ContradictingSessions);
+
+        // A contradiction ignores the gate: the same evidence contradicts the code as a published one too.
+        var published = Verify(observer, candidate, SharedCandidateProvenance.Published);
+        Assert.Equal(SharedVerdict.Contradicted, published.Verdict);
+        Assert.Equal(CriterionFor(which), Assert.Single(published.Criteria, criterion => criterion.Verdict == SharedVerdict.Contradicted).Message);
     }
 
     public static TheoryData<string, CaptureSilentReason, int?, long, bool> UnhealthyReadings() => new()
@@ -268,8 +252,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     {
         var candidate = Candidate(Wrong(CodeFromEveningA(CalibrationTrafficCases.ReplyState), "zone"));
         var observer = Watching(candidate);
-        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
-        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
+        PlayTwoEvenings(observer, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
 
         var overflowed = observer.Snapshot() with { OverflowCount = 1 };
 
@@ -300,8 +283,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     {
         var truth = CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var earlier = new CalibrationObserver(Template, Region.Cn, "evening-b1");
-        Play(earlier, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
-        Play(earlier, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
+        PlayTwoEvenings(earlier, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
         Assert.True(CalibrationEvidenceStore.Save(_root.Path, Region.Cn, CalibrationTrafficCases.Build, "t", earlier.Snapshot()));
         var carried = CalibrationEvidenceStore.Load(_root.Path, Region.Cn, CalibrationTrafficCases.Build, "t")!;
 
@@ -319,7 +301,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             var restarted = new CalibrationObserver(Template, Region.Cn, "evening-c");
             restarted.AdoptEvidence(carried);
             restarted.RegisterCandidate(candidate);
-            restarted.RecordSessionHealth(Healthy("evening-c"));
+            restarted.RecordSessionHealth(SharedCalibrationTestBed.Healthy("evening-c"));
 
             Assert.Equal(expected, Verify(restarted, candidate).Verdict);
         }
@@ -349,8 +331,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             .Concat(CalibrationObserverTests.Cluster(800_000, 5000))
             .ToArray();
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.Equal(SharedVerdict.Wait, result.Verdict);
@@ -371,8 +352,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
                 MessageDirection.Inbound, CalibrationTrafficCases.Reply, CalibrationObserverTests.Bytes(40, (9, 3), (16, row)),
                 1_000 + (index * 20))));
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.Equal(SharedVerdict.Contradicted, result.Verdict);
@@ -396,8 +376,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             CalibrationObserverTests.Message(
                 MessageDirection.Inbound, CalibrationTrafficCases.Reply, CalibrationObserverTests.Bytes(40, (9, 3), (16, 1)), at)));
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.NotEqual(SharedVerdict.Contradicted, result.Verdict);
@@ -430,8 +409,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
                 CalibrationObserverTests.Bytes(136, (2, 15), (3, 4)), 125_010))
             .ToArray();
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.NotEqual(SharedVerdict.Contradicted, result.Verdict);
@@ -455,8 +433,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
                     : message)
             .ToArray();
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.Equal(SharedVerdict.Pass, result.Verdict);
@@ -498,8 +475,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             .Where(message => !(message.Opcode == CalibrationTrafficCases.Job && message.Mono < TimeSpan.FromMilliseconds(200_000)))
             .ToArray();
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.Equal(SharedVerdict.Pass, result.Verdict);
@@ -519,8 +495,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         var candidate = Candidate(Wrong(CodeFromEveningA(CalibrationTrafficCases.ReplyState), "job"));
         var observer = Watching(candidate);
 
-        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
-        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
+        PlayTwoEvenings(observer, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
         var result = Verify(observer, candidate);
 
         Assert.Equal(SharedVerdict.Pass, result.Verdict);
@@ -594,8 +569,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
             .Concat(CalibrationObserverTests.Cluster(215_000, 5000))
             .ToArray();
 
-        Play(observer, "evening-b1", 24, evening);
-        Play(observer, "evening-b2", 48, evening);
+        PlayTwoEvenings(observer, evening);
         var result = Verify(observer, candidate);
 
         Assert.NotEqual(SharedVerdict.Contradicted, result.Verdict);
@@ -613,8 +587,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     {
         var wrong = Candidate(Wrong(CodeFromEveningA(CalibrationTrafficCases.QueueRequest), "pop"));
         var observer = new CalibrationObserver(Template, Region.Cn, "evening-b1");
-        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
-        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
+        PlayTwoEvenings(observer, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
 
         Assert.True(observer.RegisterCandidate(wrong));
         var result = Verify(observer, wrong);
@@ -628,8 +601,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
     {
         var candidate = Candidate(Wrong(CodeFromEveningA(CalibrationTrafficCases.ReplyState), "zone"));
         var observer = Watching(candidate);
-        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
-        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
+        PlayTwoEvenings(observer, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState));
 
         var result = Verify(observer, candidate);
 
@@ -670,7 +642,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
 
         sharer.Flush();
         var written = LocalProfileWriter.Write(CalibrationDraft.Derive(sharer.Snapshot(), template), template,
-            "2026.12.01.0000.0000", Confirmed, _root.Combine("global"));
+            "2026.12.01.0000.0000", SharedCalibrationTestBed.Confirmed, _root.Combine("global"));
         var payload = SharedProfileBuilder.ToShareCode(ProfileLoader.Load(written.Path), template).Payload!;
         var candidate = SharedCandidateVerifier.Candidate(payload, template)!;
         Assert.Null(candidate.Territory);

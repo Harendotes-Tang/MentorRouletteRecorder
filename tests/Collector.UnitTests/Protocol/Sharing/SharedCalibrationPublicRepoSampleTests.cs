@@ -101,16 +101,13 @@ public sealed class SharedCalibrationPublicRepoSampleTests
     [MemberData(nameof(Builds))]
     public async Task TheClientDownloadsAndAcceptsThePublishedCodesInThatOrder(string region, string build)
     {
-        var routes = new Dictionary<string, byte[]>(StringComparer.Ordinal)
-        {
-            [SharedCalibrationClient.IndexUri(Source.GithubRaw).AbsoluteUri] = IndexBytes.Value,
-        };
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), IndexBytes.Value);
         foreach (var entry in SharedCalibrationIndex.Read(IndexBytes.Value).Entries)
         {
-            routes[SharedCalibrationClient.CodeUri(Source.GithubRaw, entry.Commit, entry.Path).AbsoluteUri] = CodeFile(entry.Path);
+            transport.Serve(SharedCalibrationClient.CodeUri(Source.GithubRaw, entry.Commit, entry.Path), CodeFile(entry.Path));
         }
 
-        var client = new SharedCalibrationClient(Serve(routes), TimeSpan.FromSeconds(5), _ => null);
+        var client = new SharedCalibrationClient(transport.Send, TimeSpan.FromSeconds(5), _ => null);
 
         var result = await client.FetchAsync(EnumWire<Region>.Parse(region), build);
 
@@ -146,9 +143,4 @@ public sealed class SharedCalibrationPublicRepoSampleTests
             Assert.Equal(entry.GameBuild, decoded.Payload.GameBuild);
         }
     }
-
-    private static SharedCalibrationTransport Serve(IReadOnlyDictionary<string, byte[]> routes) => (uri, _) =>
-        Task.FromResult(routes.TryGetValue(uri.AbsoluteUri, out var body)
-            ? new SharedTransportResponse(200, uri, body.Length, new MemoryStream(body))
-            : new SharedTransportResponse(404, uri, 0, new MemoryStream()));
 }

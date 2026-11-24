@@ -1,7 +1,5 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
-using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
@@ -22,21 +20,6 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     private readonly Bed _bed = new();
 
     public void Dispose() => _bed.Dispose();
-
-    private static string ProfileId => SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build);
-
-    /// <summary>The login burst and the idle minute after it: nothing queued yet.</summary>
-    private static DecodedMessage[] Login(IEnumerable<DecodedMessage> evening) => Bed.Before(evening, 30_000);
-
-    /// <summary>Everything after the login burst.</summary>
-    private static DecodedMessage[] AfterLogin(IEnumerable<DecodedMessage> evening) => Bed.From(evening, 30_000);
-
-    /// <summary>Queue, match and the duty entry, after the login burst.</summary>
-    private static DecodedMessage[] UpToEntry(IEnumerable<DecodedMessage> evening) => Bed.From(Bed.Before(evening, 200_000), 30_000);
-
-    /// <summary>The same code with its match message moved to an opcode the client never sends it on.</summary>
-    private static SharedCode WithBogusPop(SharedCode code) =>
-        Bed.Encode(code.Payload with { Pop = code.Payload.Pop with { Opcode = 0x7777 } });
 
     /// <summary>The same code with its zone marker moved to an opcode the client never sends it on.</summary>
     private static SharedCode WithBogusZone(SharedCode code) => Bed.Encode(code.Payload with { ZoneOpcode = 0xA1F7 });
@@ -98,9 +81,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         SharedProfileFor(favoured.Payload, Earlier);
         _bed.PublishListed(
             new Bed.Listing(favoured, Conflicting: true), new Bed.Listing(truth, Conflicting: true, ShapePrior: true));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         // Both are in dispute on the match only; this machine's prior decides the tie, the index's is ignored.
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -121,7 +102,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, truth), CalibratedShape.TerritoryName));
 
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
 
         // Bound on the login burst, as on patch day; what decided it is kept with the profile in use.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -135,7 +116,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var requests = _bed.Transport.Requests.Count;
 
         // Its match never arrives on the declared opcode: one healthy evening says so, which is not yet enough.
-        Bed.Feed(pipeline, session, AfterLogin(evening));
+        Bed.Feed(pipeline, session, Bed.AfterLogin(evening));
         await Bed.StopAndSettleAsync(pipeline, session);
         Assert.False(_bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, favoured.Sha));
         Assert.Equal(favoured.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
@@ -150,7 +131,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.True(new RunRepository(_bed.Db.Database).Get(recorded.RunId)!.PendingReview);
         var shared = pipeline.CalibrationStatus().Shared;
         Assert.Equal(SharedCalibrationPhase.Verified, shared.Phase);
-        Assert.Equal(ProfileId, shared.ProfileId);
+        Assert.Equal(Bed.SharedProfileId, shared.ProfileId);
         var takenOver = shared.Candidates[0];
         Assert.Equal(truth.Sha[..12], takenOver.Sha12);
         Assert.Contains(takenOver.Status, new[] { SharedCandidateStatus.InUse, SharedCandidateStatus.Proven });
@@ -175,9 +156,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = WithOtherSelectors(truth);
         _bed.PublishListed(new Bed.Listing(other, Conflicting: true, ShapePrior: true), new Bed.Listing(truth, Conflicting: true));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = await StartJudged(pipeline);
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -191,12 +170,12 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         });
 
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
 
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.False(File.Exists(_bed.SharedProfilePath));
 
-        await Bed.FeedAndSettleAsync(pipeline, session, UpToEntry(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.UpToEntry(evening));
 
         // The code whose match behaved binds, and the staged duty is recorded.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -216,9 +195,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState, Earlier);
         SharedProfileFor(other.Payload, "2026.09.01.0001.0000");
         _bed.PublishListed(new Bed.Listing(other, ShapePrior: true), new Bed.Listing(truth));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = await StartJudged(pipeline);
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -229,7 +206,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Audit, GateOf(Find(candidates, truth), CalibratedShape.PopName));
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, other), CalibratedShape.PopName));
 
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(Bed.Evening()));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(truth.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
@@ -248,9 +225,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         SharedProfileFor(_bed.CodeFromEveningA(CalibrationTrafficCases.MarkerOffset).Payload, Earlier);
         SharedProfileFor(other.Payload, "2026.08.25.0000.0000", settled: false);
         _bed.PublishListed(new Bed.Listing(other), new Bed.Listing(truth));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = await StartJudged(pipeline);
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -261,7 +236,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
             Assert.Equal(SharedGate.Required, GateOf(candidate, CalibratedShape.PopName));
         });
 
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(Bed.Evening()));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         await Bed.StopAndSettleAsync(pipeline, session);
     }
@@ -274,9 +249,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var other = WithBogusZone(truth);
         _bed.PublishListed(
             new Bed.Listing(truth, Conflicting: true, Submitters: 2), new Bed.Listing(other, Conflicting: true, Submitters: 1));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
         var many = Find(candidates, truth);
@@ -292,14 +265,14 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(SharedGate.Required, GateOf(Find(candidates, other), CalibratedShape.PopName));
 
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.Idle, pipeline.RunState);
         Assert.Equal(truth.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
 
         // Recording live from the first match on.
-        Bed.Feed(pipeline, session, UpToEntry(evening));
+        Bed.Feed(pipeline, session, Bed.UpToEntry(evening));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.Equal(9, Assert.Single(_bed.RunsOf(session)).MentorRouletteId);
     }
@@ -314,16 +287,14 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     public async Task AGateIsJudgedOnlyOnceTheRoundsContradictionsHaveDroppedTheirCodes()
     {
         var first = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var supporter = WithBogusPop(first);
+        var supporter = Bed.WithBogusPop(first);
         var third = Bed.Encode(first.Payload with { JobOpcode = 0x7777 });
 
         // One healthy capture session of an earlier run of the Collector already contradicted the supporter.
         _bed.Store.RecordContradiction(
             Region.Cn, Bed.Build, Bed.TemplateSha, supporter.Sha, "an-earlier-capture-session", _bed.Db.Clock.UtcNow);
         _bed.PublishListed(new Bed.Listing(first, ShapePrior: true), new Bed.Listing(supporter), new Bed.Listing(third));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         // Job: two accounts behind the first code's, one behind the third's. Match: two behind the first code's pop.
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -360,11 +331,9 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     public async Task AnIndexReadWhileTheChosenCodeIsWrittenDoesNotChangeTheGateItBindsUnder()
     {
         var chosen = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var rival = WithBogusPop(chosen);
+        var rival = Bed.WithBogusPop(chosen);
         _bed.Publish(chosen);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         // While the chosen code's profile is being written, a new index lists a rival two accounts submitted.
         var held = 0;
@@ -384,7 +353,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
 
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
         Assert.Equal(1, held);
 
         // Bound on the login burst as chosen, with the match and the duty entry still to be seen while it records.
@@ -403,15 +372,6 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         await Bed.StopAndSettleAsync(pipeline, session);
     }
 
-    /// <summary>The last index this machine read for <paramref name="build"/> revokes <paramref name="sha"/>.</summary>
-    private void RevokeInStore(string build, string sha) => Assert.True(_bed.Store.RecordFetch(
-        Region.Cn, build, Bed.TemplateSha,
-        new SharedCalibrationFetchResult(
-            SharedFetchStatus.NoneForBuild,
-            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
-            Array.Empty<SharedCalibrationCandidate>(), Array.Empty<SharedCodeDiscard>(), Array.Empty<SharedIndexSkip>(), new[] { sha }),
-        _bed.Db.Clock.UtcNow).Recorded);
-
     /// <summary>
     /// Review 2026-10-15 (M1): the settled mark survives a revocation, so a settled profile of the previous build whose code
     /// the repository withdrew would otherwise still vouch for its shape.
@@ -422,11 +382,9 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = WithOtherSelectors(truth);
         SharedProfileFor(other.Payload, Earlier);
-        RevokeInStore(Earlier, ShareCode.Sha256(other.Payload with { GameBuild = Earlier }));
+        _bed.RevokeInStore(ShareCode.Sha256(other.Payload with { GameBuild = Earlier }), Earlier);
         _bed.PublishListed(new Bed.Listing(other), new Bed.Listing(truth));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = await StartJudged(pipeline);
         Assert.All(pipeline.CalibrationStatus().Shared.Candidates, candidate =>
@@ -449,9 +407,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         SharedProfileFor(truth.Payload, Earlier);
         SharedProfileFor(other.Payload, Earlier, settled: false);
         _bed.PublishListed(new Bed.Listing(other), new Bed.Listing(truth));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         Assert.All(pipeline.CalibrationStatus().Shared.Candidates, candidate => Assert.Null(candidate.LocalShapePrior));
     }
@@ -466,9 +422,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = WithOtherSelectors(truth);
         _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(truth.Code).Outcome);
         Assert.Null(Find(pipeline.CalibrationStatus().Shared.Candidates, truth).LocalShapePrior);
@@ -499,14 +453,12 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
     public async Task TheConsensusThatHoldsWhenThePlayerAcceptsQueueInferenceDecidesTheBind()
     {
         var waiting = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
-        var rival = WithBogusPop(waiting);
+        var rival = Bed.WithBogusPop(waiting);
         _bed.Publish(waiting);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(Bed.Evening()));
         Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
         Assert.Equal(SharedCandidateStatus.AwaitingConsent, Find(pipeline.CalibrationStatus().Shared.Candidates, waiting).Status);
 
@@ -542,9 +494,7 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
         Assert.Equal(preferred.Payload.JobOpcode, queue.Payload.JobOpcode);
         _bed.PublishListed(
             new Bed.Listing(outvoted, Submitters: 2), new Bed.Listing(queue, Submitters: 2), new Bed.Listing(preferred, Submitters: 1));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         // The job: three accounts behind one value across both kinds of code, two behind the other.
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -557,8 +507,8 @@ public sealed class SharedCalibrationConsensusGateTests : IDisposable
 
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Login(evening));
-        await Bed.FeedAndSettleAsync(pipeline, session, UpToEntry(evening));
+        Bed.Feed(pipeline, session, Bed.Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.UpToEntry(evening));
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(preferred.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);

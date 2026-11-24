@@ -1,9 +1,7 @@
 using System.Text.Json.Nodes;
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -69,12 +67,20 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         }
     }
 
-    /// <summary>Weak, not wrong: no record is marked the way a withdrawn calibration marks what it recorded.</summary>
-    private void AssertNeverFlagged(IEnumerable<MentorRun> runs)
+    /// <summary>
+    /// Both duties of the evening recorded in full, returned in match order. Weak, not wrong: neither record is marked the
+    /// way a withdrawn calibration marks what it recorded.
+    /// </summary>
+    private MentorRun[] AssertTwoCompleteRunsNeverFlagged()
     {
+        var runs = _bed.AllRuns().OrderBy(run => run.MatchedAtUtc).ToArray();
+        Assert.Equal(2, runs.Length);
+        Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));
+        Assert.All(runs, run => Assert.NotNull(run.EndedAtUtc));
         var revisions = new RunRevisionRepository(_bed.Db.Database);
         Assert.All(runs, run => Assert.DoesNotContain(
             revisions.ListForRun(run.RunId, 1, 50).Items, revision => revision.Reason?.Contains("校准", StringComparison.Ordinal) == true));
+        return runs;
     }
 
     private LiveProtocolPipeline QueueInferredLocalWithBetterCodePublished(LiveEventBus? bus = null)
@@ -84,6 +90,31 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         var pipeline = _bed.Pipeline(_bed.Services(), bus);
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
         return pipeline;
+    }
+
+    /// <summary>
+    /// The queue-inferred profile records the first duty while the better code passes. The bind is slow: the profile is
+    /// written when the first run ends, but the reload behind it lands only after the player has queued again and the
+    /// popup has gone by. Selected, but the machine that holds the player's queue request is left alone until that run
+    /// is over.
+    /// </summary>
+    private async Task<(LiveProtocolPipeline Pipeline, DecodedMessage[] Evening, string Session)> SelectedWhileThePlayerIsQueuedAsync()
+    {
+        var pipeline = QueueInferredLocalWithBetterCodePublished();
+        await Bed.Idle(pipeline);
+        var evening = ReportedEvening();
+        var session = _bed.Start(pipeline);
+        await FeedSettling(pipeline, session, Bed.Before(evening, 214_000));
+        using var release = new ManualResetEventSlim(false);
+        _bed.BeforeReload = () => release.Wait(TimeSpan.FromSeconds(30));
+        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 250_000), 214_000));
+        release.Set();
+        await Bed.Idle(pipeline);
+        _bed.BeforeReload = null;
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+        return (pipeline, evening, session);
     }
 
     [Fact]
@@ -106,11 +137,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
 
         await FeedSettling(pipeline, session, Bed.From(evening, 229_000));
 
-        var runs = _bed.AllRuns().OrderBy(run => run.MatchedAtUtc).ToArray();
-        Assert.Equal(2, runs.Length);
-        Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));
-        Assert.All(runs, run => Assert.NotNull(run.EndedAtUtc));
-        AssertNeverFlagged(runs);
+        var runs = AssertTwoCompleteRunsNeverFlagged();
         // The second run was opened by the popup itself, seventeen seconds after the request.
         Assert.Equal(evening.Single(message => message.Opcode == CalibrationTrafficCases.Reply && message.Mono == TimeSpan.FromMilliseconds(247_000)).ObservedAtUtc, runs[1].MatchedAtUtc);
         Assert.NotEqual(runs[0].ProtocolProfileId, runs[1].ProtocolProfileId);
@@ -121,24 +148,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
     [InlineData(true)]
     public async Task ASwapThatLandsWhileThePlayerIsAlreadyQueuedStillRecordsTheRun(bool failFirstSwap)
     {
-        var pipeline = QueueInferredLocalWithBetterCodePublished();
-        await Bed.Idle(pipeline);
-        var evening = ReportedEvening();
-        var session = _bed.Start(pipeline);
-
-        // The bind is slow: the profile is written when the first run ends, but the reload behind it lands
-        // only after the player has queued again and the popup has gone by.
-        await FeedSettling(pipeline, session, Bed.Before(evening, 214_000));
-        using var release = new ManualResetEventSlim(false);
-        _bed.BeforeReload = () => release.Wait(TimeSpan.FromSeconds(30));
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 250_000), 214_000));
-        release.Set();
-        await Bed.Idle(pipeline);
-        _bed.BeforeReload = null;
-
-        // Selected, but the machine that holds the player's queue request is left alone until that run is over.
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+        var (pipeline, evening, session) = await SelectedWhileThePlayerIsQueuedAsync();
 
         await FeedSettling(pipeline, session, Bed.From(Bed.Before(evening, 400_000), 250_000));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
@@ -161,11 +171,8 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
             recover.ExecuteNonQuery();
             await FeedSettling(pipeline, session, CalibrationObserverTests.Noise(440_000, 450_000));
         }
-        var runs = _bed.AllRuns().OrderBy(run => run.MatchedAtUtc).ToArray();
-        Assert.Equal(2, runs.Length);
-        Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));
-        Assert.All(runs, run => Assert.NotNull(run.EndedAtUtc));
-        AssertNeverFlagged(runs);
+
+        AssertTwoCompleteRunsNeverFlagged();
         // Owed, not forgotten: it took over the moment that run ended, in this same session.
         Assert.NotNull(pipeline.CalibrationStatus().Shared.BoundAtUtc);
     }
@@ -182,19 +189,7 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
     [Fact]
     public async Task ACodeWhoseSwapWasStillOwedWhenCaptureStoppedRecordsFromTheStop()
     {
-        var pipeline = QueueInferredLocalWithBetterCodePublished();
-        await Bed.Idle(pipeline);
-        var evening = ReportedEvening();
-        var session = _bed.Start(pipeline);
-        await FeedSettling(pipeline, session, Bed.Before(evening, 214_000));
-        using var release = new ManualResetEventSlim(false);
-        _bed.BeforeReload = () => release.Wait(TimeSpan.FromSeconds(30));
-        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 250_000), 214_000));
-        release.Set();
-        await Bed.Idle(pipeline);
-        _bed.BeforeReload = null;
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+        var (pipeline, _, session) = await SelectedWhileThePlayerIsQueuedAsync();
         var document = ProfileLoader.Load(_bed.SharedProfilePath).ProfileSha256;
         Assert.NotNull(_bed.Store.BoundSince(Region.Cn, Bed.Build, document));
 

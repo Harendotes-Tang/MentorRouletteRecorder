@@ -1,4 +1,3 @@
-using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Protocol.Parsing;
@@ -21,9 +20,7 @@ public sealed class DutyStartTallyTests
     [Fact]
     public void TheFirstSignalInADutyIsReportedAsTheDecision()
     {
-        var machine = Machine();
-        var notes = new List<DutyStartNote>();
-        var tally = new DutyStartTally(new MachineSink(machine), machine, notes.Add);
+        var (machine, notes, tally) = NewTally();
 
         tally.Accept(Remaining(10_000, 5400));
         tally.Accept(Pop(470_000));
@@ -44,11 +41,8 @@ public sealed class DutyStartTallyTests
     [Fact]
     public void ACommencementAfterTheDecisionIsReportedAsNotDecided()
     {
-        var machine = Machine();
-        var notes = new List<DutyStartNote>();
-        var tally = new DutyStartTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (_, notes, tally) = NewTally();
+        EnterDuty(tally);
         tally.Accept(Remaining(489_500, 5400));
 
         tally.Accept(Commenced(560_000, 7200));
@@ -65,11 +59,8 @@ public sealed class DutyStartTallyTests
     [Fact]
     public void ACommencementFirstIsTheDecisionAndTheReportsAfterItAreSilent()
     {
-        var machine = Machine();
-        var notes = new List<DutyStartNote>();
-        var tally = new DutyStartTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (machine, notes, tally) = NewTally();
+        EnterDuty(tally);
 
         tally.Accept(Commenced(563_554, 7200));
         tally.Accept(Remaining(563_617, 7199));
@@ -86,11 +77,8 @@ public sealed class DutyStartTallyTests
     [Fact]
     public void ARedeliveredCommencementIsNotReportedAgain()
     {
-        var machine = Machine();
-        var notes = new List<DutyStartNote>();
-        var tally = new DutyStartTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (machine, notes, tally) = NewTally();
+        EnterDuty(tally);
         var commenced = Commenced(563_554, 7200);
 
         tally.Accept(commenced);
@@ -105,7 +93,7 @@ public sealed class DutyStartTallyTests
     {
         var machine = Machine();
         var seen = new List<SemanticEvent>();
-        var tally = new DutyStartTally(new RecordingSink(machine, seen), machine, _ => { });
+        var tally = new DutyStartTally(new MachineSink(machine, seen), machine, _ => { });
         var events = new SemanticEvent[]
         {
             Pop(470_000), Zone(489_047), Commenced(563_554, 7200), Remaining(563_617, 7199), Zone(2_060_556),
@@ -129,8 +117,7 @@ public sealed class DutyStartTallyTests
         var machine = Machine();
         var tally = new DutyStartTally(new MachineSink(machine), machine,
             _ => throw new InvalidOperationException("the log is broken"));
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        EnterDuty(tally);
 
         var thrown = Record.Exception(() => tally.Accept(Commenced(563_554, 7200)));
 
@@ -159,18 +146,19 @@ public sealed class DutyStartTallyTests
     private static MentorRunStateMachine Machine() =>
         new(ProfileBinding.Synthetic("synthetic/v1", 42), null, () => RunId);
 
-    private sealed class MachineSink(MentorRunStateMachine machine) : ISemanticEventSink
+    /// <summary>A tally in front of a fresh machine, collecting its notes.</summary>
+    private static (MentorRunStateMachine Machine, List<DutyStartNote> Notes, DutyStartTally Tally) NewTally()
     {
-        public void Accept(SemanticEvent semanticEvent) => machine.Handle(semanticEvent);
+        var machine = Machine();
+        var notes = new List<DutyStartNote>();
+        return (machine, notes, new DutyStartTally(new MachineSink(machine), machine, notes.Add));
     }
 
-    private sealed class RecordingSink(MentorRunStateMachine machine, List<SemanticEvent> seen) : ISemanticEventSink
+    /// <summary>The mentor roulette pops and the player enters its duty.</summary>
+    private static void EnterDuty(DutyStartTally tally)
     {
-        public void Accept(SemanticEvent semanticEvent)
-        {
-            seen.Add(semanticEvent);
-            machine.Handle(semanticEvent);
-        }
+        tally.Accept(Pop(470_000));
+        tally.Accept(Zone(489_047));
     }
 
     private static ContentFinderPop Pop(long milliseconds) => new()

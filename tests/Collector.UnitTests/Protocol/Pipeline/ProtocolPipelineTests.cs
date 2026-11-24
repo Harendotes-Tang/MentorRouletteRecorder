@@ -26,12 +26,17 @@ public sealed class ProtocolPipelineTests
     [InlineData(false, true)]
     public void PermanentlyDeletedActiveRunConsumesLateMessagesWithoutStorageFaultOrRecreation(bool completedBeforePurge, bool automaticExpiry)
     {
-        using var fixture = new TestDatabase(); var processor = NewProcessor(fixture, out var machine);
-        processor.Accept(Pop(0)); processor.Accept(Zone(1000));
+        using var fixture = new TestDatabase();
+        var processor = NewProcessor(fixture, out var machine);
+        processor.Accept(Pop(0));
+        processor.Accept(Zone(1000));
         var runId = machine.CurrentRunId!;
-        if (completedBeforePurge) processor.Accept(Result(2000, victory: true));
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock); settings.EnsureDefaults();
-        var mutations = new Storage.Mutations.RunMutationService(fixture.Database, settings, fixture.Clock);
+        if (completedBeforePurge)
+        {
+            processor.Accept(Result(2000, victory: true));
+        }
+
+        var mutations = fixture.Mutations();
         var deleted = mutations.SoftDeleteRun(new RunReasonCommand(Guid.NewGuid().ToString("D"), runId, 1, "不保留当前记录")).Run!;
         if (automaticExpiry)
         {
@@ -39,15 +44,26 @@ public sealed class ProtocolPipelineTests
             using var retention = new Storage.Mutations.HistoryRetentionService(fixture.Database, fixture.Clock);
             Assert.Equal(1, retention.CheckExpired(force: true));
         }
-        else mutations.BatchMutateRuns(new BatchMutateRunsCommand(Guid.NewGuid().ToString("D"), "purge",
-            new[] { new BatchRunTarget(runId, deleted.Revision) }, "永久删除"));
-        processor.Accept(Job(3000)); processor.Accept(Result(4000, victory: true));
-        processor.Accept(Pop(5000)); processor.Accept(Zone(6000)); processor.Accept(Result(7000, victory: true));
-        Assert.Null(processor.LastStorageError); Assert.Null(new RunRepository(fixture.Database).Get(runId));
+        else
+        {
+            mutations.BatchMutateRuns(new BatchMutateRunsCommand(Guid.NewGuid().ToString("D"), "purge",
+                new[] { new BatchRunTarget(runId, deleted.Revision) }, "永久删除"));
+        }
+
+        processor.Accept(Job(3000));
+        processor.Accept(Result(4000, victory: true));
+        processor.Accept(Pop(5000));
+        processor.Accept(Zone(6000));
+        processor.Accept(Result(7000, victory: true));
+        Assert.Null(processor.LastStorageError);
+        Assert.Null(new RunRepository(fixture.Database).Get(runId));
         var next = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
-        Assert.NotEqual(runId, next.RunId); Assert.Equal(RunResult.Completed, next.Result);
-        using var trail = fixture.Database.CreateCommand(); trail.CommandText = "SELECT COUNT(*) FROM run_events WHERE run_id=$id;";
-        trail.Parameters.AddWithValue("$id", runId); Assert.Equal(0L, trail.ExecuteScalar());
+        Assert.NotEqual(runId, next.RunId);
+        Assert.Equal(RunResult.Completed, next.Result);
+        using var trail = fixture.Database.CreateCommand();
+        trail.CommandText = "SELECT COUNT(*) FROM run_events WHERE run_id=$id;";
+        trail.Parameters.AddWithValue("$id", runId);
+        Assert.Equal(0L, trail.ExecuteScalar());
     }
 
     private const string SessionId = "30000000-0000-4000-8000-000000000001";
@@ -594,12 +610,8 @@ public sealed class ProtocolPipelineTests
     public void LiveLifecycleEventsUseTheSameMonotonicClockAsTheMessages()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var selection = SyntheticProfile.Select();
-        Assert.True(selection.IsUsable);
 
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => selection);
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
 
         pipeline.Accept(PopMessage(10_000));
@@ -656,10 +668,8 @@ public sealed class ProtocolPipelineTests
     public async Task MatchSourceTravelsWithLiveAndReplayedStateEvents(bool fromQueue)
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var selection = MatchSourceSelection(fromQueue);
         var bus = new LiveEventBus(fixture.Clock);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => selection);
+        var pipeline = NewPipeline(fixture, bus, MatchSourceSelection(fromQueue));
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000) with
@@ -696,10 +706,8 @@ public sealed class ProtocolPipelineTests
     public async Task AMatchOfferedAgainAfterSomeoneWithdrewIsAnnouncedAgain()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var selection = MatchSourceSelection(fromQueue: false);
         var bus = new LiveEventBus(fixture.Clock);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => selection);
+        var pipeline = NewPipeline(fixture, bus, MatchSourceSelection(fromQueue: false));
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
         pipeline.OnCaptureStarted(SessionId);
 
@@ -738,9 +746,7 @@ public sealed class ProtocolPipelineTests
     public void TheCurrentRunsElapsedTimeIsItsTimeInTheDuty()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock),
-            _ => MatchSourceSelection(fromQueue: false));
+        var pipeline = NewPipeline(fixture, selection: MatchSourceSelection(fromQueue: false));
         pipeline.OnCaptureStarted(SessionId);
 
         pipeline.Accept(PopMessage(10_000));
@@ -758,10 +764,8 @@ public sealed class ProtocolPipelineTests
     public async Task AnUnobservedCancellationThenTeleportLeavesNoHistoryOrCurrentRun()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
         var bus = new LiveEventBus(fixture.Clock);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus,
-            _ => MatchSourceSelection(fromQueue: true));
+        var pipeline = NewPipeline(fixture, bus, MatchSourceSelection(fromQueue: true));
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000) with { Direction = MessageDirection.Outbound });
@@ -936,7 +940,7 @@ public sealed class ProtocolPipelineTests
     public void AConnectionLostFromAnotherSessionIsIgnored()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
 
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
@@ -992,7 +996,7 @@ public sealed class ProtocolPipelineTests
     public void ADamagedGameDirectionClosesAMatchedRunPendingReview()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.OnCaptureHealth(Health());
         pipeline.Accept(PopMessage(10_000));
@@ -1024,7 +1028,7 @@ public sealed class ProtocolPipelineTests
     public void ADamagedDirectionOfAConnectionThatCarriedNoProfileMessageLeavesTheRunAlone()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.OnCaptureHealth(Health());
         pipeline.Accept(PopMessage(10_000));
@@ -1045,7 +1049,7 @@ public sealed class ProtocolPipelineTests
     public void ADamagedDirectionOfAnotherSessionIsIgnored()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
 
@@ -1064,7 +1068,7 @@ public sealed class ProtocolPipelineTests
     public void ADamagedGameDirectionInterruptsADutyWhenItIsNoticed()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
         pipeline.Accept(ZoneMessage(15_000));
@@ -1093,7 +1097,7 @@ public sealed class ProtocolPipelineTests
     public void AGivenUpOutboundDirectionOfTheZoneConnectionLeavesTheDutyToItsResult()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
         pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Outbound);
@@ -1120,9 +1124,7 @@ public sealed class ProtocolPipelineTests
     public void AGivenUpOutboundDirectionThatCarriedTheQueueRequestStillCountsAsAGap()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock),
-            _ => MatchSourceSelection(fromQueue: true));
+        var pipeline = NewPipeline(fixture, selection: MatchSourceSelection(fromQueue: true));
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000) with { Direction = MessageDirection.Outbound });
 
@@ -1142,7 +1144,7 @@ public sealed class ProtocolPipelineTests
     public void AnAdapterDropOnItsOwnLeavesTheRunAlone()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
 
@@ -1163,7 +1165,7 @@ public sealed class ProtocolPipelineTests
     public void ACaptureStoppedByAnErrorWhileMatchedEndsPendingReview(CaptureEndReason reason, bool pending)
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         pipeline.OnCaptureStarted(SessionId);
         pipeline.Accept(PopMessage(10_000));
 
@@ -1186,9 +1188,8 @@ public sealed class ProtocolPipelineTests
     public async Task ALiveClearCompletesTheRunAndPublishesItAsCompleted()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
         var bus = new LiveEventBus(fixture.Clock);
-        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => CnSelection());
+        var pipeline = NewPipeline(fixture, bus, CnSelection());
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
@@ -1231,9 +1232,7 @@ public sealed class ProtocolPipelineTests
     public void ALiveExitWithoutTheClearIsStillUnknownPendingReview()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var pipeline = NewPipeline(fixture, selection: CnSelection());
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.OnCaptureStarted(SessionId);
@@ -1257,9 +1256,7 @@ public sealed class ProtocolPipelineTests
     public void TheClearOfAnotherDutyIsCountedButCompletesNothing()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var pipeline = NewPipeline(fixture, selection: CnSelection());
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.OnCaptureStarted(SessionId);
@@ -1292,9 +1289,7 @@ public sealed class ProtocolPipelineTests
     public void ALossBetweenTheClearAndTheExitDropsTheExitLine(string loss, bool exitReported)
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var pipeline = NewPipeline(fixture, selection: CnSelection());
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.OnCaptureStarted(SessionId);
@@ -1331,9 +1326,7 @@ public sealed class ProtocolPipelineTests
     public void AClearWhoseCaptureStoppedBeforeTheExitReportsNoExit()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var pipeline = NewPipeline(fixture, selection: CnSelection());
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.OnCaptureStarted(SessionId);
@@ -1357,9 +1350,7 @@ public sealed class ProtocolPipelineTests
     public void TheCountersResetWhenTheNextCaptureSessionStarts()
     {
         using var fixture = new TestDatabase();
-        EnsureSession(fixture);
-        var pipeline = new LiveProtocolPipeline(
-            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var pipeline = NewPipeline(fixture, selection: CnSelection());
         Capture.IParserStats stats = pipeline;
         Assert.Equal(0, stats.DutyClearSignalCount);
 
@@ -1405,7 +1396,7 @@ public sealed class ProtocolPipelineTests
     public void AProfileDeclaringDutyResultHasNoClearCounters()
     {
         using var fixture = new TestDatabase();
-        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var pipeline = NewPipeline(fixture);
         var notes = new List<DutyClearNote>();
         pipeline.DutyClearObserved += notes.Add;
         pipeline.OnCaptureStarted(SessionId);
@@ -1494,15 +1485,22 @@ public sealed class ProtocolPipelineTests
     private static Protocol.Calibration.CaptureSessionHealth Health(long damagedDirections = 0) =>
         new(SessionId, Capture.CaptureSilentReason.None, 0, 0, DamagedGameDirections: damagedDirections);
 
-    /// <summary>A live bridge over the checked-in synthetic profile, writing to a real database.</summary>
+    /// <summary>A live bridge writing to a real database, over the checked-in synthetic profile unless told otherwise.</summary>
     /// <param name="fixture">Database under test.</param>
-    /// <param name="bus">Event bus the bridge publishes to.</param>
-    private static LiveProtocolPipeline NewPipeline(TestDatabase fixture, LiveEventBus bus)
+    /// <param name="bus">Event bus the bridge publishes to; a new one by default.</param>
+    /// <param name="selection">What the selector answers; the synthetic profile, asserted usable, by default.</param>
+    private static LiveProtocolPipeline NewPipeline(
+        TestDatabase fixture, LiveEventBus? bus = null, ProfileSelection? selection = null)
     {
         EnsureSession(fixture);
-        var selection = SyntheticProfile.Select();
-        Assert.True(selection.IsUsable);
-        return new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => selection);
+        if (selection is null)
+        {
+            selection = SyntheticProfile.Select();
+            Assert.True(selection.IsUsable);
+        }
+
+        ProfileSelection selected = selection;
+        return new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus ?? new LiveEventBus(fixture.Clock), _ => selected);
     }
 
     /// <summary>A decoded message for the synthetic profile, which is all these tests parse.</summary>

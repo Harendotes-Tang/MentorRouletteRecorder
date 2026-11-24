@@ -1,7 +1,6 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
-using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -21,12 +20,6 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private static IEnumerable<DecodedMessage> TrueEvening => CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState);
-
-    /// <summary>The same evening on a client whose zone-change marker is not the declared opcode.</summary>
-    private static IEnumerable<DecodedMessage> EveningWithoutTheDeclaredMarker => TrueEvening.Select(message =>
-        message.Opcode == CalibrationTrafficCases.ZoneInit ? message with { Opcode = 0xA1F7 } : message);
-
     private bool Rejected(SharedCode code) => _bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha) == true;
 
     [Fact]
@@ -35,18 +28,16 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var wrong = Bed.Encode(truth.Payload with { ZoneOpcode = 0x7778 });
         _bed.Publish(wrong);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
-        _bed.Play(pipeline, TrueEvening, hour: 24);
+        _bed.Play(pipeline, Bed.TrueEvening, hour: 24);
         await Bed.Idle(pipeline);
 
         Assert.False(Rejected(wrong));
         var afterOne = pipeline.CalibrationStatus().Shared;
         Assert.Equal(SharedCandidateStatus.Verifying, Assert.Single(afterOne.Candidates).Status);
 
-        _bed.Play(pipeline, TrueEvening, hour: 48);
+        _bed.Play(pipeline, Bed.TrueEvening, hour: 48);
         await Bed.Idle(pipeline);
 
         Assert.True(Rejected(wrong));
@@ -81,13 +72,11 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     {
         var wrong = Bed.Encode(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload with { ZoneOpcode = 0x7778 });
         _bed.Publish(wrong);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         foreach (var hour in new[] { 24, 48, 72 })
         {
-            _bed.Play(pipeline, TrueEvening, hour, new CaptureSessionHealth("placeholder", silent, preexisting, dropped), report);
+            _bed.Play(pipeline, Bed.TrueEvening, hour, new CaptureSessionHealth("placeholder", silent, preexisting, dropped), report);
         }
 
         await Bed.Idle(pipeline);
@@ -119,38 +108,20 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.True(File.Exists(refused));
     }
 
-    /// <summary>Binds the true code on an evening that records no mentor duty, so the watch continues afterwards.</summary>
-    private async Task<Protocol.Pipeline.LiveProtocolPipeline> BoundAndStillWatched(SharedCode code)
-    {
-        _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening, hour: 24);
-        await Bed.StopAndSettleAsync(pipeline, session);
-
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
-        Assert.True(File.Exists(_bed.SharedProfilePath));
-        Assert.True(pipeline.CalibrationArmed);
-        Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
-        return pipeline;
-    }
-
     [Fact]
     public async Task ASharedProfileContradictedAfterBindingIsWithdrawnAndCalibrationReArms()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var pipeline = await BoundAndStillWatched(code);
+        var pipeline = await _bed.BoundAndStillWatchedAsync(code);
 
-        _bed.Play(pipeline, EveningWithoutTheDeclaredMarker, hour: 48);
+        _bed.Play(pipeline, Bed.EveningWithoutTheDeclaredMarker, hour: 48);
         await Bed.Idle(pipeline);
         Assert.True(File.Exists(_bed.SharedProfilePath));
         Assert.False(Rejected(code));
 
         var third = _bed.Start(pipeline);
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        Bed.Feed(pipeline, third, EveningWithoutTheDeclaredMarker, hour: 72);
+        Bed.Feed(pipeline, third, Bed.EveningWithoutTheDeclaredMarker, hour: 72);
         await Bed.StopAndSettleAsync(pipeline, third);
 
         Assert.True(Rejected(code));
@@ -172,7 +143,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     public async Task WhileASharedProfileRecordsItsCodeIsStillCheckedForRevocation()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var pipeline = await BoundAndStillWatched(code);
+        var pipeline = await _bed.BoundAndStillWatchedAsync(code);
         _bed.PublishRevoked(code);
         var sent = _bed.Transport.Requests.Count;
 
@@ -190,9 +161,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(code.Code).Outcome);
 
         _bed.PublishRevoked(code);
@@ -215,9 +184,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
 
         _bed.PublishRevoked(code);
@@ -232,9 +199,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         await Bed.Idle(pipeline);
         Assert.Equal(SharedPublication.Revoked, _bed.Store.Publication(Region.Cn, Bed.Build, code.Sha));
 
-        var restarted = _bed.Pipeline(_bed.Services());
-        restarted.Refresh(Bed.Game());
-        await Bed.Idle(restarted);
+        var restarted = await _bed.ReadyPipelineAsync();
         var sent = _bed.Transport.Requests.Count;
         Assert.Equal(SharedCheckOutcome.Started, restarted.CheckSharedCalibrationNow());
         await Bed.Idle(restarted);
@@ -308,9 +273,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
             _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, session, Bed.Confirmed);
         }
 
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.True(pipeline.CalibrationArmed);
@@ -331,16 +294,11 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         // One contradicting session is a record, not a rejection - and it leaves a state file on disk to hold open.
         _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, "session-1", Bed.Confirmed);
         var runs = new RunRepository(_bed.Db.Database);
-        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork) with
-        {
-            ProtocolProfileId = SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build),
-        };
+        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork) with { ProtocolProfileId = Bed.SharedProfileId };
         _bed.Db.InsertWithFirstRevision(recorded);
-        var state = Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
 
         var pipeline = _bed.Pipeline(_bed.Services());
-        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (_bed.HoldStateFile(FileShare.None))
         {
             pipeline.Refresh(Bed.Game());
             await Bed.Idle(pipeline);
@@ -354,9 +312,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
 
         // A second contradicting session is a rejection the file shows: the next start withdraws the profile.
         _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, "session-2", Bed.Confirmed);
-        var restarted = _bed.Pipeline(_bed.Services());
-        restarted.Refresh(Bed.Game());
-        await Bed.Idle(restarted);
+        var restarted = await _bed.ReadyPipelineAsync();
 
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.Equal("REJECTED", restarted.CalibrationStatus().Shared.LastRefusal);

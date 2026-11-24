@@ -1,4 +1,3 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -42,9 +41,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
     public async Task RejectingAProvenSharedProfileWithdrawsItReArmsCalibrationAndLocalCalibrationCarriesOn()
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 200_000));
@@ -120,9 +117,7 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
 
         // A restart remembers the choice: not even 立即检查 sends anything.
-        var restarted = _bed.Pipeline(_bed.Services());
-        restarted.Refresh(Bed.Game());
-        await Bed.Idle(restarted);
+        var restarted = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedCheckOutcome.NotNeeded, restarted.CheckSharedCalibrationNow());
         await Bed.Idle(restarted);
         Assert.True(restarted.CalibrationStatus().Shared.UserRejected);
@@ -182,10 +177,8 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
         _bed.Publish(code);
-        var state = Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
         var pipeline = _bed.Pipeline(_bed.Services());
-        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (_bed.HoldStateFile(FileShare.None))
         {
             pipeline.Refresh(Bed.Game());
             await Bed.Idle(pipeline);
@@ -211,12 +204,10 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
-        var state = Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
         var pipeline = _bed.Pipeline(_bed.Services());
 
         SharedImportResult pasted;
-        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (_bed.HoldStateFile(FileShare.None))
         {
             pipeline.Refresh(Bed.Game());
             await Bed.Idle(pipeline);
@@ -239,12 +230,10 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
     public async Task ACheckBeforeTheRefusalIsKnownSaysTheRecordsCannotBeRead()
     {
         Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
-        var state = Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
         var pipeline = _bed.Pipeline(_bed.Services());
 
         SharedCheckAnswer unknown;
-        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (_bed.HoldStateFile(FileShare.None))
         {
             pipeline.Refresh(Bed.Game());
             await Bed.Idle(pipeline);
@@ -274,16 +263,12 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(Bed.Encode(code.Payload with { ZoneOpcode = 0x7778 }));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.False(pipeline.CalibrationStatus().Shared.UserRejected);
-        var state = Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
-        Assert.True(File.Exists(state));
+        Assert.True(File.Exists(_bed.StatePath));
 
         SharedImportResult pasted;
-        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (_bed.HoldStateFile(FileShare.None))
         {
             pasted = pipeline.ImportCalibrationCode(code.Code);
         }

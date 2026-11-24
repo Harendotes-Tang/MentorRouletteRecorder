@@ -1,6 +1,5 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
-using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -26,10 +25,8 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     public async Task ADownloadedCodeVerifiesOnLiveTrafficAndRecordsInsideTheSameSession()
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
-        var pipeline = _bed.Pipeline(_bed.Services());
 
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var verifying = pipeline.CalibrationStatus().Shared;
         Assert.Equal(SharedCalibrationPhase.Verifying, verifying.Phase);
         Assert.Equal(SharedCandidateSource.Downloaded, Assert.Single(verifying.Candidates).Source);
@@ -43,7 +40,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         var current = pipeline.Current;
         Assert.Equal(ProfileStatus.Verified, current.Status);
         Assert.Equal(ProfileOrigin.Shared, current.Origin);
-        Assert.Equal(SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build), current.ProfileId);
+        Assert.Equal(Bed.SharedProfileId, current.ProfileId);
         Assert.True(File.Exists(_bed.SharedProfilePath));
         Assert.Equal(current.ProfileId, new CaptureSessionRepository(_bed.Db.Database).Get(session)!.ProtocolProfileId);
         // The pop and the duty entry arrive before the profile exists; once drained they form a complete run.
@@ -71,22 +68,9 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     [Fact]
     public async Task ADutyEntryThatArrivesWhileTheSharedProfileIsBeingWrittenIsNotLost()
     {
-        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
         using var writing = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        var services = _bed.Services() with
-        {
-            WriteSharedProfile = built =>
-            {
-                writing.Set();
-                Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
-                return SharedProfileFiles.Write(built, _bed.SharedRoot);
-            },
-        };
-        var pipeline = _bed.Pipeline(services);
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        var session = _bed.Start(pipeline);
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release, writing);
         var evening = Bed.Evening().ToArray();
 
         Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
@@ -304,20 +288,22 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     /// A session verifying a published code whose shared profile is held at the write until the test sets
     /// <paramref name="release"/>, so everything fed before that is staged and the bind replays all of it.
     /// </summary>
-    private async Task<(LiveProtocolPipeline Pipeline, string Session)> StartWithTheBindHeldAsync(ManualResetEventSlim release)
+    /// <param name="release">Lets the held write go on.</param>
+    /// <param name="writing">Set when the write is reached, if given.</param>
+    private async Task<(LiveProtocolPipeline Pipeline, string Session)> StartWithTheBindHeldAsync(
+        ManualResetEventSlim release, ManualResetEventSlim? writing = null)
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
         var services = _bed.Services() with
         {
             WriteSharedProfile = built =>
             {
+                writing?.Set();
                 Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
                 return SharedProfileFiles.Write(built, _bed.SharedRoot);
             },
         };
-        var pipeline = _bed.Pipeline(services);
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync(services);
         return (pipeline, _bed.Start(pipeline));
     }
 
@@ -353,10 +339,8 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     public async Task WhenEverySourceFailsCalibrationCarriesOnAndALocalConfirmationStillWorks()
     {
         _bed.Transport.Unreachable = true;
-        var pipeline = _bed.Pipeline(_bed.Services());
 
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var status = pipeline.CalibrationStatus();
         Assert.Equal(SharedCalibrationPhase.Unavailable, status.Shared.Phase);
@@ -382,9 +366,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     public async Task AQueueInferredCodeWaitsForConsentAndThenBinds()
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedConsentOutcome.NothingToAccept, pipeline.AcceptSharedQueueInference());
 
         var session = _bed.Start(pipeline);
@@ -420,9 +402,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     public async Task ACodePastedWhileConsentIsPendingIsTakenAndOutranksTheInferredOne()
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = _bed.Start(pipeline);
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 124_000));
@@ -453,9 +433,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
             SharedCalibrationSession.QueueConsentSetting,
             "{\"\\ud800\":\"2026-09-01T00:00:00.000Z\",\"cn/" + Bed.Build + "\":\"\\udc00\"}");
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = _bed.Start(pipeline);
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(pop: false), 200_000));
@@ -568,16 +546,10 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     public async Task ACandidateDroppedWhileItsProfileIsWrittenLeavesNoProfileBehind(string how)
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         using var writing = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _bed.BeforeReload = () =>
-        {
-            writing.Set();
-            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
-        };
+        _bed.HoldReload(writing, release);
         var session = _bed.Start(pipeline);
         try
         {
@@ -615,10 +587,8 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     {
         _bed.Environment = name => name == SharedCalibrationClient.DisableVariable ? "1" : null;
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
-        var pipeline = _bed.Pipeline(_bed.Services());
 
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
         await Bed.Idle(pipeline);
 
@@ -644,9 +614,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
 
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         Assert.Empty(_bed.Transport.Requests);
         Assert.Equal(SharedCheckOutcome.Disabled, pipeline.CheckSharedCalibrationNow());
@@ -665,13 +633,74 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
             _bed.DiskSelect,
             (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, _bed.LocalRoot));
         Assert.False(inert.SharedFetchWired);
-        var pipeline = _bed.Pipeline(inert);
 
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync(inert);
 
         Assert.Equal(SharedCheckOutcome.Disabled, pipeline.CheckSharedCalibrationNow());
         Assert.Equal(SharedCalibrationPhase.None, pipeline.CalibrationStatus().Shared.Phase);
         Assert.Throws<InvalidOperationException>(() => inert.WriteSharedProfile(new SharedProfileBuildResult(SharedProfileBuildStatus.Built)));
+    }
+
+    // ------------------------------------------------------------------ claims are given back
+
+    // The two claims shared calibration holds while work runs off the pipeline's gate - "a download is running" and
+    // "a candidate is being written" - are given back however that work ends. A throw nobody foresaw used to leave
+    // either set for the rest of the arm: every later 立即检查 answered "already fetching", or the candidate that passed
+    // never bound again (audit 2026-10-03, unclosed suspicions under OE).
+
+    [Fact]
+    public async Task ADownloadThatThrowsBeforeItIsClaimedDoesNotBlockTheNextCheck()
+    {
+        var services = _bed.Services();
+        var real = services.FetchSharedCalibration;
+        var calls = 0;
+        services = services with
+        {
+            // The first answer carries a code with no payload, which nothing downstream expects.
+            FetchSharedCalibration = (region, build, token) => Interlocked.Increment(ref calls) == 1
+                ? Task.FromResult(Bed.Fetched(
+                    SharedFetchStatus.Ok,
+                    new SharedCalibrationCandidate(
+                        new string('a', 64), "MRC1.unexpected", null!, 1, Bed.Confirmed, SharedCalibrationIndexTests.Commit())))
+                : real(region, build, token),
+        };
+        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var pipeline = await _bed.ReadyPipelineAsync(services);
+        Assert.Equal(1, calls);
+        Assert.Empty(pipeline.CalibrationStatus().Shared.Candidates);
+
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(2, calls);
+        Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+    }
+
+    [Fact]
+    public async Task ABindThatThrowsBeforeItIsCommittedLetsTheCandidateBindInTheNextSession()
+    {
+        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var thrown = 0;
+        _bed.BeforeReload = () =>
+        {
+            if (Interlocked.Exchange(ref thrown, 1) == 0)
+            {
+                throw new KeyNotFoundException("the catalogue reload failed in a way nothing foresaw");
+            }
+        };
+        var pipeline = await _bed.ReadyPipelineAsync();
+
+        var login = Bed.Before(Bed.Evening(), 30_000);
+        _bed.Play(pipeline, login, hour: 0);
+        await Bed.Idle(pipeline);
+        Assert.Equal(1, thrown);
+        Assert.NotEqual(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+
+        var session = _bed.Start(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, login, hour: 24);
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
     }
 }

@@ -1,14 +1,17 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
+using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
 
-/// <summary>可逆隔离与永久撤回分开；旧索引兼容，隔离和恢复经过磁盘重启仍保留 epoch。</summary>
+/// <summary>
+/// 可逆隔离与永久撤回分开；旧索引兼容，隔离和恢复经过磁盘重启仍保留 epoch。流水线读到隔离时卸下只经登录验证的共享绑定，
+/// 但不拒绝该码；被隔离的码在重启后也要等本机完整验证。
+/// </summary>
 public sealed class SharedCalibrationQuarantineTests
 {
     [Theory]
@@ -41,30 +44,88 @@ public sealed class SharedCalibrationQuarantineTests
         Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
     }
 
+    [Fact]
+    public async Task QuarantinedCodeWaitsPastLoginAndRestartForFullLocalVerification()
+    {
+        using var bed = new Bed();
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+        var pipeline = await bed.ReadyPipelineAsync();
+        var first = bed.Start(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, first, Bed.Before(Bed.Evening(), 30_000));
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        var candidate = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+        Assert.Equal(code.Sha, candidate.CodeSha256);
+        Assert.False(candidate.AuditPending);
+        pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
+        pipeline.StopSharedCalibration();
+        await Bed.Idle(pipeline);
+
+        var restarted = await bed.ReadyPipelineAsync();
+        var second = bed.Start(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
+        Assert.Equal(ProfileStatus.Verified, restarted.Current.Status);
+        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
+        restarted.OnCaptureStopped(second, CaptureEndReason.UserStop);
+    }
+
+    [Fact]
+    public async Task NewQuarantineTemporarilyUnloadsLoginOnlyProfileWithoutRejectingCode()
+    {
+        using var bed = new Bed();
+        var (code, pipeline, session) = await BoundAtLoginAsync(bed);
+        Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
+
+        bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        AssertNotAccused(bed, code);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(), 30_000));
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        // This capture straddled the epoch update and cannot become a recovery session.
+        Assert.False(pipeline.GetCalibrationEvidence(code.Sha).Available);
+    }
+
+    [Fact]
+    public async Task RestartDoesNotAdoptAnUnprovenProfileWhoseStoredCodeIsNowQuarantined()
+    {
+        using var bed = new Bed();
+        var (code, pipeline, session) = await BoundAtLoginAsync(bed);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        pipeline.StopSharedCalibration();
+        await Bed.Idle(pipeline);
+        bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+        var fetched = await bed.Services().FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
+        Assert.True(bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, fetched, bed.Db.Clock.UtcNow).Recorded);
+
+        var restarted = await bed.ReadyPipelineAsync();
+        Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
+        var second = bed.Start(restarted);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.Before(Bed.Evening(), 30_000), hour: 1);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, restarted.Current.Status);
+        await Bed.FeedAndSettleAsync(restarted, second, Bed.From(Bed.Evening(), 30_000), hour: 1);
+        Assert.Equal(ProfileStatus.Verified, restarted.Current.Status);
+        restarted.OnCaptureStopped(second, CaptureEndReason.UserStop);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task DownloadFailureCannotKeepLoginOnlyBindingAfterAReadQuarantine(bool blockStateWrite)
     {
         using var bed = new Bed();
-        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        bed.Publish(code);
-        var pipeline = bed.Pipeline(bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        var session = bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
-        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
-            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        var (code, pipeline, session) = await BoundAtLoginAsync(bed);
+        using var stateLock = blockStateWrite ? bed.HoldStateFile(FileShare.Read) : null;
         bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
         FailCodeDownloads(bed);
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
         await Bed.Idle(pipeline);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
-        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
-        Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
+        AssertNotAccused(bed, code);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
@@ -72,14 +133,7 @@ public sealed class SharedCalibrationQuarantineTests
     public async Task ReadQuarantineUnloadsLoginOnlyBindingOutsideTheEightDownloadedAndCachedCandidates()
     {
         using var bed = new Bed();
-        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        bed.Publish(code);
-        var pipeline = bed.Pipeline(bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        var session = bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
-        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        var (code, pipeline, session) = await BoundAtLoginAsync(bed);
 
         PublishBehindEightCachedCandidates(bed, code);
         Assert.DoesNotContain(bed.Store.LoadCandidates(Region.Cn, Bed.Build, Bed.TemplateSha), item => item.CodeSha256 == code.Sha);
@@ -88,8 +142,7 @@ public sealed class SharedCalibrationQuarantineTests
         await Bed.Idle(pipeline);
 
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
-        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
-        Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
+        AssertNotAccused(bed, code);
         Assert.True(pipeline.CalibrationStatus().Shared.Candidates.Count <= SharedCalibrationIndex.MaxCandidates);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
@@ -105,9 +158,7 @@ public sealed class SharedCalibrationQuarantineTests
         using var bed = new Bed();
         var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         bed.Publish(code);
-        var pipeline = bed.Pipeline(bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await bed.ReadyPipelineAsync();
         var evening = Bed.Evening().ToArray();
         var session = bed.Start(pipeline);
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(evening, 200_000));
@@ -143,9 +194,7 @@ public sealed class SharedCalibrationQuarantineTests
         using var bed = new Bed();
         var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         bed.Publish(code);
-        var pipeline = bed.Pipeline(bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await bed.ReadyPipelineAsync();
         var session = bed.Start(pipeline);
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 123_000));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -163,8 +212,7 @@ public sealed class SharedCalibrationQuarantineTests
         Assert.False(File.Exists(bed.SharedProfilePath));
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.Equal("QUARANTINED", pipeline.CalibrationStatus().Shared.LastRefusal);
-        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
-        Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
+        AssertNotAccused(bed, code);
     }
 
     [Fact]
@@ -172,7 +220,7 @@ public sealed class SharedCalibrationQuarantineTests
     {
         using var bed = new Bed();
         var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var built = SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>());
+        var built = Bed.BuildSharedProfile(code.Payload);
         Assert.Equal(SharedProfileBuildStatus.Built, built.Status);
         SharedProfileFiles.Write(built, bed.SharedRoot);
         Assert.True(bed.Store.RecordBound(Region.Cn, Bed.Build, built.ProfileSha256!, code.Sha, bed.Db.Clock.UtcNow));
@@ -181,9 +229,7 @@ public sealed class SharedCalibrationQuarantineTests
         var alias = ShareCode.Sha256(recovered);
         Assert.NotEqual(code.Sha, alias);
         bed.PublishListed(new Bed.Listing(code, QuarantineEpoch: 7));
-        var pipeline = bed.Pipeline(bed.Services() with { SelectTemplate = _ => changed });
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await bed.ReadyPipelineAsync(bed.Services() with { SelectTemplate = _ => changed });
 
         var session = bed.Start(pipeline);
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Evening());
@@ -192,6 +238,62 @@ public sealed class SharedCalibrationQuarantineTests
         var evidence = pipeline.GetCalibrationEvidence(alias);
         Assert.False(evidence.Available);
         Assert.Equal("NO_CURRENT_CANDIDATE", evidence.Reason);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task QuarantineArrivingDuringProfileWriteCannotCommitTheOldLoginGate(bool replaceWrittenDocument, bool stopBeforeCommit)
+    {
+        using var bed = new Bed();
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.Publish(code);
+        var pipeline = await bed.ReadyPipelineAsync();
+        bed.HoldReload(writing, release);
+        var session = bed.Start(pipeline);
+        try
+        {
+            Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(30)));
+            Assert.True(File.Exists(bed.SharedProfilePath));
+            bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+            bed.CheckNowAndAwaitClaim(pipeline, "fresh quarantine fetch was not claimed");
+            if (stopBeforeCommit) pipeline.StopSharedCalibration();
+            string? replacementSha = null;
+            if (replaceWrittenDocument)
+            {
+                var replacement = SharedProfileBuilder.Build(code.Payload with { ZoneOpcode = 65000 }, Bed.Template,
+                    bed.Db.Clock.UtcNow, new Dictionary<string, int>());
+                replacementSha = replacement.ProfileSha256;
+                SharedProfileFiles.Write(replacement, bed.SharedRoot);
+            }
+            release.Set();
+            await Bed.Idle(pipeline);
+            bed.BeforeReload = null;
+            Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+            AssertNotAccused(bed, code);
+            if (replaceWrittenDocument)
+                Assert.Equal(replacementSha, ProfileLoader.Load(bed.SharedProfilePath).ProfileSha256);
+            else
+            {
+                Assert.False(File.Exists(bed.SharedProfilePath));
+                if (!stopBeforeCommit)
+                {
+                    await Bed.FeedAndSettleAsync(pipeline, session, Bed.From(Bed.Evening(), 30_000));
+                    Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+                }
+            }
+        }
+        finally
+        {
+            release.Set();
+            await Bed.Idle(pipeline);
+            bed.BeforeReload = null;
+            pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        }
     }
 
     [Theory]
@@ -204,14 +306,8 @@ public sealed class SharedCalibrationQuarantineTests
         using var release = new ManualResetEventSlim();
         var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         bed.Publish(code);
-        var pipeline = bed.Pipeline(bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        bed.BeforeReload = () =>
-        {
-            writing.Set();
-            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
-        };
+        var pipeline = await bed.ReadyPipelineAsync();
+        bed.HoldReload(writing, release);
         var session = bed.Start(pipeline);
         try
         {
@@ -222,11 +318,7 @@ public sealed class SharedCalibrationQuarantineTests
             else
                 bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
             FailCodeDownloads(bed);
-            bed.Db.Clock.UtcNow += TimeSpan.FromSeconds(6);
-            var claimedAt = bed.Db.Clock.UtcNow;
-            Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-            Assert.True(SpinWait.SpinUntil(() => pipeline.CalibrationStatus().Shared.LastSentAtUtc == claimedAt,
-                TimeSpan.FromSeconds(30)), "fresh quarantine fetch was not claimed");
+            bed.CheckNowAndAwaitClaim(pipeline, "fresh quarantine fetch was not claimed");
             release.Set();
             await Bed.Idle(pipeline);
             Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
@@ -241,26 +333,6 @@ public sealed class SharedCalibrationQuarantineTests
         }
     }
 
-    private static void FailCodeDownloads(Bed bed) => bed.Transport.BeforeAnswer = (uri, _) =>
-        uri == SharedCalibrationClient.IndexUri(SharedCalibrationSource.GithubRaw)
-            ? Task.CompletedTask
-            : Task.FromException(new IOException("code file unavailable"));
-
-    private static void PublishBehindEightCachedCandidates(Bed bed, SharedCode code)
-    {
-        var higher = Enumerable.Range(0, SharedCalibrationIndex.MaxCandidates)
-            .Select(index => Bed.Encode(code.Payload with { ZoneOpcode = (ushort)(60000 + index) }))
-            .ToArray();
-        var candidates = higher.Select(item => new SharedCalibrationCandidate(item.Sha, item.Code, item.Payload,
-            2, bed.Db.Clock.UtcNow, SharedCalibrationIndexTests.Commit())).ToArray();
-        var fetched = new SharedCalibrationFetchResult(SharedFetchStatus.Ok,
-            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
-            candidates, Array.Empty<SharedCodeDiscard>(), Array.Empty<SharedIndexSkip>(), Array.Empty<string>());
-        Assert.True(bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, fetched, bed.Db.Clock.UtcNow).Recorded);
-        bed.PublishListed(higher.Select(item => new Bed.Listing(item, Submitters: 2))
-            .Append(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1)).ToArray());
-    }
-
     [Fact]
     public async Task ReadQuarantineWithFailedDownloadsDoesNotUnloadAFullyVerifiedLocalBindingAfterRestart()
     {
@@ -268,9 +340,7 @@ public sealed class SharedCalibrationQuarantineTests
         var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         bed.Publish(code);
         var services = bed.Services();
-        var pipeline = bed.Pipeline(services);
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await bed.ReadyPipelineAsync(services);
         var session = bed.Start(pipeline);
         var traffic = Bed.Evening().ToArray();
         await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(traffic, 200_000));
@@ -286,9 +356,7 @@ public sealed class SharedCalibrationQuarantineTests
         var refreshed = await services.FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
         Assert.Equal(SharedFetchStatus.CodesUnavailable, refreshed.Status);
         Assert.True(bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, refreshed, bed.Db.Clock.UtcNow).Recorded);
-        var restarted = bed.Pipeline(services);
-        restarted.Refresh(Bed.Game());
-        await Bed.Idle(restarted);
+        var restarted = await bed.ReadyPipelineAsync(services);
         Assert.True(Assert.Single(bed.Store.LoadCandidates(Region.Cn, Bed.Build, Bed.TemplateSha)).Quarantined);
         Assert.Equal(ProfileStatus.Verified, restarted.Current.Status);
         Assert.False(restarted.CalibrationArmed);
@@ -337,32 +405,64 @@ public sealed class SharedCalibrationQuarantineTests
     [Fact]
     public void DiskRoundTripPreservesQuarantineThenRecoveryEpochAndCode()
     {
-        using var temp = TempDirectory.Reserve();
+        using var bed = new Bed();
         var payload = ShareCodeTests.Payload(CalibrationMatchSource.Announcement,
-            new ShareCodePop(512, Length: 64)) with { GameBuild = SharedCalibrationIndexTests.Build };
+            new ShareCodePop(512, Length: 64)) with { GameBuild = Bed.Build };
         var candidate = new SharedCalibrationCandidate(ShareCode.Sha256(payload), ShareCode.Encode(payload), payload,
             3, DateTimeOffset.UtcNow, SharedCalibrationIndexTests.Commit(), Quarantined: true, QuarantineEpoch: 2);
-        var store = new SharedCalibrationStore(temp.Path);
-        SharedCalibrationFetchResult Fetched(SharedCalibrationCandidate code) => new(SharedFetchStatus.Ok,
-            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
-            new[] { code }, Array.Empty<SharedCodeDiscard>(),
-            Array.Empty<SharedIndexSkip>(), Array.Empty<string>());
+        var store = bed.Store;
         Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
-            Fetched(candidate), DateTimeOffset.UtcNow).Recorded);
-        var quarantined = Assert.Single(new SharedCalibrationStore(temp.Path)
+            Bed.Fetched(SharedFetchStatus.Ok, candidate), DateTimeOffset.UtcNow).Recorded);
+        var quarantined = Assert.Single(new SharedCalibrationStore(bed.StoreRoot)
             .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
-        Assert.True(quarantined.Quarantined, File.ReadAllText(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(temp.Path, Region.Cn, payload.GameBuild), SharedCalibrationStore.StateFileName)));
+        Assert.True(quarantined.Quarantined, File.ReadAllText(bed.StatePath));
         Assert.Equal(2, quarantined.QuarantineEpoch);
         Assert.Equal(SharedPublication.Published, store.Publication(Region.Cn, payload.GameBuild, candidate.CodeSha256));
 
         Assert.True(store.RecordFetch(Region.Cn, payload.GameBuild, payload.TemplateSha256,
-            Fetched(candidate with { Quarantined = false }), DateTimeOffset.UtcNow).Recorded);
-        var recovered = Assert.Single(new SharedCalibrationStore(temp.Path)
+            Bed.Fetched(SharedFetchStatus.Ok, candidate with { Quarantined = false }), DateTimeOffset.UtcNow).Recorded);
+        var recovered = Assert.Single(new SharedCalibrationStore(bed.StoreRoot)
             .LoadCandidates(Region.Cn, payload.GameBuild, payload.TemplateSha256));
         Assert.False(recovered.Quarantined);
         Assert.Equal(2, recovered.QuarantineEpoch);
         Assert.Equal(candidate.Code, recovered.Code);
         Assert.False(store.IsRejected(Region.Cn, payload.GameBuild, payload.TemplateSha256, candidate.CodeSha256));
+    }
+
+    /// <summary>A published code whose shared profile the login burst bound, in a capture that is still running.</summary>
+    private static async Task<(SharedCode Code, LiveProtocolPipeline Pipeline, string Session)> BoundAtLoginAsync(Bed bed)
+    {
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.Publish(code);
+        var pipeline = await bed.ReadyPipelineAsync();
+        var session = bed.Start(pipeline);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        return (code, pipeline, session);
+    }
+
+    /// <summary>A quarantine never accuses the code: it is not rejected and its text stays in the store.</summary>
+    private static void AssertNotAccused(Bed bed, SharedCode code)
+    {
+        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
+        Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
+    }
+
+    private static void FailCodeDownloads(Bed bed) => bed.Transport.BeforeAnswer = (uri, _) =>
+        uri == SharedCalibrationClient.IndexUri(SharedCalibrationSource.GithubRaw)
+            ? Task.CompletedTask
+            : Task.FromException(new IOException("code file unavailable"));
+
+    private static void PublishBehindEightCachedCandidates(Bed bed, SharedCode code)
+    {
+        var higher = Enumerable.Range(0, SharedCalibrationIndex.MaxCandidates)
+            .Select(index => Bed.Encode(code.Payload with { ZoneOpcode = (ushort)(60000 + index) }))
+            .ToArray();
+        var candidates = higher.Select(item => new SharedCalibrationCandidate(item.Sha, item.Code, item.Payload,
+            2, bed.Db.Clock.UtcNow, SharedCalibrationIndexTests.Commit())).ToArray();
+        Assert.True(bed.Store.RecordFetch(
+            Region.Cn, Bed.Build, Bed.TemplateSha, Bed.Fetched(SharedFetchStatus.Ok, candidates), bed.Db.Clock.UtcNow).Recorded);
+        bed.PublishListed(higher.Select(item => new Bed.Listing(item, Submitters: 2))
+            .Append(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1)).ToArray());
     }
 }

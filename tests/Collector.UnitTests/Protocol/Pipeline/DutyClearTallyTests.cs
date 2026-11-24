@@ -22,9 +22,7 @@ public sealed class DutyClearTallyTests
     [Fact]
     public void ItCountsSignalsAndOnlyTheOnesThatCompletedARun()
     {
-        var machine = Machine();
-        var notes = new List<DutyClearNote>();
-        var tally = new DutyClearTally(new MachineSink(machine), machine, notes.Add);
+        var (machine, notes, tally) = NewTally();
 
         tally.Accept(Clear(10_000));
         tally.Accept(Pop(470_000));
@@ -79,11 +77,8 @@ public sealed class DutyClearTallyTests
     [Fact]
     public void AClearAfterACompletionIsMetInIdleAndIsAboutNoRun()
     {
-        var machine = Machine();
-        var notes = new List<DutyClearNote>();
-        var tally = new DutyClearTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (_, notes, tally) = NewTally();
+        EnterDuty(tally);
         tally.Accept(Clear(2_046_833));
 
         tally.Accept(Clear(2_046_900));
@@ -98,11 +93,8 @@ public sealed class DutyClearTallyTests
     [Fact]
     public void ItReportsTheGapToTheNextZoneChangeOnce()
     {
-        var machine = Machine();
-        var notes = new List<DutyClearNote>();
-        var tally = new DutyClearTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (_, notes, tally) = NewTally();
+        EnterDuty(tally);
         tally.Accept(Clear(2_046_833));
 
         tally.Accept(Zone(2_060_556));
@@ -124,11 +116,8 @@ public sealed class DutyClearTallyTests
     [Fact]
     public void AForgottenExitIsNotReported()
     {
-        var machine = Machine();
-        var notes = new List<DutyClearNote>();
-        var tally = new DutyClearTally(new MachineSink(machine), machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        var (_, notes, tally) = NewTally();
+        EnterDuty(tally);
         tally.Accept(Clear(2_046_833));
 
         tally.ForgetExit();
@@ -150,8 +139,7 @@ public sealed class DutyClearTallyTests
         var notes = new List<DutyClearNote>();
         var first = Machine();
         var firstTally = new DutyClearTally(new MachineSink(first), first, notes.Add, counts);
-        firstTally.Accept(Pop(470_000));
-        firstTally.Accept(Zone(489_047));
+        EnterDuty(firstTally);
         firstTally.Accept(Clear(2_046_833));
 
         var second = Machine();
@@ -169,9 +157,7 @@ public sealed class DutyClearTallyTests
     [Fact]
     public void AClearThatCompletedNothingReportsNoExit()
     {
-        var machine = Machine();
-        var notes = new List<DutyClearNote>();
-        var tally = new DutyClearTally(new MachineSink(machine), machine, notes.Add);
+        var (_, notes, tally) = NewTally();
 
         tally.Accept(Clear(10_000));
         tally.Accept(Zone(20_000));
@@ -184,7 +170,7 @@ public sealed class DutyClearTallyTests
     {
         var machine = Machine();
         var seen = new List<SemanticEvent>();
-        var tally = new DutyClearTally(new RecordingSink(machine, seen), machine, _ => { });
+        var tally = new DutyClearTally(new MachineSink(machine, seen), machine, _ => { });
         var events = new SemanticEvent[]
         {
             Job(1_000), Pop(470_000), Zone(489_047), Clear(2_046_833), Zone(2_060_556), Pop(2_500_000),
@@ -229,8 +215,7 @@ public sealed class DutyClearTallyTests
             });
         var notes = new List<DutyClearNote>();
         var tally = new DutyClearTally(processor, machine, notes.Add);
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        EnterDuty(tally);
 
         refuseResults = true;
         tally.Accept(Clear(2_046_833));
@@ -252,8 +237,7 @@ public sealed class DutyClearTallyTests
         var machine = Machine();
         var tally = new DutyClearTally(new MachineSink(machine), machine,
             _ => throw new InvalidOperationException("the log is broken"));
-        tally.Accept(Pop(470_000));
-        tally.Accept(Zone(489_047));
+        EnterDuty(tally);
 
         var thrown = Record.Exception(() => tally.Accept(Clear(2_046_833)));
 
@@ -298,6 +282,21 @@ public sealed class DutyClearTallyTests
         new(ProfileBinding.Live("cn-test", Region.Cn, ProfileStatus.Verified, 42,
                 canDetectDutyResult: false, observesDutyClear: true),
             null, () => RunId);
+
+    /// <summary>A tally in front of a fresh machine, collecting its notes.</summary>
+    private static (MentorRunStateMachine Machine, List<DutyClearNote> Notes, DutyClearTally Tally) NewTally()
+    {
+        var machine = Machine();
+        var notes = new List<DutyClearNote>();
+        return (machine, notes, new DutyClearTally(new MachineSink(machine), machine, notes.Add));
+    }
+
+    /// <summary>The mentor roulette pops and the player enters its duty.</summary>
+    private static void EnterDuty(DutyClearTally tally)
+    {
+        tally.Accept(Pop(470_000));
+        tally.Accept(Zone(489_047));
+    }
 
     private static EventKey Key(string semantic, long monoMs) =>
         new(SessionId, PacketDirection.ServerToClient, "61455", monoMs, null, semantic + ":" + monoMs);
@@ -348,21 +347,5 @@ public sealed class DutyClearTallyTests
             ProtocolProfileId = "cn-test",
             ProfileStatus = ProfileStatus.Verified,
         }, transaction));
-    }
-
-    /// <summary>The state machine with no storage behind it.</summary>
-    private sealed class MachineSink(MentorRunStateMachine machine) : ISemanticEventSink
-    {
-        public void Accept(SemanticEvent semanticEvent) => machine.Handle(semanticEvent);
-    }
-
-    /// <summary>The state machine, recording what reached it.</summary>
-    private sealed class RecordingSink(MentorRunStateMachine machine, List<SemanticEvent> seen) : ISemanticEventSink
-    {
-        public void Accept(SemanticEvent semanticEvent)
-        {
-            seen.Add(semanticEvent);
-            machine.Handle(semanticEvent);
-        }
     }
 }

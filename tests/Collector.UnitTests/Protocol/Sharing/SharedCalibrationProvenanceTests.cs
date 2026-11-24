@@ -1,7 +1,5 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
-using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
@@ -22,27 +20,17 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
 
     public void Dispose() => _bed.Dispose();
 
-    private static string ProfileId => SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build);
-
-    /// <summary>The login burst and the idle minute after it: nothing queued yet.</summary>
-    private static DecodedMessage[] Login(IEnumerable<DecodedMessage> evening) => Bed.Before(evening, 30_000);
-
-    /// <summary>Queue, match and the duty entry, after the login burst.</summary>
-    private static DecodedMessage[] UpToEntry(IEnumerable<DecodedMessage> evening) => Bed.From(Bed.Before(evening, 200_000), 30_000);
-
     [Fact]
     public async Task APublishedCodeBindsOnTheLoginBurstAndRecordsTheFirstMatchLive()
     {
         _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var candidate = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
         Assert.Equal(SharedCandidateProvenance.Published, candidate.Provenance);
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
 
         // Bound before anything was queued: the zone marker vouched for the build, the rest is audited.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -57,11 +45,11 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
 
         // The match arrives on the bound parser, not in a staging list.
-        Bed.Feed(pipeline, session, UpToEntry(evening));
+        Bed.Feed(pipeline, session, Bed.UpToEntry(evening));
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         var run = Assert.Single(_bed.RunsOf(session));
         Assert.Equal(9, run.MentorRouletteId);
-        Assert.Equal(ProfileId, run.ProtocolProfileId);
+        Assert.Equal(Bed.SharedProfileId, run.ProtocolProfileId);
 
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
         await Bed.StopAndSettleAsync(pipeline, session);
@@ -89,13 +77,13 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
 
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(evening));
 
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.Equal(SharedCalibrationPhase.Verifying, pipeline.CalibrationStatus().Shared.Phase);
         Assert.False(File.Exists(_bed.SharedProfilePath));
 
-        await Bed.FeedAndSettleAsync(pipeline, session, UpToEntry(evening));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.UpToEntry(evening));
 
         // Only now, with the match and the duty entry seen: bound, and the staged evening drained into a run.
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
@@ -110,9 +98,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         var listed = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var unlisted = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
         _bed.Publish(listed);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var samePasted = pipeline.ImportCalibrationCode(listed.Code);
         var otherPasted = pipeline.ImportCalibrationCode(unlisted.Code);
@@ -133,9 +119,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.PublishRevoked(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var refused = pipeline.ImportCalibrationCode(code.Code);
 
@@ -150,9 +134,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedCandidateProvenance.Imported, pipeline.ImportCalibrationCode(code.Code).Provenance);
 
         _bed.Publish(code);
@@ -165,7 +147,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
 
         // And it binds as a published code does: at login.
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, Login(Bed.Evening()));
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.Login(Bed.Evening()));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.Idle, pipeline.RunState);
     }
@@ -175,24 +157,20 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         // Bound at login; a match recorded; the duty never exited, so the watch is still on when the evening ends.
         var first = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
-        await Bed.FeedAndSettleAsync(pipeline, first, Login(evening));
+        await Bed.FeedAndSettleAsync(pipeline, first, Bed.Login(evening));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
-        Bed.Feed(pipeline, first, UpToEntry(evening));
+        Bed.Feed(pipeline, first, Bed.UpToEntry(evening));
         var recorded = Assert.Single(_bed.RunsOf(first));
         Assert.False(recorded.PendingReview);
         await Bed.StopAndSettleAsync(pipeline, first);
 
         // Two healthy evenings on which the declared zone marker is not what the client sends.
-        var without = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState)
-            .Select(message => message.Opcode == CalibrationTrafficCases.ZoneInit ? message with { Opcode = 0xA1F7 } : message)
-            .ToArray();
+        var without = Bed.EveningWithoutTheDeclaredMarker.ToArray();
         _bed.Play(pipeline, without, hour: 48);
         await Bed.Idle(pipeline);
         Assert.True(File.Exists(_bed.SharedProfilePath));
@@ -205,7 +183,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
         var flagged = new RunRepository(_bed.Db.Database).Get(recorded.RunId)!;
         Assert.True(flagged.PendingReview);
-        Assert.Equal(ProfileId, flagged.ProtocolProfileId);
+        Assert.Equal(Bed.SharedProfileId, flagged.ProtocolProfileId);
     }
 
     /// <summary>
@@ -219,8 +197,8 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.WriteSharedProfile(code.Payload);
         var profileSha = ProfileLoader.Load(_bed.SharedProfilePath).ProfileSha256;
-        _bed.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddHours(1)) with { ProtocolProfileId = ProfileId });
-        Assert.True(new RunRepository(_bed.Db.Database).AnyEnteredAndExited(ProfileId));
+        _bed.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddHours(1)) with { ProtocolProfileId = Bed.SharedProfileId });
+        Assert.True(new RunRepository(_bed.Db.Database).AnyEnteredAndExited(Bed.SharedProfileId));
 
         // The store is wired (as in the shipping assembly); a shared profile still being watched is one of the
         // two cases in which the index is read again (docs/privacy-boundary.md §8.2), so a request does go out.
@@ -290,7 +268,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     [Fact]
     public async Task AnEarlierCodesCompleteDutyDoesNotProveTheNextCodeOfTheBuild()
     {
-        _bed.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-1)) with { ProtocolProfileId = ProfileId });
+        _bed.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-1)) with { ProtocolProfileId = Bed.SharedProfileId });
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
         pipeline.Refresh(Bed.Game());
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
@@ -319,23 +297,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     public async Task RevokingACodeMarksOnlyWhatItRecordedAndNotAnEarlierCodesRecords(bool restart)
     {
         _bed.Db.Clock.UtcNow = new DateTimeOffset(2026, 9, 9, 13, 0, 0, TimeSpan.Zero);
-        // Cut short, so it cannot prove the code below (that is the next test's question): only the marking is at stake.
-        var earlier = TestDatabase.Run(
-            result: RunResult.Interrupted, source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-2)) with { ProtocolProfileId = ProfileId };
-        _bed.Db.InsertWithFirstRevision(earlier);
-        _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-
-        // An evening with nothing shared to verify; the code published afterwards binds on its evidence, between sessions.
-        _bed.Play(pipeline, Bed.Evening(), hour: 0);
-        await Bed.Idle(pipeline);
-        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        _bed.Publish(code);
-        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-        await Bed.Idle(pipeline);
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        var (pipeline, code, earlier) = await BindPublishedCodeBetweenSessionsAsync();
         Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
 
         if (restart)
@@ -350,10 +312,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         await Bed.Idle(pipeline);
         var own = Assert.Single(_bed.RunsOf(session));
 
-        _bed.PublishRevoked(code);
-        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
-        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-        await Bed.Idle(pipeline);
+        await RevokeNowAsync(pipeline, code);
 
         Assert.False(File.Exists(_bed.SharedProfilePath));
         var runs = new RunRepository(_bed.Db.Database);
@@ -373,20 +332,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
     {
         // The bind happens an hour and a half after the next evening's duty is stamped: the clock is moved back in between.
         _bed.Db.Clock.UtcNow = new DateTimeOffset(2026, 9, 10, 13, 30, 0, TimeSpan.Zero);
-        var earlier = TestDatabase.Run(
-            result: RunResult.Interrupted, source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-2)) with { ProtocolProfileId = ProfileId };
-        _bed.Db.InsertWithFirstRevision(earlier);
-        _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        _bed.Play(pipeline, Bed.Evening(), hour: 0);
-        await Bed.Idle(pipeline);
-        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        _bed.Publish(code);
-        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-        await Bed.Idle(pipeline);
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        var (pipeline, code, earlier) = await BindPublishedCodeBetweenSessionsAsync();
 
         if (restart)
         {
@@ -400,10 +346,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         var own = Assert.Single(_bed.RunsOf(session));
         Assert.True(own.CreatedAtUtc < _bed.Db.Clock.UtcNow.AddHours(-1));
 
-        _bed.PublishRevoked(code);
-        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
-        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-        await Bed.Idle(pipeline);
+        await RevokeNowAsync(pipeline, code);
 
         Assert.False(File.Exists(_bed.SharedProfilePath));
         var runs = new RunRepository(_bed.Db.Database);
@@ -411,12 +354,41 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.False(runs.Get(earlier.RunId)!.PendingReview);
     }
 
+    /// <summary>
+    /// An earlier code's record under the profile id, cut short so it cannot prove the next code (only the marking is
+    /// at stake); an evening with nothing shared to verify; then a published code that binds on that evening's evidence,
+    /// between sessions.
+    /// </summary>
+    private async Task<(LiveProtocolPipeline Pipeline, SharedCode Code, MentorRun Earlier)> BindPublishedCodeBetweenSessionsAsync()
+    {
+        var earlier = TestDatabase.Run(
+            result: RunResult.Interrupted, source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-2)) with { ProtocolProfileId = Bed.SharedProfileId };
+        _bed.Db.InsertWithFirstRevision(earlier);
+        _bed.Publish();
+        var pipeline = await _bed.ReadyPipelineAsync();
+        _bed.Play(pipeline, Bed.Evening(), hour: 0);
+        await Bed.Idle(pipeline);
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        return (pipeline, code, earlier);
+    }
+
+    /// <summary>The index now revokes <paramref name="code"/>, and a manual check, allowed again, reads it.</summary>
+    private async Task RevokeNowAsync(LiveProtocolPipeline pipeline, SharedCode code)
+    {
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+    }
+
     /// <summary>Two healthy evenings on which the declared zone marker is not what the client sends.</summary>
     private async Task Contradict(LiveProtocolPipeline pipeline)
     {
-        var without = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState)
-            .Select(message => message.Opcode == CalibrationTrafficCases.ZoneInit ? message with { Opcode = 0xA1F7 } : message)
-            .ToArray();
+        var without = Bed.EveningWithoutTheDeclaredMarker.ToArray();
         _bed.Play(pipeline, without, hour: 48);
         await Bed.Idle(pipeline);
         _bed.Play(pipeline, without, hour: 72);
@@ -429,17 +401,17 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
         var runs = new RunRepository(_bed.Db.Database);
         var since = new DateTimeOffset(2026, 9, 17, 20, 0, 0, TimeSpan.Zero);
-        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(30)) with { ProtocolProfileId = ProfileId };
-        var earlier = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddHours(-2)) with { ProtocolProfileId = ProfileId };
-        var alreadyPending = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(40)) with { ProtocolProfileId = ProfileId, PendingReview = true };
-        var deleted = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(50), softDeleted: true) with { ProtocolProfileId = ProfileId };
+        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(30)) with { ProtocolProfileId = Bed.SharedProfileId };
+        var earlier = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddHours(-2)) with { ProtocolProfileId = Bed.SharedProfileId };
+        var alreadyPending = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(40)) with { ProtocolProfileId = Bed.SharedProfileId, PendingReview = true };
+        var deleted = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(50), softDeleted: true) with { ProtocolProfileId = Bed.SharedProfileId };
         var otherProfile = TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: since.AddMinutes(60)) with { ProtocolProfileId = "cn.other.local" };
         var revisions = new RunRevisionRepository(_bed.Db.Database);
 
         // As the processor writes them: the row and its creation revision, which the trail's trigger requires.
         _bed.Db.InsertWithFirstRevision(recorded, earlier, alreadyPending, deleted, otherProfile);
 
-        var flagged = ((ISharedCalibrationHost)pipeline).FlagSharedRecords(ProfileId, since, "CONTRADICTED");
+        var flagged = ((ISharedCalibrationHost)pipeline).FlagSharedRecords(Bed.SharedProfileId, since, "CONTRADICTED");
 
         Assert.Equal(1, flagged);
         var marked = runs.Get(recorded.RunId)!;
@@ -455,8 +427,8 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.Equal(alreadyPending.Revision, runs.Get(alreadyPending.RunId)!.Revision);
 
         // With no bound time everything under the profile id is suspect, and a second pass finds nothing left.
-        Assert.Equal(1, ((ISharedCalibrationHost)pipeline).FlagSharedRecords(ProfileId, null, "REVOKED"));
+        Assert.Equal(1, ((ISharedCalibrationHost)pipeline).FlagSharedRecords(Bed.SharedProfileId, null, "REVOKED"));
         Assert.Contains("撤回", revisions.ListForRun(earlier.RunId, 1, 10).Items.Single(item => item.Revision == 2).Reason, StringComparison.Ordinal);
-        Assert.Equal(0, ((ISharedCalibrationHost)pipeline).FlagSharedRecords(ProfileId, null, "REVOKED"));
+        Assert.Equal(0, ((ISharedCalibrationHost)pipeline).FlagSharedRecords(Bed.SharedProfileId, null, "REVOKED"));
     }
 }

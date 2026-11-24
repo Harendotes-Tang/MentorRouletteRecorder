@@ -1,4 +1,3 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -38,9 +37,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.PublishListed(new Bed.Listing(code, ShapePrior: true));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedShareCodeRefusal.NoProfile, pipeline.GetCalibrationShareCode().Refusal);
 
         var evening = Bed.Evening().ToArray();
@@ -119,15 +116,6 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         Assert.Equal(requests, _bed.Transport.Requests.Count);
     }
 
-    /// <summary>The last index this machine read for the running build revokes <paramref name="sha"/>.</summary>
-    private void RevokeInStore(string sha) => Assert.True(_bed.Store.RecordFetch(
-        Region.Cn, Bed.Build, Bed.TemplateSha,
-        new SharedCalibrationFetchResult(
-            SharedFetchStatus.NoneForBuild,
-            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Ok, 200) },
-            Array.Empty<SharedCalibrationCandidate>(), Array.Empty<SharedCodeDiscard>(), Array.Empty<SharedIndexSkip>(), new[] { sha }),
-        _bed.Db.Clock.UtcNow).Recorded);
-
     /// <summary>
     /// Review 2026-10-15 (M1): a settled profile records with calibration disarmed, so the revocation check that runs when a
     /// profile is adopted under calibration never ran for it. After a restart the store's record of the revocation is
@@ -140,9 +128,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var other = Bed.Encode(code.Payload with { ZoneOpcode = 0xA1F7 });
         _bed.PublishListed(new Bed.Listing(code, Submitters: 2), new Bed.Listing(other));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
         // The revocation scenario needs a settled profile. Finish the login bind before replaying the duty;
@@ -158,11 +144,9 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         // is pending review for that reason already.
         var recorded = _bed.SeedRunUnderSharedProfile();
         Assert.False(new RunRepository(_bed.Db.Database).Get(recorded.RunId)!.PendingReview);
-        RevokeInStore(code.Sha);
+        _bed.RevokeInStore(code.Sha);
         var requests = _bed.Transport.Requests.Count;
-        var again = _bed.Pipeline(_bed.Services());
-        again.Refresh(Bed.Game());
-        await Bed.Idle(again);
+        var again = await _bed.ReadyPipelineAsync();
 
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.True(new RunRepository(_bed.Db.Database).Get(recorded.RunId)!.PendingReview);
@@ -178,7 +162,6 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         Assert.Equal(requests, _bed.Transport.Requests.Count);
     }
 
-
     /// <summary>
     /// Review 2026-10-15 (M2): a profile adopted from disk is watched under the published gate, but what the card shows is
     /// whether this machine keeps its code to hand back. A pasted code no index listed, bound, restarted mid-watch and then
@@ -189,9 +172,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
     {
         _bed.Publish();
         var pasted = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.Equal(SharedCandidateProvenance.Imported, pipeline.ImportCalibrationCode(pasted.Code).Provenance);
 
         // Bound once its match and duty entry behaved; the duty is not over when the session ends, so the watch is still on.
@@ -251,9 +232,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var pasted = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var stored = Bed.Encode(pasted.Payload with { ZoneOpcode = 0xA1F7 });
         _bed.Publish(stored);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         pipeline.ImportCalibrationCode(pasted.Code);
 
         using var release = new ManualResetEventSlim();
@@ -297,9 +276,7 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var pasted = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var stored = Bed.Encode(pasted.Payload with { ZoneOpcode = 0xA1F7 });
         _bed.Publish(stored);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         Assert.True(File.Exists(StoredFile(stored)));
         Assert.Equal(SharedCandidateProvenance.Imported, pipeline.ImportCalibrationCode(pasted.Code).Provenance);
 

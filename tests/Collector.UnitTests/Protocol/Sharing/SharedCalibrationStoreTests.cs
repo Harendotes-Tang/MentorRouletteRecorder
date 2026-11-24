@@ -3,6 +3,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage;
+using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -46,18 +47,6 @@ public sealed class SharedCalibrationStoreTests : IDisposable
             SharedCalibrationIndexTests.Commit());
     }
 
-    private static SharedCalibrationFetchResult Fetched(SharedFetchStatus status, params SharedCalibrationCandidate[] candidates)
-    {
-        var reached = status is not (SharedFetchStatus.IndexUnavailable or SharedFetchStatus.Cancelled);
-        return new SharedCalibrationFetchResult(
-            status,
-            new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, reached ? SharedFetchOutcome.Ok : SharedFetchOutcome.Timeout, reached ? 200 : null) },
-            candidates,
-            Array.Empty<SharedCodeDiscard>(),
-            Array.Empty<SharedIndexSkip>(),
-            Array.Empty<string>());
-    }
-
     // ------------------------------------------------------------------------ layout
 
     [Fact]
@@ -91,7 +80,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var few = Candidate(0xF001, submitters: 1);
         var many = Candidate(0xF002, submitters: 3);
 
-        var written = _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, few, many), T0);
+        var written = _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, few, many), T0);
 
         Assert.True(written.Recorded);
         Assert.Equal(2, written.CodesWritten);
@@ -112,7 +101,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     [Fact]
     public void CandidatesAreOnlyThoseForThisRegionBuildAndTemplate()
     {
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0);
 
         Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template));
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, OtherTemplate));
@@ -128,7 +117,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var garbage = Candidate(0xF003) with { Code = "MRC1.not-a-code" };
         var otherBuild = Candidate(0xF004, build: OtherBuild);
 
-        var result = _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, good, wrongHash, garbage, otherBuild), T0);
+        var result = _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, good, wrongHash, garbage, otherBuild), T0);
 
         Assert.Equal(1, result.CodesWritten);
         Assert.Equal(3, result.Refused.Count);
@@ -142,11 +131,11 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void AFailedOrEmptyFetchNeverRemovesWhatIsStored()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
 
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(1));
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.CodesUnavailable), T0.AddHours(2));
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Cancelled), T0.AddHours(3));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(1));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.CodesUnavailable), T0.AddHours(2));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Cancelled), T0.AddHours(3));
 
         Assert.Equal(code.CodeSha256, Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template)).CodeSha256);
         var record = _store.LastFetch(Region.Cn, Build, Template)!;
@@ -155,7 +144,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Equal(SharedFetchStatus.Cancelled, record.Status);
 
         // An index that no longer lists the code is an answer, not a reason to forget it.
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(4));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(4));
 
         Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template));
         Assert.Equal(T0.AddHours(4), _store.LastFetch(Region.Cn, Build, Template)!.LastSuccessAtUtc);
@@ -166,13 +155,13 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     {
         var code = Candidate(0xF001);
 
-        Assert.Equal(1, _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0).CodesWritten);
-        Assert.Equal(0, _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(7)).CodesWritten);
+        Assert.Equal(1, _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0).CodesWritten);
+        Assert.Equal(0, _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0.AddHours(7)).CodesWritten);
 
         File.WriteAllText(FileOf(code), "scribbled over");
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
 
-        Assert.Equal(1, _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(14)).CodesWritten);
+        Assert.Equal(1, _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0.AddHours(14)).CodesWritten);
         Assert.Equal(code.Code, File.ReadAllText(FileOf(code)));
     }
 
@@ -190,7 +179,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         // name: exactly what the store finds on disk when the prefixes do collide.
         Directory.CreateDirectory(Directory_);
         File.WriteAllText(FileOf(successor), revoked.Code);
-        var listed = Fetched(SharedFetchStatus.Ok, successor);
+        var listed = Bed.Fetched(SharedFetchStatus.Ok, successor);
 
         Assert.Equal(
             new[] { successor.CodeSha256[..12] + ":NAME_TAKEN" },
@@ -210,7 +199,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void FilesThatAreNotWhatTheirNameSaysAreIgnoredOnLoad()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
         var renamed = Candidate(0xF002);
         var foreign = Candidate(0xF003, build: OtherBuild);
         File.WriteAllText(Path.Combine(Directory_, "000000000000.mrc"), renamed.Code);
@@ -229,7 +218,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var damaged = new SharedCalibrationCandidate(
             new string('e', 64), illFormed, code.Payload, 1, T0, SharedCalibrationIndexTests.Commit());
 
-        var write = _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code, damaged), T0);
+        var write = _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code, damaged), T0);
         File.WriteAllText(Path.Combine(Directory_, "dddddddddddd.mrc"), illFormed);
 
         Assert.Equal(1, write.CodesWritten);
@@ -324,19 +313,19 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void ACodeTheIndexRevokedStaysRevokedWhenALaterIndexNoLongerSaysSo()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
 
         _store.RecordFetch(Region.Cn, Build, Template,
-            Fetched(SharedFetchStatus.NoneForBuild) with { RevokedCodeSha256s = new[] { code.CodeSha256 } }, T0.AddHours(7));
+            Bed.Fetched(SharedFetchStatus.NoneForBuild) with { RevokedCodeSha256s = new[] { code.CodeSha256 } }, T0.AddHours(7));
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
 
         // A fetch that never read an index says nothing either way about revocation.
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(14));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(14));
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
 
         // A stale index that lists the code again, and one that no longer mentions it at all.
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(21));
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(28));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0.AddHours(21));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(28));
 
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
         Assert.Equal(SharedPublication.Revoked, _store.Publication(Region.Cn, Build, code.CodeSha256));
@@ -366,7 +355,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void ContradictionsCountDistinctSessionsAndRejectAtTheSecond()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
 
         Assert.Equal(new SharedContradictionResult(1, false, true),
             _store.RecordContradiction(Region.Cn, Build, Template, code.CodeSha256, "session-a", T0));
@@ -391,7 +380,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void ClearingRejectionsForABuildLetsItsCodesBeTriedAgain()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
         _store.RecordContradiction(Region.Cn, Build, Template, code.CodeSha256, "session-a", T0);
         _store.RecordContradiction(Region.Cn, Build, Template, code.CodeSha256, "session-b", T0);
         Assert.True(_store.IsRejected(Region.Cn, Build, Template, code.CodeSha256));
@@ -417,7 +406,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void AStateFileThatCannotBeUnderstoodReadsAsEmptyAndNeverCostsACode(string text)
     {
         var code = Candidate(0xF001, submitters: 5);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
         File.WriteAllText(StateFile, text);
 
         Assert.Null(_store.LastFetch(Region.Cn, Build, Template));
@@ -448,13 +437,13 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void AStateFileThatCannotBeOpenedIsNeitherTrustedNorOverwritten()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
         var before = File.ReadAllText(StateFile);
 
         using (new FileStream(StateFile, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             Assert.False(_store.RecordContradiction(Region.Cn, Build, Template, code.CodeSha256, "session-a", T0).Persisted);
-            Assert.False(_store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(7)).Recorded);
+            Assert.False(_store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0.AddHours(7)).Recorded);
             Assert.False(_store.ClearRejections(Region.Cn, Build));
             Assert.Null(_store.LastFetch(Region.Cn, Build, Template));
             Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
@@ -477,7 +466,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var inert = SharedCalibrationStore.Inert;
 
         Assert.IsNotType<SharedCalibrationStore>(inert);
-        Assert.False(inert.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0).Recorded);
+        Assert.False(inert.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0).Recorded);
         Assert.Empty(inert.LoadCandidates(Region.Cn, Build, Template));
         Assert.Null(inert.LastFetch(Region.Cn, Build, Template));
         Assert.False(inert.RecordContradiction(Region.Cn, Build, Template, Template, "session-a", T0).Persisted);
@@ -498,7 +487,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var unknown = Candidate(0xF004);
         Assert.Equal(SharedPublication.Unknown, _store.Publication(Region.Cn, Build, stored.CodeSha256));
 
-        var result = Fetched(SharedFetchStatus.Ok, stored) with
+        var result = Bed.Fetched(SharedFetchStatus.Ok, stored) with
         {
             Discards = new[]
             {
@@ -530,7 +519,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var conflicting = Candidate(0xF001, submitters: 9) with { Conflicting = true };
         var lone = Candidate(0xF002, submitters: 1);
         var tied = Candidate(0xF003, submitters: 1) with { Conflicting = true };
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, conflicting, tied, lone), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, conflicting, tied, lone), T0);
 
         var offered = _store.LoadCandidates(Region.Cn, Build, Template);
 
@@ -556,7 +545,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var against = Candidate(0xF003, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-10), ShapePrior = false };
         var marked = Candidate(0xF004, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-11), ShapePrior = true, Conflicting = true };
         var many = Candidate(0xF005, submitters: 2);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, older, prior, against, marked, many), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, older, prior, against, marked, many), T0);
 
         var offered = _store.LoadCandidates(Region.Cn, Build, Template);
 
@@ -595,7 +584,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var other = Candidate(0xF002);
         Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
 
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
 
         Assert.Equal(code.Code.Trim(), _store.CodeText(Region.Cn, Build, code.CodeSha256));
         Assert.Null(_store.CodeText(Region.Cn, Build, other.CodeSha256));
@@ -611,7 +600,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         File.WriteAllText(FileOf(code), code.Code);
         Assert.Equal(code.Code, _store.CodeText(Region.Cn, Build, code.CodeSha256));
 
-        var revoking = Fetched(SharedFetchStatus.NoneForBuild) with { RevokedCodeSha256s = new[] { code.CodeSha256 } };
+        var revoking = Bed.Fetched(SharedFetchStatus.NoneForBuild) with { RevokedCodeSha256s = new[] { code.CodeSha256 } };
         _store.RecordFetch(Region.Cn, Build, Template, revoking, T0.AddHours(1));
         Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
     }
@@ -629,7 +618,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.True(_store.IsSettled(Region.Cn, Build, document));
         Assert.False(_store.IsSettled(Region.Cn, Build, other));
         Assert.False(_store.IsSettled(Region.Cn, OtherBuild, document));
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
         _store.ClearRejections(Region.Cn, Build);
         Assert.True(_store.IsSettled(Region.Cn, Build, document));
         // A newly written document replaces the mark; the old one is no longer settled.
@@ -661,7 +650,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Null(SharedCalibrationStore.Inert.BoundCode(Region.Cn, Build, document));
         Assert.Null(_store.BoundSince(Region.Cn, Build, other));
         Assert.Null(_store.BoundSince(Region.Cn, OtherBuild, document));
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
         _store.ClearRejections(Region.Cn, Build);
         _store.RecordSettled(Region.Cn, Build, document, T0.AddHours(1));
         Assert.Equal(T0, _store.BoundSince(Region.Cn, Build, document));
@@ -680,9 +669,9 @@ public sealed class SharedCalibrationStoreTests : IDisposable
     public void AFetchThatReachedNoSourceChangesNoPublication()
     {
         var code = Candidate(0xF001);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.Ok, code), T0);
 
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(1));
+        _store.RecordFetch(Region.Cn, Build, Template, Bed.Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(1));
 
         Assert.Equal(SharedPublication.Published, _store.Publication(Region.Cn, Build, code.CodeSha256));
     }

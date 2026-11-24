@@ -101,7 +101,7 @@ public sealed class SharedLocalShapePriorTests : IDisposable
     public void AVerifiedProfileIsReadThroughTheTemplateInForceAndAnythingElseIsLeftOut()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var shared = SharedProfileBuilder.Build(At(code.Payload, Earlier), Bed.Template, Bed.Confirmed, new Dictionary<string, int>()).Profile!;
+        var shared = Bed.BuildSharedProfile(At(code.Payload, Earlier)).Profile!;
         var local = ProfileLoader.Load(_bed.WriteLocalProfile(CalibrationTrafficCases.MarkerOffset, Older));
         var foreign = shared with { MentorRouletteId = shared.MentorRouletteId + 1 };
         var otherRegion = shared with { Region = Region.Global };

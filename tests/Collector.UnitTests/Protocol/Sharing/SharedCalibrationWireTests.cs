@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
@@ -214,11 +213,9 @@ public sealed class SharedCalibrationWireTests : IDisposable
     [Fact]
     public void AnythingButAUsableLocalCalibrationGivesNoCodeAndSaysWhyInChinese()
     {
-        var local = ProfileLoader.Load(LocalProfileWriter.Write(
-            CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState), Bed.Template, Bed.Build, Bed.Confirmed,
-            Path.Combine(_bed.Root, "other-local")).Path);
-        var shared = SharedProfileBuilder.Build(
-            _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()).Profile!;
+        var local = ProfileLoader.Load(
+            _bed.WriteLocalProfile(CalibrationTrafficCases.ReplyState, root: Path.Combine(_bed.Root, "other-local")));
+        var shared = Bed.BuildSharedProfile(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload).Profile!;
         var refused = ProfileLoader.Load(_bed.WriteRefusedLocalProfile());
         var none = new ProfileSelection(
             ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null, Region.Cn, Bed.Build, ProfileSelector.NoProfileMatchesReason);
@@ -261,20 +258,11 @@ public sealed class SharedCalibrationWireTests : IDisposable
         Assert.Equal(Bed.Build, ShareCode.Decode(code.Code).Payload!.GameBuild);
         Assert.Equal(SharedShareBasis.Calibrated, code.Basis);
 
-        var other = new SharedCalibrationTestBed();
-        try
-        {
-            var sharedCode = other.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-            SharedProfileFiles.Write(
-                SharedProfileBuilder.Build(sharedCode.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()), other.SharedRoot);
-            var restarted = other.Pipeline(other.Services(fetch: false));
-            Assert.Equal(ProfileOrigin.Shared, restarted.Refresh(Bed.Game()).Origin);
-            Assert.Equal(SharedShareCodeRefusal.SharedNotProven, restarted.GetCalibrationShareCode().Refusal);
-            await SharedCalibrationTestBed.Idle(restarted);
-        }
-        finally
-        {
-            other.Dispose();
-        }
+        using var other = new Bed();
+        other.WriteSharedProfile(other.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload);
+        var restarted = other.Pipeline(other.Services(fetch: false));
+        Assert.Equal(ProfileOrigin.Shared, restarted.Refresh(Bed.Game()).Origin);
+        Assert.Equal(SharedShareCodeRefusal.SharedNotProven, restarted.GetCalibrationShareCode().Refusal);
+        await Bed.Idle(restarted);
     }
 }

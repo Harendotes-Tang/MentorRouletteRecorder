@@ -1,11 +1,8 @@
-using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
-using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
-using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -26,19 +23,11 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
-            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        var pipeline = await _bed.ReadyPipelineAsync();
+        using var stateLock = blockStateWrite ? _bed.HoldStateFile(FileShare.Read) : null;
         using var writing = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        _bed.BeforeReload = () =>
-        {
-            writing.Set();
-            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
-        };
+        _bed.HoldReload(writing, release);
         var session = _bed.Start(pipeline);
         try
         {
@@ -46,11 +35,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
             Assert.True(writing.Wait(TimeSpan.FromSeconds(30)));
             Assert.True(File.Exists(_bed.SharedProfilePath));
             _bed.PublishRevoked(code);
-            _bed.Db.Clock.UtcNow += TimeSpan.FromSeconds(6);
-            var claimedAt = _bed.Db.Clock.UtcNow;
-            Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
-            Assert.True(SpinWait.SpinUntil(() => pipeline.CalibrationStatus().Shared.LastSentAtUtc == claimedAt,
-                TimeSpan.FromSeconds(30)), "revocation fetch was not claimed");
+            _bed.CheckNowAndAwaitClaim(pipeline, "revocation fetch was not claimed");
         }
         finally
         {
@@ -81,9 +66,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         var services = _bed.Services();
         var initial = await services.FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
         Assert.True(_bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, initial, _bed.Db.Clock.UtcNow).Recorded);
-        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
-            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        using var stateLock = blockStateWrite ? _bed.HoldStateFile(FileShare.Read) : null;
         _bed.PublishRevoked(code);
         _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
         // Re-read the catalogue on selection so a leftover derived profile is visible after re-arm.
@@ -117,13 +100,9 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
 
         _bed.PublishRevoked(code);
         _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
-        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
-            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        using var stateLock = blockStateWrite ? _bed.HoldStateFile(FileShare.Read) : null;
         // A fresh pipeline has cached code text but no candidate in memory for ApplyFetchResult to drop.
-        var pipeline = _bed.Pipeline(services);
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync(services);
         Assert.Equal(SharedFetchStatus.NoneForBuild, pipeline.CalibrationStatus().Shared.LastSentStatus);
         Assert.DoesNotContain(pipeline.CalibrationStatus().Shared.Candidates, candidate => candidate.CodeSha256 == code.Sha);
 
@@ -153,12 +132,8 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
 
         _bed.PublishRevoked(code);
         _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
-        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
-            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
-            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
-        var pipeline = _bed.Pipeline(services);
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        using var stateLock = blockStateWrite ? _bed.HoldStateFile(FileShare.Read) : null;
+        var pipeline = await _bed.ReadyPipelineAsync(services);
 
         var result = pipeline.ImportCalibrationCode(code.Code);
 
@@ -185,8 +160,6 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     }
 
     public void Dispose() => _bed.Dispose();
-
-    private static IEnumerable<DecodedMessage> TrueEvening => CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState);
 
     /// <summary>Every combination of what may be in force, and whether the index may be read beside it.</summary>
     public static TheoryData<string, bool, ProfileOrigin, bool, SharedRecheckReason?> InForce() => new()
@@ -242,7 +215,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     [Fact]
     public async Task TheIndexIsReadBesideASharedProfileStillBeingWatched()
     {
-        var pipeline = await BoundAndStillWatched(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var pipeline = await _bed.BoundAndStillWatchedAsync(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
         var sent = _bed.Transport.Requests.Count;
 
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
@@ -271,17 +244,6 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.True(replaced == SharedCalibrationSession.IsReplacedBy(current, withdrawn), what);
 
     /// <summary>
-    /// The race itself (2026-09-21 full-audit finding 12), driven through the product rather than the decision
-    /// alone. A queue-inferred shared code A is in force and has recorded an evening; a published code B that
-    /// reads the match outranks it, is verified on that evening's evidence and is being bound - its document is
-    /// already written to the one path the region and build share, and the catalogue reload behind it is held
-    /// open. Right then 立即检查 reads an index that revokes A, and A's withdrawal is scheduled. Before the fix
-    /// that withdrawal deleted the path at once and took B's freshly written file with it; B was verified and
-    /// then lost, and the next catalogue scan, a restart included, found the build uncalibrated. Now the
-    /// withdrawal waits behind the bind, sees B standing on the path and leaves it. Only B's reload is held: the
-    /// hook pauses the first reload that finds a document other than A's on disk, never the withdrawal's own.
-    /// </summary>
-    /// <summary>
     /// Audit 2026-11-10 E-1: a build has one shared profile path, so a better code is written over the profile in
     /// use. When that write is not adopted after all, discarding it must bring the displaced document back: deleting
     /// the path left the build with no shared profile at the next start although nobody withdrew the one in use.
@@ -289,12 +251,8 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     [Fact]
     public void DiscardingAnUnadoptedWriteBringsBackTheDocumentItDisplaced()
     {
-        var queue = SharedProfileBuilder.Build(
-            _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest).Payload, Bed.Template, Bed.Confirmed,
-            new Dictionary<string, int>(), Bed.Confirmed);
-        var announced = SharedProfileBuilder.Build(
-            _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload, Bed.Template, Bed.Confirmed,
-            new Dictionary<string, int>(), Bed.Confirmed);
+        var queue = Bed.BuildSharedProfile(_bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest).Payload, Bed.Confirmed);
+        var announced = Bed.BuildSharedProfile(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload, Bed.Confirmed);
         SharedProfileFiles.Write(queue, _bed.SharedRoot);
         var inUse = File.ReadAllBytes(_bed.SharedProfilePath);
 
@@ -315,6 +273,17 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(_bed.SharedProfilePath)!));
     }
 
+    /// <summary>
+    /// The race itself (2026-09-21 full-audit finding 12), driven through the product rather than the decision
+    /// alone. A queue-inferred shared code A is in force and has recorded an evening; a published code B that
+    /// reads the match outranks it, is verified on that evening's evidence and is being bound - its document is
+    /// already written to the one path the region and build share, and the catalogue reload behind it is held
+    /// open. Right then 立即检查 reads an index that revokes A, and A's withdrawal is scheduled. Before the fix
+    /// that withdrawal deleted the path at once and took B's freshly written file with it; B was verified and
+    /// then lost, and the next catalogue scan, a restart included, found the build uncalibrated. Now the
+    /// withdrawal waits behind the bind, sees B standing on the path and leaves it. Only B's reload is held: the
+    /// hook pauses the first reload that finds a document other than A's on disk, never the withdrawal's own.
+    /// </summary>
     [Fact]
     public async Task AWithdrawalScheduledWhileABetterCodeIsBeingWrittenLeavesThatCodesFileInPlace()
     {
@@ -328,7 +297,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         await Bed.Idle(pipeline);
 
         // A records the evening. With the capture session over nothing stages, so B binds on the evidence alone.
-        _bed.Play(pipeline, TrueEvening, hour: 24);
+        _bed.Play(pipeline, Bed.TrueEvening, hour: 24);
         await Bed.Idle(pipeline);
         Assert.NotNull(pipeline.CalibrationStatus().Shared.ProfileId);
 
@@ -400,7 +369,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     [Fact]
     public async Task ASecondManualCheckWithinTheIntervalDoesNotReachTheNetworkAgain()
     {
-        var pipeline = await BoundAndStillWatched(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var pipeline = await _bed.BoundAndStillWatchedAsync(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
 
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
         await Bed.Idle(pipeline);
@@ -425,7 +394,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     {
         var wrong = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var better = Bed.Encode(wrong.Payload with { JobOpcode = null });
-        var pipeline = await BoundAndStillWatched(wrong);
+        var pipeline = await _bed.BoundAndStillWatchedAsync(wrong);
         _bed.PublishListed(new Bed.Listing(wrong, Revoked: true), new Bed.Listing(better));
 
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
@@ -448,7 +417,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     public async Task ARevokedCodeInUseWithNothingToReplaceItLeavesLocalCalibrationRunning()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var pipeline = await BoundAndStillWatched(code);
+        var pipeline = await _bed.BoundAndStillWatchedAsync(code);
         _bed.PublishRevoked(code);
 
         Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
@@ -475,9 +444,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var evening = Bed.Evening().ToArray();
         var session = _bed.Start(pipeline);
@@ -531,7 +498,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.TrueEvening);
 
         var shared = pipeline.CalibrationStatus().Shared;
         Assert.Equal(SharedCalibrationPhase.Verified, shared.Phase);
@@ -556,7 +523,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.TrueEvening);
 
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(
@@ -571,12 +538,10 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         var local = _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         var truth = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(Bed.Encode(truth.Payload with { ZoneOpcode = 0x7778 }));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
-        _bed.Play(pipeline, TrueEvening, hour: 24);
-        _bed.Play(pipeline, TrueEvening, hour: 48);
+        _bed.Play(pipeline, Bed.TrueEvening, hour: 24);
+        _bed.Play(pipeline, Bed.TrueEvening, hour: 48);
         await Bed.Idle(pipeline);
 
         Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
@@ -592,12 +557,10 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         var second = Bed.Encode(truth.Payload with { JobOpcode = null });
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         _bed.PublishListed(new Bed.Listing(truth, Conflicting: true), new Bed.Listing(second));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening);
+        await Bed.FeedAndSettleAsync(pipeline, session, Bed.TrueEvening);
 
         Assert.Equal(second.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
     }
@@ -636,9 +599,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     {
         _bed.WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
         _bed.Publish(Bed.Encode(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload with { ZoneOpcode = 0x7778 }));
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var sent = _bed.Transport.Requests.Count;
         Assert.NotEqual(0, sent);
 
@@ -660,9 +621,7 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     public async Task AWallClockMovedBackDoesNotStretchTheSixHourWait()
     {
         _bed.Publish();
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
         var sent = _bed.Transport.Requests.Count;
         Assert.NotEqual(0, sent);
 
@@ -692,30 +651,12 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Equal(SharedPublication.Revoked, _bed.Store.Publication(Region.Cn, Bed.Build, code.Sha));
         var sent = _bed.Transport.Requests.Count;
 
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
+        var pipeline = await _bed.ReadyPipelineAsync();
 
         Assert.Equal(sent, _bed.Transport.Requests.Count);
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Refresh(Bed.Game()).Status);
         Assert.True(pipeline.CalibrationArmed);
-    }
-
-    /// <summary>Binds the code on an evening with no mentor duty, so the profile is still watched afterwards.</summary>
-    private async Task<LiveProtocolPipeline> BoundAndStillWatched(SharedCode code)
-    {
-        _bed.Publish(code);
-        var pipeline = _bed.Pipeline(_bed.Services());
-        pipeline.Refresh(Bed.Game());
-        await Bed.Idle(pipeline);
-        var session = _bed.Start(pipeline);
-        await Bed.FeedAndSettleAsync(pipeline, session, TrueEvening, hour: 24);
-        await Bed.StopAndSettleAsync(pipeline, session);
-
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
-        Assert.True(File.Exists(_bed.SharedProfilePath));
-        return pipeline;
     }
 }

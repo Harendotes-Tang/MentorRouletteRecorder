@@ -42,20 +42,18 @@ public sealed class SharedCalibrationClientTests
     private static Uri CodeAt(Source source, string sha) =>
         SharedCalibrationClient.CodeUri(source, Commit, SharedCalibrationIndex.CodePath(Region.Cn, Build, sha));
 
-    private static SharedTransportResponse Answer(Uri uri, byte[] body) => new(200, uri, body.Length, new MemoryStream(body));
-
     private static SharedTransportResponse Status(Uri uri, int status) => new(status, uri, 0, new MemoryStream());
 
-    private static SharedCalibrationClient Client(FakeTransport transport, TimeSpan? timeout = null) =>
+    private static SharedCalibrationClient Client(FakeSharedTransport transport, TimeSpan? timeout = null) =>
         new(transport.Send, timeout ?? TimeSpan.FromSeconds(5), _ => null);
 
     /// <summary>Answers the index and the given codes from one source.</summary>
-    private static FakeTransport Serve(FakeTransport transport, Source source, byte[] index, params Published[] codes)
+    private static FakeSharedTransport Serve(FakeSharedTransport transport, Source source, byte[] index, params Published[] codes)
     {
-        transport.On(SharedCalibrationClient.IndexUri(source), index);
+        transport.Serve(SharedCalibrationClient.IndexUri(source), index);
         foreach (var code in codes)
         {
-            transport.On(CodeAt(source, code.Sha), Encoding.UTF8.GetBytes(code.Code));
+            transport.Serve(CodeAt(source, code.Sha), Encoding.UTF8.GetBytes(code.Code));
         }
 
         return transport;
@@ -157,7 +155,7 @@ public sealed class SharedCalibrationClientTests
     {
         var code = Code(0xF001);
         var revoked = Code(0xF002);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw),
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw),
             (uri, _) => Task.FromResult(Status(uri, status)));
         Serve(transport, Source.Gitcode, Index(Entry(code.Sha), Entry(revoked.Sha, revoked: true)), code, revoked);
 
@@ -174,7 +172,7 @@ public sealed class SharedCalibrationClientTests
     public async Task AReadableEmptyGithubIndexDoesNotConsultAStaleMirror()
     {
         var code = Code(0xF001);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index());
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index());
         Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -189,10 +187,10 @@ public sealed class SharedCalibrationClientTests
     {
         var code = Code(0xF001);
         var impostor = Code(0xF002);
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
         Serve(transport, Source.Gitcode, Index(Entry(code.Sha)));
-        transport.On(CodeAt(Source.Gitcode, code.Sha), Encoding.UTF8.GetBytes(impostor.Code));
-        transport.On(CodeAt(Source.CdnPrimary, code.Sha), Encoding.UTF8.GetBytes(code.Code));
+        transport.Serve(CodeAt(Source.Gitcode, code.Sha), Encoding.UTF8.GetBytes(impostor.Code));
+        transport.Serve(CodeAt(Source.CdnPrimary, code.Sha), Encoding.UTF8.GetBytes(code.Code));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -205,7 +203,7 @@ public sealed class SharedCalibrationClientTests
     public async Task CancellationBetweenSourcesSendsNoMirrorRequestEvenIfTheTransportIgnoresCancellation()
     {
         using var cancel = new CancellationTokenSource();
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
         {
             cancel.Cancel();
             return Task.FromResult(Status(uri, 503));
@@ -221,7 +219,7 @@ public sealed class SharedCalibrationClientTests
     public async Task EnablingTheKillSwitchDuringAFailedRequestStopsAllLaterSources()
     {
         var disabled = false;
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
         {
             disabled = true;
             return Task.FromResult(Status(uri, 503));
@@ -254,7 +252,7 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task TheKillSwitchStopsTheFetchBeforeTheTransportIsTouched()
     {
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
         string? asked = null;
         var client = new SharedCalibrationClient(transport.Send, readEnvironment: name =>
         {
@@ -275,7 +273,7 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task OnlyAKnownRegionAndAValidBuildCanBeFetched()
     {
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
         var client = Client(transport);
 
         await Assert.ThrowsAsync<ArgumentException>(() => client.FetchAsync(Region.Unknown, Build));
@@ -290,7 +288,7 @@ public sealed class SharedCalibrationClientTests
     {
         var few = Code(0xF001);
         var many = Code(0xF002);
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, Index(Entry(few.Sha, submitters: 1), Entry(many.Sha, submitters: 4)), few, many);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, Index(Entry(few.Sha, submitters: 1), Entry(many.Sha, submitters: 4)), few, many);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -320,7 +318,7 @@ public sealed class SharedCalibrationClientTests
             SharedCalibrationIndexTests.Entry(prior.Sha, published: "2026-09-15T08:00:00Z", conflicting: true, shapePrior: true),
             SharedCalibrationIndexTests.Entry(against.Sha, published: "2026-09-14T08:00:00Z", shapePrior: false),
             SharedCalibrationIndexTests.Entry(unknown.Sha, published: "2026-09-13T08:00:00Z"));
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, index, prior, against, unknown);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, index, prior, against, unknown);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -333,10 +331,10 @@ public sealed class SharedCalibrationClientTests
     public async Task EachFailingSourceIsRecordedAndTheNextOneIsTriedInOrder()
     {
         var code = Code(0xF001);
-        var transport = new FakeTransport()
-            .On(SharedCalibrationClient.IndexUri(Source.GithubRaw),
+        var transport = new FakeSharedTransport()
+            .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw),
                 (_, _) => throw new HttpRequestException(HttpRequestError.NameResolutionError, "no such host"))
-            .On(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(Status(uri, 503)));
+            .Serve(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(Status(uri, 503)));
         Serve(transport, Source.CdnFallback, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -357,7 +355,7 @@ public sealed class SharedCalibrationClientTests
     {
         var codes = Enumerable.Range(0, 10).Select(i => Code(0xF000 + i)).ToArray();
         var index = Index(codes.Select((code, i) => (JsonNode)Entry(code.Sha, submitters: 10 - i)).ToArray());
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, index, codes);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, index, codes);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -370,7 +368,7 @@ public sealed class SharedCalibrationClientTests
     {
         var revoked = Code(0xF001);
         var kept = Code(0xF002);
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, Index(Entry(revoked.Sha, submitters: 9, revoked: true), Entry(kept.Sha)), revoked, kept);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, Index(Entry(revoked.Sha, submitters: 9, revoked: true), Entry(kept.Sha)), revoked, kept);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -385,7 +383,7 @@ public sealed class SharedCalibrationClientTests
         var code = Code(0xF001);
         var broken = Entry(code.Sha);
         broken.Remove("commit");
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, Index(broken, Entry(code.Sha)), code);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, Index(broken, Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -397,7 +395,7 @@ public sealed class SharedCalibrationClientTests
     public async Task NothingPublishedForThisBuildDownloadsNoCode()
     {
         var elsewhere = Code(0xF001, build: "2026.08.05.0000.0000");
-        var transport = new FakeTransport().On(
+        var transport = new FakeSharedTransport().Serve(
             SharedCalibrationClient.IndexUri(Source.GithubRaw),
             Index(SharedCalibrationIndexTests.Entry(elsewhere.Sha, build: "2026.08.05.0000.0000")));
 
@@ -411,7 +409,7 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task WhenEverySourceFailsTheIndexIsUnavailableAndEachSourceSaysWhy()
     {
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -431,10 +429,10 @@ public sealed class SharedCalibrationClientTests
     [InlineData(308)]
     public async Task ARedirectIsRefusedAndNeverFollowed(int status)
     {
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
         foreach (var source in SharedCalibrationClient.SourceOrder)
         {
-            transport.On(SharedCalibrationClient.IndexUri(source), (uri, _) => Task.FromResult(Status(uri, status)));
+            transport.Serve(SharedCalibrationClient.IndexUri(source), (uri, _) => Task.FromResult(Status(uri, status)));
         }
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -452,12 +450,12 @@ public sealed class SharedCalibrationClientTests
     public async Task AnAnswerFromAnywhereButTheRequestedAddressIsRefused()
     {
         var body = "{}"u8.ToArray();
-        var transport = new FakeTransport()
-            .On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) => Task.FromResult(
+        var transport = new FakeSharedTransport()
+            .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) => Task.FromResult(
                 new SharedTransportResponse(200, new Uri("https://example.invalid/index.json"), body.Length, new MemoryStream(body))))
-            .On(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
+            .Serve(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
                 new SharedTransportResponse(200, new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp, Port = -1 }.Uri, body.Length, new MemoryStream(body))))
-            .On(SharedCalibrationClient.IndexUri(Source.CdnFallback), (uri, _) => Task.FromResult(
+            .Serve(SharedCalibrationClient.IndexUri(Source.CdnFallback), (uri, _) => Task.FromResult(
                 new SharedTransportResponse(200, new Uri(uri, "/elsewhere.json"), body.Length, new MemoryStream(body))));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -471,7 +469,7 @@ public sealed class SharedCalibrationClientTests
     public async Task ABodyDeclaredLargerThanTheCapIsRefusedWithoutReadingIt()
     {
         var stream = new EndlessStream();
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
             new SharedTransportResponse(200, uri, SharedCalibrationClient.MaxIndexBytes + 1, stream)));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -484,7 +482,7 @@ public sealed class SharedCalibrationClientTests
     public async Task AnUndeclaredOversizedBodyIsAbandonedAsSoonAsTheCapIsPassed()
     {
         var stream = new EndlessStream();
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
             new SharedTransportResponse(200, uri, null, stream)));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -499,7 +497,7 @@ public sealed class SharedCalibrationClientTests
         var code = Code(0xF001);
         var index = Index(Entry(code.Sha));
         var padded = index.Concat(Enumerable.Repeat((byte)' ', SharedCalibrationClient.MaxIndexBytes - index.Length)).ToArray();
-        var transport = Serve(new FakeTransport(), Source.GithubRaw, padded, code);
+        var transport = Serve(new FakeSharedTransport(), Source.GithubRaw, padded, code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -511,7 +509,7 @@ public sealed class SharedCalibrationClientTests
     public async Task ASourceThatHangsTimesOutAndTheNextSourceIsTried()
     {
         var code = Code(0xF001);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), async (_, token) =>
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), async (_, token) =>
         {
             await Task.Delay(Timeout.Infinite, token);
             throw new InvalidOperationException("the delay never ends on its own");
@@ -527,7 +525,7 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task ABodyThatStopsArrivingTimesOutToo()
     {
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(
             new SharedTransportResponse(200, uri, null, new StallingStream())));
 
         var result = await Client(transport, TimeSpan.FromMilliseconds(100)).FetchAsync(Region.Cn, Build);
@@ -538,12 +536,12 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task FailuresAreClassifiedAndNeverThrown()
     {
-        var transport = new FakeTransport()
-            .On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) =>
+        var transport = new FakeSharedTransport()
+            .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (_, _) =>
                 throw new HttpRequestException(HttpRequestError.SecureConnectionError, "handshake", new AuthenticationException()))
-            .On(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
+            .Serve(SharedCalibrationClient.IndexUri(Source.CdnPrimary), (uri, _) => Task.FromResult(
                 new SharedTransportResponse(200, uri, null, new FailingStream())))
-            .On(SharedCalibrationClient.IndexUri(Source.CdnFallback), (_, _) => throw new InvalidOperationException("surprise"));
+            .Serve(SharedCalibrationClient.IndexUri(Source.CdnFallback), (_, _) => throw new InvalidOperationException("surprise"));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -556,7 +554,7 @@ public sealed class SharedCalibrationClientTests
     public async Task AMirrorServingSomethingThatIsNotAnIndexFallsThroughToTheNext()
     {
         var code = Code(0xF001);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), "<html>blocked</html>"u8.ToArray());
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), "<html>blocked</html>"u8.ToArray());
         Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -572,7 +570,7 @@ public sealed class SharedCalibrationClientTests
         var code = Code(0xF001);
         var damaged = Encoding.UTF8.GetString(Index(Entry(code.Sha)))
             .Replace("{\"region\"", "{\"\\ud800\":1,\"region\"", StringComparison.Ordinal);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Encoding.UTF8.GetBytes(damaged));
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), Encoding.UTF8.GetBytes(damaged));
         Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -587,10 +585,10 @@ public sealed class SharedCalibrationClientTests
     {
         var code = Code(0xF001);
         var impostor = Code(0xBAD0);
-        var transport = new FakeTransport()
-            .On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(Entry(code.Sha)))
-            .On(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(impostor.Code))
-            .On(CodeAt(Source.CdnPrimary, code.Sha), Encoding.UTF8.GetBytes(code.Code));
+        var transport = new FakeSharedTransport()
+            .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(Entry(code.Sha)))
+            .Serve(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(impostor.Code))
+            .Serve(CodeAt(Source.CdnPrimary, code.Sha), Encoding.UTF8.GetBytes(code.Code));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -612,10 +610,10 @@ public sealed class SharedCalibrationClientTests
     {
         var code = Code(0xF001);
         var body = served == "MRC1.impostor" ? Code(0xBAD0).Code : served;
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(Entry(code.Sha)));
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(Entry(code.Sha)));
         if (body.Length > 0)
         {
-            transport.On(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(body));
+            transport.Serve(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(body));
         }
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -634,9 +632,9 @@ public sealed class SharedCalibrationClientTests
     {
         var code = field == "game_build" ? Code(0xF001, build: "2026.08.05.0000.0000") : Code(0xF001);
         var entry = Entry(code.Sha, matchSource: field == "match_source" ? "MARKER_OFFSET" : "ANNOUNCEMENT");
-        var transport = new FakeTransport()
-            .On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(entry))
-            .On(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(code.Code));
+        var transport = new FakeSharedTransport()
+            .Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index(entry))
+            .Serve(CodeAt(Source.GithubRaw, code.Sha), Encoding.UTF8.GetBytes(code.Code));
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -649,7 +647,7 @@ public sealed class SharedCalibrationClientTests
     [Fact]
     public async Task CancellingBeforeTheFetchStartsSendsNothing()
     {
-        var transport = new FakeTransport();
+        var transport = new FakeSharedTransport();
         using var cancel = new CancellationTokenSource();
         cancel.Cancel();
 
@@ -663,7 +661,7 @@ public sealed class SharedCalibrationClientTests
     public async Task CancellingMidFetchStopsWithoutThrowing()
     {
         using var cancel = new CancellationTokenSource();
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), async (_, token) =>
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), async (_, token) =>
         {
             cancel.Cancel();
             await Task.Delay(Timeout.Infinite, token);
@@ -683,7 +681,7 @@ public sealed class SharedCalibrationClientTests
     public async Task TheResultNamesSourcesNeverAddresses()
     {
         var code = Code(0xF001);
-        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(Status(uri, 500)));
+        var transport = new FakeSharedTransport().Serve(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) => Task.FromResult(Status(uri, 500)));
         Serve(transport, Source.CdnPrimary, Index(Entry(code.Sha), Entry(Code(0xF002).Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
@@ -732,43 +730,6 @@ public sealed class SharedCalibrationClientTests
     }
 
     // --------------------------------------------------------------------------- fakes
-
-    private sealed class FakeTransport
-    {
-        private readonly Dictionary<string, Func<Uri, CancellationToken, Task<SharedTransportResponse>>> _routes = new(StringComparer.Ordinal);
-        private readonly List<Uri> _requests = new();
-
-        public IReadOnlyList<Uri> Requests
-        {
-            get
-            {
-                lock (_requests)
-                {
-                    return _requests.ToArray();
-                }
-            }
-        }
-
-        public FakeTransport On(Uri uri, Func<Uri, CancellationToken, Task<SharedTransportResponse>> respond)
-        {
-            _routes[uri.AbsoluteUri] = respond;
-            return this;
-        }
-
-        public FakeTransport On(Uri uri, byte[] body) => On(uri, (requested, _) => Task.FromResult(Answer(requested, body)));
-
-        public Task<SharedTransportResponse> Send(Uri uri, CancellationToken cancellationToken)
-        {
-            lock (_requests)
-            {
-                _requests.Add(uri);
-            }
-
-            return _routes.TryGetValue(uri.AbsoluteUri, out var respond)
-                ? respond(uri, cancellationToken)
-                : Task.FromResult(Status(uri, 404));
-        }
-    }
 
     /// <summary>Serves whitespace indefinitely, one chunk per read, counting the bytes served.</summary>
     private sealed class EndlessStream : AsyncOnlyStream

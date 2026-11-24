@@ -164,6 +164,12 @@ public sealed class SharedCalibrationIndexTests
         { "commit", "INVALID:commit", "\"main\"" },
         { "revoked", "MISSING:revoked", null },
         { "revoked", "INVALID:revoked", "\"false\"" },
+        { "conflicting", "INVALID:conflicting", "\"yes\"" },
+        { "shape_prior", "INVALID:shape_prior", "\"true\"" },
+        { "shape_prior", "INVALID:shape_prior", "1" },
+        { "shape_prior", "INVALID:shape_prior", "null" },
+        { "shape_prior", "INVALID:shape_prior", "{}" },
+        { "shape_prior", "INVALID:shape_prior", "[true]" },
     };
 
     [Theory]
@@ -382,25 +388,6 @@ public sealed class SharedCalibrationIndexTests
         Assert.Null(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('c')).ShapePrior);
     }
 
-    [Theory]
-    [InlineData("\"true\"")]
-    [InlineData("1")]
-    [InlineData("null")]
-    [InlineData("{}")]
-    [InlineData("[true]")]
-    public void AShapePriorThatIsNotABooleanSkipsTheEntry(string value)
-    {
-        var entry = Entry(Sha('c'));
-        entry["shape_prior"] = JsonNode.Parse(value);
-
-        var read = SharedCalibrationIndex.Read(Index(entry, Entry(Sha('d'))));
-
-        Assert.Equal(Sha('d'), Assert.Single(read.Entries).CodeSha256);
-        var skip = Assert.Single(read.Skipped);
-        Assert.Equal(0, skip.Position);
-        Assert.Equal("INVALID:shape_prior", skip.Reason);
-    }
-
     /// <summary>
     /// Plan §20.3, the order <c>index.pick_key</c> uses too: submitters descending, then codes without the conflict mark,
     /// then codes with the shape prior, then the earliest published, then the hash.
@@ -424,17 +411,5 @@ public sealed class SharedCalibrationIndexTests
         Assert.Equal(
             new[] { Sha(5), Sha(0), Sha(2), Sha(6), Sha(1), Sha(3), Sha(4), Sha(7) },
             chosen.Select(entry => entry.CodeSha256).ToArray());
-    }
-
-    [Fact]
-    public void AConflictingFlagThatIsNotABooleanSkipsTheEntry()
-    {
-        var entry = Entry(Sha('c'));
-        entry["conflicting"] = "yes";
-
-        var read = SharedCalibrationIndex.Read(Index(entry));
-
-        Assert.Empty(read.Entries);
-        Assert.Equal("INVALID:conflicting", Assert.Single(read.Skipped).Reason);
     }
 }

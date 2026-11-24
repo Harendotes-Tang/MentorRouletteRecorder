@@ -24,16 +24,8 @@ public sealed class ShareCodeTests
         Vectors.Value.RootElement.GetProperty(list).EnumerateArray()
             .Single(item => item.GetProperty("name").GetString() == name);
 
-    private static TheoryData<string> Names(string list)
-    {
-        var data = new TheoryData<string>();
-        foreach (var item in Vectors.Value.RootElement.GetProperty(list).EnumerateArray())
-        {
-            data.Add(item.GetProperty("name").GetString()!);
-        }
-
-        return data;
-    }
+    private static TheoryData<string> Names(string list) =>
+        new(Vectors.Value.RootElement.GetProperty(list).EnumerateArray().Select(item => item.GetProperty("name").GetString()!));
 
     public static TheoryData<string> ValidNames() => Names("valid");
 
