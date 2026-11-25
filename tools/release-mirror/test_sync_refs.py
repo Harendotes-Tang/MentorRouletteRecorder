@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import sync_refs as m
 
@@ -69,21 +69,33 @@ class PolicyTests(unittest.TestCase):
         self.assertNotIn("secret", " ".join(run.call_args.args[0]))
         self.assertIn("http.followRedirects=false", run.call_args.args[0])
 
-    def test_changed_source_snapshot_aborts_before_target_contact(self):
-        class Changed:
-            def __init__(self):
-                self.calls = []
-            def run(self, args, **kwargs):
-                self.calls.append(args)
-                if args[0] == "for-each-ref":
-                    return A + "\trefs/heads/main\n"
-                if args[0] == "ls-remote":
-                    return B + "\trefs/heads/main\n"
-                return ""
-        fake = Changed()
-        with self.assertRaisesRegex(m.RefSyncError, "changed during fetch"):
+    def test_changed_source_snapshot_cannot_rewind_advanced_mirror(self):
+        snapshot = A + "\trefs/heads/main\n"
+        advanced = B + "\trefs/heads/main\n"
+        current = snapshot
+        mirrored = snapshot
+
+        def run(args, **kwargs):
+            nonlocal current, mirrored
+            if args[0] == "for-each-ref":
+                return snapshot
+            if args[0] == "ls-remote":
+                if DESTINATION in args:
+                    # Another run has synced the new source before advertising target leases.
+                    if current == snapshot:
+                        current = mirrored = advanced
+                    return mirrored
+                return current
+            if args[0] == "push":
+                mirrored = snapshot
+            return ""
+
+        fake = Mock(spec=m.Git)
+        fake.run.side_effect = run
+        with self.assertRaisesRegex(m.RefSyncError, "changed after fetch"):
             m.synchronize(fake, REPO)
-        self.assertFalse(any(DESTINATION in args for args in fake.calls))
+        self.assertEqual(mirrored, advanced)
+        self.assertFalse(any(call.args[0][0] == "push" for call in fake.run.call_args_list))
 
     def test_push_is_followed_by_full_ref_verification(self):
         class Inconsistent:

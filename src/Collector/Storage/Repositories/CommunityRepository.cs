@@ -14,7 +14,7 @@ internal sealed class CommunityRepository(SqliteDatabase database)
         command.Transaction = transaction;
         command.CommandText = """
             SELECT revision, position, favorite, content_json, upstream_json
-            FROM community_local ORDER BY position, id LIMIT $limit OFFSET $offset
+            FROM community_local ORDER BY edit_sequence DESC, position, id LIMIT $limit OFFSET $offset
             """;
         command.Parameters.AddWithValue("$limit", transaction is null ? CommunityContent.PageSize : MaxItems);
         command.Parameters.AddWithValue("$offset", offset);
@@ -74,15 +74,17 @@ internal sealed class CommunityRepository(SqliteDatabase database)
         return (long)command.ExecuteScalar()! + additional <= MaxItems;
     }
 
-    internal void Save(JsonObject item, SqliteTransaction transaction)
+    internal void Save(JsonObject item, SqliteTransaction transaction, bool updateOrder = true)
     {
         using var command = database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO community_local(id, revision, position, favorite, content_json, upstream_json)
-            VALUES ($id, $revision, $position, $favorite, $content, $upstream)
+            INSERT INTO community_local(id, revision, position, favorite, content_json, upstream_json, edit_sequence)
+            VALUES ($id, $revision, $position, $favorite, $content, $upstream,
+                CASE WHEN $updateOrder THEN (SELECT COALESCE(MAX(edit_sequence), 0) + 1 FROM community_local) END)
             ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, position=excluded.position,
-                favorite=excluded.favorite, content_json=excluded.content_json, upstream_json=excluded.upstream_json
+                favorite=excluded.favorite, content_json=excluded.content_json, upstream_json=excluded.upstream_json,
+                edit_sequence=COALESCE(excluded.edit_sequence, community_local.edit_sequence)
             """;
         command.Parameters.AddWithValue("$id", item["content"]!["id"]!.GetValue<string>());
         command.Parameters.AddWithValue("$revision", item["revision"]!.GetValue<int>());
@@ -90,6 +92,7 @@ internal sealed class CommunityRepository(SqliteDatabase database)
         command.Parameters.AddWithValue("$favorite", item["favorite"]!.GetValue<bool>());
         command.Parameters.AddWithValue("$content", item["content"]!.ToJsonString());
         command.Parameters.AddWithValue("$upstream", (object?)item["upstream"]?.ToJsonString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updateOrder", updateOrder);
         command.ExecuteNonQuery();
     }
 

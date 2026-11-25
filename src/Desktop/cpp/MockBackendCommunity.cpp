@@ -153,14 +153,18 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
             return status("empty_body");
         const int index = rowIndex(m_communityLocal, item.value(QStringLiteral("id")).toString());
         row.insert(QStringLiteral("revision"), payload.value(QStringLiteral("revision")).toInt() + 1);
-        if (index < 0) {
-            m_communityLocal.prepend(row);
-        } else {
-            const QJsonValue upstream = m_communityLocal.at(index).toObject().value(QStringLiteral("upstream"));
+        if (index >= 0) {
+            const QJsonObject existing = m_communityLocal.at(index).toObject();
+            const QJsonValue upstream = existing.value(QStringLiteral("upstream"));
             if (!upstream.isUndefined())
                 row.insert(QStringLiteral("upstream"), upstream);
-            m_communityLocal.replace(index, row);
+            if (existing.value(QStringLiteral("content")).toObject() == item) {
+                m_communityLocal.replace(index, row);
+                return status("saved");
+            }
+            m_communityLocal.removeAt(index);
         }
+        m_communityLocal.prepend(row);
         return status("saved");
     }
     if (action == QLatin1String("delete")) {

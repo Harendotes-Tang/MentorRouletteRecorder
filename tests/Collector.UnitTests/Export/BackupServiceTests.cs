@@ -81,6 +81,36 @@ public sealed class BackupServiceTests : IDisposable
             Directory.GetFiles(service.DefaultDirectory, BackupService.FileNamePrefix + "*.db").Length);
     }
 
+    [Fact]
+    public void RetentionKeepsThePublishedBackupWhenTheClockGoesBack()
+    {
+        var service = new BackupService(_database.Database, _database.Clock);
+        var backups = SeedOlderBackups(service.DefaultDirectory, BackupService.RetainedBackups, _database.Clock.UtcNow);
+        _database.Clock.UtcNow = _database.Clock.UtcNow.AddDays(-BackupService.RetainedBackups - 1);
+
+        var result = service.CreateBackup();
+
+        Assert.True(result.IntegrityCheckPassed);
+        Assert.Equal(1, result.PrunedCount);
+        Assert.Equal(result.ByteCount, new FileInfo(result.TargetPath).Length);
+        Assert.Equal(backups.SkipLast(1).Append(result.TargetPath).Order(),
+            Directory.GetFiles(service.DefaultDirectory).Order());
+    }
+
+    [Fact]
+    public void ACustomFileInTheManagedFolderDoesNotTakeAnAutomaticRetentionSlot()
+    {
+        var service = new BackupService(_database.Database, _database.Clock);
+        var backups = SeedOlderBackups(service.DefaultDirectory, BackupService.RetainedBackups, _database.Clock.UtcNow);
+        var target = Path.Combine(service.DefaultDirectory,
+            Path.ChangeExtension(BackupService.FileNameFor(_database.Clock.UtcNow), ".snapshot"));
+
+        var result = service.CreateBackup(target);
+
+        Assert.Equal(0, result.PrunedCount);
+        Assert.Equal(backups.Append(target).Order(), Directory.GetFiles(service.DefaultDirectory).Order());
+    }
+
     // ---- M6: backup retention stays inside the managed folder ----------------------
     // A retention sweep in a folder the user chose would destroy something the user cannot get
     // back (review finding M6).

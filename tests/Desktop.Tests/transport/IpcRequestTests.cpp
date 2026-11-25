@@ -20,7 +20,9 @@
 #include "DesktopTestRunner.h"
 #include "SharedCalibrationTestSupport.h"
 #include "TestCollectorGuard.h"
+#include "TestNamedPipe.h"
 #include "HistoryController.h"
+#include "ImportRecordsController.h"
 #include "IpcBackend.h"
 #include "IpcFraming.h"
 
@@ -31,6 +33,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
 
@@ -565,6 +568,11 @@ private Q_SLOTS:
     void exportRequestsReplaceOnlyAConfirmedTarget();
     void characterIdentityRequestsCarryOnlyTheirFields();
     void candidateEvidenceRequestsCarryAnswersOnlyWhenWritten();
+    void duplicateIdKeepsFirstReply_data();
+    void duplicateIdKeepsFirstReply();
+    void importCommitReusesIdAfterOfflineRetry();
+    void tearingDownRejectsReentrantRequests_data();
+    void tearingDownRejectsReentrantRequests();
 };
 } // namespace
 
@@ -713,6 +721,207 @@ void IpcRequestTests::candidateEvidenceRequestsCarryAnswersOnlyWhenWritten()
                     {QStringLiteral("round_answers"), QJsonObject{{QStringLiteral("job_after"), QString::fromUtf8("学者")}}}});
     QCOMPARE(envelope.value(QStringLiteral("payload")).toObject().value(QStringLiteral("round_answers")).toObject(),
              (QJsonObject{{QStringLiteral("job_after"), QString::fromUtf8("学者")}}));
+}
+
+void IpcRequestTests::duplicateIdKeepsFirstReply_data()
+{
+    QTest::addColumn<bool>("answerFirst");
+    QTest::newRow("response") << true;
+    QTest::newRow("timeout") << false;
+}
+
+void IpcRequestTests::duplicateIdKeepsFirstReply()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The production named-pipe transport fixture requires Windows.");
+#else
+    QFETCH(bool, answerFirst);
+    mrtest::TestPipe pipe("request-id");
+    QVERIFY(pipe.isValid());
+    mr::IpcClient client;
+    client.setServerName(pipe.serverName);
+    client.start();
+    QTRY_VERIFY(client.isConnected());
+
+    const QString id = mr::ipc::newRequestId();
+    const QString firstType = QStringLiteral("GetVersion");
+    const QString otherType = QStringLiteral("GetStatus");
+    auto *first = new mr::BackendReply(id, firstType, &client);
+    QSignalSpy firstDone(first, &mr::BackendReply::done);
+    client.send(first, firstType, {}, answerFirst ? mr::IpcClient::kDefaultRequestTimeoutMs : 20);
+    auto *other = new mr::BackendReply(id, otherType, &client);
+    QSignalSpy otherDone(other, &mr::BackendReply::done);
+    client.send(other, otherType, {});
+    QCOMPARE(otherDone.size(), 1);
+    QVERIFY(other->neverSent());
+    QCOMPARE(other->errorCode(), QStringLiteral("ERR_BAD_REQUEST"));
+    QVERIFY(firstDone.isEmpty());
+
+    QByteArray bytes;
+    QJsonObject request;
+    QTRY_VERIFY(!request.isEmpty() || pipe.takeRequest(bytes, request));
+    QCOMPARE(request, mr::ipc::makeRequest(id, firstType, {}));
+    const QJsonObject payload{{QStringLiteral("collector_version"), QStringLiteral("test-version")}};
+    if (answerFirst)
+        QVERIFY(pipe.writeReply(request, payload));
+    QTRY_COMPARE(firstDone.size(), 1);
+    QCOMPARE(firstDone.first().at(0).toBool(), answerFirst);
+    QCOMPARE(firstDone.first().at(2).toString(), answerFirst ? QString() : QStringLiteral("ERR_INTERNAL"));
+    if (answerFirst)
+        QCOMPARE(firstDone.first().at(1).toMap(), payload.toVariantMap());
+
+    auto *retry = new mr::BackendReply(id, firstType, &client);
+    QSignalSpy retryDone(retry, &mr::BackendReply::done);
+    client.send(retry, firstType, {});
+    QJsonObject retryRequest;
+    QTRY_VERIFY(!retryRequest.isEmpty() || pipe.takeRequest(bytes, retryRequest));
+    QCOMPARE(retryRequest, request);
+    QVERIFY(pipe.writeReply(retryRequest, payload));
+    QTRY_COMPARE(retryDone.size(), 1);
+    QVERIFY(retryDone.first().at(0).toBool());
+    QCOMPARE(retryDone.first().at(1).toMap(), payload.toVariantMap());
+    QCOMPARE(otherDone.size(), 1);
+#endif
+}
+
+void IpcRequestTests::importCommitReusesIdAfterOfflineRetry()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The production named-pipe transport fixture requires Windows.");
+#else
+    mrtest::TestPipe pipe("import-commit");
+    QVERIFY(pipe.isValid());
+    class ImportBackend final : public mr::IpcBackend
+    {
+    public:
+        using IpcBackend::IpcBackend;
+
+        mr::BackendReply *requestWithId(const QString &type, const QJsonObject &payload, const QString &id) override
+        {
+            if (type != QLatin1String("CommitRunImport") || !shortCommitDeadline)
+                return IpcBackend::requestWithId(type, payload, id);
+            // Exercise the real timeout path without waiting for the two-minute import deadline.
+            auto *reply = new mr::BackendReply(id, type, this);
+            client()->send(reply, type, payload, 20);
+            return reply;
+        }
+
+        bool shortCommitDeadline = true;
+    } backend(nullptr, pipe.serverName);
+    QTRY_VERIFY(backend.isConnected());
+    mr::ImportRecordsController controller;
+    controller.setBackend(&backend);
+    controller.importText(QStringLiteral("副本\n合成副本"));
+    QByteArray bytes;
+    QJsonObject previewRequest;
+    QTRY_VERIFY(!previewRequest.isEmpty() || pipe.takeRequest(bytes, previewRequest));
+    QCOMPARE(previewRequest.value("message_type").toString(), QStringLiteral("PreviewRunImport"));
+    const QJsonObject row{{"row_number", 1}, {"status", "new"}, {"can_import", true}, {"incomplete", true},
+        {"candidate", QJsonObject{{"duty_name", QStringLiteral("合成副本")}}}};
+    const QJsonObject preview{{"preview_id", "test-preview"}, {"rows", QJsonArray{row}},
+        {"summary", QJsonObject{{"total", 1}, {"new", 1}, {"duplicate", 0}, {"conflict", 0}}}};
+    QVERIFY(pipe.writeReply(previewRequest, preview));
+    QTRY_VERIFY(controller.previewValid());
+    controller.setOwnRecordsConfirmed(true);
+    controller.commit();
+    QJsonObject request;
+    QTRY_VERIFY(!request.isEmpty() || pipe.takeRequest(bytes, request));
+    QCOMPARE(request.value("message_type").toString(), QStringLiteral("CommitRunImport"));
+    QVERIFY(!request.value("request_id").toString().isEmpty());
+    QTRY_VERIFY(controller.pendingCommitConfirmation());
+
+    backend.client()->stop();
+    pipe.close();
+    QVERIFY(!backend.isConnected());
+    controller.commit();
+    QVERIFY(!controller.committing());
+    QVERIFY(controller.pendingCommitConfirmation());
+    controller.updateCandidate(0, {{"duty_name", QStringLiteral("不得修改")}});
+    controller.setAllImportableSelected(false);
+    controller.cancel();
+    controller.reset();
+    QCOMPARE(controller.selectedCount(), 1);
+    QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("合成副本"));
+    QVERIFY(controller.canCommit());
+
+    QVERIFY(pipe.reopen());
+    backend.shortCommitDeadline = false;
+    backend.client()->start();
+    QTRY_VERIFY(backend.isConnected());
+    QSignalSpy imported(&controller, &mr::ImportRecordsController::imported);
+    controller.commit();
+    QJsonObject retry;
+    QTRY_VERIFY(!retry.isEmpty() || pipe.takeRequest(bytes, retry));
+    QCOMPARE(retry, request);
+    const QJsonObject receipt{{"imported_count", 1}, {"replayed", true},
+        {"rows", QJsonArray{QJsonObject{{"row_number", 1}, {"status", "imported"}}}}};
+    QVERIFY(pipe.writeReply(retry, receipt));
+    QTRY_COMPARE(imported.size(), 1);
+    QVERIFY(!controller.pendingCommitConfirmation());
+    QVERIFY(controller.rows().isEmpty());
+    QCOMPARE(imported.first().first().toMap(), receipt.toVariantMap());
+#endif
+}
+
+void IpcRequestTests::tearingDownRejectsReentrantRequests_data()
+{
+    QTest::addColumn<bool>("badFrame");
+    QTest::newRow("stop") << false;
+    QTest::newRow("unreadable-response") << true;
+}
+
+void IpcRequestTests::tearingDownRejectsReentrantRequests()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The production named-pipe transport fixture requires Windows.");
+#else
+    QFETCH(bool, badFrame);
+    mrtest::TestPipe pipe("teardown");
+    QVERIFY(pipe.isValid());
+    mr::IpcClient client;
+    client.setServerName(pipe.serverName);
+    client.start();
+    QTRY_VERIFY(client.isConnected());
+
+    const QString id = mr::ipc::newRequestId();
+    const QString type = QStringLiteral("CommitRunImport");
+    auto *sent = new mr::BackendReply(id, type, &client);
+    auto *retry = new mr::BackendReply(id, type, &client);
+    bool transportFailed = false;
+    bool stillConnected = false;
+    bool neverSent = false;
+    QString sentError;
+    QString retryError;
+    QObject subscription;
+    sent->whenDone(&subscription, [&](bool, const QVariantMap &, const QString &code, const QString &) {
+        transportFailed = sent->transportFailed();
+        stillConnected = client.isConnected();
+        sentError = code;
+        client.send(retry, type, {});
+    });
+    retry->whenDone(&subscription, [&](bool, const QVariantMap &, const QString &code, const QString &) {
+        neverSent = retry->neverSent();
+        retryError = code;
+    });
+
+    client.send(sent, type, {});
+    QByteArray bytes;
+    QJsonObject request;
+    QTRY_VERIFY(!request.isEmpty() || pipe.takeRequest(bytes, request));
+    QCOMPARE(request, mr::ipc::makeRequest(id, type, {}));
+    if (badFrame) {
+        // The response frame carries one byte, which cannot be a JSON object.
+        QVERIFY(pipe.writeFrame(QByteArray::fromHex("0100000021")));
+    } else {
+        client.stop();
+    }
+    QTRY_VERIFY(!sentError.isEmpty());
+    QCOMPARE(sentError, badFrame ? QStringLiteral("ERR_PROTOCOL_VERSION") : QStringLiteral("ERR_INTERNAL"));
+    QVERIFY(transportFailed);
+    QVERIFY(!stillConnected);
+    QCOMPARE(retryError, QStringLiteral("ERR_INTERNAL"));
+    QVERIFY(neverSent);
+#endif
 }
 
 MR_DESKTOP_TEST_SUITE(IpcRequest)

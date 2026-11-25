@@ -96,7 +96,8 @@ public:
     /// Test-only: replaces \ref pipeOwnedByCurrentUser.
     void setServerOwnerCheckForTest(ServerOwnerCheck check) { m_ownerCheck = std::move(check); }
 
-    /// Send one envelope and correlate the response by request_id.
+    /// Send one envelope and correlate the response by request_id. Reusing an
+    /// in-flight ID fails the new reply locally. An ID can be retried after completion.
     /// Takes ownership of \a reply's lifetime bookkeeping only; \a reply
     /// deletes itself once it fires.
     /// \a timeoutMs overrides the per-message-type deadline; -1 (the default)
@@ -138,6 +139,8 @@ private:
     int m_backoffMs = 500;
     int m_requestTimeoutMs = kDefaultRequestTimeoutMs;
     bool m_running = false;
+    /// True after the owner check and cleared before any disconnect callbacks run.
+    bool m_connectionReady = false;
 };
 
 } // namespace mr

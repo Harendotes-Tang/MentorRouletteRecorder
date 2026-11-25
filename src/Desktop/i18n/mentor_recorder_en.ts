@@ -7214,6 +7214,121 @@ SHA256: %3</translation>
         <source>一次最多投稿 20 项，请少选几项再投稿。</source>
         <translation>You can submit at most 20 items at a time; select fewer and try again.</translation>
     </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>格式版本</source>
+        <translation>Format version</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>条目 ID</source>
+        <translation>Entry ID</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>副本编号</source>
+        <translation>Duty ID</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>区服</source>
+        <translation>Region</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>语言</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>标题</source>
+        <translation>Title</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>正文</source>
+        <translation>Body</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>BOSS</source>
+        <translation>Boss</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>阶段</source>
+        <translation>Phase</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>标签</source>
+        <translation>Tags</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>游戏版本</source>
+        <translation>Game version</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
+        <source>关联条目</source>
+        <translation>Linked entries</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
+        <source>来源</source>
+        <translation>Source</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="166"/>
+        <source>（空）</source>
+        <translation>(empty)</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="297"/>
+        <source>本次投稿的「%1」已有相同正文，此项不再投稿</source>
+        <translation>“%1” in this batch has the same text. This entry will be skipped.</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="307"/>
+        <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
+        <translation>This draft is based on revision %1. The public library now has revision %2. Return to the entry to review and apply the update before submitting.</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="314"/>
+        <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
+        <translation>This draft has no base revision. Compare it with public revision %1 and confirm before submitting.</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
+        <source>收起对比</source>
+        <translation>Hide comparison</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
+        <source>对比公共版本与本地稿件</source>
+        <translation>Compare public version and draft</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="326"/>
+        <source>− 公共版本 / + 本次投稿</source>
+        <translation>− Public version / + This submission</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="344"/>
+        <source>确认以此公共版本为基线</source>
+        <translation>Confirm this public version as the base</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityToolbar</name>
@@ -15888,6 +16003,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>后台服务尚未连接。</source>
         <translation>The background service isn&apos;t connected.</translation>
+    </message>
+    <message>
+        <source>同一请求仍在等待后台服务响应，请稍后重试。</source>
+        <translation>This request is already waiting for a response from the background service. Try again in a moment.</translation>
     </message>
     <message>
         <source>本次操作的数据量过大，无法发送。请减少数据量后重试。</source>

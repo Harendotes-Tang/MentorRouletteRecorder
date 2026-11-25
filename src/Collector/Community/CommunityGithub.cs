@@ -16,12 +16,12 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
     internal const string IssueMarker = "<!-- mentor-recorder:community-content:v1 -->";
     private readonly SpeechKeyStore _tokens = new(dataDirectory,
         protector ?? DpapiProtector.ForPurpose("MentorRecorder.community-github.v1"), "community-github.bin");
-    private readonly SemaphoreSlim _gate = new(1);
+    private readonly object _gate = new();
     private readonly string? _clientId = clientId ?? ConfiguredClientId();
     private readonly Func<HttpMethod, string, string?, HttpContent?, CancellationToken, Task<JsonObject>> _transport =
         transport ?? CommunityHttp.GithubAsync;
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
-    private int _deviceGeneration;
+    private ActiveRequest? _active;
     private DeviceGrant? _grant;
     private JsonObject? _account;
 
@@ -32,24 +32,20 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         if (transport is null && Environment.GetEnvironmentVariable("MR_DISABLE_DUTY_COMMUNITY") == "1"
             && action is not ("cancel" or "sign_out"))
             return Result("offline");
-        if (action is "cancel" or "sign_out")
-            Interlocked.Increment(ref _deviceGeneration);
-        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-            return Result("auth_busy");
+        cancellationToken.ThrowIfCancellationRequested();
+        ActiveRequest request;
+        lock (_gate)
+        {
+            if (action is "cancel" or "sign_out")
+                return EndAuthorization(action == "sign_out");
+            if (_active is not null)
+                return Result("auth_busy");
+            request = _active = new(action);
+            if (action == "sign_in")
+                _grant = null;
+        }
         try
         {
-            if (action == "cancel")
-            {
-                _grant = null;
-                return Result("cancelled");
-            }
-            if (action == "sign_out")
-            {
-                _grant = null;
-                _account = null;
-                _tokens.Clear();
-                return Result("signed_out");
-            }
             if (action == "issue_status")
                 return await IssueStatusAsync(CommunityContent.Integer(payload, "issue"), cancellationToken).ConfigureAwait(false);
             if (_clientId is null)
@@ -57,10 +53,10 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
 
             return action switch
             {
-                "sign_in" => await StartAsync(cancellationToken).ConfigureAwait(false),
-                "poll" => await PollAsync(cancellationToken).ConfigureAwait(false),
-                "account" => await AccountAsync(cancellationToken).ConfigureAwait(false),
-                "submit" => await SubmitAsync(payload, cancellationToken).ConfigureAwait(false),
+                "sign_in" => await StartAsync(request, cancellationToken).ConfigureAwait(false),
+                "poll" => await PollAsync(request, cancellationToken).ConfigureAwait(false),
+                "account" => await AccountAsync(request, cancellationToken).ConfigureAwait(false),
+                "submit" => await SubmitAsync(payload, request, cancellationToken).ConfigureAwait(false),
                 _ => throw new FormatException("invalid_action"),
             };
         }
@@ -68,108 +64,197 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             or System.Security.Cryptography.CryptographicException ||
             error is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            if (error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } && _clientId is not null)
+            lock (_gate)
             {
-                _account = null;
-                _tokens.Clear();
-                return Result("signed_out");
+                if (request.Superseded && action is ("sign_in" or "poll" or "account"))
+                    return Result("cancelled");
+                if (!request.Superseded && error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized })
+                {
+                    if (action is "account" or "submit")
+                        return ClearAccount();
+                    if (action == "poll")
+                    {
+                        _grant = null;
+                        return Result("authorization_denied");
+                    }
+                }
             }
             return Result(action == "submit" ? "submit_unconfirmed" : "temporarily_unavailable");
         }
         finally
         {
-            _gate.Release();
-        }
-    }
-
-    private async Task<JsonObject> StartAsync(CancellationToken token)
-    {
-        _grant = null;
-        var generation = Volatile.Read(ref _deviceGeneration);
-        var response = await FormAsync(DeviceUrl + "/code", token).ConfigureAwait(false);
-        if (generation != Volatile.Read(ref _deviceGeneration))
-            return Result("cancelled");
-        var interval = Math.Clamp(CommunityContent.Integer(response, "interval"), 5, 120);
-        var expiresIn = Math.Clamp(CommunityContent.Integer(response, "expires_in"), 1, 1800);
-        var now = _clock.GetUtcNow();
-        _grant = new(generation, CommunityContent.String(response, "device_code", 512),
-            CommunityContent.String(response, "user_code", 32), now.AddSeconds(expiresIn), now.AddSeconds(interval), interval);
-        return GrantState(_grant);
-    }
-
-    private async Task<JsonObject> PollAsync(CancellationToken token)
-    {
-        if (_grant is null)
-            return Result("signed_out");
-        var grant = _grant;
-        if (grant.Generation != Volatile.Read(ref _deviceGeneration))
-        {
-            _grant = null;
-            return Result("cancelled");
-        }
-        var now = _clock.GetUtcNow();
-        if (now >= grant.Expires)
-        {
-            _grant = null;
-            return Result("device_expired");
-        }
-        if (now < grant.NextPoll)
-            return GrantState(grant);
-        _grant = grant with { NextPoll = now.AddSeconds(grant.Interval) };
-        var response = await FormAsync(TokenUrl, token, ("grant_type", Grant), ("device_code", grant.Code)).ConfigureAwait(false);
-        if (grant.Generation != Volatile.Read(ref _deviceGeneration))
-        {
-            _grant = null;
-            return Result("cancelled");
-        }
-        var error = response["error"]?.GetValue<string>();
-        if (error == "authorization_pending")
-            return GrantState(_grant);
-        if (error == "slow_down")
-        {
-            _grant = grant with { Interval = grant.Interval + 5, NextPoll = now.AddSeconds(grant.Interval + 5) };
-            return GrantState(_grant);
-        }
-        _grant = null;
-        if (error is not null)
-            return Result(error == "expired_token" ? "device_expired" : "authorization_denied");
-        SaveToken(response);
-        _account = null;
-        return await AccountAsync(token).ConfigureAwait(false);
-    }
-
-    private async Task<JsonObject> AccountAsync(CancellationToken token)
-    {
-        var access = await AccessAsync(token).ConfigureAwait(false);
-        if (access is null)
-            return Result("signed_out");
-        if (_account is null)
-        {
-            var user = await _transport(HttpMethod.Get, "https://api.github.com/user", access, null, token)
-                .ConfigureAwait(false);
-            _account = new JsonObject
+            lock (_gate)
             {
-                ["login"] = CommunityContent.String(user, "login", 39),
-                ["id"] = CommunityContent.Integer64(user, "id"),
-            };
+                if (ReferenceEquals(_active, request))
+                    _active = null;
+            }
         }
-        return new JsonObject { ["status"] = "signed_in", ["account"] = _account.DeepClone() };
     }
 
-    private async Task<JsonObject> SubmitAsync(JsonObject payload, CancellationToken token)
+    // Called under _gate. A superseded auth request can finish its network call independently
+    // of a new authorization, but only the current request may publish its result.
+    private JsonObject EndAuthorization(bool signOut)
+    {
+        _grant = null;
+        if (_active is { } request && (signOut || request.Action is ("sign_in" or "poll")))
+        {
+            request.Superseded = true;
+            if (request.Action is "sign_in" or "poll" or "account")
+                _active = null;
+        }
+        return signOut ? ClearAccount() : Result("cancelled");
+    }
+
+    private JsonObject ClearAccount()
+    {
+        _account = null;
+        try
+        {
+            _tokens.Clear();
+            return Result("signed_out");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return Result("temporarily_unavailable");
+        }
+    }
+
+    private async Task<JsonObject> StartAsync(ActiveRequest request, CancellationToken token)
+    {
+        var response = await FormAsync(DeviceUrl + "/code", token).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return Result("cancelled");
+            token.ThrowIfCancellationRequested();
+            var interval = Math.Clamp(CommunityContent.Integer(response, "interval"), 5, 120);
+            var expiresIn = Math.Clamp(CommunityContent.Integer(response, "expires_in"), 1, 1800);
+            var now = _clock.GetUtcNow();
+            _grant = new(CommunityContent.String(response, "device_code", 512),
+                CommunityContent.String(response, "user_code", 32), now.AddSeconds(expiresIn), now.AddSeconds(interval), interval);
+            return GrantState(_grant);
+        }
+    }
+
+    private async Task<JsonObject> PollAsync(ActiveRequest request, CancellationToken token)
+    {
+        DeviceGrant grant;
+        DateTimeOffset now;
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return Result("cancelled");
+            if (_grant is null)
+                return Result("signed_out");
+            now = _clock.GetUtcNow();
+            var expired = _grant.PendingCredentials is { } pending
+                ? pending.Expires <= now.ToUnixTimeSeconds()
+                : now >= _grant.Expires;
+            if (expired)
+            {
+                _grant = null;
+                return Result("device_expired");
+            }
+            if (now < _grant.NextPoll)
+                return GrantState(_grant);
+            grant = _grant = _grant with { NextPoll = now.AddSeconds(_grant.Interval) };
+        }
+
+        var credentials = grant.PendingCredentials;
+        if (credentials is null)
+        {
+            var response = await FormAsync(TokenUrl, token, ("grant_type", Grant), ("device_code", grant.Code))
+                .ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (request.Superseded)
+                    return Result("cancelled");
+                token.ThrowIfCancellationRequested();
+                var error = response["error"]?.GetValue<string>();
+                if (error == "authorization_pending")
+                    return GrantState(grant);
+                if (error == "slow_down")
+                {
+                    _grant = grant with { Interval = grant.Interval + 5, NextPoll = now.AddSeconds(grant.Interval + 5) };
+                    return GrantState(_grant);
+                }
+                if (error is not null)
+                {
+                    _grant = null;
+                    return Result(error == "expired_token" ? "device_expired" : "authorization_denied");
+                }
+                // GitHub has consumed the device code. A retry can read /user again using this
+                // provisional in-memory token, as long as this authorization is still current.
+                credentials = ParseToken(response);
+                _grant = grant with { PendingCredentials = credentials };
+            }
+        }
+
+        var account = await FetchAccountAsync(credentials.Access, token).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return Result("cancelled");
+            token.ThrowIfCancellationRequested();
+            SaveToken(credentials);
+            _account = account;
+            _grant = null;
+            return SignedIn(account);
+        }
+    }
+
+    private async Task<JsonObject> AccountAsync(ActiveRequest request, CancellationToken token)
+    {
+        var access = await AccessAsync(request, token).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return Result("cancelled");
+            if (access is null)
+                return Result("signed_out");
+            if (_account is not null)
+                return SignedIn(_account);
+        }
+
+        var account = await FetchAccountAsync(access, token).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return Result("cancelled");
+            _account = account;
+            return SignedIn(account);
+        }
+    }
+
+    private async Task<JsonObject> FetchAccountAsync(string access, CancellationToken token)
+    {
+        var user = await _transport(HttpMethod.Get, "https://api.github.com/user", access, null, token)
+            .ConfigureAwait(false);
+        return new JsonObject
+        {
+            ["login"] = CommunityContent.String(user, "login", 39),
+            ["id"] = CommunityContent.Integer64(user, "id"),
+        };
+    }
+
+    private async Task<JsonObject> SubmitAsync(JsonObject payload, ActiveRequest request, CancellationToken token)
     {
         var body = BuildIssueBody(payload);
-        var access = await AccessAsync(token).ConfigureAwait(false);
-        if (access is null || _account is null)
-            return Result("signed_out");
-        if (CommunityContent.Integer64(payload, "author_id") != CommunityContent.Integer64(_account, "id"))
-            return Result("account_changed");
-        var issue = await _transport(HttpMethod.Post, IssueUrl, access,
-            CommunityHttp.Json(new JsonObject
+        var access = await AccessAsync(request, token).ConfigureAwait(false);
+        Task<JsonObject> submission;
+        lock (_gate)
+        {
+            if (request.Superseded || access is null || _account is null)
+                return Result("signed_out");
+            if (CommunityContent.Integer64(payload, "author_id") != CommunityContent.Integer64(_account, "id"))
+                return Result("account_changed");
+            submission = _transport(HttpMethod.Post, IssueUrl, access, CommunityHttp.Json(new JsonObject
             {
                 ["title"] = "MentorRecorder community contribution",
                 ["body"] = body,
-            }), token).ConfigureAwait(false);
+            }), token);
+        }
+        var issue = await submission.ConfigureAwait(false);
         return new JsonObject { ["status"] = "submitted", ["issue"] = CommunityContent.Integer(issue, "number") };
     }
 
@@ -231,9 +316,15 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         return new JsonObject { ["status"] = status, ["issue"] = issue };
     }
 
-    private async Task<string?> AccessAsync(CancellationToken token)
+    private async Task<string?> AccessAsync(ActiveRequest request, CancellationToken token)
     {
-        var stored = _tokens.Read(_clientId);
+        string? stored;
+        lock (_gate)
+        {
+            if (request.Superseded)
+                return null;
+            stored = _tokens.Read(_clientId);
+        }
         if (stored is null || JsonNode.Parse(stored) is not JsonObject saved)
             return null;
         if (saved["expires"]!.GetValue<long>() > _clock.GetUtcNow().ToUnixTimeSeconds() + 60)
@@ -242,28 +333,36 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             return null;
         var response = await FormAsync(TokenUrl, token, ("grant_type", "refresh_token"), ("refresh_token", refresh))
             .ConfigureAwait(false);
-        if (response["error"] is not null)
+        lock (_gate)
         {
-            _tokens.Clear();
-            _account = null;
-            return null;
+            if (request.Superseded)
+                return null;
+            if (response["error"] is not null)
+            {
+                _tokens.Clear();
+                _account = null;
+                return null;
+            }
+            var credentials = ParseToken(response);
+            SaveToken(credentials);
+            return credentials.Access;
         }
-        return SaveToken(response);
     }
 
-    private string SaveToken(JsonObject response)
+    private Credentials ParseToken(JsonObject response)
     {
         var access = CommunityContent.String(response, "access_token", 1024);
         var expires = response["expires_in"]?.GetValue<int>() ?? int.MaxValue;
         var refresh = response["refresh_token"] is null ? "" : CommunityContent.String(response, "refresh_token", 1024);
-        _tokens.Write(_clientId!, new JsonObject
-        {
-            ["access"] = access,
-            ["refresh"] = refresh,
-            ["expires"] = _clock.GetUtcNow().AddSeconds(expires).ToUnixTimeSeconds(),
-        }.ToJsonString());
-        return access;
+        return new(access, refresh, _clock.GetUtcNow().AddSeconds(expires).ToUnixTimeSeconds());
     }
+
+    private void SaveToken(Credentials credentials) => _tokens.Write(_clientId!, new JsonObject
+    {
+        ["access"] = credentials.Access,
+        ["refresh"] = credentials.Refresh,
+        ["expires"] = credentials.Expires,
+    }.ToJsonString());
 
     private Task<JsonObject> FormAsync(string url, CancellationToken token, params (string Key, string Value)[] parts)
     {
@@ -286,5 +385,21 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
 
     private static JsonObject Result(string status) => new() { ["status"] = status };
 
-    private sealed record DeviceGrant(int Generation, string Code, string UserCode, DateTimeOffset Expires, DateTimeOffset NextPoll, int Interval);
+    private static JsonObject SignedIn(JsonObject account) => new()
+    {
+        ["status"] = "signed_in",
+        ["account"] = account.DeepClone(),
+    };
+
+    private sealed class ActiveRequest(string action)
+    {
+        internal string Action { get; } = action;
+        internal bool Superseded { get; set; }
+    }
+
+    private sealed record Credentials(string Access, string Refresh, long Expires);
+    private sealed record DeviceGrant(string Code, string UserCode, DateTimeOffset Expires, DateTimeOffset NextPoll, int Interval)
+    {
+        internal Credentials? PendingCredentials { get; init; }
+    }
 }

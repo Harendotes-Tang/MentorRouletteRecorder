@@ -71,9 +71,38 @@ public:
     QList<QPointer<mr::BackendReply>> pending;
     QList<QPointer<mr::BackendReply>> pendingRows;
     QJsonObject currentRunOverride;
+    QJsonObject lastCommunitySubmission;
+    bool holdCommunitySubmission = false;
+    bool holdCommunityBrowse = false;
+    bool failCommunityList = false;
+    QList<QPointer<mr::BackendReply>> pendingCommunitySubmissions;
+    QList<QPointer<mr::BackendReply>> pendingCommunityBrowse;
 
     mr::BackendReply *request(const QString &messageType, const QJsonObject &payload = {}) override
     {
+        if (messageType == QLatin1String("DutyCommunity")) {
+            const QString action = payload.value(QStringLiteral("action")).toString();
+            if (action == QLatin1String("submit") || action == QLatin1String("prepare_issue")) {
+                lastCommunitySubmission = payload;
+                if (holdCommunitySubmission) {
+                    auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-submission"), messageType, this);
+                    pendingCommunitySubmissions.append(reply);
+                    return reply;
+                }
+            }
+            if (holdCommunityBrowse && action == QLatin1String("browse")) {
+                auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-browse"), messageType, this);
+                pendingCommunityBrowse.append(reply);
+                return reply;
+            }
+            if (failCommunityList && action == QLatin1String("list")) {
+                auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-list"), messageType, this);
+                QTimer::singleShot(0, reply, [reply] {
+                    reply->fail(QStringLiteral("test_list"), QStringLiteral("Fixture list failure"));
+                });
+                return reply;
+            }
+        }
         if (!currentRunOverride.isEmpty() && messageType == QLatin1String("GetCurrentRun")) {
             auto *reply = new mr::BackendReply(QStringLiteral("fixture-current-run"), messageType, this);
             QTimer::singleShot(0, reply, [reply, snapshot = currentRunOverride] { reply->succeed(snapshot); });

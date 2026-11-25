@@ -98,6 +98,43 @@ private Q_SLOTS:
                  QStringLiteral("ERR_BAD_REQUEST"));
     }
 
+    void resultSharesUseOnlyAttemptsWithinTheRegionFilter()
+    {
+        mr::MockBackend backend;
+        QJsonObject completed = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                        QStringLiteral("COMPLETED"), true);
+        completed.insert("region", "CN");
+        QJsonObject first = autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"),
+                                    QStringLiteral("UNKNOWN"), false);
+        first.insert("region", "TC");
+        first.insert("source", "MANUAL");
+        first.insert("mentor_roulette_id", QJsonValue::Null);
+        first.insert("matched_at_utc", QJsonValue::Null);
+        first.insert("ended_at_utc", QJsonValue::Null);
+        QJsonObject second = first;
+        second.insert("run_id", "33333333-3333-4333-8333-333333333333");
+        backend.resetRuns({completed, first, second});
+
+        const auto unknown = [](const QJsonObject &stats) {
+            for (const auto &entry : stats.value("buckets").toArray()) {
+                const QJsonObject bucket = entry.toObject();
+                if (bucket.value("result").toString() == QLatin1String("UNKNOWN"))
+                    return bucket;
+            }
+            return QJsonObject{};
+        };
+
+        const QJsonObject all = backend.resultStats({});
+        QCOMPARE(all.value("attempt_count").toInt(), 1);
+        QCOMPARE(unknown(all).value("count").toInt(), 2);
+        QCOMPARE(unknown(all).value("share").toDouble(-1.0), 0.0);
+
+        const QJsonObject tc = backend.resultStats({{"region", "TC"}});
+        QCOMPARE(tc.value("attempt_count").toInt(-1), 0);
+        QCOMPARE(unknown(tc).value("count").toInt(), 2);
+        QVERIFY(unknown(tc).value("share").isNull());
+    }
+
     void tcCaptureNeverReusesCnFixtureSuccessAndManualRunsKeepTheirRegion()
     {
         mr::MockBackend backend;

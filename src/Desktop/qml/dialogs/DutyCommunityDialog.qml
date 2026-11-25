@@ -34,7 +34,10 @@ MotionDialog {
     property int serial: 0
     property bool configured: false
     property bool online: false
-    property bool refreshing: false
+    property int localRequest: 0
+    property int publicRequest: 0
+    property string publicAction: ""
+    readonly property bool refreshing: publicAction.length > 0
     property string libraryStatus: ""
     property string note: ""
     property string selectedId: ""
@@ -763,21 +766,21 @@ MotionDialog {
     }
 
     // ------------------------------------------------------------ requests --
-    function call(action, args, callback) {
+    function call(action, args, callback, isCurrent) {
         const id = ++serial
-        callbacks[id] = callback || report
+        callbacks[id] = { done: callback || report, isCurrent: isCurrent }
         service.request(id, action, args)
     }
 
     Connections {
         target: root.service
         function onAnswered(ticket, result, error) {
-            const callback = root.callbacks[ticket]
+            const request = root.callbacks[ticket]
             delete root.callbacks[ticket]
-            if (!callback) return
+            if (!request || (request.isCurrent && !request.isCurrent())) return
             if (error && root.visible) root.note = error
             if (result.app_configured !== undefined) root.configured = result.app_configured
-            callback(error ? { status: "transport_error" } : result)
+            request.done(error ? { status: "transport_error" } : result)
         }
     }
 
@@ -791,30 +794,39 @@ MotionDialog {
     }
     Component.onCompleted: { loadView(); if (Runtime.app.backendConnected) loadLocal() }
 
-    function pages(action, args, done, prior, first) {
-        call(action, args, result => {
-            const batchRows = result.items || result.entries
-            if (!batchRows) { refreshing = false; report(result); return }
-            const start = first || result
-            if (first && result.generation !== first.generation) { refreshing = false; note = statusText("source_changed"); return }
-            const all = (prior || []).concat(batchRows)
-            if (result.next === null || result.next === undefined) done(all, start)
-            else pages(result.items ? "list" : "browse", { offset: result.next }, done, all, start)
-        })
+    function pages(action, args, done, failed, isCurrent) {
+        const all = []
+        function fetchPage(action, args, first) {
+            call(action, args, result => {
+                const batchRows = result.items || result.entries
+                if (!batchRows) { failed(result); return }
+                if (first && result.generation !== first.generation) { failed({ status: "source_changed" }); return }
+                const start = first || result
+                all.push(...batchRows)
+                if (result.next === null || result.next === undefined) done(all, start)
+                else fetchPage(result.items ? "list" : "browse", { offset: result.next }, start)
+            }, isCurrent)
+        }
+        fetchPage(action, args, null)
     }
-    function loadPublic(action, args, then) {
-        if (action === "refresh") refreshing = true
+    function loadPublic(action, args) {
+        const request = ++publicRequest
+        publicAction = action
         pages(action, args || ({}), (entries, result) => {
             publicRows = entries.map(content => ({ content: content }))
             online = result.online
             libraryStatus = result.status
-            refreshing = false
-            if (then) then()
-        })
+            if (action === "online" && online) loadPublic("refresh")
+            else publicAction = ""
+        }, result => {
+            publicAction = ""
+            report(result)
+        }, () => request === publicRequest)
     }
     property string revealId: ""
     property bool favoriteBusy: false
     function loadLocal() {
+        const request = ++localRequest
         pages("list", {}, entries => {
             localRows = entries
             favoriteBusy = false
@@ -822,16 +834,16 @@ MotionDialog {
             const wanted = revealId
             revealId = ""
             if (wanted) reveal(wanted)
-        })
+        }, result => { favoriteBusy = false; report(result) }, () => request === localRequest)
     }
     function reload() { loadLocal(); loadPublic("browse") }
     /// The one click the offline state offers: the player allows the public library and
     /// asks for it in the same gesture.
-    function goOnline() { loadPublic("online", { enabled: true }, () => loadPublic("refresh")) }
+    function goOnline() { loadPublic("online", { enabled: true }) }
     /// 公共共享库 refreshes each time it is opened once the player allowed it online (owner,
     /// 2026-11-23). The Collector answers from its cache within 30 s of its last check (2 min after
     /// a successful one), so switching back and forth does not reach GitHub every time.
-    function refreshPublic() { if (online && !refreshing) loadPublic("refresh") }
+    function refreshPublic() { if (online && publicAction !== "refresh" && publicAction !== "online") loadPublic("refresh") }
     onOpened: reload()
     onDutyKeyChanged: if (visible && activeScope === "cur") { selectedId = ""; compare.close() }
     onTabChanged: { selectedId = ""; basket = []; mode = "view"; confirmingDelete = false; if (tab === "public") refreshPublic() }
@@ -1016,14 +1028,7 @@ MotionDialog {
     }
     function submitRows(ids) {
         const picked = batch(ids)
-        // The 20-item limit counts what is sent: entries the public library already has are left
-        // out (DutyCommunitySubmission.twins). Unchanged is judged here under the licence the entry
-        // was published with; the pane holds the exact count against the licence chosen there.
-        const publishedLicense = row => (publicRows.find(entry => entry.content.id === row.content.id)
-                                         || { content: {} }).content.license
-        const sent = picked.filter(row => !Match.sameTextTwin(row.content, publicRows)
-                                          && !Match.unchangedEntry(row.content, publicRows, publishedLicense(row)))
-        if (!picked.length || sent.length > 20) { note = statusText("invalid_submission"); return }
+        if (!picked.length) { note = statusText("invalid_submission"); return }
         mode = "submit"
         submission.start(picked)
     }

@@ -30,6 +30,7 @@ public sealed partial class MentorRunStateMachine
     private int? _territoryId;
     private int? _jobId;
     private ContentFinderPop? _pendingQueue;
+    private ZoneInitialization? _pendingQueueEntry;
     private bool _matchObserved;
 
     // How the player got into the duty in flight, decided by the first director signal after
@@ -246,9 +247,11 @@ public sealed partial class MentorRunStateMachine
             return null;
         }
 
-        var age = mono - territory.Mono;
-        return age >= TimeSpan.Zero && age <= _options.TerritoryMemory ? territory : null;
+        return IsWithinTerritoryWindow(mono - territory.Mono) ? territory : null;
     }
+
+    private bool IsWithinTerritoryWindow(TimeSpan age) =>
+        age >= TimeSpan.Zero && age <= _options.TerritoryMemory;
 
     private void NormalizeTerminalState()
     {
@@ -263,7 +266,7 @@ public sealed partial class MentorRunStateMachine
     {
         if (ev is ProfileLost lost)
         {
-            _pendingQueue = null;
+            SetPendingQueue(null);
             _profileLost = true;
             return TransitionResult.Ignored(
                 _state,
@@ -297,13 +300,13 @@ public sealed partial class MentorRunStateMachine
         // after cancellation and an ordinary teleport. Keep only bounded session evidence.
         if (_pendingQueue is { } pending && ev.Mono - pending.Mono > _options.MatchWindow)
         {
-            _pendingQueue = null;
+            SetPendingQueue(null);
         }
 
         switch (ev)
         {
             case ContentFinderPop pop:
-                _pendingQueue = pop.RouletteId == _profile.MentorRouletteId ? pop : null;
+                SetPendingQueue(pop.RouletteId == _profile.MentorRouletteId ? pop : null);
                 return new TransitionResult(_state, _state, false, true, false, null,
                     Array.Empty<StateCommand>());
 
@@ -311,37 +314,82 @@ public sealed partial class MentorRunStateMachine
             case CaptureStopped:
             case ConnectionLost:
             case EventSequenceGap:
-                _pendingQueue = null;
+                SetPendingQueue(null);
+                break;
+
+            case ZoneLeft:
+            case InstanceLeft:
+            case DutyResult:
+                _pendingQueueEntry = null;
                 break;
 
             // The server said the match is here. The roulette still comes from the request -
             // nothing in the announcement names one - but the moment is the server's, and the
             // run opens now rather than when the duty finishes loading.
             case MatchAnnounced announced when _pendingQueue is { } matched:
-                _pendingQueue = null;
+                SetPendingQueue(null);
                 var opened = StartRun(matched, Array.Empty<StateCommand>(), announced);
                 _matchObserved = true;
                 _announcedRequest = matched;
                 _announcedRefreshes = 0;
                 return opened;
 
-            case ZoneInitialization zone when zone.IsDutyInstance != false &&
-                _pendingQueue is { } queued && CanEnterDuty(zone, queued.Mono, queued.ContentId):
-                // Create and enter in one transaction. No MENTOR_MATCHED event or incomplete
-                // history row escapes between the queue request and the confirmed duty.
-                _pendingQueue = null;
-                var started = StartRun(queued, Array.Empty<StateCommand>());
-                var entered = EnterDuty(zone);
-                return entered with
+            case ZoneInitialization zone:
+                _pendingQueueEntry = null;
+                if (zone.IsDutyInstance == false || _pendingQueue is not { } queued)
                 {
-                    FromState = RunState.Idle,
-                    Commands = started.Commands.Concat(entered.Commands).ToArray(),
-                };
+                    break;
+                }
+
+                if (CanEnterDuty(zone, queued.Mono, queued.ContentId))
+                {
+                    return EnterQueuedDuty(queued, zone);
+                }
+
+                // A marker with no territory evidence can be followed by its territory.
+                // A marker already tied to a destination must not borrow a later zone's.
+                if (zone.Mono >= queued.Mono && zone.TerritoryId is null && RecentTerritory(zone.Mono) is null)
+                {
+                    _pendingQueueEntry = zone;
+                }
+
+                break;
+
+            case TerritoryObserved territory when _pendingQueueEntry is { } entry:
+                _pendingQueueEntry = null;
+                if (_pendingQueue is { } standing && IsWithinTerritoryWindow(territory.Mono - entry.Mono) &&
+                    CanEnterDuty(entry, standing.Mono, standing.ContentId, territory.TerritoryId))
+                {
+                    return EnterQueuedDuty(standing, entry, territory);
+                }
+
+                break;
         }
 
         // A normal teleport can happen while the player is still queueing. It neither
         // creates a run nor proves cancellation, so the request remains usable until expiry.
         return TransitionResult.Ignored(_state, null);
+    }
+
+    private void SetPendingQueue(ContentFinderPop? queue)
+    {
+        _pendingQueue = queue;
+        _pendingQueueEntry = null;
+    }
+
+    private TransitionResult EnterQueuedDuty(
+        ContentFinderPop queued, ZoneInitialization zone, TerritoryObserved? lateTerritory = null)
+    {
+        // Create and enter in one transaction. No MENTOR_MATCHED event or incomplete
+        // history row escapes between the queue request and the confirmed duty.
+        SetPendingQueue(null);
+        var started = StartRun(queued, Array.Empty<StateCommand>());
+        var entered = EnterDuty(zone, lateTerritory);
+        return entered with
+        {
+            FromState = RunState.Idle,
+            Commands = started.Commands.Concat(entered.Commands).ToArray(),
+        };
     }
 
     /// <summary>Opens a run for a mentor match.</summary>
@@ -429,7 +477,7 @@ public sealed partial class MentorRunStateMachine
                     DetectionConfidence.Low);
                 if (standing is not null && zone.Mono - standing.Mono <= _options.MatchWindow)
                 {
-                    _pendingQueue = standing;
+                    SetPendingQueue(standing);
                 }
 
                 return lapsed;
@@ -609,7 +657,7 @@ public sealed partial class MentorRunStateMachine
         }
     }
 
-    private TransitionResult EnterDuty(ZoneInitialization zone)
+    private TransitionResult EnterDuty(ZoneInitialization zone, TerritoryObserved? lateTerritory = null)
     {
         var runId = _runId!;
         _state = RunState.EnteredDuty;
@@ -627,9 +675,10 @@ public sealed partial class MentorRunStateMachine
 
         // The verified entry marker of the CN profile carries neither a territory nor a
         // content id, so without the announcement that preceded it the run would be stored
-        // with no duty at all. The announcement is only borrowed when the entry itself said
-        // nothing: a marker that does carry the zone is always the better answer.
-        if (_territoryId is null && _contentId is null && RecentTerritory(zone.Mono) is { } observed)
+        // with no duty at all. A preceding announcement fills an otherwise unidentified
+        // entry; a late one may be the evidence that confirmed the queue-inferred entry.
+        var observed = lateTerritory ?? (_contentId is null ? RecentTerritory(zone.Mono) : null);
+        if (_territoryId is null && observed is not null)
         {
             _territoryId = observed.TerritoryId;
             commands.Add(new SetDutyCommand(runId, observed.TerritoryId));
@@ -670,7 +719,8 @@ public sealed partial class MentorRunStateMachine
             RunState.MentorMatched, RunState.MentorMatched, false, true, false, runId, commands);
     }
 
-    private bool CanEnterDuty(ZoneInitialization zone, TimeSpan matchedMono, int? contentId)
+    private bool CanEnterDuty(
+        ZoneInitialization zone, TimeSpan matchedMono, int? contentId, int? lateTerritoryId = null)
     {
         var elapsed = zone.Mono - matchedMono;
         if (elapsed < TimeSpan.Zero)
@@ -680,7 +730,7 @@ public sealed partial class MentorRunStateMachine
 
         // A queue request opens a queue window, not an accept timer. Only a zone the duty
         // table recognises confirms an entry; an ordinary teleport creates no run.
-        if (_profile.MatchFromQueue && !EntersKnownDuty(zone))
+        if (_profile.MatchFromQueue && !EntersKnownDuty(zone, lateTerritoryId))
         {
             return false;
         }
@@ -704,14 +754,15 @@ public sealed partial class MentorRunStateMachine
 
     /// <summary>True when this zone change lands in a territory the duty table knows.</summary>
     /// <param name="zone">Entry marker being considered.</param>
-    private bool EntersKnownDuty(ZoneInitialization zone)
+    /// <param name="lateTerritoryId">Territory reported just after the marker, when available.</param>
+    private bool EntersKnownDuty(ZoneInitialization zone, int? lateTerritoryId)
     {
         if (_options.IsKnownDuty is not { } known)
         {
             return false;
         }
 
-        var territory = zone.TerritoryId ?? _territoryId ?? RecentTerritory(zone.Mono)?.TerritoryId;
+        var territory = zone.TerritoryId ?? lateTerritoryId ?? _territoryId ?? RecentTerritory(zone.Mono)?.TerritoryId;
         return territory is { } id && known(id);
     }
 
@@ -727,8 +778,7 @@ public sealed partial class MentorRunStateMachine
             return false;
         }
 
-        var age = territory.Mono - entered;
-        return age >= TimeSpan.Zero && age <= _options.TerritoryMemory;
+        return IsWithinTerritoryWindow(territory.Mono - entered);
     }
 
     private TransitionResult RecordJob(PlayerJob job)
@@ -811,7 +861,7 @@ public sealed partial class MentorRunStateMachine
 
         if (_profile.MatchFromQueue)
         {
-            _pendingQueue = pop;
+            SetPendingQueue(pop);
             return new TransitionResult(from, RunState.Idle, true, true, false, null, closeCommands);
         }
 
@@ -870,7 +920,7 @@ public sealed partial class MentorRunStateMachine
         _contentId = null;
         _territoryId = null;
         _jobId = null;
-        _pendingQueue = null;
+        SetPendingQueue(null);
         _matchObserved = false;
         _announcedRequest = null;
         _announcedRefreshes = 0;

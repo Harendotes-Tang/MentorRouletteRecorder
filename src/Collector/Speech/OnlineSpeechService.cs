@@ -154,7 +154,7 @@ public sealed class OnlineSpeechService : IDisposable
     {
         lock (_settingsGate)
         {
-            return View(SpeechSettingsStore.Read(_settings));
+            return View(SpeechSettingsStore.Read(_settings), SpeechSettingsStore.ReadKeyRevision(_settings));
         }
     }
 
@@ -179,6 +179,7 @@ public sealed class OnlineSpeechService : IDisposable
         var next = SpeechSettingsStore.Merge(current, update);
         var oldBinding = OnlineSpeechClient.KeyBinding(current);
         var newBinding = OnlineSpeechClient.KeyBinding(next);
+        var currentRevision = SpeechSettingsStore.ReadKeyRevision(_settings);
 
         string? newKey = null;
         if (update.ApiKey is { Length: > 0 } supplied)
@@ -200,22 +201,40 @@ public sealed class OnlineSpeechService : IDisposable
 
         try
         {
+            string? revision = null;
             if (newKey is not null)
             {
-                _keys.Write(newBinding!, newKey);
+                revision = _keys.Stage(newBinding!, newKey, currentRevision);
             }
-            else if (update.ApiKey is { Length: 0 })
+            else if (update.ApiKey is { Length: 0 } || oldBinding != newBinding)
             {
-                _keys.Clear();
+                revision = string.Empty;
             }
 
-            var stored = SpeechSettingsStore.Write(_settings, next);
-            if (update.ApiKey is null && !string.Equals(oldBinding, newBinding, StringComparison.Ordinal))
+            OnlineSpeechConfig stored;
+            try
             {
-                _keys.Clear();
+                stored = SpeechSettingsStore.Write(_settings, next, revision);
+            }
+            catch
+            {
+                if (newKey is not null)
+                {
+                    _keys.DiscardPending(revision!);
+                }
+                throw;
             }
 
-            var view = View(stored);
+            if (newKey is not null)
+            {
+                _keys.PromoteCommitted(revision!);
+            }
+            else if (revision == string.Empty)
+            {
+                _keys.RemoveClearedKey();
+            }
+
+            var view = View(stored, revision ?? currentRevision);
             _logger().Write(LogLevel.Info, "speech", "speech_settings_updated", new Dictionary<string, object?>
             {
                 ["provider"] = SpeechProviderWire.Format(stored.Provider),
@@ -314,7 +333,7 @@ public sealed class OnlineSpeechService : IDisposable
                 string? key;
                 lock (_settingsGate)
                 {
-                    key = _keys.Read(binding);
+                    key = _keys.ReadSelected(binding, SpeechSettingsStore.ReadKeyRevision(_settings));
                 }
                 var result = await _client
                     .SynthesizeAsync(config, key, request.Text, request.RatePercent, linked.Token)
@@ -390,8 +409,8 @@ public sealed class OnlineSpeechService : IDisposable
         _stopping.Dispose();
     }
 
-    private SpeechSettingsView View(OnlineSpeechConfig config) =>
-        new(config, _keys.Has(OnlineSpeechClient.KeyBinding(config)), OnlineSpeechClient.TargetHost(config));
+    private SpeechSettingsView View(OnlineSpeechConfig config, string? revision) =>
+        new(config, _keys.ReadSelected(OnlineSpeechClient.KeyBinding(config), revision) is not null, OnlineSpeechClient.TargetHost(config));
 
     private void Record(SpeechSynthesisResult result)
     {

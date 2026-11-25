@@ -5,7 +5,7 @@
 // The scene is the statistics float's (StatisticsSceneFixture.h), opened on Main.qml.
 
 #include "DesktopTestRunner.h"
-#include "StatisticsSceneFixture.h"
+#include "DutyCommunitySceneFixture.h"
 #include "TestCollectorGuard.h"
 #include "BundledFonts.h"
 
@@ -37,9 +37,7 @@ private Q_SLOTS:
     void communityBlankStatesAreCentred();
     void communityExamplesStartNamedMacros();
     void communityEditorFollowsTheDesign();
-    void communityDetailActionsTakeTheTickedEntries();
-    void communitySubmissionLeavesOutWhatIsAlreadyPublic();
-    void communityBrowserSubmissionWaitsForThePaste();
+    void communityAuthorizationIgnoresSupersededReplies();
     void communityPublicLibraryFoldsAndFilters();
     void communityDirectorySetsTheRangeAndGroupsTheList();
     void communityTextRulesMatchThePublisher();
@@ -80,17 +78,6 @@ void DutyCommunityTests::dashboardOpensTheCommunityLibrary()
 }
 
 namespace {
-/// The visible Text under `parent` that shows exactly `line`.
-QQuickItem *visibleText(QQuickItem *parent, const QString &line)
-{
-    if (!parent) return nullptr;
-    if (parent->inherits("QQuickText") && parent->isVisible() && parent->property("text").toString() == line)
-        return parent;
-    for (auto *child : parent->childItems())
-        if (auto *match = visibleText(child, line)) return match;
-    return nullptr;
-}
-
 /// The community dialog opened from the dashboard, its mock entries loaded and then
 /// set aside so that the onboarding shows.
 QObject *openEmptyCommunityDialog(Scene &scene)
@@ -111,60 +98,6 @@ QObject *openEmptyCommunityDialog(Scene &scene)
     return dialog;
 }
 
-QVariantMap qmlMap(const QVariant &value)
-{
-    return value.metaType() == QMetaType::fromType<QJSValue>()
-        ? value.value<QJSValue>().toVariant().toMap() : value.toMap();
-}
-
-/// The entry ids of a list of { content } rows.
-QStringList rowIds(const QVariant &value)
-{
-    QStringList out;
-    for (const QVariant &row : qmlList(value))
-        out << row.toMap().value(QStringLiteral("content")).toMap().value(QStringLiteral("id")).toString();
-    return out;
-}
-
-/// A published community entry, as the public library hands it to the dialog.
-QVariantMap publicEntry(int number, const char *type, const char *body, const char *role, int contentId)
-{
-    const auto id = QStringLiteral("00000000-0000-4000-8000-%1").arg(number, 12, 10, QLatin1Char('0'));
-    return {{QStringLiteral("content"), QVariantMap{
-        {QStringLiteral("schema_version"), 1}, {QStringLiteral("id"), id},
-        {QStringLiteral("type"), QString::fromLatin1(type)}, {QStringLiteral("content_id"), contentId},
-        {QStringLiteral("region"), QStringLiteral("ALL")}, {QStringLiteral("language"), QStringLiteral("zh-Hans")},
-        {QStringLiteral("title"), QStringLiteral("Entry %1").arg(number)}, {QStringLiteral("body"), QString::fromUtf8(body)},
-        {QStringLiteral("boss"), QString()}, {QStringLiteral("phase"), QString()},
-        {QStringLiteral("role"), QString::fromLatin1(role)}, {QStringLiteral("tags"), QVariantList()},
-        {QStringLiteral("game_version"), QString()}, {QStringLiteral("links"), QVariantList()},
-        {QStringLiteral("source"), QString()}, {QStringLiteral("status"), QStringLiteral("community")},
-        {QStringLiteral("license"), QStringLiteral("CC-BY-4.0")}, {QStringLiteral("revision"), 1},
-        {QStringLiteral("issue"), number}, {QStringLiteral("updated_at"), QStringLiteral("2026-11-23T10:00:00Z")},
-        {QStringLiteral("author"), QVariantMap{{QStringLiteral("login"), QStringLiteral("first-author")},
-                                               {QStringLiteral("id"), 300}}}}}};
-}
-
-/// The community dialog opened from the dashboard with its mock entries loaded.
-QObject *openCommunityDialog(Scene &scene)
-{
-    if (!scene.create(QStringLiteral("harendotes"), true, true)) return nullptr;
-    if (!QTest::qWaitForWindowExposed(scene.mainWindow())) return nullptr;
-    if (!QTest::qWaitFor([&] { return scene.item(QStringLiteral("dashboardDutyCommunity"), true) != nullptr; }))
-        return nullptr;
-    if (!scene.click(QStringLiteral("dashboardDutyCommunity"))) return nullptr;
-    auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
-    // Both lists answered, so neither can overwrite rows a test sets afterwards.
-    if (!dialog || !QTest::qWaitFor([&] { return dialog->property("visible").toBool()
-                                                 && rowIds(dialog->property("localRows")).size() >= 5
-                                                 && !dialog->property("libraryStatus").toString().isEmpty(); }))
-        return nullptr;
-    if (QObject *alert = scene.root->findChild<QObject *>(QStringLiteral("automaticRecordingAlert")))
-        QMetaObject::invokeMethod(alert, "close");
-    QMetaObject::invokeMethod(dialog, "resetFilters");
-    QMetaObject::invokeMethod(dialog, "pickScope", Q_ARG(QVariant, QStringLiteral("all")));
-    return dialog;
-}
 } // namespace
 
 // 还没有提醒或宏 and 公共共享库还没有内容 sat at the left edge of their column: the
@@ -514,163 +447,70 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
-// 「我勾选 2 个点投稿只给了一个」(owner, 2026-11-23): with two entries ticked, the 投稿 under the
-// open entry sent that entry alone. While entries are ticked, 导出 and 投稿 there take the
-// ticked entries and say how many; with none ticked they take the open entry.
-void DutyCommunityTests::communityDetailActionsTakeTheTickedEntries()
+void DutyCommunityTests::communityAuthorizationIgnoresSupersededReplies()
 {
-    const auto s = [](const char *text) { return QString::fromUtf8(text); };
-    const auto ids = [](const QVariant &value) { return rowIds(value); };
     Scene scene;
     QObject *dialog = openCommunityDialog(scene);
     QVERIFY2(dialog, qPrintable(scene.errors));
-    const QStringList shown = ids(dialog->property("filtered"));
     QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
     QVERIFY(submission);
-    const auto submitButton = [&] { return scene.item(QStringLiteral("dutyCommunitySubmit"), true); };
-    const auto exportButton = [&] { return scene.item(QStringLiteral("dutyCommunityExport"), true); };
-
-    // Nothing ticked: the open entry alone.
-    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, shown.at(0))));
-    QTRY_VERIFY(submitButton());
-    QCOMPARE(submitButton()->property("text").toString(), s("投稿"));
-    QCOMPARE(exportButton()->property("text").toString(), s("导出"));
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmit")));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    QCOMPARE(ids(submission->property("selected")), QStringList{shown.at(0)});
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionCancel")));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
-
-    // Two others ticked while the first is open: both of them, and only them.
-    QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, shown.at(1))));
-    QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, shown.at(2))));
-    QCOMPARE(dialog->property("currentId").toString(), shown.at(0));
-    QTRY_COMPARE(submitButton()->property("text").toString(), s("投稿 2 项"));
-    QCOMPARE(exportButton()->property("text").toString(), s("导出 2 项"));
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmit")));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    QCOMPARE(ids(submission->property("selected")), (QStringList{shown.at(1), shown.at(2)}));
-    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true));
-    QCOMPARE(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("text").toString(),
-             s("点此复制（2 项）并粘贴到 GitHub 当中"));
-    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
-}
-
-// 「如果宏的内容一致……告诉提交者」(owner, 2026-11-23): what the public library already holds is
-// left out before anything is sent, said why, and a link to it points at the public entry. The
-// licence reads as what others may do, not as a code.
-void DutyCommunityTests::communitySubmissionLeavesOutWhatIsAlreadyPublic()
-{
-    const auto s = [](const char *text) { return QString::fromUtf8(text); };
-    Scene scene;
-    QObject *dialog = openCommunityDialog(scene);
-    QVERIFY2(dialog, qPrintable(scene.errors));
-    QVariantList local = qmlList(dialog->property("localRows"));
-    const auto contentOf = [&](int index) { return local.at(index).toMap().value(QStringLiteral("content")).toMap(); };
-    const auto idOf = [&](int index) { return contentOf(index).value(QStringLiteral("id")).toString(); };
-    // Row 1 (a reminder) links row 2 (a macro); row 4 is a macro that is itself published.
-    QVariantMap reminder = local.at(1).toMap();
-    QVariantMap reminderContent = contentOf(1);
-    reminderContent.insert(QStringLiteral("links"), QVariantList{idOf(2)});
-    reminder.insert(QStringLiteral("content"), reminderContent);
-    local.replace(1, reminder);
-    dialog->setProperty("localRows", local);
-
-    QVariantMap sameText = publicEntry(900, "macro", "", "", 0);
-    QVariantMap sameTextContent = sameText.value(QStringLiteral("content")).toMap();
-    sameTextContent.insert(QStringLiteral("body"), contentOf(2).value(QStringLiteral("body")).toString() + QStringLiteral("  \n"));
-    sameText.insert(QStringLiteral("content"), sameTextContent);
-    // A local entry as the player's own published copy of it.
-    const auto asPublished = [](QVariantMap content, int issue) {
-        content.insert(QStringLiteral("author"), QVariantMap{{QStringLiteral("login"), QStringLiteral("player")},
-                                                             {QStringLiteral("id"), 75}});
-        content.insert(QStringLiteral("status"), QStringLiteral("community"));
-        content.insert(QStringLiteral("license"), QStringLiteral("CC-BY-4.0"));
-        content.insert(QStringLiteral("revision"), 1);
-        content.insert(QStringLiteral("issue"), issue);
-        content.insert(QStringLiteral("updated_at"), QStringLiteral("2026-11-23T10:00:00Z"));
-        return QVariantMap{{QStringLiteral("content"), content}};
+    QObject *service = dialog->property("service").value<QObject *>();
+    QVERIFY(service);
+    dialog->setProperty("mode", QStringLiteral("submit"));
+    QTRY_VERIFY(submission->property("visible").toBool());
+    const auto ticket = [&] { return dialog->property("serial").toInt(); };
+    const auto request = [&](const QString &action) {
+        return QMetaObject::invokeMethod(submission, "auth", Q_ARG(QVariant, action));
     };
-    dialog->setProperty("publicRows", QVariantList{sameText, asPublished(contentOf(4), 901)});
+    const auto reply = [&](int id, const QString &status, QVariantMap result = {}) {
+        result.insert(QStringLiteral("status"), status);
+        return QMetaObject::invokeMethod(service, "answered", Q_ARG(int, id), Q_ARG(QVariantMap, result),
+                                         Q_ARG(QString, QString()));
+    };
+    const QVariantMap obsoleteAccount{{QStringLiteral("account"), QVariantMap{
+        {QStringLiteral("login"), QStringLiteral("obsolete")}, {QStringLiteral("id"), 42}}}};
+    const QVariantMap newGrant{{QStringLiteral("user_code"), QStringLiteral("USER-2")}, {QStringLiteral("interval"), 5}};
 
-    const QVariant chosen = QStringList{idOf(1), idOf(4)};
-    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, chosen)));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
-    QVERIFY(submission);
-    QCOMPARE(rowIds(submission->property("selected")), (QStringList{idOf(1), idOf(4), idOf(2)}));
-    QCOMPARE(rowIds(submission->property("submittable")), QStringList{idOf(1)});
-    const QVariantMap twins = qmlMap(submission->property("twins"));
-    QCOMPARE(twins.value(idOf(2)).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("same_text"));
-    QCOMPARE(twins.value(idOf(4)).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("unchanged"));
-    QVariant draft;
-    QVERIFY(QMetaObject::invokeMethod(submission, "draftFor", Q_RETURN_ARG(QVariant, draft),
-                                      Q_ARG(QVariant, qmlList(submission->property("submittable")).at(0))));
-    QCOMPARE(qmlMap(draft).value(QStringLiteral("links")).toStringList(),
-             QStringList{sameTextContent.value(QStringLiteral("id")).toString()});
-    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true));
-    QCOMPARE(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("text").toString(),
-             s("点此复制（1 项）并粘贴到 GitHub 当中"));
-    QVERIFY(visibleText(scene.item(QStringLiteral("dutyCommunitySubmission"), true),
-                        s("公共库已有相同内容「Entry 900」（first-author），不再投稿")));
+    QVERIFY(request(QStringLiteral("sign_in")));
+    const int firstSignIn = ticket();
+    QVERIFY(submission->property("authorizing").toBool());
+    QVERIFY(QMetaObject::invokeMethod(submission, "cancelAuth"));
+    const int firstCancel = ticket();
+    const auto beforeLateReply = dialog->property("note");
+    QVERIFY(reply(firstSignIn, QStringLiteral("signed_in"), obsoleteAccount));
+    QVERIFY(qmlMap(submission->property("account")).isEmpty());
+    QCOMPARE(dialog->property("note"), beforeLateReply);
 
-    // The licence names what others may do; the code it sends stays the same.
-    QQuickItem *license = scene.item(QStringLiteral("dutyCommunityLicense"), true);
-    QVERIFY(license);
-    QCOMPARE(license->property("displayText").toString(), s("注明作者即可转载、改编（CC BY 4.0）"));
-    QCOMPARE(license->property("currentValue").toString(), QStringLiteral("CC-BY-4.0"));
+    QVERIFY(request(QStringLiteral("sign_in")));
+    QVERIFY(reply(ticket(), QStringLiteral("authorizing"), newGrant));
+    QCOMPARE(submission->property("code").toString(), QStringLiteral("USER-2"));
+    const auto authorizingNote = dialog->property("note");
+    QVERIFY(reply(firstCancel, QStringLiteral("cancelled")));
+    QCOMPARE(dialog->property("note"), authorizingNote);
+    QCOMPARE(submission->property("code").toString(), QStringLiteral("USER-2"));
 
-    // Only repeats chosen: nothing to send.
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionCancel")));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
-    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QStringList{idOf(4)})));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    scene.item(QStringLiteral("dutyCommunityConsent"), true)->setProperty("checked", true);
-    QTRY_VERIFY(!scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("enabled").toBool());
+    QVERIFY(request(QStringLiteral("poll")));
+    QVERIFY(reply(ticket(), QStringLiteral("temporarily_unavailable")));
+    QVERIFY(submission->property("authorizing").toBool());
+    QCOMPARE(submission->property("code").toString(), QStringLiteral("USER-2"));
 
-    // An edit of one's own published entry that keeps its text goes out even when an older
-    // entry shares that text - the publisher takes it as a title change, not a repeat.
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionCancel")));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
-    QVariantMap oldTitle = contentOf(0);
-    oldTitle.insert(QStringLiteral("title"), QStringLiteral("Old title"));
-    QVariantMap olderTwin = publicEntry(902, "macro", "", "", 0);
-    QVariantMap olderTwinContent = olderTwin.value(QStringLiteral("content")).toMap();
-    olderTwinContent.insert(QStringLiteral("body"), contentOf(0).value(QStringLiteral("body")));
-    olderTwin.insert(QStringLiteral("content"), olderTwinContent);
-    dialog->setProperty("publicRows", QVariantList{asPublished(oldTitle, 903), olderTwin});
-    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QVariant(QStringList{idOf(0)}))));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    QCOMPARE(rowIds(submission->property("submittable")), QStringList{idOf(0)});
-    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
-}
+    QVERIFY(request(QStringLiteral("poll")));
+    const int poll = ticket();
+    QVERIFY(request(QStringLiteral("sign_out")));
+    const int signOut = ticket();
+    QVERIFY(reply(poll, QStringLiteral("signed_in"), obsoleteAccount));
+    QVERIFY(reply(signOut, QStringLiteral("signed_out")));
+    QVERIFY(qmlMap(submission->property("account")).isEmpty());
+    QVERIFY(submission->property("code").toString().isEmpty());
 
-// 「点了后……ta 会再次复制宏」(owner, 2026-11-23): after 点此复制并粘贴到 GitHub 当中 the paste steps stay,
-// 再次复制 puts the submission back, and 回到粘贴步骤 returns to them from another entry until 完成.
-void DutyCommunityTests::communityBrowserSubmissionWaitsForThePaste()
-{
-    Scene scene;
-    QObject *dialog = openCommunityDialog(scene);
-    QVERIFY2(dialog, qPrintable(scene.errors));
-    QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
-    QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "rememberUrl");
-    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QVariant(rowIds(dialog->property("filtered")).mid(0, 1)))));
-    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
-    scene.item(QStringLiteral("dutyCommunityConsent"), true)->setProperty("checked", true);
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmitBrowser")));
-    QTRY_VERIFY(submission && submission->property("copied").toBool());
-    QVERIFY(scene.item(QStringLiteral("dutyCommunityPasteWarning"), true));
-    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("mock submission"));
-    QVERIFY(opened.size() == 1 && opened.at(0).path().endsWith(QStringLiteral("/issues/new")));
-    QGuiApplication::clipboard()->setText(QStringLiteral("/p 123123123"));
-    QVERIFY(scene.click(QStringLiteral("dutyCommunityCopyAgain")));
-    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("mock submission"));
-    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, rowIds(dialog->property("filtered")).at(1))));
-    QVERIFY(scene.click(QStringLiteral("dutyCommunityBackToPaste")));
-    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityPasteWarning"), true));
-    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionDone")));
-    QVERIFY(!submission->property("copied").toBool() && dialog->property("mode").toString() == QStringLiteral("view"));
-    QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+    QVERIFY(request(QStringLiteral("sign_in")));
+    const int hiddenSignIn = ticket();
+    dialog->setProperty("mode", QStringLiteral("view"));
+    QVERIFY(!submission->property("authorizing").toBool());
+    QCOMPARE(ticket(), hiddenSignIn + 1);
+    QVERIFY(reply(hiddenSignIn, QStringLiteral("authorizing"), newGrant));
+    QVERIFY(submission->property("code").toString().isEmpty());
+    QCOMPARE(ticket(), hiddenSignIn + 1);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

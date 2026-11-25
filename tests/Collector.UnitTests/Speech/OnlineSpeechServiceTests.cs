@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Speech;
 using MentorRecorder.Collector.Storage.Repositories;
+using Microsoft.Data.Sqlite;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -325,6 +326,120 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         var store = new SpeechKeyStore(_directory);
         Assert.Equal("second-key", store.Read(OnlineSpeechClient.KeyBinding(moved.Config)));
         Assert.Null(store.Read("azure:eastasia" + OnlineSpeechClient.AzureHostSuffix));
+    }
+
+    [Theory]
+    [InlineData("westus2", "replacement-key", true)]
+    [InlineData("eastasia", "replacement-key", false)]
+    [InlineData("eastasia", "", false)]
+    [InlineData("westus2", null, false)]
+    public async Task AFailedSettingsTransactionPreservesThePreviousKeyAfterRestart(
+        string requestedRegion, string? requestedKey, bool legacyKey)
+    {
+        using var service = Service(new FakeSpeechTransport());
+        if (legacyKey)
+        {
+            var config = SpeechSettingsStore.Write(Settings, SpeechFixtures.Azure());
+            service.Keys.Write(OnlineSpeechClient.KeyBinding(config)!, SpeechFixtures.Key);
+        }
+        else
+        {
+            service.UpdateSettings(AzureUpdate());
+        }
+        var before = service.GetSettings();
+        Assert.True(before.HasKey);
+        var committedCiphertext = File.ReadAllBytes(service.Keys.FilePath);
+        var change = new SpeechSettingsUpdate
+        {
+            AzureRegion = requestedRegion,
+            AzureRegionSpecified = true,
+            ApiKey = requestedKey,
+        };
+
+        MakeDatabaseReadOnly();
+
+        var failure = Assert.Throws<SqliteException>(() => service.UpdateSettings(change));
+        Assert.Equal(8, failure.SqliteErrorCode);
+        Assert.Equal(before, service.GetSettings());
+        Assert.Equal(committedCiphertext, File.ReadAllBytes(service.Keys.FilePath));
+        Assert.Empty(Directory.GetFiles(_directory, "*.pending"));
+
+        _database.Reopen();
+        var transport = new FakeSpeechTransport();
+        using var restarted = Service(transport);
+        Assert.Equal(before, restarted.GetSettings());
+        await AssertAzureKeySentAsync(restarted, transport, "eastasia", SpeechFixtures.Key);
+        var retry = restarted.UpdateSettings(change);
+        Assert.Equal(requestedRegion, retry.Config.AzureRegion);
+        Assert.Equal(!string.IsNullOrEmpty(requestedKey), retry.HasKey);
+    }
+
+    [Theory]
+    [InlineData("eastasia")]
+    [InlineData("westus2")]
+    public async Task ACommittedStagedKeySurvivesRestartAndALaterFailedWrite(string newRegion)
+    {
+        using var service = Service(new FakeSpeechTransport());
+        service.UpdateSettings(AzureUpdate());
+        using var lockedPrimary = File.Open(service.Keys.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var committed = service.UpdateSettings(new SpeechSettingsUpdate
+        {
+            AzureRegion = newRegion, AzureRegionSpecified = true, ApiKey = "committed-key",
+        });
+        Assert.True(committed.HasKey);
+        var stagedPath = Assert.Single(Directory.GetFiles(_directory, "*.pending"));
+
+        _database.Reopen();
+        var transport = new FakeSpeechTransport();
+        using var restarted = Service(transport);
+        Assert.Equal(committed, restarted.GetSettings());
+        await AssertAzureKeySentAsync(restarted, transport, newRegion, "committed-key");
+
+        MakeDatabaseReadOnly();
+        var failure = Assert.Throws<SqliteException>(() =>
+            restarted.UpdateSettings(new SpeechSettingsUpdate { ApiKey = "uncommitted-key" }));
+        Assert.Equal(8, failure.SqliteErrorCode);
+        Assert.Equal(stagedPath, Assert.Single(Directory.GetFiles(_directory, "*.pending")));
+        Assert.Equal(committed, restarted.GetSettings());
+
+        _database.Reopen();
+        var recoveredTransport = new FakeSpeechTransport();
+        using var recovered = Service(recoveredTransport);
+        Assert.Equal(committed, recovered.GetSettings());
+        await AssertAzureKeySentAsync(recovered, recoveredTransport, newRegion, "committed-key");
+    }
+
+    [Fact]
+    public async Task AnUncommittedStagedKeyIsIgnoredAfterRestart()
+    {
+        using var service = Service(new FakeSpeechTransport());
+        var committed = service.UpdateSettings(AzureUpdate());
+        service.Keys.Stage(OnlineSpeechClient.KeyBinding(committed.Config)!, "uncommitted-key",
+            SpeechSettingsStore.ReadKeyRevision(Settings));
+        Assert.Single(Directory.GetFiles(_directory, "*.pending"));
+
+        _database.Reopen();
+        var transport = new FakeSpeechTransport();
+        using var restarted = Service(transport);
+        Assert.Equal(committed, restarted.GetSettings());
+        await AssertAzureKeySentAsync(restarted, transport, "eastasia", SpeechFixtures.Key);
+    }
+
+    private void MakeDatabaseReadOnly() =>
+        _database.Database.Read(connection =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA query_only = ON;";
+            return command.ExecuteNonQuery();
+        });
+
+    private static async Task AssertAzureKeySentAsync(
+        OnlineSpeechService service, FakeSpeechTransport transport, string region, string key)
+    {
+        await service.SynthesizeAsync(new SpeechRequest(Text, 100, true), default);
+        var request = Assert.Single(transport.Requests);
+        Assert.Equal(region + OnlineSpeechClient.AzureHostSuffix, request.Uri.Host);
+        Assert.Equal(key, request.Header(OnlineSpeechClient.AzureKeyHeader));
     }
 
     [Fact]

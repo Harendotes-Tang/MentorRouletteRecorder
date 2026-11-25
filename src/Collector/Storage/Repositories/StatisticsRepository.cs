@@ -65,11 +65,11 @@ public sealed class StatisticsRepository
     private DashboardStatistics BuildDashboard(RunFilter? filter, TrendGranularity granularity)
     {
         var rows = LoadRows(filter);
-        var attemptCount = rows.Count(IsAttempt);
+        var breakdown = BuildBreakdown(rows);
+        var attemptCount = breakdown.AttemptCount;
         var completedCount = rows.Count(row => row.Result == RunResult.Completed);
         var leaveCount = rows.Count(row => row.Result == RunResult.LeftOrAbandoned && IsAttempt(row));
         var average = AverageDuration(rows);
-        var breakdown = BuildBreakdown(rows, attemptCount);
         // Joined in progress: counted over attempts, and its share over the attempts whose entry the
         // software saw at all - a run that says nothing about it is neither kind
         // (docs/statistics-definitions.md section 12.2).
@@ -408,11 +408,7 @@ public sealed class StatisticsRepository
     /// rows grouped, so a never-recorded result still arrives as an explicit 0
     /// (docs/statistics-definitions.md section 9).
     /// </summary>
-    public ResultStatistics GetResultStats(RunFilter? filter = null)
-    {
-        var rows = LoadRows(filter);
-        return BuildBreakdown(rows, rows.Count(IsAttempt));
-    }
+    public ResultStatistics GetResultStats(RunFilter? filter = null) => BuildBreakdown(LoadRows(filter));
 
     /// <summary>
     /// Aggregates by duty identity, never by mutable display name.
@@ -564,14 +560,22 @@ public sealed class StatisticsRepository
         });
     }
 
-    private static ResultStatistics BuildBreakdown(IReadOnlyList<StatRow> rows, int attemptCount)
+    private static ResultStatistics BuildBreakdown(IReadOnlyList<StatRow> rows)
     {
+        var counts = new Dictionary<RunResult, (int Total, int Attempts)>();
+        foreach (var row in rows)
+        {
+            var (total, attempts) = counts.GetValueOrDefault(row.Result);
+            counts[row.Result] = (total + 1, attempts + (IsAttempt(row) ? 1 : 0));
+        }
+
+        var attemptCount = counts.Values.Sum(count => count.Attempts);
         var buckets = Enum.GetValues<RunResult>()
             .Select(result =>
             {
-                var count = rows.Count(row => row.Result == result);
-                var share = result == RunResult.CancelledBeforeEntry ? null : Ratio(count, attemptCount);
-                return new ResultBucket(result, count, share);
+                var (total, attempts) = counts.GetValueOrDefault(result);
+                var share = result == RunResult.CancelledBeforeEntry ? null : Ratio(attempts, attemptCount);
+                return new ResultBucket(result, total, share);
             })
             .ToArray();
         return new ResultStatistics(attemptCount, buckets);

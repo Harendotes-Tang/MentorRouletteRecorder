@@ -35,6 +35,9 @@ public sealed record StateMachineCheckpoint(
     /// <summary>Queue evidence awaiting a duty entry; it has no persisted run yet.</summary>
     public ContentFinderPop? PendingQueue { get; init; }
 
+    /// <summary>Zone marker awaiting a territory to confirm entry for the pending queue.</summary>
+    public ZoneInitialization? PendingQueueEntry { get; init; }
+
     /// <summary>
     /// Whether the match in flight was opened by the server's own announcement rather than
     /// inferred from the queue. It decides what the desktop is told about this match and how

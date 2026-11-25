@@ -79,7 +79,7 @@ public sealed class BackupService
             throw new CollectorException(ErrorCodes.ExportFailed,
                 CollectorTexts.ExportBackupIntegrityFailed(), refused.Details, inner: refused);
         }
-        var pruned = Prune(Path.GetDirectoryName(fullPath), DefaultDirectory);
+        var pruned = Prune(outcome.TargetPath, DefaultDirectory);
         PruneAbandonedTemporaries(DefaultDirectory, now);
         return new BackupResult(
             outcome.TargetPath, outcome.ByteCount, now, outcome.IntegrityCheckPassed, pruned);
@@ -91,8 +91,8 @@ public sealed class BackupService
         FileNamePrefix + now.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture) + ".db";
 
     /// <summary>
-    /// Deletes all but the newest <see cref="RetainedBackups"/> automatically named files, and
-    /// only ever in the folder this service manages.
+    /// Keeps the just-published backup and fills the remaining retention slots with the newest
+    /// automatically named files. Only the folder this service manages is swept.
     ///
     /// Retention is a promise about the Collector's own backup folder, not a licence to delete
     /// files anywhere the user pointed a backup at. A user who backs up into their documents
@@ -100,10 +100,11 @@ public sealed class BackupService
     /// them gone because they asked for a sixteenth (review finding M6). A file is removed only
     /// when both its name and its folder match.
     /// </summary>
-    /// <param name="directory">Folder the backup was just written to.</param>
+    /// <param name="publishedPath">Verified backup that must survive this sweep.</param>
     /// <param name="managedDirectory">The only folder retention is allowed to sweep.</param>
-    private static int Prune(string? directory, string managedDirectory)
+    private static int Prune(string publishedPath, string managedDirectory)
     {
+        var directory = Path.GetDirectoryName(publishedPath);
         if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
         {
             return 0;
@@ -114,6 +115,8 @@ public sealed class BackupService
             return 0;
         }
 
+        var publishedName = Path.GetFileName(publishedPath);
+        var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         FileInfo[] files;
         try
         {
@@ -128,12 +131,14 @@ public sealed class BackupService
             return 0;
         }
 
+        var published = Array.Find(files, file => file.Name.Equals(publishedName, pathComparison));
+        var otherSlots = RetainedBackups - (published is null ? 0 : 1);
         var pruned = 0;
-        for (var i = RetainedBackups; i < files.Length; i++)
+        foreach (var file in files.Where(file => file != published).Skip(otherSlots))
         {
             try
             {
-                files[i].Delete();
+                file.Delete();
                 pruned++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

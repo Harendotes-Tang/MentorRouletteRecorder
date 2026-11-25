@@ -102,12 +102,13 @@ public sealed class PipeClient : IAsyncDisposable
     /// <summary>Sends one request and waits for its response.</summary>
     /// <param name="messageType">Message type from the contract.</param>
     /// <param name="payload">Request payload; an empty object when null.</param>
-    /// <param name="requestId">Idempotency key; a fresh UUID when null.</param>
+    /// <param name="requestId">Idempotency key; a fresh UUID when null. Reuse after the previous send completes.</param>
     /// <param name="timeout">How long to wait for the response.</param>
     /// <param name="protocolVersion">
     /// Version to announce. Only tests override it, to prove that a mismatch is refused.
     /// </param>
     /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <exception cref="CollectorException">The client is disconnected or the request ID is still in use.</exception>
     public async Task<IpcResponse> SendAsync(
         string messageType,
         JsonObject? payload = null,
@@ -123,18 +124,20 @@ public sealed class PipeClient : IAsyncDisposable
 
         var id = requestId ?? Guid.NewGuid().ToString("D");
         var completion = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[id] = completion;
-
-        var envelope = new JsonObject
+        if (!_pending.TryAdd(id, completion))
         {
-            ["protocol_version"] = protocolVersion,
-            ["request_id"] = id,
-            ["message_type"] = messageType,
-            ["payload"] = payload ?? new JsonObject(),
-        };
+            throw new CollectorException(ErrorCodes.BadRequest, "同一请求仍在等待后台服务响应，请稍后重试。");
+        }
 
         try
         {
+            var envelope = new JsonObject
+            {
+                ["protocol_version"] = protocolVersion,
+                ["request_id"] = id,
+                ["message_type"] = messageType,
+                ["payload"] = payload ?? new JsonObject(),
+            };
             await channel.WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
             return await completion.Task
                 .WaitAsync(timeout ?? TimeSpan.FromSeconds(15), cancellationToken)
@@ -220,7 +223,7 @@ public sealed class PipeClient : IAsyncDisposable
         }
 
         var requestId = envelope["request_id"]?.GetValue<string>();
-        if (requestId is null || !_pending.TryRemove(requestId, out var completion))
+        if (requestId is null || !_pending.TryGetValue(requestId, out var completion))
         {
             return;
         }
@@ -243,12 +246,9 @@ public sealed class PipeClient : IAsyncDisposable
 
     private void FailAll(string code, string message)
     {
-        foreach (var key in _pending.Keys)
+        foreach (var (_, completion) in _pending)
         {
-            if (_pending.TryRemove(key, out var completion))
-            {
-                completion.TrySetResult(new IpcResponse(false, IpcEnvelope.ErrorMessageType, new JsonObject(), code, message));
-            }
+            completion.TrySetResult(new IpcResponse(false, IpcEnvelope.ErrorMessageType, new JsonObject(), code, message));
         }
     }
 

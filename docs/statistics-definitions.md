@@ -229,8 +229,10 @@ avg_duration_ms = AVG(duration_ms) WHERE
 `COMPLETED`、`LEFT_OR_ABANDONED`、`CANCELLED_BEFORE_ENTRY`、`DISCONNECTED`、
 `INTERRUPTED`、`UNKNOWN`。
 
-- 桶**永不合并**。
-- `share = count / attempt_count`；`attempt_count = 0` 时 `share = null`。
+- 桶**永不合并**。`count` 统计通过通用过滤和当前筛选的全部同结果记录，即使记录不符合 §2 的尝试条件。
+- `share` 的分子是该桶内符合 §2 的尝试次数，分母是当前筛选下的总尝试次数 `attempt_count`。
+  例如 `UNKNOWN` 桶会报告无进本时间的未知记录数量，占比只计入该桶中有进本时间的记录。
+  `attempt_count = 0` 时 `share = null`。
 - `CANCELLED_BEFORE_ENTRY` 的 `count` 可以大于 0，而 `attempt_count` 并不包含它。
   因此 `CANCELLED_BEFORE_ENTRY` 桶的 `share` 恒为 `null`，UI 需单独说明
   "未进入副本，不计入尝试"。
@@ -433,6 +435,7 @@ joined_in_progress_rate = null                （分母为 0）
 |---|---|
 | 库为空 | 所有计数 0；`completion_rate` / `leave_rate` / `avg_duration_ms` 均为 `null`；`remaining = goal_count` |
 | 只有一条 `CANCELLED_BEFORE_ENTRY` | `attempt_count = 0`，率均为 `null`；结果分布中该桶 `count = 1`、`share = null` |
+| 一条 `COMPLETED` 与两条无进本时间的手工 `UNKNOWN` | `attempt_count = 1`；`UNKNOWN.count = 2`，`UNKNOWN.share = 0` |
 | 一条 `COMPLETED` 但 `contributes_to_goal = 0` | `completed_count = 1`，`achievement_progress` 不增加 |
 | 一条 `COMPLETED` 被软删除 | 完全不出现在任何统计中 |
 | `baseline = 1500`，3 条 `COMPLETED` | `achievement_progress = 1503`，`remaining = 497` |

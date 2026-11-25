@@ -1,3 +1,4 @@
+using System.IO.Pipes;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Domain;
@@ -39,6 +40,70 @@ public sealed class PipeServerTests
         Assert.Equal("GetVersion", response.MessageType);
         Assert.Equal(Program.Version, response.Payload["collector_version"]!.GetValue<string>());
         Assert.Equal(1, response.Payload["protocol_version"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PipeClient_DuplicateIdKeepsFirstWaiter(bool cancelFirst)
+    {
+        var pipeName = $"MentorRecorderTest.{NewId()}";
+        await using var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        await using var client = new PipeClient(pipeName);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+        var connecting = server.WaitForConnectionAsync(deadline.Token);
+        await client.ConnectAsync(TimeSpan.FromSeconds(5), deadline.Token);
+        await connecting;
+        var channel = new FrameChannel(server);
+
+        async Task ExpectVersionRequestAsync(string id)
+        {
+            var body = await channel.ReadFrameAsync(deadline.Token);
+            Assert.NotNull(body);
+            var request = JsonNode.Parse(body)!.AsObject();
+            Assert.Equal(id, request["request_id"]!.GetValue<string>());
+            Assert.Equal("GetVersion", request["message_type"]!.GetValue<string>());
+        }
+
+        var requestId = NewId();
+        var first = client.SendAsync("GetVersion", requestId: requestId, cancellationToken: cancel.Token);
+        await ExpectVersionRequestAsync(requestId);
+        var duplicate = await Assert.ThrowsAsync<CollectorException>(() =>
+            client.SendAsync("GetStatus", requestId: requestId, cancellationToken: deadline.Token));
+        Assert.Equal(ErrorCodes.BadRequest, duplicate.Code);
+        Assert.False(first.IsCompleted);
+
+        if (cancelFirst)
+        {
+            await cancel.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        }
+        else
+        {
+            await channel.WriteAsync(IpcEnvelope.Success(requestId, "GetVersion",
+                new JsonObject { ["collector_version"] = "first" }), deadline.Token);
+            Assert.Equal("first", (await first).Require()["collector_version"]!.GetValue<string>());
+        }
+
+        // Building the envelope throws when its payload already belongs to a JSON tree.
+        var wrapper = new JsonObject { ["owned"] = new JsonObject() };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(
+            "GetVersion", wrapper["owned"]!.AsObject(), requestId, cancellationToken: deadline.Token));
+
+        var retry = client.SendAsync("GetVersion", requestId: requestId, cancellationToken: deadline.Token);
+        await ExpectVersionRequestAsync(requestId);
+        await channel.WriteAsync(IpcEnvelope.Success(requestId, "GetVersion",
+            new JsonObject { ["collector_version"] = "retry" }), deadline.Token);
+        Assert.Equal("retry", (await retry).Require()["collector_version"]!.GetValue<string>());
+
+        var malformedReply = client.SendAsync("GetVersion", requestId: requestId, cancellationToken: deadline.Token);
+        await ExpectVersionRequestAsync(requestId);
+        var envelope = IpcEnvelope.Success(requestId, "GetVersion", new JsonObject());
+        envelope["ok"] = "invalid";
+        await channel.WriteAsync(envelope, deadline.Token);
+        Assert.Equal(ErrorCodes.Internal, (await malformedReply).ErrorCode);
     }
 
     [Fact]
@@ -375,6 +440,52 @@ public sealed class PipeServerTests
         var jobs = (await client.SendAsync("GetJobStats", new JsonObject())).Require();
         Assert.Equal(1, jobs["page_info"]!["total"]!.GetValue<int>());
         Assert.Equal("骑士", jobs["items"]![0]!["job_name"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData(false, false, 0, null)]
+    [InlineData(true, false, 1, 0.0)]
+    [InlineData(true, true, 2, 0.5)]
+    public async Task ResultSharesUseAttemptsAndKeepUnknownCounts(
+        bool includeCompleted, bool includeEnteredUnknown, int expectedAttempts, double? expectedUnknownShare)
+    {
+        await using var fixture = ServerFixture.Start(host =>
+        {
+            var undatedUnknown = ManualRun(0) with
+            {
+                Result = RunResult.Unknown,
+                MatchedAtUtc = null,
+                EnteredAtUtc = null,
+                EndedAtUtc = null,
+            };
+            host.Mutations.CreateManualRun(undatedUnknown);
+            host.Mutations.CreateManualRun(undatedUnknown with { RequestId = NewId() });
+            if (includeCompleted)
+            {
+                host.Mutations.CreateManualRun(ManualRun(1));
+            }
+
+            if (includeEnteredUnknown)
+            {
+                host.Mutations.CreateManualRun(ManualRun(0) with { Result = RunResult.Unknown });
+            }
+        });
+        await using var client = await fixture.ConnectAsync();
+
+        var dashboard = (await client.SendAsync("GetDashboardStats")).Require();
+        var results = (await client.SendAsync("GetResultStats")).Require();
+        ContractSchema.Validate("$defs/Responses/GetDashboardStats", dashboard, "attempt-based dashboard shares");
+        ContractSchema.Validate("$defs/Responses/GetResultStats", results, "attempt-based result shares");
+        Assert.Equal(expectedAttempts, dashboard["attempt_count"]!.GetValue<int>());
+
+        foreach (var breakdown in new[] { dashboard["result_breakdown"]!, results })
+        {
+            Assert.Equal(expectedAttempts, breakdown["attempt_count"]!.GetValue<int>());
+            var unknown = Assert.Single(breakdown["buckets"]!.AsArray(),
+                bucket => bucket!["result"]!.GetValue<string>() == "UNKNOWN")!;
+            Assert.Equal(includeEnteredUnknown ? 3 : 2, unknown["count"]!.GetValue<int>());
+            Assert.Equal(expectedUnknownShare, unknown["share"]?.GetValue<double>());
+        }
     }
 
     [Fact]

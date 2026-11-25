@@ -154,9 +154,9 @@ public sealed class DpapiProtector : ISecretProtector
 ///
 /// The file is a DPAPI blob of <c>{"v":1,"binding":…,"key":…}</c>. The binding is the target the key
 /// was entered for (<see cref="OnlineSpeechClient.KeyBinding"/>); a key read back under any other
-/// binding is treated as absent, so a key typed for one service is never sent to another. The key is
-/// write-only from the outside: nothing here renders it, and the store's <see cref="ToString"/> says
-/// only where the file is.
+/// binding is treated as absent. Speech settings updates add an opaque revision and stage the new
+/// blob beside the main file. The revision committed with the settings selects which blob is active,
+/// even if the process stops before it can promote the staged file.
 /// </summary>
 public sealed class SpeechKeyStore
 {
@@ -199,39 +199,7 @@ public sealed class SpeechKeyStore
 
         lock (_gate)
         {
-            byte[]? plaintext = null;
-            try
-            {
-                var info = new FileInfo(FilePath);
-                if (!info.Exists || info.Length > MaxFileBytes)
-                {
-                    return null;
-                }
-
-                plaintext = _protector.Unprotect(File.ReadAllBytes(FilePath));
-                if (JsonNode.Parse(plaintext) is not JsonObject document ||
-                    document["v"]?.GetValue<int>() != FormatVersion ||
-                    document["binding"]?.GetValue<string>() != binding ||
-                    document["key"]?.GetValue<string>() is not { Length: > 0 } key)
-                {
-                    return null;
-                }
-
-                return key;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException
-                                           or JsonException or InvalidOperationException or FormatException
-                                           or PlatformNotSupportedException)
-            {
-                return null;
-            }
-            finally
-            {
-                if (plaintext is not null)
-                {
-                    Array.Clear(plaintext);
-                }
-            }
+            return ReadFile(FilePath, binding)?.Key;
         }
     }
 
@@ -244,9 +212,135 @@ public sealed class SpeechKeyStore
     /// <param name="key">The key, already validated.</param>
     public void Write(string binding, string key)
     {
+        lock (_gate)
+        {
+            WriteFile(FilePath, binding, key, revision: null);
+        }
+    }
+
+    /// <summary>Reads only the revision committed with the settings. Null selects a legacy key,
+    /// and an empty revision represents a cleared key.</summary>
+    internal string? ReadSelected(string? binding, string? revision)
+    {
+        if (binding is null || revision == string.Empty)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            var key = ReadMatchingKey(FilePath, binding, revision);
+            return key ?? (revision is null ? null : ReadMatchingKey(PendingPath(Slot(revision)), binding, revision));
+        }
+    }
+
+    /// <summary>Stages an encrypted replacement and returns its uncommitted revision.</summary>
+    internal string Stage(string binding, string key, string? currentRevision)
+    {
+        lock (_gate)
+        {
+            // A committed key can still live in the staging slot after an interrupted promotion.
+            // Always write the other slot, even when the selected file cannot currently be read.
+            var slot = OtherSlot(currentRevision);
+            var revision = slot + Guid.NewGuid().ToString("N");
+            WriteFile(PendingPath(slot), binding, key, revision);
+            return revision;
+        }
+    }
+
+    /// <summary>Promotes a committed replacement. The committed revision can also read the staging
+    /// file if a lock prevents this rename or the process stops before it completes.</summary>
+    internal void PromoteCommitted(string revision)
+    {
+        lock (_gate)
+        {
+            try
+            {
+                File.Move(PendingPath(Slot(revision)), FilePath, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The committed revision still selects the staged key.
+            }
+            TryDelete(PendingPath(OtherSlot(revision)));
+        }
+    }
+
+    /// <summary>Discards a staged replacement after its settings transaction rolls back.</summary>
+    internal void DiscardPending(string revision)
+    {
+        lock (_gate)
+        {
+            TryDelete(PendingPath(Slot(revision)));
+        }
+    }
+
+    /// <summary>Removes ciphertext after the settings transaction revokes the old key.</summary>
+    internal void RemoveClearedKey()
+    {
+        lock (_gate)
+        {
+            TryDelete(FilePath);
+            TryDelete(PendingPath('0'));
+            TryDelete(PendingPath('1'));
+        }
+    }
+
+    private static char Slot(string? revision) => revision?.StartsWith('0') == true ? '0' : '1';
+
+    private static char OtherSlot(string? revision) => Slot(revision) == '0' ? '1' : '0';
+
+    private string PendingPath(char slot) => FilePath + "." + slot + ".pending";
+
+    private string? ReadMatchingKey(string path, string binding, string? revision) =>
+        ReadFile(path, binding) is { } entry && entry.Revision == revision ? entry.Key : null;
+
+    private (string Key, string? Revision)? ReadFile(string path, string binding)
+    {
+        byte[]? plaintext = null;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length > MaxFileBytes)
+            {
+                return null;
+            }
+
+            plaintext = _protector.Unprotect(File.ReadAllBytes(path));
+            if (JsonNode.Parse(plaintext) is not JsonObject document ||
+                document["v"]?.GetValue<int>() != FormatVersion ||
+                document["binding"]?.GetValue<string>() != binding ||
+                document["key"]?.GetValue<string>() is not { Length: > 0 } key)
+            {
+                return null;
+            }
+
+            return (key, document["revision"]?.GetValue<string>());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException
+                                       or JsonException or InvalidOperationException or FormatException
+                                       or PlatformNotSupportedException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (plaintext is not null)
+            {
+                Array.Clear(plaintext);
+            }
+        }
+    }
+
+    private void WriteFile(string path, string binding, string key, string? revision)
+    {
         ArgumentException.ThrowIfNullOrEmpty(binding);
         ArgumentException.ThrowIfNullOrEmpty(key);
         var document = new JsonObject { ["v"] = FormatVersion, ["binding"] = binding, ["key"] = key };
+        if (revision is not null)
+        {
+            document["revision"] = revision;
+        }
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(document);
         byte[] blob;
         try
@@ -258,34 +352,41 @@ public sealed class SpeechKeyStore
             Array.Clear(plaintext);
         }
 
-        lock (_gate)
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            var temporary = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
+            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                File.WriteAllBytes(temporary, blob);
-                File.Move(temporary, FilePath, overwrite: true);
+                file.Write(blob);
+                file.Flush(flushToDisk: true);
             }
-            finally
-            {
-                TryDelete(temporary);
-            }
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temporary);
         }
     }
 
-    /// <summary>Deletes the key file. Returns true when there was one.</summary>
+    /// <summary>Deletes the key file. Returns false if the file or directory is missing.</summary>
+    /// <exception cref="IOException">The file could not be inspected or deleted.</exception>
+    /// <exception cref="UnauthorizedAccessException">The credential path is inaccessible.</exception>
     public bool Clear()
     {
         lock (_gate)
         {
-            if (!File.Exists(FilePath))
+            try
+            {
+                // File.Exists also returns false for inaccessible paths.
+                _ = File.GetAttributes(FilePath);
+                File.Delete(FilePath);
+                return true;
+            }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
             {
                 return false;
             }
-
-            File.Delete(FilePath);
-            return true;
         }
     }
 
@@ -303,7 +404,7 @@ public sealed class SpeechKeyStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A stray temp file holds only ciphertext; the next write replaces the key anyway.
+            // Any leftover staging or revoked file holds only ciphertext.
         }
     }
 }

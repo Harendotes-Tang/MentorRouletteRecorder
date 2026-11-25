@@ -143,7 +143,7 @@ void IpcClient::setServerName(const QString &serverName)
 
 bool IpcClient::isConnected() const
 {
-    return m_socket && m_socket->state() == QLocalSocket::ConnectedState;
+    return m_connectionReady && m_socket->state() == QLocalSocket::ConnectedState;
 }
 
 void IpcClient::start()
@@ -164,8 +164,8 @@ void IpcClient::start()
 void IpcClient::stop()
 {
     m_running = false;
+    m_connectionReady = false;
     m_reconnectTimer.stop();
-    m_timeoutTimer.stop();
     failAllPending(QStringLiteral("ERR_INTERNAL"),
                    tr("与后台服务的连接已关闭。"));
     if (m_socket && m_socket->state() != QLocalSocket::UnconnectedState)
@@ -246,12 +246,14 @@ void IpcClient::onConnected()
     m_backoffMs = kMinBackoffMs;
     m_lastError.clear();
     m_buffer.clear();
+    m_connectionReady = true;
     qCInfo(lcIpc) << "connected to" << m_serverName;
     Q_EMIT connectionChanged();
 }
 
 void IpcClient::onDisconnected()
 {
+    m_connectionReady = false;
     // Pending requests are failed, never silently replayed: a mutation may
     // already have been applied on the other side.
     failAllPending(QStringLiteral("ERR_INTERNAL"),
@@ -264,8 +266,11 @@ void IpcClient::onDisconnected()
 void IpcClient::onError(QLocalSocket::LocalSocketError error)
 {
     Q_UNUSED(error)
+    m_connectionReady = false;
     m_lastError = LiveText::verbatim(m_socket->errorString());
     failAllPending(QStringLiteral("ERR_INTERNAL"), m_lastError.text());
+    if (m_socket->state() != QLocalSocket::UnconnectedState)
+        m_socket->abort();
     Q_EMIT connectionChanged();
     scheduleReconnect();
 }
@@ -280,9 +285,11 @@ void IpcClient::scheduleReconnect()
 
 void IpcClient::onReadyRead()
 {
+    if (!isConnected())
+        return;
     m_buffer.append(m_socket->readAll());
 
-    for (;;) {
+    while (isConnected()) {
         QJsonObject envelope;
         const ipc::FrameStatus status = ipc::takeFrame(m_buffer, envelope);
         if (status == ipc::FrameStatus::Incomplete)
@@ -301,6 +308,7 @@ void IpcClient::onReadyRead()
 
 void IpcClient::abortStream(const LiveText &reason)
 {
+    m_connectionReady = false;
     qCWarning(lcIpc) << reason.text();
     m_lastError = reason;
     m_buffer.clear();
@@ -352,27 +360,30 @@ void IpcClient::failAllPending(const QString &code, const QString &message)
     m_pending.clear();
     m_timeoutTimer.stop();
     for (const Pending &entry : pending) {
-        if (!entry.reply)
-            continue;
-        // Protocol rejection still requires repair/upgrade, not a same-request
-        // retry. Only a local connection failure has an uncertain outcome.
-        if (code == QLatin1String("ERR_INTERNAL"))
+        // The connection failed before a usable response arrived. A mutation
+        // may already have been applied even when the stream is unreadable.
+        if (entry.reply)
             entry.reply->failTransport(code, message);
-        else
-            entry.reply->fail(code, message);
     }
 }
 
 void IpcClient::send(BackendReply *reply, const QString &messageType,
                      const QJsonObject &payload, int timeoutMs)
 {
-    // The three refusals below are made before anything is written, so they
+    // The local refusals below are made before a complete frame is written, so they
     // say the request never left (BackendReply::failUnsent): a form may stay
     // editable after one, never after a request that went out unanswered.
     if (!isConnected()) {
         reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
                           tr("后台服务尚未连接。"));
         scheduleReconnect();
+        return;
+    }
+
+    const QString requestId = reply->requestId();
+    if (m_pending.contains(requestId)) {
+        reply->failUnsent(QStringLiteral("ERR_BAD_REQUEST"),
+                          tr("同一请求仍在等待后台服务响应，请稍后重试。"));
         return;
     }
 
@@ -392,7 +403,7 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
     }
 
     const QByteArray frame =
-        ipc::encodeFrame(ipc::makeRequest(reply->requestId(), messageType, payload));
+        ipc::encodeFrame(ipc::makeRequest(requestId, messageType, payload));
     if (frame.isEmpty()) {
         reply->failUnsent(QStringLiteral("ERR_BAD_REQUEST"),
                           tr("本次操作的数据量过大，无法发送。请减少数据量后重试。"));
@@ -407,7 +418,7 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
     Pending pending;
     pending.reply = reply;
     pending.deadline = QDeadlineTimer(deadlineMs);
-    m_pending.insert(reply->requestId(), pending);
+    m_pending.insert(requestId, pending);
     if (!m_timeoutTimer.isActive())
         m_timeoutTimer.start();
 
@@ -415,15 +426,20 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
     // unchecked, it would wait out its whole deadline and then blame the
     // Collector for not answering something it never received.
     if (m_socket->write(frame) != frame.size()) {
-        m_pending.remove(reply->requestId());
+        const auto it = m_pending.find(requestId);
+        if (it == m_pending.end() || it->reply != pending.reply)
+            return;
+        m_pending.erase(it);
         if (m_pending.isEmpty())
             m_timeoutTimer.stop();
         const QString detail = m_socket->errorString();
         qCWarning(lcIpc) << "short write for" << messageType << detail;
-        reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
-                          detail.isEmpty()
-                              ? tr("操作还没有完整发送给后台服务，请重试。")
-                              : tr("操作还没有完整发送给后台服务，请重试。%1").arg(detail));
+        if (pending.reply) {
+            pending.reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
+                                      detail.isEmpty()
+                                          ? tr("操作还没有完整发送给后台服务，请重试。")
+                                          : tr("操作还没有完整发送给后台服务，请重试。%1").arg(detail));
+        }
     }
 }
 

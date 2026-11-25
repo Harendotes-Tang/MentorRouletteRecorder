@@ -80,6 +80,15 @@ public static class SpeechSettingsStore
     /// <summary>Setting holding the voice.</summary>
     public const string VoiceSetting = "speech.voice";
 
+    // A missing row selects the legacy file. The empty string explicitly revokes the key.
+    private const string KeyRevisionSetting = "speech.key_revision";
+
+    internal static string? ReadKeyRevision(SettingsRepository settings)
+    {
+        var raw = settings.GetSetting(KeyRevisionSetting);
+        return raw is null ? null : ParseString(raw) ?? string.Empty;
+    }
+
     /// <summary>Reads the settings. Anything missing, unreadable or invalid reads as unset.</summary>
     /// <param name="settings">Settings repository.</param>
     /// <param name="transaction">Enclosing settings transaction, or null.</param>
@@ -182,7 +191,12 @@ public static class SpeechSettingsStore
     /// <summary>Writes every field of <paramref name="config"/> in one transaction.</summary>
     /// <param name="settings">Settings repository.</param>
     /// <param name="config">Settings to store, already validated.</param>
-    public static OnlineSpeechConfig Write(SettingsRepository settings, OnlineSpeechConfig config)
+    public static OnlineSpeechConfig Write(SettingsRepository settings, OnlineSpeechConfig config) =>
+        Write(settings, config, keyRevision: null);
+
+    /// <summary>Commits the configuration and an optional key revision together. Null leaves the
+    /// current selector unchanged.</summary>
+    internal static OnlineSpeechConfig Write(SettingsRepository settings, OnlineSpeechConfig config, string? keyRevision)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(config);
@@ -194,16 +208,22 @@ public static class SpeechSettingsStore
             [OpenAiModelSetting] = Json(config.OpenAiModel),
             [VoiceSetting] = Json(config.Voice),
         };
+        if (keyRevision is not null)
+        {
+            values[KeyRevisionSetting] = Json(keyRevision);
+        }
         return settings.SetSettings(values, transaction => Read(settings, transaction));
     }
 
     private static string Json(string? value) => value is null ? "null" : JsonValue.Create(value).ToJsonString();
 
-    private static string? ReadString(SettingsRepository settings, string key, SqliteTransaction? transaction)
+    private static string? ReadString(SettingsRepository settings, string key, SqliteTransaction? transaction) =>
+        ParseString(settings.GetSetting(key, transaction));
+
+    private static string? ParseString(string? raw)
     {
         try
         {
-            var raw = settings.GetSetting(key, transaction);
             return raw is not null && JsonNode.Parse(raw) is JsonValue value && value.TryGetValue<string>(out var text)
                 ? text
                 : null;

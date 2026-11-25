@@ -194,15 +194,15 @@ set_tests_properties(MentorRecorderHistoryImageCleanupController
 # RunDetailPanel: the history detail panel - player wording of 修正历史 / 事件摘要, clicks that stay in it.
 # CharacterProfilePages: 角色档案 on the overview, the history and 设置 › 成就 of the shipping window -
 #   unchanged for one character; switching, editing and moving records with a second.
-# DutyCommunity: 副本提醒与导随宏 opened from 总览 on the shipping window - blank states, examples,
-#   the editor, ticked entries, the submission, the public library and the publisher's text rules.
+# DutyCommunity: 副本提醒与导随宏 on the shipping window - blank states, examples, the editor and public library.
+# DutyCommunitySubmission: the publishing pane, its revision checks and the exact batch that is sent.
 # QmlWarningCounter: the screenshot harness's own count of QML/JS runtime warnings.
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
     SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistorySelection HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
-           CharacterProfilePages DutyCommunity
+           CharacterProfilePages DutyCommunity DutyCommunitySubmission
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 # The manual-record editor stays alive while the real interface language changes.
 mr_desktop_test_translations(MentorRecorderDesktopShellTests
@@ -210,7 +210,7 @@ mr_desktop_test_translations(MentorRecorderDesktopShellTests
     LANGUAGES en ja zh_TW)
 foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
                        EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter
-                       CharacterProfilePages DutyCommunity)
+                       CharacterProfilePages DutyCommunity DutyCommunitySubmission)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 foreach(suite IN ITEMS HistoryBatch HistorySelection)

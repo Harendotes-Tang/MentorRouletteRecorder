@@ -350,18 +350,87 @@ public sealed class MatchAnnouncedStateMachineTests
     }
 
     /// <summary>The same machine enters as soon as the zone it lands in is a duty.</summary>
-    [Fact]
-    public void AnInferredProfileEntersWhenTheZoneIsAKnownDuty()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnInferredProfileEntersWhenTheZoneIsAKnownDuty(bool territoryArrivesAfterEntry)
     {
         var machine = QueueMachine(territory => territory == 1039);
+        var zone = ZoneUnknown(11);
+        var territory = Territory(territoryArrivesAfterEntry ? 11_050 : 10_950, 1039);
 
         Assert.Equal(RunState.Idle, machine.Handle(Queue(0)).ToState);
-        Assert.Equal(RunState.Idle, machine.Handle(Territory(10_000, 1039)).ToState);
-        var entered = machine.Handle(ZoneUnknown(11));
+        var pending = machine.Handle(territoryArrivesAfterEntry ? zone : territory);
+        Assert.Equal(RunState.Idle, pending.ToState);
+        Assert.Empty(pending.Commands);
+        Assert.Null(machine.CurrentRunId);
+
+        var entered = machine.Handle(territoryArrivesAfterEntry ? territory : zone);
         Assert.Equal(RunState.Idle, entered.FromState);
         Assert.Equal(RunState.EnteredDuty, entered.ToState);
-        Assert.Single(entered.Commands.OfType<CreateRunCommand>());
-        Assert.Single(entered.Commands.OfType<EnterDutyCommand>());
+        Assert.Equal(Start, Assert.Single(entered.Commands.OfType<CreateRunCommand>()).MatchedAtUtc);
+        Assert.Equal(zone.ObservedAtUtc, Assert.Single(entered.Commands.OfType<EnterDutyCommand>()).EnteredAtUtc);
+        Assert.Equal(1039, Assert.Single(entered.Commands.OfType<SetDutyCommand>()).TerritoryId);
+        Assert.Equal(new[] { "CONTENT_FINDER_POP", zone.EventType, territory.EventType },
+            entered.Commands.OfType<AppendEventCommand>().Select(command => command.Event.EventType));
+        Assert.Equal(zone.Mono, machine.EnteredMono);
+        Assert.False(machine.MatchObserved);
+
+        var completed = machine.Handle(Result(15, victory: true));
+        var finish = Assert.Single(completed.Commands.OfType<FinishRunCommand>());
+        Assert.Equal(RunResult.Completed, finish.Result);
+        Assert.Equal(4000L, finish.DurationMs);
+    }
+
+    [Theory]
+    [InlineData(11, 21_000, true)]
+    [InlineData(11, 21_001, false)]
+    [InlineData(3600, 3_600_050, false)]
+    public void ADelayedTerritoryMustArriveWithinBothWindows(int entrySeconds, int territoryMilliseconds, bool enters)
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        Assert.Empty(machine.Handle(ZoneUnknown(entrySeconds)).Commands);
+
+        var result = machine.Handle(Territory(territoryMilliseconds, 1039));
+
+        Assert.Equal(enters ? RunState.EnteredDuty : RunState.Idle, result.ToState);
+        Assert.Equal(enters, result.Commands.Any());
+    }
+
+    [Fact]
+    public void ADelayedTownTerritoryConsumesTheMarkerButKeepsTheQueue()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        Assert.Empty(machine.Handle(ZoneUnknown(11)).Commands);
+        Assert.Empty(machine.Handle(Territory(11_050, 5000)).Commands);
+        Assert.Empty(machine.Handle(Territory(11_100, 1039)).Commands);
+
+        var entered = machine.Handle(ZoneUnknown(12));
+        Assert.Equal(Start, Assert.Single(entered.Commands.OfType<CreateRunCommand>()).MatchedAtUtc);
+        Assert.Equal(RunState.EnteredDuty, entered.ToState);
+    }
+
+    [Fact]
+    public void ACandidateEntryCanBeReplayedAfterCheckpointRestore()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        var beforeMarker = machine.Checkpoint();
+        Assert.Empty(machine.Handle(ZoneUnknown(11)).Commands);
+        var beforeTerritory = machine.Checkpoint();
+        var territory = Territory(11_050, 1039);
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(territory).ToState);
+
+        machine.Restore(beforeTerritory);
+        var replayed = machine.Handle(territory);
+        Assert.Equal(RunState.EnteredDuty, replayed.ToState);
+        Assert.Single(replayed.Commands.OfType<CreateRunCommand>());
+
+        machine.Restore(beforeMarker);
+        Assert.Empty(machine.Handle(territory).Commands);
+        Assert.Equal(RunState.Idle, machine.State);
     }
 
     /// <summary>No duty table means the question cannot be answered, so no run is created.</summary>
@@ -385,6 +454,7 @@ public sealed class MatchAnnouncedStateMachineTests
         machine.Handle(Queue(0));
         machine.Handle(Territory(10_000, 5000));
         Assert.Empty(machine.Handle(ZoneUnknown(11) with { IsDutyInstance = dutyFlag }).Commands);
+        Assert.Empty(machine.Handle(Territory(11_050, 1039)).Commands);
 
         machine.Handle(Territory(1_800_000, 1039));
         var entered = machine.Handle(ZoneUnknown(1801));
@@ -405,6 +475,7 @@ public sealed class MatchAnnouncedStateMachineTests
     {
         var machine = QueueMachine(territory => territory == 1039);
         machine.Handle(Queue(0));
+        Assert.Empty(machine.Handle(ZoneUnknown(4)).Commands);
         var key = Key(signal);
         SemanticEvent invalidation = signal switch
         {
@@ -417,7 +488,7 @@ public sealed class MatchAnnouncedStateMachineTests
         if (signal == "reset") machine.Reset();
         else Assert.Empty(machine.Handle(invalidation).Commands);
 
-        machine.Handle(Territory(10_000, 1039));
+        Assert.Empty(machine.Handle(Territory(10_000, 1039)).Commands);
         Assert.Empty(machine.Handle(ZoneUnknown(11)).Commands);
         Assert.Null(machine.CurrentRunId);
         Assert.Equal(RunState.Idle, machine.State);
@@ -437,7 +508,9 @@ public sealed class MatchAnnouncedStateMachineTests
     {
         var machine = QueueMachine(territory => territory == 1039);
         machine.Handle(Queue(0));
+        Assert.Empty(machine.Handle(ZoneUnknown(19)).Commands);
         Assert.Empty(machine.Handle(Queue(20)).Commands);
+        Assert.Empty(machine.Handle(Territory(20_050, 1039)).Commands);
         machine.Handle(Territory(30_000, 1039));
         var entered = machine.Handle(ZoneUnknown(31));
         Assert.Equal(Start.AddSeconds(20),

@@ -1249,18 +1249,21 @@ void ImportRecordsController::commit()
 {
     if (!canCommit() || !m_backend)
         return;
-    QJsonArray numbers;
-    QList<int> sorted = m_selected.values();
-    std::ranges::sort(sorted);
-    for (int number : sorted)
-        numbers.append(number);
+    const bool confirmingPreviousCommit = pendingCommitConfirmation();
     // What was asked, kept as it was for 重试确认保存 of an unanswered commit.
-    QJsonObject request = pendingCommitConfirmation() ? m_pendingCommitPayload
-        : QJsonObject{{QStringLiteral("preview_id"), m_previewId}, {QStringLiteral("row_numbers"), numbers}};
-    // Only an answered question travels: an older Collector rejects fields it does not know,
-    // and with no baseline or no contributing row there is nothing to deduct.
-    if (!pendingCommitConfirmation() && baselineChoiceOffered() && deductFromBaseline())
-        request.insert(QStringLiteral("deduct_from_baseline"), true);
+    QJsonObject request = m_pendingCommitPayload;
+    if (!confirmingPreviousCommit) {
+        QList<int> sorted = m_selected.values();
+        std::ranges::sort(sorted);
+        QJsonArray numbers;
+        for (int number : sorted)
+            numbers.append(number);
+        request = {{QStringLiteral("preview_id"), m_previewId}, {QStringLiteral("row_numbers"), numbers}};
+        // Only an answered question travels: an older Collector rejects fields it does not know,
+        // and with no baseline or no contributing row there is nothing to deduct.
+        if (baselineChoiceOffered() && deductFromBaseline())
+            request.insert(QStringLiteral("deduct_from_baseline"), true);
+    }
     QList<int> rowNumbers;
     for (const auto &number : request.value(QStringLiteral("row_numbers")).toArray())
         rowNumbers.append(number.toInt());
@@ -1270,15 +1273,15 @@ void ImportRecordsController::commit()
     Q_EMIT changed();
     QPointer<BackendReply> reply = m_backend->commitRunImport(request.value(QStringLiteral("preview_id")).toString(),
         rowNumbers, request.value(QStringLiteral("deduct_from_baseline")).toBool(), m_commitRequestId);
-    reply->whenDone(this, [this, generation, request, reply](bool ok, const QVariantMap &payload, const QString &, const QString &message) {
+    reply->whenDone(this, [this, generation, request, reply, confirmingPreviousCommit](bool ok, const QVariantMap &payload, const QString &, const QString &message) {
             if (generation != m_generation)
                 return;
             m_phase = QStringLiteral("editing");
             if (!ok) {
-                // Only a request left unanswered - lost pipe, local timeout - may have been
-                // applied unseen, so only that keeps the batch frozen for 重试确认保存. A refusal
-                // the Collector actually sent, also to such a retry, is final (audit I3-3).
-                const bool unanswered = !reply || reply->transportFailed();
+                // A retry that never left cannot resolve an earlier unanswered commit.
+                // Keep the original batch frozen until the Collector answers.
+                const bool unanswered = !reply || reply->transportFailed()
+                    || (reply->neverSent() && confirmingPreviousCommit);
                 m_pendingCommitPayload = unanswered ? request : QJsonObject();
                 fail(LiveText([refusal = collector_text::replyErrorText(reply, message)] {
                     return refusal.isEmpty() ? tr("尚未确认导入结果。输入已保留，可安全重试同一批次。") : refusal.text();

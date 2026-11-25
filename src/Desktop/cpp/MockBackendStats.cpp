@@ -603,12 +603,19 @@ QJsonObject MockBackend::resultStats(const QJsonObject &filter) const
 {
     const QList<QJsonObject> rows = selectRuns(filter, true);
 
-    QMap<QString, int> counts;
+    struct BucketCount {
+        int total = 0;
+        int attempts = 0;
+    };
+    QMap<QString, BucketCount> counts;
     int attempts = 0;
     for (const QJsonObject &run : rows) {
-        counts[run.value(QStringLiteral("result")).toString()] += 1;
-        if (hasEntered(run))
+        auto &count = counts[run.value(QStringLiteral("result")).toString()];
+        ++count.total;
+        if (hasEntered(run)) {
+            ++count.attempts;
             ++attempts;
+        }
     }
 
     // All six buckets are emitted even when empty, and are never merged
@@ -621,7 +628,7 @@ QJsonObject MockBackend::resultStats(const QJsonObject &filter) const
     QJsonArray buckets;
     for (const char *code : kOrder) {
         const QString key = QString::fromLatin1(code);
-        const int count = counts.value(key, 0);
+        const auto count = counts.value(key);
 
         // CANCELLED_BEFORE_ENTRY never entered a duty, so it has no share of
         // attempt_count; its share is always null.
@@ -630,9 +637,9 @@ QJsonObject MockBackend::resultStats(const QJsonObject &filter) const
 
         QJsonObject bucket;
         bucket.insert(QStringLiteral("result"), key);
-        bucket.insert(QStringLiteral("count"), count);
+        bucket.insert(QStringLiteral("count"), count.total);
         bucket.insert(QStringLiteral("share"),
-                      nullableNumber(shareDefined, static_cast<double>(count) / static_cast<double>(attempts)));
+                      nullableNumber(shareDefined, static_cast<double>(count.attempts) / static_cast<double>(attempts)));
         buckets.append(bucket);
     }
 

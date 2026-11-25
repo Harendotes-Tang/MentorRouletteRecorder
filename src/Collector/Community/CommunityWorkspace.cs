@@ -38,7 +38,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
     private JsonObject Save(JsonObject payload, SqliteTransaction tx)
     {
         var draft = Object(payload, "content");
-        CommunityContent.Validate(draft);
+        CommunityContent.ValidateLocalDraft(draft);
         var id = Id(draft);
         var old = repository.Get(id, tx);
         var revision = CommunityContent.Integer(payload, "revision");
@@ -58,7 +58,8 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         if (position is < -9999 or > 9999)
             return Result("invalid_position");
         repository.Save(Row(draft, revision + 1, position,
-            CommunityContent.Boolean(payload, "favorite"), old?["upstream"]), tx);
+            CommunityContent.Boolean(payload, "favorite"), old?["upstream"]), tx,
+            updateOrder: !JsonNode.DeepEquals(old?["content"], draft));
         return Result("saved");
     }
 
@@ -93,7 +94,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
                 continue;
             links.RemoveAt(index);
             node.AsObject()["revision"] = Revision(node.AsObject()) + 1;
-            repository.Save(node.AsObject(), tx);
+            repository.Save(node.AsObject(), tx, updateOrder: false);
         }
         repository.Delete(id, tx);
         return Result("deleted");
@@ -110,8 +111,8 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
 
     private JsonObject AddMissing(IReadOnlyList<JsonObject> items, SqliteTransaction tx)
     {
-        var missing = items.Where(item => repository.Get(Id(item), tx) is null).ToList();
-        if (!repository.HasRoom(missing.Count, tx))
+        var missing = items.Where(item => repository.Get(Id(item), tx) is null).ToArray();
+        if (!repository.HasRoom(missing.Length, tx))
             return Result("local_limit");
         foreach (var item in items)
         {
@@ -120,7 +121,8 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
                 !JsonNode.DeepEquals(existing["upstream"]!["author"]!["id"], item["author"]!["id"])))
                 return Result("local_conflict");
         }
-        foreach (var item in missing)
+        // Save in reverse so the selected entry appears above its newly installed links.
+        foreach (var item in missing.Reverse())
             repository.Save(Row(CommunityContent.Draft(item), 1, 0, false, item), tx);
         return Result("installed");
     }
@@ -179,7 +181,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
             if (node is not JsonObject row || row.Count != 4)
                 throw new FormatException("invalid_file");
             var draft = Object(row, "content");
-            CommunityContent.Validate(draft);
+            CommunityContent.ValidateLocalDraft(draft);
             if (row["upstream"] is JsonObject upstream)
             {
                 CommunityContent.Validate(upstream, published: true);
@@ -209,7 +211,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
             return Result("local_conflict");
         if (!repository.HasRoom(imported.Count, tx))
             return Result("local_limit");
-        foreach (var row in imported.Values)
+        foreach (var row in imported.Values.Reverse())
             repository.Save(row, tx);
         return Result("installed");
     }

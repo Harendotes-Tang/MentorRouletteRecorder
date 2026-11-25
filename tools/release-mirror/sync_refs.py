@@ -117,12 +117,13 @@ def synchronize(git: Git, repo: str) -> int:
                                 "refs/heads/", "refs/tags/"]))
     if not source:
         raise RefSyncError("Source repository has no heads or tags")
-    # Avoid replaying an obsolete snapshot if GitHub changed while fetch was running.
-    current = parse_refs(git.run(["ls-remote", "--refs", source_url, "refs/heads/*", "refs/tags/*"]))
-    if current != source:
-        raise RefSyncError("Source refs changed during fetch; retry from a fresh snapshot")
     before = parse_refs(git.run(["ls-remote", "--refs", target_url, "refs/heads/*", "refs/tags/*"],
                                 destination=target_url))
+    # Record leases before rechecking the source so a newer mirror cannot become
+    # the lease for an older source snapshot. Later target changes fail the push.
+    current = parse_refs(git.run(["ls-remote", "--refs", source_url, "refs/heads/*", "refs/tags/*"]))
+    if current != source:
+        raise RefSyncError("Source refs changed after fetch; retry from a fresh snapshot")
     arguments = push_arguments(source, before, target_url)
     if arguments:
         git.run(arguments, destination=target_url)

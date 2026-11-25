@@ -72,6 +72,7 @@ public sealed partial class MentorRunStateMachine
             _dedup.Snapshot())
             {
                 PendingQueue = _pendingQueue,
+                PendingQueueEntry = _pendingQueueEntry,
                 MatchObserved = _matchObserved,
                 AnnouncedRequest = _announcedRequest,
                 AnnouncedRefreshes = _announcedRefreshes,
@@ -93,6 +94,7 @@ public sealed partial class MentorRunStateMachine
         _territoryId = checkpoint.TerritoryId;
         _jobId = checkpoint.JobId;
         _pendingQueue = checkpoint.PendingQueue;
+        _pendingQueueEntry = checkpoint.PendingQueueEntry;
         _matchObserved = checkpoint.MatchObserved;
         _announcedRequest = checkpoint.AnnouncedRequest;
         _announcedRefreshes = checkpoint.AnnouncedRefreshes;

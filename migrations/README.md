@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**18**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**19**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -24,6 +24,7 @@
 > | 16 | `0016_character_registration.sql` | 保存升级档案及在登录时识别到的待确认角色 |
 > | 17 | `0017_candidate_player_round.sql` | 保存玩家第二轮采证的轮次标识，按轮次与协议档案查询。升级前的观测保留空标识 |
 > | 18 | `0018_duty_community.sql` | 副本攻略及社区内容 |
+> | 19 | `0019_community_local_edit_order.sql` | 持久记录本地社区内容的编辑顺序，旧条目保留原排列 |
 
 ## 命名
 

@@ -13,6 +13,7 @@ internal static partial class CommunityContent
     internal const int PageSize = 40;
     internal const int MaxBatch = 20;
     internal const int MaxSubmissionBytes = 30_000;
+    private const int MaxMacroLines = 15;
     internal static readonly string[] Fields =
         ["schema_version", "id", "type", "content_id", "region", "language", "title", "body",
          "boss", "phase", "role", "tags", "game_version", "links", "source"];
@@ -25,7 +26,13 @@ internal static partial class CommunityContent
     internal static JsonObject Draft(JsonObject data) =>
         new(Fields.Select(key => KeyValuePair.Create(key, data[key]?.DeepClone())));
 
-    internal static void Validate(JsonObject item, bool published = false)
+    internal static void Validate(JsonObject item, bool published = false) =>
+        Validate(item, published, MaxMacroLines);
+
+    internal static void ValidateLocalDraft(JsonObject item) =>
+        Validate(item, published: false, maxMacroLines: int.MaxValue);
+
+    private static void Validate(JsonObject item, bool published, int maxMacroLines)
     {
         var keys = published ? Fields.Concat(PublishedFields) : Fields;
         if (item.Count != keys.Count() || !keys.All(item.ContainsKey) ||
@@ -48,7 +55,7 @@ internal static partial class CommunityContent
         var body = String(item, "body", 1600, multiline: true);
         if (string.IsNullOrWhiteSpace(body))
             throw new FormatException("empty_body");
-        if (item["type"]!.GetValue<string>() == "macro" && MacroError(body, "macro") is { } error)
+        if (item["type"]!.GetValue<string>() == "macro" && MacroError(body, "macro", maxMacroLines) is { } error)
             throw new FormatException(error);
 
         if (!published)
@@ -65,14 +72,16 @@ internal static partial class CommunityContent
 
     internal static bool IsLicense(string value) => value is "CC-BY-4.0" or "CC-BY-SA-4.0";
 
-    internal static string? MacroError(string body, string mode)
+    internal static string? MacroError(string body, string mode) => MacroError(body, mode, MaxMacroLines);
+
+    private static string? MacroError(string body, string mode, int maxLines)
     {
         var lines = body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
         if (body.Contains('\0') || lines.Any(line => line.Contains('\r')))
             return "invalid_body";
         if (mode == "chat" && (lines.Length != 1 || !ChatCommand().IsMatch(body)))
             return "single_chat_required";
-        if (lines.Length > 15)
+        if (lines.Length > maxLines)
             return "macro_lines";
         // Conservative copy limits in UTF-8. They include the command and preserve full-width text.
         if (lines.Any(line => Encoding.UTF8.GetByteCount(line) > (mode == "chat" ? 500 : 180)))

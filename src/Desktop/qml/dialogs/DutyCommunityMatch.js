@@ -102,34 +102,88 @@ function groups(rows) {
     return out
 }
 
-/// The live public entry with the same type and exact text under another id, or null. An edit
-/// of one's own published entry that keeps its text is never a repeat (a title change, say),
-/// even when an older entry happens to share the text - as the publisher decides.
-function sameTextTwin(item, publicRows) {
-    const text = exactText(item.body)
-    if (publicRows.some(entry => entry.content.id === item.id && exactText(entry.content.body) === text))
-        return null
-    for (const entry of publicRows) {
-        const other = entry.content
-        if (other.id !== item.id && other.status !== "withdrawn" && other.type === item.type
-                && exactText(other.body) === text)
-            return other
+/// Match community_publish.repeats. Revisions first alter the proposed library together.
+/// A rejected revision restores the old text and may make another revision a repeat.
+/// New drafts then compete in selection order; ties use the lowest ID in the current view.
+function repeats(drafts, published) {
+    const view = ({})
+    const buckets = new Map()
+
+    function setText(entry, text) {
+        if (entry.members) entry.members.delete(entry.item.id)
+        entry.text = text
+        if (entry.item.status === "withdrawn") return
+        const type = entry.item.type
+        if (!buckets.has(type)) buckets.set(type, new Map())
+        const texts = buckets.get(type)
+        if (!texts.has(text)) texts.set(text, new Set())
+        entry.members = texts.get(text)
+        entry.members.add(entry.item.id)
     }
-    return null
+
+    function add(item, text) {
+        const entry = { item: item, text: "", members: null }
+        view[item.id] = entry
+        setText(entry, text)
+    }
+
+    function twinOf(item, text) {
+        const texts = buckets.get(item.type)
+        const members = texts ? texts.get(text) : undefined
+        if (!members) return null
+        let first = null
+        for (const id of members)
+            if (id !== item.id && (first === null || id < first)) first = id
+        return first === null ? null : view[first].item
+    }
+
+    for (const id of Object.keys(published)) add(published[id], exactText(published[id].body))
+    const revisions = []
+    const edits = drafts.filter(draft => published[draft.id]).sort((a, b) => a.id < b.id ? -1 : 1)
+    for (const draft of edits) {
+        const entry = view[draft.id]
+        const text = exactText(draft.body)
+        if (entry.text === text) continue
+        revisions.push({ draft: draft, entry: entry, previous: entry.text })
+        setText(entry, text)
+    }
+
+    const found = ({})
+    let changed
+    do {
+        changed = false
+        for (const revision of revisions) {
+            const id = revision.draft.id
+            if (found[id]) continue
+            const twin = twinOf(revision.draft, revision.entry.text)
+            if (!twin) continue
+            found[id] = twin
+            setText(revision.entry, revision.previous)
+            changed = true
+        }
+    } while (changed)
+
+    for (const draft of drafts) {
+        if (published[draft.id]) continue
+        const text = exactText(draft.body)
+        const twin = twinOf(draft, text)
+        if (twin) found[draft.id] = twin
+        else add(draft, text)
+    }
+    return found
 }
 
-/// The public entry this draft would leave exactly as it is, licence included, or null: the
-/// publisher keeps such an entry without a new revision.
-function unchangedEntry(draft, publicRows, license) {
-    const keys = ["schema_version", "type", "content_id", "region", "language", "title", "body", "boss", "phase",
-                  "role", "game_version", "source"]
-    for (const entry of publicRows) {
-        const other = entry.content
-        if (other.id === draft.id && other.license === license
-                && keys.every(key => other[key] === draft[key])
-                && JSON.stringify(other.tags || []) === JSON.stringify(draft.tags || [])
-                && JSON.stringify(other.links || []) === JSON.stringify(draft.links || []))
-            return other
+/// Every submitted field compared by the publisher, including the submission-wide licence.
+var PUBLISHED_DRAFT_FIELDS = ["schema_version", "id", "type", "content_id", "region", "language", "title", "body",
+                              "boss", "phase", "role", "tags", "game_version", "links", "source", "license"]
+
+function differences(current, draft, license) {
+    const changes = []
+    for (const key of PUBLISHED_DRAFT_FIELDS) {
+        const next = key === "license" ? license : draft[key]
+        const previous = current[key]
+        if (JSON.stringify(previous) !== JSON.stringify(next))
+            changes.push({ key: key, previous: previous, next: next })
     }
-    return null
+    return changes
 }

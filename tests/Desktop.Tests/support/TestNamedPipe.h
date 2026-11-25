@@ -6,6 +6,8 @@
 
 #ifdef Q_OS_WIN
 
+#include "IpcFraming.h"
+
 #include <QByteArray>
 #include <QScopeGuard>
 #include <QString>
@@ -35,14 +37,19 @@ struct TestPipe {
         : serverName(QStringLiteral("\\\\.\\pipe\\MentorRecorderTest.") + QLatin1String(purpose)
                      + QLatin1Char('.') + QUuid::createUuid().toString(QUuid::WithoutBraces))
     {
-        handle = ::CreateNamedPipeW(reinterpret_cast<const wchar_t *>(serverName.utf16()),
-                                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr);
+        reopen();
     }
     TestPipe(const TestPipe &) = delete;
     TestPipe &operator=(const TestPipe &) = delete;
     ~TestPipe() { close(); }
     bool isValid() const { return handle != INVALID_HANDLE_VALUE; }
+    bool reopen() {
+        close();
+        handle = ::CreateNamedPipeW(reinterpret_cast<const wchar_t *>(serverName.utf16()),
+                                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr);
+        return isValid();
+    }
     void close() {
         if (!isValid()) return;
         ::CloseHandle(handle);
@@ -81,6 +88,15 @@ struct TestPipe {
     bool writeFrame(QByteArray bytes) const {
         DWORD sent = 0;
         return transfer(true, bytes, sent) && std::cmp_equal(sent, bytes.size());
+    }
+    bool takeRequest(QByteArray &bytes, QJsonObject &request) const {
+        return appendAvailable(bytes) && mr::ipc::takeFrame(bytes, request) == mr::ipc::FrameStatus::Ok;
+    }
+    bool writeReply(const QJsonObject &request, const QJsonObject &payload) const {
+        QJsonObject response = mr::ipc::makeRequest(request.value(QStringLiteral("request_id")).toString(),
+            request.value(QStringLiteral("message_type")).toString(), payload);
+        response.insert(QStringLiteral("ok"), true);
+        return writeFrame(mr::ipc::encodeFrame(response));
     }
 };
 

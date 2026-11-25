@@ -7214,6 +7214,121 @@ SHA256：%3</translation>
         <source>一次最多投稿 20 项，请少选几项再投稿。</source>
         <translation>一度に投稿できるのは 20 件までです。選ぶ項目を減らしてから投稿してください。</translation>
     </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>格式版本</source>
+        <translation>形式バージョン</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>条目 ID</source>
+        <translation>項目 ID</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
+        <source>类型</source>
+        <translation>種類</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>副本编号</source>
+        <translation>コンテンツ ID</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
+        <source>语言</source>
+        <translation>言語</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>标题</source>
+        <translation>タイトル</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>正文</source>
+        <translation>本文</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>BOSS</source>
+        <translation>ボス</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
+        <source>阶段</source>
+        <translation>フェーズ</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>标签</source>
+        <translation>タグ</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
+        <source>关联条目</source>
+        <translation>関連項目</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
+        <source>来源</source>
+        <translation>出典</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="166"/>
+        <source>（空）</source>
+        <translation>（空欄）</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="297"/>
+        <source>本次投稿的「%1」已有相同正文，此项不再投稿</source>
+        <translation>今回の投稿に同じ本文の「%1」があるため、この項目は省略します。</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="307"/>
+        <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
+        <translation>この下書きはリビジョン %1 に基づいています。公開ライブラリはリビジョン %2 に更新されています。項目に戻り、更新を確認して適用してから投稿してください。</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="314"/>
+        <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
+        <translation>この下書きには基準リビジョンがありません。公開リビジョン %1 と比較し、確認してから投稿してください。</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
+        <source>收起对比</source>
+        <translation>比較を閉じる</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
+        <source>对比公共版本与本地稿件</source>
+        <translation>公開版と下書きを比較</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="326"/>
+        <source>− 公共版本 / + 本次投稿</source>
+        <translation>− 公開版 / + 今回の投稿</translation>
+    </message>
+    <message>
+        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="344"/>
+        <source>确认以此公共版本为基线</source>
+        <translation>この公開版を基準として確認する</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityToolbar</name>
@@ -15888,6 +16003,10 @@ SHA256：%3</translation>
     <message>
         <source>后台服务尚未连接。</source>
         <translation>バックグラウンドサービスが未接続です。</translation>
+    </message>
+    <message>
+        <source>同一请求仍在等待后台服务响应，请稍后重试。</source>
+        <translation>同じリクエストがバックグラウンドサービスからの応答を待っています。しばらくしてから再試行してください。</translation>
     </message>
     <message>
         <source>本次操作的数据量过大，无法发送。请减少数据量后重试。</source>

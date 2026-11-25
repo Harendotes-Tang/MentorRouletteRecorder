@@ -281,6 +281,54 @@ public sealed class ProtocolDecodedReplayTests
         Assert.Single(trail, row => row.EventType == "ZONE_INITIALIZATION");
     }
 
+    [Fact]
+    public void QueueInferredReplayRecordsTheDutyWhenTheTerritoryFollowsTheEntryMarker()
+    {
+        const string profileId = "synthetic-cn-shape-v1";
+        using var directory = new TempDirectory("DecodedIt");
+        var profilePath = directory.Combine(profileId + ".json");
+        var profile = JsonNode.Parse(File.ReadAllText(ProfilePathFor(profileId)))!;
+        profile["region"] = "CN";
+        var pop = profile["messages"]!.AsArray().Single(message => (string?)message?["name"] == "CONTENT_FINDER_POP")!;
+        pop["direction"] = "CLIENT_TO_SERVER";
+        profile["profile_sha256"] = ProfileLoader.ComputeProfileHash(profile.ToJsonString());
+        File.WriteAllText(profilePath, profile.ToJsonString());
+
+        var fixture = JsonNode.Parse(File.ReadAllText(FixturePath("synthetic_duty_clear")))!;
+        var packets = fixture["messages"]!.AsArray();
+        packets[2]!["direction"] = "CLIENT_TO_SERVER";
+        var territory = packets[3]!.DeepClone();
+        var payload = territory["payload_hex"]!.GetValue<string>();
+        territory["payload_hex"] = payload[..4] + "0c040000" + payload[12..]; // Known CN duty 1036 at byte offset 2.
+        territory["t_ms"] = 489_097;
+        territory["epoch"] = 489_097;
+        packets[3] = packets[4]!.DeepClone();
+        packets[4] = territory;
+        var fixturePath = directory.Combine("queue-territory.decoded.json");
+        File.WriteAllText(fixturePath, fixture.ToJsonString());
+        File.WriteAllText(fixturePath + ".sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))));
+
+        var replay = DecodedReplayRunner.Run(fixturePath, profilePath, directory.Combine("replay.db"));
+
+        Assert.True(replay.ProfileUsable);
+        Assert.Equal(0, replay.Parser.ParseFailed);
+        var run = Assert.Single(replay.Runs);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.Equal(1036, run.TerritoryId);
+        Assert.Equal("天然要害沙斯塔夏溶洞", run.DutyName);
+        Assert.Null(run.ContentId);
+        Assert.Equal(DutySource.Territory, run.DutySource);
+        var started = new DateTimeOffset(2026, 9, 4, 3, 0, 0, TimeSpan.Zero);
+        Assert.Equal(started.AddMilliseconds(470_000), run.MatchedAtUtc);
+        Assert.Equal(started.AddMilliseconds(489_047), run.EnteredAtUtc);
+        Assert.Equal(1_557_786, run.DurationMs);
+
+        using var database = SqliteDatabase.Open(replay.DatabasePath, SystemClock.Instance);
+        var trail = new RunEventRepository(database).ListForRun(run.RunId);
+        Assert.Equal(19_047, Assert.Single(trail, row => row.EventType == "ZONE_INITIALIZATION").MonotonicOffsetMs);
+        Assert.Equal(19_097, Assert.Single(trail, row => row.EventType == "ZONE_TERRITORY").MonotonicOffsetMs);
+    }
+
     /// <summary>
     /// The late-join case: the first director message after the entry is a remaining-time report,
     /// so the run is marked as joined in progress on the spot, with the report in its trail; the
