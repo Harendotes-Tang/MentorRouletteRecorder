@@ -112,7 +112,7 @@ ColumnLayout {
         return item
     }
 
-    function submit(native) {
+    function submit(direct) {
         const bases = ({})
         const items = submittable.map(row => {
             const latest = store.publicRows.find(item => item.content.id === row.content.id)
@@ -122,7 +122,7 @@ ColumnLayout {
         const data = { items: items, base_revisions: bases, license: pane.licenseCode, consent: consent.checked }
         if (account) data.author_id = account.id
         posting = true
-        store.call(native ? "submit" : "prepare_issue", data, (result) => {
+        store.call(direct ? "submit" : "prepare_issue", data, (result) => {
             posting = false
             if (result.status === "submitted") {
                 store.issueText = String(result.issue)

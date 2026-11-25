@@ -46,7 +46,7 @@ MotionDialog {
     // 类型 / 职业 / 区服 / 语言, kept per tab. 副本 is chosen in the directory on the left and
     // BOSS / 阶段 became the list's groups (Design: 筛选只留四个).
     property var filters: ({ local: { type: [], job: [], region: [], language: [] },
-                             public: { type: [], job: [], region: [], language: [] } })
+                             "public": { type: [], job: [], region: [], language: [] } })
     // The public library opens on the player's server and the interface language; once the
     // player chooses a region or language there, that choice is what is remembered.
     property bool publicPreset: true
@@ -846,7 +846,7 @@ MotionDialog {
         query = ""
         railQuery = ""
         filters = { local: { type: [], job: [], region: [], language: [] },
-                    public: Object.assign({}, filters["public"], { type: [], job: [] }) }
+                    "public": Object.assign({}, filters["public"], { type: [], job: [] }) }
         scope = ""
         railOpen = ({})
         collapsed = ({})
