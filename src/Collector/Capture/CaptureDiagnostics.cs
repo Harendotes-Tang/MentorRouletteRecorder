@@ -65,6 +65,23 @@ public sealed record CandidateHypothesisView(
 }
 
 /// <summary>
+/// The duty-community request class as the sanitized report may state it (docs/privacy-boundary.md
+/// §8.7): whether the user switched the public library on, whether <c>MR_DISABLE_DUTY_COMMUNITY</c>
+/// forbids it, and when this process last sent a community request and how that ended. Filled in
+/// by the IPC layer for an exported report; never a host, an issue number or any entry text.
+/// </summary>
+/// <param name="Enabled">True when 副本社区's online library is switched on.</param>
+/// <param name="KillSwitch">True when <c>MR_DISABLE_DUTY_COMMUNITY</c> stops every community request of this process.</param>
+/// <param name="LastRequestAtUtc">When this process last sent a community request.</param>
+/// <param name="LastOutcome">How that request ended, as a status token.</param>
+public sealed record DutyCommunityDiagnostics(
+    bool Enabled, bool KillSwitch, DateTimeOffset? LastRequestAtUtc, string? LastOutcome)
+{
+    /// <summary>Nothing known: switched off, no request sent.</summary>
+    public static DutyCommunityDiagnostics None { get; } = new(false, false, null, null);
+}
+
+/// <summary>
 /// Lifecycle of the capture controller. Finer-grained than the contract's
 /// <c>$defs/CaptureState</c>, which has no <c>STOPPING</c> and folds "never possible here"
 /// together with "stopped". <see cref="CaptureDiagnosticsSnapshot.ContractState"/> does the
@@ -291,6 +308,12 @@ public sealed record CaptureDiagnosticsSnapshot
     /// anything but the software itself.
     /// </summary>
     public Update.UpdateCheckDiagnostics UpdateCheck { get; init; } = Update.UpdateCheckDiagnostics.None;
+
+    /// <summary>
+    /// The duty-community request class as the report may state it (docs/privacy-boundary.md §8.7).
+    /// Filled in by the IPC layer for an exported report.
+    /// </summary>
+    public DutyCommunityDiagnostics DutyCommunity { get; init; } = DutyCommunityDiagnostics.None;
 
     /// <summary>
     /// The most recent parser refusals, oldest first, already reduced to the wire shape.
@@ -614,9 +637,10 @@ public static class SanitizedDiagnosticsReport
     }
 
     /// <summary>
-    /// The one outbound request the software may make, as it stands (docs/privacy-boundary.md §8.2,
-    /// docs/capture-diagnostics.md §9): whether the setting allows it, whether the kill switch forbids it, and when
-    /// this process last actually sent one and how that ended. Never where to: no address, host or source.
+    /// Every outbound request class the software may make, as it stands (docs/privacy-boundary.md §8.2-§8.4,
+    /// §8.7, docs/capture-diagnostics.md §9): shared calibration at the top level, then online speech, the update
+    /// check and the duty community, each with whether the setting allows it, whether the kill switch forbids it,
+    /// and when this process last actually sent one and how that ended. Never where to: no address, host or source.
     /// </summary>
     /// <param name="snapshot">Diagnostics reading to render.</param>
     private static JsonObject Outbound(CaptureDiagnosticsSnapshot snapshot) => new()
@@ -646,6 +670,16 @@ public static class SanitizedDiagnosticsReport
             ["last_checked_utc"] = UtcTimestamp.ToTextOrNull(snapshot.UpdateCheck.LastCheckedAtUtc),
             ["last_outcome"] = snapshot.UpdateCheck.LastOutcome,
             ["latest_version"] = snapshot.UpdateCheck.LatestVersion,
+        },
+
+        // The fourth request class (§8.7, audit 2026-11-26 A2b-2): the public library and a
+        // submission the user starts. Whether, when and how it ended; never a host or an issue.
+        ["duty_community"] = new JsonObject
+        {
+            ["enabled"] = snapshot.DutyCommunity.Enabled,
+            ["kill_switch"] = snapshot.DutyCommunity.KillSwitch,
+            ["last_request_utc"] = UtcTimestamp.ToTextOrNull(snapshot.DutyCommunity.LastRequestAtUtc),
+            ["last_outcome"] = snapshot.DutyCommunity.LastOutcome,
         },
     };
 

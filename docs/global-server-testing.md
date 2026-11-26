@@ -181,7 +181,9 @@ way. Different duties or jobs should be recorded as they really were.
    it. Saving it into the same return folder is easiest. The app suggests a name like
    `mentor_diagnostics_<date-time>.json`; keep whatever name it generated. When the
    `collector-*.log` row is listed as required, or logs are otherwise needed, **Open logs** on
-   that row opens their folder.
+   that row opens their folder. A log the row marks as required can contain a few short excerpts of
+   the game program's instruction bytes, read from the game file on disk (no packets, addresses
+   or player data).
 5. Click **Next: write the note** to reach step ⑤. Fill in the duty, your job and the VPN or
    accelerator, check **This round**, then click **Copy note**. The note already carries the
    versions, times, region, markers and counters; paste it at the top of `test-report.txt`
@@ -233,7 +235,9 @@ if you exceed it. Do not post the files in a public issue or chat:
   problems: the `collector-*.log` diagnostic logs from the same time.** The page marks this
   row required when the round used a reading method the app found on your computer, or
   when it could not find one; the row says why. The maintainer needs the search
-  result, which only this log contains. Click **Open logs** in step ④, or reach the database folder via
+  result, which only this log contains. In that case the log can also contain a few short excerpts
+  of the game program's instruction bytes (each at most 384 bytes, about 10 KB in all), taken from
+  the game file on disk; they are not packets and carry no addresses or player data. Click **Open logs** in step ④, or reach the database folder via
   **Settings → Data → Open folder** and open the `logs` subfolder; copy only the logs for this round, not the database. If you
   cannot find them, send the rest and say so.
 - **Only if the game version could not be identified: the small text file
@@ -352,8 +356,12 @@ weaker methods or not finish at all, in which case a new release is needed; that
 4. Send a short note privately: whether the card reached **校准待核对**, whether the timeline matched
    what you did, and whether the next Mentor run appeared in **History** with the duty, your job and the
    result. If the card stays on "正在重新校准" after a whole duty, or shows a problem, attach the
-   diagnostics report (**捕获诊断 → 工具 → 导出诊断报告**); it contains no packet content, only message
-   numbers, lengths and counts.
+   diagnostics report (**捕获诊断 → 工具 → 导出诊断报告**); it contains no packet content. Besides message
+   numbers, lengths and counts, it carries the fixed list of status fields described in
+   [capture-diagnostics.md](capture-diagnostics.md) §9, such as the adapter's address count and a short
+   fingerprint of it, the state of each kind of outbound request, and the latest hang of the app's window
+   in the last 7 days as recorded in the Windows Application event log (event number, time, app version
+   and hang signature only).
 
 If you mark a popup line **错**, the app stops trusting that message. To go on, it then needs you to
 queue a different roulette once (you can withdraw right after the queue starts); it can then record

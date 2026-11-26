@@ -184,7 +184,8 @@ QString ReflectionShareController::suggestedFileName(QObject *item, const QStrin
     const QVariantList entries = shareProperty(item, "entries").toList();
     QString stem;
     if (entries.size() > 1) {
-        stem = tr("导随心得合集_%1_%2条").arg(QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")))
+        // The day the image prints (exportDate): the 显示时区's (audit 2026-11-26, I4-2).
+        stem = tr("导随心得合集_%1_%2条").arg(DisplayTimeZone::today().toString(QStringLiteral("yyyy-MM-dd")))
             .arg(entries.size());
     } else {
         const QVariantMap run = entries.isEmpty() ? shareProperty(item, "runData").toMap() : entries.first().toMap();
@@ -303,7 +304,7 @@ void ReflectionShareController::captureTo(QObject *object, const QString &path,
 void ReflectionShareController::armCaptureTimeout(QWindow *window, quint64 generation,
                                                   std::function<void()> expired)
 {
-    QTimer::singleShot(15000, this,
+    QTimer::singleShot(m_captureTimeoutMs, this,
         [this, window = QPointer<QWindow>(window), generation, expired = std::move(expired)]() mutable {
         if (!m_busy || generation != m_generation)
             return;

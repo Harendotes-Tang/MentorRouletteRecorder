@@ -1,5 +1,7 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
+using MentorRecorder.Collector.Domain.Queries;
+using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -473,6 +475,183 @@ public sealed class MutationTests
             new[] { ChangeKind.CreateManual, ChangeKind.SoftDelete, ChangeKind.Restore },
             chain.Items.Select(item => item.ChangeKind));
         Assert.False(fixture.Runs.Get(run.RunId)!.SoftDeleted);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26 H1b-3. Deleting clears pending review; restoring kept it cleared, so a run crash
+    /// recovery had put on the review list came back unanswered, off that list, and - automatic, UNKNOWN, no
+    /// end time - in the "still in flight" shape every statistic leaves out. A restore puts the flag back as
+    /// it was when the run was deleted, singly and in a batch, and confirms nothing (K3-1).
+    /// </summary>
+    [Fact]
+    public void RestoringADeletedPendingRunPutsItBackOnTheReviewList()
+    {
+        using var fixture = new Fixture();
+        var flagged = TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork) with
+        {
+            EndedAtUtc = null, DurationMs = null, PendingReview = true,
+        };
+        fixture.Database.InsertWithFirstRevision(flagged);
+
+        var deleted = fixture.Service.SoftDeleteRun(new RunReasonCommand(Fixture.NewId(), flagged.RunId, 1, "删掉"));
+        Assert.False(deleted.Run!.PendingReview);
+        var restored = fixture.Service.RestoreRun(
+            new RunReasonCommand(Fixture.NewId(), flagged.RunId, deleted.Revision, "恢复"));
+
+        Assert.True(restored.Run!.PendingReview);
+        Assert.False(RunMutationRules.ReadsAsInFlight(restored.Run));
+        Assert.False(restored.Run.ReviewConfirmed);
+        Assert.False(Wire.DisplayRun(restored.Run)["review_confirmed"]!.GetValue<bool>());
+        Assert.True(fixture.Runs.Get(flagged.RunId)!.PendingReview);
+        Assert.Equal(1, new StatisticsRepository(fixture.Database.Database, fixture.Settings).GetDashboard().UnfinishedPendingReview);
+
+        fixture.Service.BatchMutateRuns(new BatchMutateRunsCommand(
+            Fixture.NewId(), "soft_delete", [new BatchRunTarget(flagged.RunId, restored.Revision)], "批量删除"));
+        fixture.Service.BatchMutateRuns(new BatchMutateRunsCommand(
+            Fixture.NewId(), "restore", [new BatchRunTarget(flagged.RunId, restored.Revision + 1)], "批量恢复"));
+        var batchRestored = fixture.Runs.Get(flagged.RunId)!;
+        Assert.True(batchRestored.PendingReview);
+        Assert.False(batchRestored.ReviewConfirmed);
+
+        // A run that was not pending comes back settled, and deleting and restoring it confirms nothing.
+        var settled = fixture.CreateRun();
+        fixture.Service.SoftDeleteRun(new RunReasonCommand(Fixture.NewId(), settled.RunId, 1, "删掉"));
+        var back = fixture.Service.RestoreRun(new RunReasonCommand(Fixture.NewId(), settled.RunId, 2, "恢复"));
+        Assert.False(back.Run!.PendingReview);
+        Assert.False(back.Run.ReviewConfirmed);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26 K3-1. 已确认 means the player answered what the software left open. The Collector
+    /// derives it from the revisions: acknowledging pending review sets it, on every read path and in the
+    /// mutation's own answer; undoing that acknowledgement takes it away. Undoing the undo gives it back - not
+    /// because an undo confirms anything (RB-1: an undo never does), but because the acknowledgement it brings
+    /// back is in force again; a third undo takes it away once more. It is presentation only: the export and
+    /// audit form of a run never carries it.
+    /// </summary>
+    [Fact]
+    public void ReviewConfirmedFollowsTheAnswerToAnOpenQuestionAndItsUndo()
+    {
+        using var fixture = new Fixture();
+        var pending = fixture.CreatePendingReview();
+        Assert.False(fixture.Runs.Get(pending.RunId)!.ReviewConfirmed);
+
+        var confirmed = fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), pending.RunId, pending.Revision, "确认结局",
+            Change(RunFields.PendingReview, new() { PendingReview = false })));
+
+        Assert.True(confirmed.Run!.ReviewConfirmed);
+        Assert.True(fixture.Runs.Get(pending.RunId)!.ReviewConfirmed);
+        var listed = fixture.Runs.Query(new RunFilter { RunIds = new[] { pending.RunId } }, null, 1, 10).Items;
+        Assert.True(Assert.Single(listed).ReviewConfirmed);
+        Assert.True(Wire.DisplayRun(confirmed.Run)["review_confirmed"]!.GetValue<bool>());
+        Assert.False(Wire.Run(confirmed.Run).ContainsKey("review_confirmed"));
+
+        var undone = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), pending.RunId, confirmed.Revision, "撤销确认"));
+        Assert.True(undone.Run!.PendingReview);
+        Assert.False(undone.Run.ReviewConfirmed);
+        Assert.False(fixture.Runs.Get(pending.RunId)!.ReviewConfirmed);
+
+        var redone = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), pending.RunId, undone.Revision, "撤销上一次撤销"));
+        Assert.False(redone.Run!.PendingReview);
+        Assert.True(redone.Run.ReviewConfirmed);
+        Assert.True(fixture.Runs.Get(pending.RunId)!.ReviewConfirmed);
+
+        var undoneAgain = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), pending.RunId, redone.Revision, "再撤销一次"));
+        Assert.True(undoneAgain.Run!.PendingReview);
+        Assert.False(undoneAgain.Run.ReviewConfirmed);
+        Assert.False(fixture.Runs.Get(pending.RunId)!.ReviewConfirmed);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26 RB-1. An undo is never a confirming revision, however its diff reads. Taking back the
+    /// software's own doubt (a system revision that put a settled run on the review list) clears the flag but
+    /// is no answer from the player, and neither is putting back a job the player had blanked; undoing those
+    /// undos confirms nothing either.
+    /// </summary>
+    [Fact]
+    public void ReviewConfirmedIsNeverSetByAnUndo()
+    {
+        using var fixture = new Fixture();
+        var doubted = TestDatabase.Run(source: RunSource.AutoNetwork);
+        var blanked = TestDatabase.Run(source: RunSource.AutoNetwork);
+        fixture.Database.InsertWithFirstRevision(doubted, blanked);
+
+        fixture.Database.Database.RunInTransaction(tx =>
+        {
+            fixture.Runs.Update(doubted with { Revision = 2, PendingReview = true }, 1, tx);
+            fixture.Revisions.Append(new RunRevision
+            {
+                RevisionId = Fixture.NewId(), RunId = doubted.RunId, Revision = 2,
+                ChangedAtUtc = fixture.Database.Clock.UtcNow, ChangeKind = ChangeKind.Correct,
+                Actor = RevisionActor.System, Reason = "共享校准已撤回，请复核",
+                Changes = new[] { new RunFieldChange(RunFields.PendingReview, false, true) },
+            }, tx);
+        });
+        var doubtTakenBack = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), doubted.RunId, 2, "撤销复核标记"));
+        Assert.False(doubtTakenBack.Run!.PendingReview);
+        Assert.False(doubtTakenBack.Run.ReviewConfirmed);
+        Assert.False(fixture.Runs.Get(doubted.RunId)!.ReviewConfirmed);
+        var doubtBack = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), doubted.RunId, doubtTakenBack.Revision, "撤销上一次撤销"));
+        Assert.True(doubtBack.Run!.PendingReview);
+        Assert.False(doubtBack.Run.ReviewConfirmed);
+        var doubtTakenBackAgain = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), doubted.RunId, doubtBack.Revision, "再撤销一次"));
+        Assert.False(doubtTakenBackAgain.Run!.PendingReview);
+        Assert.False(doubtTakenBackAgain.Run.ReviewConfirmed);
+
+        var blank = fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), blanked.RunId, 1, "职业不确定，先清空", Change(RunFields.JobId, new() { JobId = null })));
+        Assert.Null(blank.Run!.JobId);
+        Assert.False(blank.Run.ReviewConfirmed);
+        var jobBack = fixture.Service.UndoRevision(
+            new RunReasonCommand(Fixture.NewId(), blanked.RunId, blank.Revision, "撤销清空"));
+        Assert.Equal(19, jobBack.Run!.JobId);
+        Assert.False(jobBack.Run.ReviewConfirmed);
+        Assert.False(fixture.Runs.Get(blanked.RunId)!.ReviewConfirmed);
+    }
+
+    /// <summary>
+    /// K3-1: filling a field the software left blank is a confirmation; overruling a recorded value is a
+    /// correction (已修正), not a confirmation; and a system revision that clears pending review - nobody
+    /// answered anything - confirms nothing either.
+    /// </summary>
+    [Fact]
+    public void ReviewConfirmedComesFromTheUsersFillInOnly()
+    {
+        using var fixture = new Fixture();
+        var blank = TestDatabase.Run(source: RunSource.AutoNetwork, jobId: null);
+        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork);
+        var system = TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork) with { PendingReview = true };
+        fixture.Database.InsertWithFirstRevision(blank, recorded, system);
+
+        var filled = fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), blank.RunId, 1, "补上职业", Change(RunFields.JobId, new() { JobId = 19 })));
+        Assert.False(filled.Run!.ManuallyCorrected);
+        Assert.True(filled.Run.ReviewConfirmed);
+
+        var overruled = fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), recorded.RunId, 1, "职业记错了", Change(RunFields.JobId, new() { JobId = 21 })));
+        Assert.True(overruled.Run!.ManuallyCorrected);
+        Assert.False(overruled.Run.ReviewConfirmed);
+
+        fixture.Database.Database.RunInTransaction(tx =>
+        {
+            fixture.Runs.Update(system with { Revision = 2, PendingReview = false }, 1, tx);
+            fixture.Revisions.Append(new RunRevision
+            {
+                RevisionId = Fixture.NewId(), RunId = system.RunId, Revision = 2,
+                ChangedAtUtc = fixture.Database.Clock.UtcNow, ChangeKind = ChangeKind.Correct,
+                Actor = RevisionActor.System, Reason = "系统维护",
+                Changes = new[] { new RunFieldChange(RunFields.PendingReview, true, false) },
+            }, tx);
+        });
+        Assert.False(fixture.Runs.Get(system.RunId)!.ReviewConfirmed);
     }
 
     [Fact]

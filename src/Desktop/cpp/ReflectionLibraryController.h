@@ -60,6 +60,9 @@ Q_SIGNALS:
     void filterChangeNeedsConfirmation();
 private:
     void applyFilter(const QVariantMap &next);
+    /// 显示时区 changed: the applied (and a pending) date range keeps its
+    /// history_from_day / history_to_day, whose UTC bounds follow the new zone.
+    void rebaseFilterDays();
     /// 重新读取已勾选的记录：心得已清空或记录已删除的移出选择，其余换成新投影。
     /// 读取失败时保留相应选择，但整批禁止分享，直到下一次全部刷新成功。
     void refreshSelection();

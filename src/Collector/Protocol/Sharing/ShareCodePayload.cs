@@ -42,7 +42,7 @@ public sealed record ShareCodePop(
 /// build pattern), <c>template_profile_id</c>, <c>template_sha256</c> (64 lowercase hex),
 /// <c>match_source</c> (REPLY_STATE | ANNOUNCEMENT | MARKER_OFFSET | QUEUE_REQUEST),
 /// <c>pop</c> (<see cref="ShareCodePop"/>), <c>zone_opcode</c>; optional <c>territory_opcode</c>
-/// (required for QUEUE_REQUEST) and <c>job_opcode</c>. An absent optional value is an absent key,
+/// (required for QUEUE_REQUEST except on GLOBAL, whose zone marker carries the territory) and <c>job_opcode</c>. An absent optional value is an absent key,
 /// never <c>null</c>. No other key is accepted at any level.
 /// </summary>
 /// <param name="Region">CN, TC or GLOBAL.</param>

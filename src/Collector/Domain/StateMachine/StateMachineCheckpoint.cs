@@ -35,7 +35,7 @@ public sealed record StateMachineCheckpoint(
     /// <summary>Queue evidence awaiting a duty entry; it has no persisted run yet.</summary>
     public ContentFinderPop? PendingQueue { get; init; }
 
-    /// <summary>Zone marker awaiting a territory to confirm entry for the pending queue.</summary>
+    /// <summary>Zone marker awaiting a territory to confirm entry for the pending queue or the announced match.</summary>
     public ZoneInitialization? PendingQueueEntry { get; init; }
 
     /// <summary>

@@ -275,6 +275,59 @@ trap {{ [Console]::Error.WriteLine($_.Exception.Message + "`n" + $_.ScriptStackT
             self.assertIn("-AllowUnsuffixedVersion", message)
             self.assertIn("VersionSuffix", message)
 
+    # --------------------------------------- a published number is never reissued
+
+    def test_a_version_whose_tag_points_elsewhere_is_refused(self):
+        # M-2 (audit 2026-11-26): 1.10.0-beta.2 and 1.9.1 were each issued twice with other trees.
+        head = "a" * 40
+        other = "b" * 40
+        observed = self.run_helpers(
+            f"@(@{{t=$null; h='{head}'; p=$null}},"
+            f"  @{{t='{head}'; h='{head}'; p=$null}},"
+            f"  @{{t='{other}'; h='{head}'; p=$null}},"
+            f"  @{{t=$null; h=$null; p='找不到 git'}}) |"
+            " ForEach-Object { [bool](Get-ReusedVersionRefusal -Version '1.4.0-beta.2'"
+            " -TagCommit $_.t -HeadCommit $_.h -Problem $_.p) } | ConvertTo-Json -Compress")
+        self.assertEqual([False, False, True, True], observed)
+        message = self.run_helpers(
+            f"ConvertTo-Json -Compress -InputObject (Get-ReusedVersionRefusal -Version '1.4.0-beta.2'"
+            f" -TagCommit '{other}' -HeadCommit '{head}')")
+        self.assertIn("v1.4.0-beta.2", message)
+        self.assertIn(other[:12], message)
+        self.assertIn("-AllowReusedVersion", message)
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_the_version_tag_state_reads_the_tag_and_head_commits(self):
+        with tempfile.TemporaryDirectory(prefix="mr source ") as directory:
+            repository = self.make_repository(directory)
+
+            def state(version):
+                return self.run_helpers(
+                    f"Get-VersionTagState -RepoRoot {ps_literal(repository)} -Version {ps_literal(version)}"
+                    " | ConvertTo-Json -Compress")
+
+            untagged = state("1.4.0-beta.2")
+            self.assertEqual("v1.4.0-beta.2", untagged["Tag"])
+            self.assertIsNone(untagged["TagCommit"])
+            self.assertRegex(untagged["HeadCommit"], r"^[0-9a-f]{40}$")
+            self.assertIsNone(untagged["Problem"])
+
+            git_config = ["git", "-c", "user.name=package test", "-c",
+                          "user.email=package-test@example.invalid", "-c", "commit.gpgsign=false",
+                          "-c", "tag.gpgsign=false"]
+            subprocess.run([*git_config, "tag", "-a", "-m", "beta", "v1.4.0-beta.2"],
+                           cwd=repository, check=True, capture_output=True)
+            tagged = state("1.4.0-beta.2")
+            self.assertEqual(tagged["HeadCommit"], tagged["TagCommit"])
+
+            subprocess.run([*git_config, "commit", "-q", "--allow-empty", "-m", "rebuilt"],
+                           cwd=repository, check=True, capture_output=True)
+            moved = state("1.4.0-beta.2")
+            self.assertEqual(tagged["TagCommit"], moved["TagCommit"])
+            self.assertNotEqual(moved["TagCommit"], moved["HeadCommit"])
+            # A tag whose name only starts like this version is another version.
+            self.assertIsNone(state("1.4.0-beta")["TagCommit"])
+
     # ------------------------------------------------------ source tree
 
     def source_state(self, repository, path_prefix=None, path_only=None):

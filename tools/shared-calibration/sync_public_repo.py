@@ -162,6 +162,10 @@ def refresh_calibration_guard(name: str, current: bytes) -> bytes:
             ('        issue = live\n    user = issue.get("user")',
              '        issue = live\n    if classify_community(issue, labels) != "other":\n'
              '        return None, Result(SKIPPED, NOT_LABELLED, issue=number)\n    user = issue.get("user")'),
+            # The sweep must not keep listing an Issue the guard above steps aside for.
+            ("        and not (_label_names(item) & ANSWER_LABELS)\n    )",
+             "        and not (_label_names(item) & ANSWER_LABELS)\n"
+             '        and classify_community(item, _label_names(item)) == "other"\n    )'),
         ]
     else:
         replacements = [

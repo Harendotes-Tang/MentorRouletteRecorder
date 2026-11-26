@@ -419,7 +419,10 @@ public sealed class OodleSignatureRuntime : IDisposable
     /// knows (<see cref="OodleSignatureDiscovery.IsCallSite"/> decides what counts as one), and
     /// writes what it found to the local log whether or not it found them all: the
     /// log is among the files a tester returns, and the patterns, the executable's hash and its
-    /// size are what a maintainer needs to write the region's profile without owning its client.
+    /// size tell a maintainer what was found on that client and where. They are not enough to
+    /// write a formal profile on their own: tools/oodle-signature-finder still reads the
+    /// executable itself (protocol-profiles/oodle-signatures/README.md), so a client whose
+    /// patterns needed a relaxed byte still has to be obtained, or its profile written by hand.
     /// </summary>
     private static OodleSignatureProfile? TryDiscover(
         CaptureStartOptions options,

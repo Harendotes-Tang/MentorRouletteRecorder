@@ -198,6 +198,9 @@ $env:MR_DISABLE_ONLINE_SPEECH = '1'
 # Update-check kill switch (docs/privacy-boundary.md section 8.4), set and restored the same way.
 $previousUpdateCheck = $env:MR_DISABLE_UPDATE_CHECK
 $env:MR_DISABLE_UPDATE_CHECK = '1'
+# Duty-community kill switch (docs/privacy-boundary.md section 8.7), set and restored the same way.
+$previousDutyCommunity = $env:MR_DISABLE_DUTY_COMMUNITY
+$env:MR_DISABLE_DUTY_COMMUNITY = '1'
 
 # -------------------------------------------------------------- Python tools ------
 if ($Python) {
@@ -530,6 +533,13 @@ if ($null -eq $previousUpdateCheck) {
 }
 else {
     $env:MR_DISABLE_UPDATE_CHECK = $previousUpdateCheck
+}
+
+if ($null -eq $previousDutyCommunity) {
+    Remove-Item Env:\MR_DISABLE_DUTY_COMMUNITY -ErrorAction SilentlyContinue
+}
+else {
+    $env:MR_DISABLE_DUTY_COMMUNITY = $previousDutyCommunity
 }
 
 Write-Head '结论 / Result'

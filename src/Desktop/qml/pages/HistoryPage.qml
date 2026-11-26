@@ -47,7 +47,10 @@ Item {
             marks.push({ label: qsTr("中途加入"), tip: qsTr("进入时副本已经开始。") })
         if (run.manually_corrected)
             marks.push({ label: qsTr("已修正"), tip: qsTr("你改动过软件记录的内容。") })
-        else if (Number(run.revision || 1) > 1 && !run.pending_review && !run.manually_created && !run.soft_deleted)
+        // The Collector says so itself ($defs/Run.review_confirmed): a revision alone
+        // may be a move to another character or region, or a delete and restore
+        // (audit 2026-11-26, K3-1). A Collector without the field shows no mark.
+        else if (run.review_confirmed === true && !run.pending_review && !run.manually_created && !run.soft_deleted)
             marks.push({ label: qsTr("已确认"), tip: qsTr("你补上或确认过软件不确定的内容，没有改动它记录的东西。") })
         if (run.soft_deleted)
             marks.push({ label: qsTr("已删除"), tip: qsTr("已删除，仍保留在历史记录里，可以恢复。") })
@@ -578,14 +581,9 @@ Item {
         function onHistoryFilterChanged() {
             page.syncFilter()
         }
-        // 显示时区 changed: the picked days stay as typed, and their UTC bounds
-        // become those of the new zone's days (toUtcRange), not the old zone's.
-        function onDisplayTimeZoneChanged() {
-            if (page.fromField.text.trim().length === 0 && page.toField.text.trim().length === 0)
-                return
-            filterDebounce.stop()
-            page.applyFilter()
-        }
+        // 显示时区 changed: HistoryController keeps the applied days and recomputes
+        // their bounds itself, without asking about the ticks (audit 2026-11-26,
+        // K3-2); the fields follow through onHistoryFilterChanged.
         function onHistoryFilterConfirmationChanged() {
             if (Runtime.app.historyFilterConfirmationPending && !filterConfirmation.visible)
                 filterConfirmation.open()

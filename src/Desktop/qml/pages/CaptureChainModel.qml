@@ -106,11 +106,15 @@ QtObject {
     readonly property bool adapterRefused: chain.errorCode === "ERR_BAD_REQUEST"
         && (!chain.errorSentenceKnown || chain.errorRefKey.indexOf("capture.start.adapter_") === 0)
     // Where the Collector's TCP-table reading put the game's connections:
-    // UNMAPPED (on no card of Npcap's), IPV6_ONLY and LOOPBACK (an accelerator's
-    // or VPN's local proxy) leave the automatic choice nothing to go on.
+    // UNMAPPED (on no card of Npcap's) and LOOPBACK (an accelerator's or VPN's
+    // local proxy) leave the automatic choice nothing to go on. IPV6_ONLY is not
+    // offered: the Collector reads IPv4 only, so no card choice can help, and the
+    // hero already says the IPv6 connection cannot be read; nor is LOOPBACK when
+    // the Collector says loopback cannot be captured (audit 2026-11-26 K2-1).
     readonly property string pathKind: chain.capture.network_path
                                        ? String(chain.capture.network_path.kind || "") : ""
-    readonly property bool pathNeedsChoice: ["UNMAPPED", "IPV6_ONLY", "LOOPBACK"].indexOf(chain.pathKind) >= 0
+    readonly property bool pathNeedsChoice: chain.pathKind === "UNMAPPED"
+        || (chain.pathKind === "LOOPBACK" && chain.capture.network_path.loopback_capture_available !== false)
     // 网卡选择 (CaptureAdapterPicker): while the game runs and the Collector
     // either refused to pick a card or cannot map the game's connections to
     // one, and nothing else owns the problem - a running recovery is the

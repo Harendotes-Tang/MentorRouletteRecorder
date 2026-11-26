@@ -276,6 +276,75 @@ class LoaderParityTests(unittest.TestCase):
 
         self.assertEqual(0, code, errors)
 
+    # --- (g) guessed positions of a hypothesis (audit 2026-11-26, D2-3) ---------------------
+    # The C# twins are CandidateProfileTests' guess-outside, guess-without-fixed-length and
+    # guess-twice cases; ProfileLoader.ReadGuesses refuses each with E_PROFILE_GUESS.
+
+    def write_candidate(self, change):
+        source = Path(validate.REPO) / "protocol-profiles/global/global.2026.11.03.candidate.json"
+        document = json.loads(source.read_text(encoding="utf-8"))
+        change({item["name"]: item for item in document["hypotheses"]})
+        path = Path(self.directory.name) / source.name
+        document["profile_sha256"] = validate.profile_hash(
+            {k: v for k, v in document.items() if k != "profile_sha256"})
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        return validate.validate(str(path), stamp=False)
+
+    def test_the_shipped_guesses_are_accepted(self):
+        code, errors = self.write_candidate(lambda hypotheses: None)
+
+        self.assertEqual(0, code, errors)
+
+    def test_a_guess_outside_the_payload_is_refused(self):
+        def change(hypotheses):
+            hypotheses["FINDER_STATE_NOTIFICATION"]["guesses"][0]["offset"] = 39
+            hypotheses["FINDER_STATE_NOTIFICATION"]["guesses"][0]["size"] = 2
+
+        code, errors = self.write_candidate(change)
+
+        self.assertEqual(1, code, errors)
+        self.assertIn("guess in FINDER_STATE_NOTIFICATION needs an expected_length of at most 512 "
+                      "and must lie inside it", errors)
+
+    def test_a_guess_without_a_fixed_length_is_refused(self):
+        def change(hypotheses):
+            hypothesis = hypotheses["FINDER_STATE_NOTIFICATION"]
+            del hypothesis["expected_length"]
+            hypothesis["min_length"] = 40
+            hypothesis["max_length"] = 48
+
+        code, errors = self.write_candidate(change)
+
+        self.assertEqual(1, code, errors)
+        self.assertIn("guess in FINDER_STATE_NOTIFICATION needs an expected_length of at most 512 "
+                      "and must lie inside it", errors)
+
+    def test_a_guess_beyond_the_research_payload_limit_is_refused(self):
+        def change(hypotheses):
+            hypotheses["FINDER_STATE_NOTIFICATION"]["expected_length"] = validate.RESEARCH_PAYLOAD_MAX + 1
+
+        code, errors = self.write_candidate(change)
+
+        self.assertEqual(1, code, errors)
+        self.assertTrue(any("guess in FINDER_STATE_NOTIFICATION" in error for error in errors), errors)
+
+    def test_a_guess_at_the_research_payload_limit_is_accepted(self):
+        def change(hypotheses):
+            hypotheses["FINDER_STATE_NOTIFICATION"]["expected_length"] = validate.RESEARCH_PAYLOAD_MAX
+
+        code, errors = self.write_candidate(change)
+
+        self.assertEqual(0, code, errors)
+
+    def test_the_same_kind_guessed_twice_is_refused(self):
+        def change(hypotheses):
+            hypotheses["TERRITORY_CANDIDATE_00AB"]["guesses"].append({"kind": "JOB", "offset": 0, "size": 1})
+
+        code, errors = self.write_candidate(change)
+
+        self.assertEqual(1, code, errors)
+        self.assertIn("another hypothesis already guesses JOB", errors)
+
     def test_an_absent_fixture_is_still_only_unverified(self):
         # Guards the case above: a missing fixture stays a warning in the Collector, not an error.
         document = copy.deepcopy(self.document)

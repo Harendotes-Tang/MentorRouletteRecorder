@@ -5,6 +5,7 @@ Traditional Chinese (`TC`) is a separate region and shares no calibration codes 
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 This repository stores **shared calibration codes** contributed by players using MentorRecorder.
+The `community/` directory also holds player-contributed **duty reminders and macros**, published under the CC BY 4.0 or CC BY-SA 4.0 license each author chose; see [community/README.md](community/README.md).
 
 Each game update may change message numbers (opcodes). For a given region and game client version, these numbers are compiled into the client and are the same for every player.
 Once one player completes calibration in the app, they can share the result so that other players do not each need to repeat the calibration.
@@ -45,6 +46,7 @@ The evidence entry points and quarantine requirements ship in the software insta
   Before an incorrect code is identified, it may cause missing or incorrect records. Once the app detects a contradiction with local traffic, it disables the code and marks records generated from it as needing review.
 - **Optional.** Fetching shared calibrations is one of the app's two types of outbound request enabled by default. The other checks for app updates by reading a version file from the main project's releases; it is unrelated to this repository.
   Both can be disabled in settings. Online speech is another player-enabled feature, disabled by default and also unrelated to this repository.
+  When a player turns on the public library under Reminders and macros (off by default), the app also downloads reminders and macros from this repository's `community/` directory, read-only and without signing in.
   The app's privacy-boundary documentation explains when requests are made, what they contain, and how to disable them.
 
 ## What a Calibration Code Contains
@@ -305,7 +307,9 @@ Both commands change only local files; they take effect after you review the dif
 | `.github/workflows/evidence-calibration.yml` | Automatic evidence intake, quarantine and recovery, candidate archiving, and scheduled catch-up processing |
 | `.github/workflows/mirror-repository.yml` | Synchronizes branches and tags to the GitCode mirror on push, every 30 minutes, and after every run of the publication, evidence, and report workflows |
 | `evidence-ledger.json`, `evidence-sweep.json` | Bounded evidence replay prevention, latest account positions, epoch reasons, and catch-up cursor; not downloaded by clients |
-| `schemas/`, `candidates/` | Copy of the sole evidence format and unsupported candidate drafts |
+| `schemas/`, `candidates/` | Copies of the sole evidence format and of the reminder and macro format, and unsupported candidate drafts |
+| `community/` | Player-contributed duty reminders and macros: `v1/index.json` and `v1/snapshot.json` (downloaded by the app) and `v1/submissions.json` (the submission ledger); see [community/README.md](community/README.md) |
+| `.github/ISSUE_TEMPLATE/share-community-content.yml`, `.github/workflows/publish-community-content.yml` | Submission form and publishing workflow for reminders and macros |
 | `LICENSE.md`, `LICENSES/` | Licenses |
 
 ## Data and Privacy
@@ -321,5 +325,6 @@ Both commands change only local files; they take effect after you review the dif
 - **Scripts, workflows, forms, and `templates/`:** GPL-3.0-or-later, matching the main MentorRecorder project.
 - **Player-submitted data** (`index.json`, `submissions.json`, and calibration codes in version directories):
   [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode). Submitting means agreeing to publish it under this license.
+- **Reminders and macros under `community/`:** each entry is published under CC BY 4.0 or CC BY-SA 4.0, as its author chose when submitting; the license is in the entry's `license` field. They are not CC0.
 
 See [LICENSE.md](LICENSE.md) for details.

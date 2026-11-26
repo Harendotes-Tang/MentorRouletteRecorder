@@ -141,6 +141,17 @@ HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`ke
 `mentor_runs` 增加可空的 `identity_id` 及部分索引 `ix_runs_identity`。迁移不回填：升级前的全部记录为 NULL，归属不变；
 之后只有国服在开启角色识别时写入的自动记录才可能带有该值（[docs/data-model.md](../docs/data-model.md) §1.7、§4.3）。迁移不追加修订、不改更新时间。
 
+## schema 15 → 16
+
+0016 新增 `character_profile_registrations`，为升级而来、尚未命名的国服档案各留一行，供登录时识别到的角色确认一次
+（[docs/data-model.md](../docs/data-model.md) §4.4）。迁移只写入这张新表，不改动档案、记录与角色识别。
+
+## schema 16 → 17
+
+0017 为 `candidate_observations` 增加可空的 `player_round_id`，并建立部分索引
+`ix_candidate_player_round (player_round_id, profile_id) WHERE player_round_id IS NOT NULL`，用于按玩家第二轮采证的轮次
+与协议档案查询。升级前的观测保留空标识，仍可在维护者的完整导出中取得；迁移不回填任何值。
+
 ## `schema_migrations` 表
 
 | 列 | 说明 |
@@ -150,6 +161,13 @@ HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`ke
 | `checksum` | 脚本内容的 SHA-256 |
 | `applied_at_utc` | 应用时间（UTC ISO-8601 带毫秒） |
 
-## schema 15 → 16
+## schema 17 → 18
 
-`0018_duty_community.sql` 新增 `community_local`、`community_cache` 和 `community_receipts`。旧历史、心得、角色和校准相关数据保持原值。Collector 启动时按现有流程留存 v15 升级前快照。
+`0018_duty_community.sql` 新增 `community_local`、`community_cache` 和 `community_receipts`。旧历史、心得、角色和校准相关数据保持原值。Collector 启动时按现有流程留存升级前快照，从 17 升级时为 `backups/pre_schema_17_upgrade_<UTC 时间>_<编号>.db`。
+
+## schema 18 → 19
+
+`0019_community_local_edit_order.sql` 为 `community_local` 增加可空的 `edit_sequence INTEGER CHECK (edit_sequence > 0)`，
+并把索引 `community_local_order` 重建为 `(edit_sequence DESC, position, id)`，使本地「提醒与宏」列表把最近编辑的条目排在最前。
+迁移不回填：升级前已有的条目该列为 NULL（CHECK 对 NULL 成立），排在所有编辑过的条目之后，彼此保持原有的 `position`、`id` 顺序，
+直到下一次编辑（[docs/data-model.md](../docs/data-model.md) 「副本社区内容」）。升级前快照以升级开始时的版本命名：从 18 升级为 `pre_schema_18_…`，从 17 一次升到 19 则只留 `pre_schema_17_…` 一份。

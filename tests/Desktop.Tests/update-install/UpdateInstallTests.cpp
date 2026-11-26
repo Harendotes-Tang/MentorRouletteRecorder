@@ -1171,16 +1171,18 @@ private Q_SLOTS:
 
     /// A 「切换到 GitCode」 that did not happen is said in one sentence under the status;
     /// a switch that happened, a declined offer, none and an unknown value say nothing
-    /// (audit 2026-11-20, F-2).
+    /// (audit 2026-11-20, F-2). The outcome comes only with a download that is over, so no
+    /// sentence says it is still downloading, least of all under 「下载没有完成」 (audit
+    /// 2026-11-26 I3-3).
     void aSwitchThatDidNotHappenIsSaid_data()
     {
         QTest::addColumn<QString>("fixture");
         QTest::addColumn<QString>("outcome");
         QTest::addColumn<QString>("sentence");
         QTest::newRow("faster primary") << QStringLiteral("ready") << QStringLiteral("not_switched_faster_primary")
-            << QString::fromUtf8("没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。");
+            << QString::fromUtf8("没有切换到 GitCode：GitHub 的下载比镜像更快，这次下载继续使用了 GitHub。");
         QTest::newRow("mirror unavailable") << QStringLiteral("failed") << QStringLiteral("not_switched_mirror_unavailable")
-            << QString::fromUtf8("没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。");
+            << QString::fromUtf8("没有切换到 GitCode：镜像暂时无法使用，这次下载继续使用了 GitHub。");
         QTest::newRow("primary ended") << QStringLiteral("ready") << QStringLiteral("not_switched_primary_ended")
             << QString::fromUtf8("没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。");
         QTest::newRow("switched") << QStringLiteral("ready") << QStringLiteral("switched") << QString();

@@ -900,7 +900,7 @@ private Q_SLOTS:
         QTRY_VERIFY(!row->property("checked").toBool());
     }
 
-    void theExplanationNamesThreeKindsOfNetworkAccess()
+    void theExplanationNamesFourKindsOfNetworkAccess()
     {
         PageScene scene;
         QVERIFY(scene.open(QStringLiteral("DashboardPage"), false));
@@ -922,7 +922,23 @@ ApplicationWindow {
         QStringList texts;
         collectText(dialog->property("contentItem").value<QQuickItem *>(), texts);
         const QString all = texts.join(QLatin1Char('\n'));
-        QVERIFY(all.contains(QString::fromUtf8("后台服务仅为以下三类用途联网")));
+        // Audit 2026-11-26 L1-1: the 提醒与宏 public library and the GitHub submission
+        // (docs/privacy-boundary.md §8.7) are a fourth kind of request.
+        QVERIFY(all.contains(QString::fromUtf8("后台服务仅为以下四类用途联网")));
+        QVERIFY(!all.contains(QString::fromUtf8("三类用途")));
+        QVERIFY(all.contains(QString::fromUtf8("联网四：提醒与宏的公共共享库和投稿（默认关闭）")));
+        QVERIFY(all.contains(QString::fromUtf8("允许公共库联网")));
+        // Audit 2026-11-26 RE-1: published builds submit through the browser only and
+        // store no credential; the sign-in sentence is for a build configured for it.
+        QVERIFY(all.contains(QString::fromUtf8("目前发布的版本只通过浏览器投稿")));
+        QVERIFY(all.contains(QString::fromUtf8("软件不登录 GitHub，也不保存任何 GitHub 凭据")));
+        QVERIFY(!all.contains(QString::fromUtf8("只有你自己开始投稿时，软件才会请你登录 GitHub")));
+        QVERIFY(all.contains(QString::fromUtf8("授权令牌由 Windows 加密保存在本机")));
+        // RE-2: the Issue lookup of 投稿进度 is a request the switch does not stop.
+        QVERIFY(all.contains(QString::fromUtf8("查询你填写的 Issue 编号")));
+        QVERIFY(all.contains(QString::fromUtf8("这一查询不受上面的开关控制")));
+        // RE-3: GitCode is asked when GitHub is slow, not only when it fails.
+        QVERIFY(all.contains(QString::fromUtf8("GitHub 3 秒内没有回应或读取失败时")));
         QVERIFY(all.contains(QString::fromUtf8("联网一：")));
         QVERIFY(all.contains(QString::fromUtf8("联网二：")));
         QVERIFY(all.contains(QString::fromUtf8("联网三：检查更新")));

@@ -173,6 +173,30 @@ function repeats(drafts, published) {
     return found
 }
 
+// Characters a field may not hold, as the Collector (CommunityContent) and the publisher refuse
+// them: control characters, bidi controls and the line and paragraph separators everywhere, and in
+// a single-line field the zero-width characters as well.
+var CONTROL = /[\u0000-\u001f\u007f-\u009f]/
+var BIDI = /[\u202a-\u202e\u2066-\u2069\u2028\u2029]/
+var ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/
+
+/// Whether `text` may be saved in a field: a multi-line body keeps its line feeds and tabs.
+function validText(text, multiline) {
+    let value = String(text || "")
+    if (multiline) value = value.replace(/\r\n/g, "\n").replace(/[\n\t]/g, "")
+    return !CONTROL.test(value) && !BIDI.test(value) && (multiline || !ZERO_WIDTH.test(value))
+}
+
+/// A line's length as the Collector counts it for a macro: UTF-8 bytes (a lone surrogate as 3).
+function utf8Bytes(line) {
+    let bytes = 0
+    for (const char of String(line)) {
+        const code = char.codePointAt(0)
+        bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+    }
+    return bytes
+}
+
 /// Every submitted field compared by the publisher, including the submission-wide licence.
 var PUBLISHED_DRAFT_FIELDS = ["schema_version", "id", "type", "content_id", "region", "language", "title", "body",
                               "boss", "phase", "role", "tags", "game_version", "links", "source", "license"]

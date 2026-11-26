@@ -154,6 +154,8 @@ internal static class RunImportCandidateNormalizer
             {
                 named = DutyCatalog.Default.FindByName(dutyName, region);
                 contentId = named?.ContentId;
+                // Like an unmatched job: the name is kept, but the user is told it names no single duty (audit 2026-11-26 H2-2).
+                if (named is null) warnings.Add(CollectorTexts.ImportWarningDutyUnmatched());
             }
             // The facts of the row the name resolved to, not of whichever region's row a second lookup
             // by id meets (audit 2026-11-03 H2-3).
@@ -231,7 +233,10 @@ internal static class RunImportCandidateNormalizer
                     Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases })));
             var preAliasKeyFingerprint = jobBeforeAliases == jobId || stable || legacySourceKey is null ? null
                 : Hash(identity + '\n' + Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases }));
-            var previousDutyNameFingerprints = !hasExplicitContentId && duty?.PreferredForNameMatching == true
+            // A GLOBAL name matched only loosely ("The …", a hyphen for the en dash) resolved to no duty before
+            // audit 2026-11-26 H2-2, so its earlier imports carry the identity of the exact-name scan as well.
+            var looselyNamed = named is not null && !string.Equals(named.LocalizedName, dutyName, StringComparison.Ordinal);
+            var previousDutyNameFingerprints = !hasExplicitContentId && (duty?.PreferredForNameMatching == true || looselyNamed)
                 ? PreviousDutyNameFingerprints(input, run, stable, key, legacySourceKey, jobBeforeAliases)
                 : Array.Empty<string>();
             run = run with { ImportMetadata = metadata with { SourceFingerprint = fingerprint } };

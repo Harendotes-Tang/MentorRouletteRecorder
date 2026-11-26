@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO.Pipes;
 using MentorRecorder.Collector.Diagnostics;
+using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Ipc;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -200,6 +202,38 @@ public sealed class ProgramLifecycleTests
         Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_download_dispose"));
         Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_check_dispose"));
         Assert.True(order.IndexOf("shared_calibration_stop") < order.IndexOf("capture_dispose"));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, Gb-4: emptying the expired part of the recycle bin at startup is maintenance. When it fails
+    /// the host still opens - with the record still in the recycle bin for the hourly check to try again - instead of
+    /// refusing to start with a sentence that says the database cannot be opened.
+    /// </summary>
+    [Fact]
+    public void AFailingStartupPurgeOfTheRecycleBinStillOpensTheHost()
+    {
+        using var fixture = new TestDatabase();
+        var path = Path.Combine(Path.GetDirectoryName(fixture.Path)!, "startup-purge.db");
+        string runId;
+        using (var host = CollectorHost.Open(path, fixture.Clock, capture: InertCapture.Services()))
+        {
+            var run = host.Mutations.CreateManualRun(new CreateManualRunCommand
+            {
+                RequestId = Guid.NewGuid().ToString("D"), Reason = "补录一次导随", Result = RunResult.Completed, JobId = 19,
+                EnteredAtUtc = fixture.Clock.UtcNow.AddHours(-1), EndedAtUtc = fixture.Clock.UtcNow.AddMinutes(-30),
+            }).Run!;
+            host.Mutations.SoftDeleteRun(new RunReasonCommand(Guid.NewGuid().ToString("D"), run.RunId, run.Revision, "删除"));
+            runId = run.RunId;
+            using var trigger = host.Database.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER fail_startup_purge BEFORE DELETE ON mentor_runs WHEN OLD.run_id='" + runId +
+                "' BEGIN SELECT RAISE(ABORT,'synthetic purge failure'); END;";
+            trigger.ExecuteNonQuery();
+        }
+
+        // Past the 30-day recycle bin: the next start tries to purge the record and fails.
+        fixture.Clock.UtcNow += TimeSpan.FromDays(31);
+        using var reopened = CollectorHost.Open(path, fixture.Clock, capture: InertCapture.Services());
+        Assert.True(reopened.Runs.Get(runId)!.SoftDeleted);
     }
 
     private static string TestPipeName() =>

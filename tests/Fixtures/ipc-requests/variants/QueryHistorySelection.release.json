@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "request_id": "11111111-2222-4333-8444-555555555555",
+  "message_type": "QueryHistorySelection",
+  "payload": {
+    "selection_id": "beb8b3308966d7324a7afe7a4c2709539ca899c920a0e2f20108f2ab3e390df6",
+    "release": true
+  }
+}

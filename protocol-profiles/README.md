@@ -9,7 +9,8 @@
 > `profile_sha256` 为 `8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1`。
 > `global/global.2026.11.03.json`（2026-11-22）是国际服客户端 `2026.11.03` 的 `VERIFIED` 档案，声明匹配通知
 > （S2C `0x03bf`，偏移 2 为随机任务编号）、换区（S2C `0x00ab`，偏移 2 为区域编号）与职业（S2C `0x016f`）三条消息，
-> `mentor_roulette_id = 9`，不含 `DUTY_RESULT`，不带 `calibration`（国际服没有本机校准模板），见 [`global/README.md`](global/README.md)。
+> `mentor_roulette_id = 9`，不含 `DUTY_RESULT`，带 `calibration` 模板段（国际服的回执与匹配通知是两条报文，模板另用
+> `finder_reply` 声明回执的形状），国际服的下一个游戏版本因此可以在本机校准，见 [`global/README.md`](global/README.md)。
 > 每个常量的来源均记录在其 `provenance.evidence` 中。`tc/` 没有可正式记录的档案；
 > `global/` 另有一份仅含假设的 `CANDIDATE`（`global.2026.11.03.candidate.json`，曾供新区服采证页的「第二轮」使用）。
 > `synthetic/synthetic-v1.json` 的每个常量均为**编造值**，仅服务于离线测试。

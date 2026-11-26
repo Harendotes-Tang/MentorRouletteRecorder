@@ -461,20 +461,52 @@ bool MockBackend::refusedSort(const QJsonObject &payload, QString *errorCode, QS
     return false;
 }
 
-QJsonObject MockBackend::queryHistorySelection(const QJsonObject &payload, QString *errorCode)
+void MockBackend::touchHistorySelection(const QString &id)
 {
+    m_historySelectionTouched.insert(id, ++m_historySelectionClock);
+}
+
+QString MockBackend::historySelectionToEvict(const QList<QString> &ids) const
+{
+    // HistorySelectionStore.MaxRetainedHandlesPerKind: a fifth handle of a kind pushes out the
+    // one used least recently. (The Collector's 15-minute idle lifetime is not imitated.)
+    if (ids.size() < kRetainedHistorySelections)
+        return {};
+    QString oldest;
+    quint64 oldestTouch = std::numeric_limits<quint64>::max();
+    for (const QString &id : ids) {
+        const quint64 touched = m_historySelectionTouched.value(id);
+        if (touched < oldestTouch) {
+            oldestTouch = touched;
+            oldest = id;
+        }
+    }
+    return oldest;
+}
+
+QJsonObject MockBackend::queryHistorySelection(const QJsonObject &payload, QString *errorCode,
+                                               QString *errorMessage)
+{
+    // HistorySelectionHandlers.Query / HistorySelectionStore, with the Collector's sentences
+    // (audit 2026-11-26 J-3).
+    const QString badRequestCode = QStringLiteral("ERR_BAD_REQUEST");
     QString id = payload.value(QStringLiteral("selection_id")).toString();
     if (payload.value(QStringLiteral("release")).toBool()) {
         m_historySelectionSnapshots.remove(id);
         m_stagedHistorySelections.remove(id);
+        m_historySelectionTouched.remove(id);
         return {{QStringLiteral("released"), true}};
     }
     const int page = payload.value(QStringLiteral("page")).toInt(1);
-    if (page < 1 || (id.isEmpty() && page != 1)) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        return {};
-    }
+    if (page < 1)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "ipc.field.at_least",
+                          {{QStringLiteral("field"), QStringLiteral("page")}, {QStringLiteral("min"), 1}});
+    if (id.isEmpty() && page != 1)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.first_page_required");
     if (id.isEmpty()) {
+        const QString evicted = historySelectionToEvict(m_historySelectionSnapshots.keys());
+        m_historySelectionSnapshots.remove(evicted);
+        m_historySelectionTouched.remove(evicted);
         id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         QList<QJsonObject> snapshot;
         for (const auto &run : selectRuns(payload.value(QStringLiteral("filter")).toObject(), false)) {
@@ -489,10 +521,9 @@ QJsonObject MockBackend::queryHistorySelection(const QJsonObject &payload, QStri
         m_historySelectionSnapshots.insert(id, std::move(snapshot));
     }
     const auto snapshot = m_historySelectionSnapshots.constFind(id);
-    if (snapshot == m_historySelectionSnapshots.cend()) {
-        *errorCode = QStringLiteral("ERR_NOT_FOUND");
-        return {};
-    }
+    if (snapshot == m_historySelectionSnapshots.cend())
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "history.selection.unavailable");
+    touchHistorySelection(id);
     const auto offset = static_cast<qint64>(page - 1) * kHistorySelectionPageSize;
     QJsonArray items;
     for (auto i = offset; i < qMin(offset + kHistorySelectionPageSize, static_cast<qint64>(snapshot->size())); ++i)
@@ -502,59 +533,97 @@ QJsonObject MockBackend::queryHistorySelection(const QJsonObject &payload, QStri
                 {QStringLiteral("page_size"), kHistorySelectionPageSize}, {QStringLiteral("total"), snapshot->size()}}}};
 }
 
-QJsonObject MockBackend::stageHistorySelection(const QJsonObject &payload, QString *errorCode)
+QJsonObject MockBackend::stageHistorySelection(const QJsonObject &payload, QString *errorCode,
+                                               QString *errorMessage)
 {
+    // HistorySelectionHandlers.Stage / HistorySelectionStore.Stage, with the Collector's
+    // sentences (audit 2026-11-26 J-3).
+    const QString badRequestCode = QStringLiteral("ERR_BAD_REQUEST");
     const QString id = payload.value(QStringLiteral("selection_id")).toString();
     const int index = payload.value(QStringLiteral("chunk_index")).toInt(-1);
     const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
     const auto final = payload.value(QStringLiteral("last"));
-    if (id.size() != 64 || index < 0 || targets.isEmpty() || targets.size() > kHistorySelectionPageSize || !final.isBool()) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        return {};
-    }
+    if (id.isEmpty())
+        return refuseWith(errorCode, errorMessage, badRequestCode, "ipc.field.missing",
+                          {{QStringLiteral("field"), QStringLiteral("selection_id")}});
+    const bool digest = id.size() == 64 && std::ranges::all_of(id, [](QChar c) {
+        return (c >= QLatin1Char('0') && c <= QLatin1Char('9')) || (c >= QLatin1Char('a') && c <= QLatin1Char('f'));
+    });
+    if (!digest)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.digest_invalid");
+    if (index < 0)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "ipc.field.at_least",
+                          {{QStringLiteral("field"), QStringLiteral("chunk_index")}, {QStringLiteral("min"), 0}});
+    if (!final.isBool())
+        return refuseWith(errorCode, errorMessage, badRequestCode, "ipc.field.missing",
+                          {{QStringLiteral("field"), QStringLiteral("last")}});
+    if (targets.isEmpty() || targets.size() > kHistorySelectionPageSize)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.chunk_mismatch");
 
-    auto &stage = m_stagedHistorySelections[id];
+    const auto found = m_stagedHistorySelections.find(id);
+    if (found == m_stagedHistorySelections.end() && index != 0)
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "history.selection.unavailable");
+    StagedHistorySelection stage = found == m_stagedHistorySelections.end() ? StagedHistorySelection{} : found.value();
     if (index < stage.chunks.size()) {
-        if (stage.chunks.at(index) != targets || final.toBool() != (stage.sealed && index == stage.chunks.size() - 1)) {
-            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-            return {};
-        }
-    } else if (index == stage.chunks.size() && !stage.sealed) {
-        stage.chunks.append(targets);
-        if (final.toBool()) {
-            for (const auto &rows : std::as_const(stage.chunks))
-                for (const auto &target : rows)
-                    stage.targets.append(target);
-            if (historySelectionKey(stage.targets) != id) {
-                m_stagedHistorySelections.remove(id);
-                *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-                return {};
-            }
-            stage.sealed = true;
-        }
-    } else {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        return {};
+        // An identical retry of an accepted chunk is acknowledged; anything else is refused.
+        if (stage.chunks.at(index) != targets || final.toBool() != (stage.sealed && index == stage.chunks.size() - 1))
+            return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.chunk_mismatch");
+        touchHistorySelection(id);
+        return {{QStringLiteral("selection_id"), id}, {QStringLiteral("next_chunk_index"), stage.chunks.size()},
+                {QStringLiteral("sealed"), stage.sealed}};
     }
+    if (index != stage.chunks.size() || stage.sealed)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.chunk_mismatch");
+    // Run ids strictly ascending across the whole set, as the Desktop's staging sends them.
+    QString previousId = stage.targets.isEmpty()
+        ? QString() : stage.targets.last().toObject().value(QStringLiteral("run_id")).toString().toLower();
+    for (const auto &target : targets) {
+        const QString runId = target.toObject().value(QStringLiteral("run_id")).toString().toLower();
+        if (!previousId.isEmpty() && QString::compare(previousId, runId, Qt::CaseSensitive) >= 0)
+            return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.chunk_mismatch");
+        previousId = runId;
+    }
+    QJsonArray staged = stage.targets;
+    for (const auto &target : targets)
+        staged.append(target);
+    if (final.toBool() && historySelectionKey(staged) != id)
+        return refuseWith(errorCode, errorMessage, badRequestCode, "history.selection.chunk_mismatch");
+
+    if (index == 0) {
+        QList<QString> held = m_stagedHistorySelections.keys();
+        held.removeAll(id);
+        const QString evicted = historySelectionToEvict(held);
+        m_stagedHistorySelections.remove(evicted);
+        m_historySelectionTouched.remove(evicted);
+    }
+    stage.chunks.append(targets);
+    stage.targets = staged;
+    stage.sealed = final.toBool();
+    m_stagedHistorySelections.insert(id, stage);
+    touchHistorySelection(id);
     return {{QStringLiteral("selection_id"), id}, {QStringLiteral("next_chunk_index"), stage.chunks.size()},
             {QStringLiteral("sealed"), stage.sealed}};
 }
 
-bool MockBackend::resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode) const
+bool MockBackend::resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode,
+                                          QString *errorMessage)
 {
     const bool exporting = messageType == QLatin1String("ExportCsv") || messageType == QLatin1String("ExportJson");
     if (!payload.contains(QStringLiteral("selection_id")) || (!exporting
         && messageType != QLatin1String("BatchMutateRuns") && messageType != QLatin1String("PreviewRunRegionMigration")))
         return true;
-    const auto stage = m_stagedHistorySelections.constFind(payload.value(QStringLiteral("selection_id")).toString());
-    if (stage == m_stagedHistorySelections.cend() || !stage->sealed) {
-        *errorCode = QStringLiteral("ERR_NOT_FOUND");
-        return false;
-    }
+    // HistorySelectionHandlers.ReadTargetId, then HistorySelectionStore.RequireStaged.
     if (payload.contains(QStringLiteral("runs")) || (exporting && payload.contains(QStringLiteral("filter")))) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.selection.exclusive_target");
         return false;
     }
+    const QString id = payload.value(QStringLiteral("selection_id")).toString();
+    const auto stage = m_stagedHistorySelections.constFind(id);
+    if (stage == m_stagedHistorySelections.cend() || !stage->sealed) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "history.selection.unavailable");
+        return false;
+    }
+    touchHistorySelection(id);
     if (!exporting) {
         payload.insert(QStringLiteral("runs"), stage->targets);
     } else {

@@ -1780,7 +1780,10 @@ void LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline()
                                QStringLiteral("PreviewRunImport"),
                                QStringLiteral("CommitRunImport"),
                                QStringLiteral("ExportCsv"),
-                               QStringLiteral("ExportJson")};
+                               QStringLiteral("ExportJson"),
+                               QStringLiteral("BackupDatabase"),
+                               QStringLiteral("ExportDiagnosticsReport"),
+                               QStringLiteral("ExportCandidateEvidence")};
     for (const QString &type : deferred) {
         QVERIFY2(mr::IpcClient::timeoutForMessageType(type, ordinary) > ordinary,
                  qPrintable(type + QStringLiteral(" shares the ordinary deadline")));

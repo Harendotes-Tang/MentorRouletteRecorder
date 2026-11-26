@@ -182,10 +182,10 @@ public sealed record CreateManualRunCommand
     /// <summary>Match time.</summary>
     public DateTimeOffset? MatchedAtUtc { get; init; }
 
-    /// <summary>Duty entry time; required unless the result is CANCELLED_BEFORE_ENTRY.</summary>
+    /// <summary>Duty entry time; optional, and when given it must keep the time order (<c>ERR_TIME_ORDER</c>).</summary>
     public DateTimeOffset? EnteredAtUtc { get; init; }
 
-    /// <summary>Run end time; required when the result is COMPLETED.</summary>
+    /// <summary>Run end time; optional, and when given it must keep the time order (<c>ERR_TIME_ORDER</c>).</summary>
     public DateTimeOffset? EndedAtUtc { get; init; }
 
     /// <summary>Explicit duration; when omitted it is derived from the two times.</summary>

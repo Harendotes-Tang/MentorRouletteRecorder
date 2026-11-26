@@ -182,6 +182,13 @@ public sealed class DutyCatalog
     /// for UNKNOWN is that of the first agreeing region in the UNKNOWN fallback order, so its facts
     /// (territory, category) are the ones <see cref="Find"/> gives for the id (audit 2026-11-03 H2-3).
     /// </summary>
+    /// <remarks>
+    /// The exact spelling is tried first. Only when no row carries it is a GLOBAL row matched loosely
+    /// (<see cref="SameGlobalName"/>): the XIVAPI names start with a lowercase article and use an en dash
+    /// ("the Thousand Maws of Toto–Rak"), while the game, the community and this software's own English
+    /// interface write "The …" and a typed hyphen (audit 2026-11-26 H2-2). The unique-match rule is the same
+    /// for both passes, so a loosely matched name that fits several duties still resolves to nothing.
+    /// </remarks>
     /// <param name="name">Exact localized name; null, blank and unmatched names return null.</param>
     /// <param name="region">Region to search, or UNKNOWN when the source does not identify one.</param>
     /// <returns>The unique regional identity, or null for ambiguity or regional disagreement.</returns>
@@ -192,9 +199,14 @@ public sealed class DutyCatalog
             return null;
         }
 
-        var matches = _byKey.Values.Where(row =>
-            row.Region != Region.Unknown && (region == Region.Unknown || row.Region == region)
-            && string.Equals(row.LocalizedName, name, StringComparison.Ordinal));
+        var searched = _byKey.Values.Where(row =>
+            row.Region != Region.Unknown && (region == Region.Unknown || row.Region == region)).ToArray();
+        var matches = searched.Where(row => string.Equals(row.LocalizedName, name, StringComparison.Ordinal)).ToArray();
+        if (matches.Length == 0)
+        {
+            matches = searched.Where(row => row.Region == Region.Global && SameGlobalName(row.LocalizedName, name)).ToArray();
+        }
+
         var resolved = new Dictionary<Region, DutyInfo>();
         foreach (var regionalMatches in matches.GroupBy(row => row.Region))
         {
@@ -213,6 +225,15 @@ public sealed class DutyCatalog
         return UnknownFallbackOrder.Where(resolved.ContainsKey).Select(named => resolved[named]).FirstOrDefault()
             ?? resolved.Values.FirstOrDefault();
     }
+
+    /// <summary>
+    /// True when a typed name is a GLOBAL catalogue name written another common way: letter case ignored,
+    /// surrounding spaces ignored, and an en dash and a hyphen read as the same character.
+    /// </summary>
+    /// <param name="catalogueName">The catalogue row's name.</param>
+    /// <param name="typed">The name as the source wrote it.</param>
+    private static bool SameGlobalName(string catalogueName, string typed) => string.Equals(
+        catalogueName.Trim().Replace('–', '-'), typed.Trim().Replace('–', '-'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Finds the duty a territory belongs to, preferring the requested region.

@@ -14,7 +14,7 @@
 ```
 data/roulettes/
   cn.json       国服，简体中文名，10 个编号
-  global.json   国际服，英文名，最佳努力（BEST EFFORT），未经权威来源核对
+  global.json   国际服，英文名，取自 XIVAPI 的英文客户端文本，未经国际服流量核对
   tc.json       繁中服，固定提交的繁中客户端原文；未经繁中服流量验收
 ```
 
@@ -93,10 +93,13 @@ data/roulettes/
   除编号 9（指导者任务）外，其余九个编号均已在
   `cn.2026.08.05.json` 的本机流量证据中逐一核对；早先的版本把该 CSV 中的名称错配到了
   编号 5、6、8、17 上，现行名称以流量核对为准，详见 `cn.json` 的 `provenance.note`。
-- **`global.json`**：**最佳努力（BEST EFFORT）**。英文名称根据社区通用称法
-  整理，**并非**来自权威的国际服 `ContentRoulette` 导出，亦未经国际服
-  本机流量核对。在找到权威来源之前，该文件中的每个名称仅供阅读，
-  不构成证据。
+- **`global.json`**：编号与 `cn.json` 相同，英文名称逐条取自
+  `data/i18n/game-names.2026-10-15.json` 中 `roulettes` 的 `en` 项，即
+  `tools/duty-data-generator/game_names.py` 从 XIVAPI 取得的英文客户端
+  `ContentRoulette` 分类名称（例如 15 = Alliance Raids，17 = Normal Raids）。
+  `ReferenceCatalogTests` 校验两处逐条一致，并校验 `tc.json` 与同一文件的 `zh-TW` 项一致。
+  早先的版本按社区称法整理，把 15 与 17 的名称对调，2 与 8 也不是客户端原文。
+  这些名称未经国际服本机流量核对，仅供阅读，不构成证据。
 - **游戏数据本身 © SQUARE ENIX CO., LTD.**
   FINAL FANTASY 是史克威尔艾尼克斯的注册商标。本项目与 SE 无关联。
   本目录保存的是**随机任务名称的展示映射**，并非游戏资源文件；本项目不复制、

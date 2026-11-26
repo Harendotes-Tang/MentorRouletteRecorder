@@ -104,6 +104,14 @@ public sealed class PipeServerTests
         envelope["ok"] = "invalid";
         await channel.WriteAsync(envelope, deadline.Token);
         Assert.Equal(ErrorCodes.Internal, (await malformedReply).ErrorCode);
+
+        // Audit 2026-11-26, G-7: the malformed reply failed only its own request. The client still
+        // reads, so the next answer arrives instead of waiting out the timeout.
+        var afterMalformed = client.SendAsync("GetVersion", requestId: requestId, cancellationToken: deadline.Token);
+        await ExpectVersionRequestAsync(requestId);
+        await channel.WriteAsync(IpcEnvelope.Success(requestId, "GetVersion",
+            new JsonObject { ["collector_version"] = "after" }), deadline.Token);
+        Assert.Equal("after", (await afterMalformed).Require()["collector_version"]!.GetValue<string>());
     }
 
     [Fact]
@@ -350,6 +358,56 @@ public sealed class PipeServerTests
 
         Assert.All(results, Assert.True);
         Assert.True(fixture.Server.AcceptedCount >= 2);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, Gb-3: a connection stuck inside a request answered on its read loop is waited for once on
+    /// shutdown. The accept loop's drain and the dispose's drain share one deadline, so the host's own shutdown steps
+    /// still run inside the parent watchdog's ten seconds.
+    /// </summary>
+    [Fact]
+    public async Task Shutdown_WaitsOneDrainTimeoutForAConnectionStuckInARequest()
+    {
+        using var directory = new TempDirectory("IntegrationTests");
+        using var host = ServerFixture.OpenHost(directory.Combine("drain.db"));
+        var server = new PipeServer(new MessageDispatcher(host), "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1");
+        using var stopping = new CancellationTokenSource();
+        var serving = server.RunAsync(stopping.Token);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = Task.Factory.StartNew(() => host.Database.Read(_ =>
+        {
+            entered.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(120));
+            return 0;
+        }), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await using var client = new PipeClient(server.PipeName);
+            await client.ConnectAsync(TimeSpan.FromSeconds(10));
+
+            // QueryRuns is answered on the read loop and waits there for the database.
+            var stuck = client.SendAsync("QueryRuns", new JsonObject(), timeout: TimeSpan.FromSeconds(60));
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.False(stuck.IsCompleted);
+
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            await stopping.CancelAsync();
+            try { await serving; }
+            catch (OperationCanceledException) { }
+            await server.DisposeAsync();
+            elapsed.Stop();
+
+            // One drain timeout (five seconds), not one per drain.
+            Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(8), "shutdown waited " + elapsed.Elapsed);
+        }
+        finally
+        {
+            release.Set();
+            await holder;
+            await server.DisposeAsync();
+        }
     }
 
     [Fact]

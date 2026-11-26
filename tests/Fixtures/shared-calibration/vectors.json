@@ -111,6 +111,24 @@
       "canonical": "{\"game_build\":\"2026.09.01.0000.0000\",\"match_source\":\"QUEUE_REQUEST\",\"pop\":{\"opcode\":49153},\"region\":\"CN\",\"template_profile_id\":\"cn.2026.08.05\",\"template_sha256\":\"3f6c1e0b9a7d2c4e5f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6\",\"territory_opcode\":41224,\"v\":1,\"zone_opcode\":41223}",
       "code": "MRC1.XY7LasMwEEX_ZdZG6G3L2-JtoW2yFrI0TgS2JRSn0IT8e5QUSttZzCzOYe69wsEtaMdznAP0wCnXhBpCGaF1ngsaWNzmj_aUzsVjtd72w36w70O9H7uKc8rQXyFln0Ll0jAlbg0UPMS0Vv_ltUobLnl2G9pc0hRntPER6FfyndkRqn5bp6PjSldDTNozpKNxbeBeopo6apjjo_AyKNRTSztmuBOj9CpobP_x59NS4pbKl_2pyDiXDXxCzxq4pBX_EHG7Aw",
       "code_sha256": "8a3971e8186cb9faa76974a8d149736bcb66c11deefb9e3e07781de9293262ae"
+    },
+    {
+      "name": "global_queue_without_territory",
+      "payload": {
+        "v": 1,
+        "region": "GLOBAL",
+        "game_build": "2026.09.01.0000.0000",
+        "template_profile_id": "cn.2026.08.05",
+        "template_sha256": "3f6c1e0b9a7d2c4e5f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6",
+        "match_source": "QUEUE_REQUEST",
+        "pop": {
+          "opcode": 49153
+        },
+        "zone_opcode": 41223
+      },
+      "canonical": "{\"game_build\":\"2026.09.01.0000.0000\",\"match_source\":\"QUEUE_REQUEST\",\"pop\":{\"opcode\":49153},\"region\":\"GLOBAL\",\"template_profile_id\":\"cn.2026.08.05\",\"template_sha256\":\"3f6c1e0b9a7d2c4e5f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6\",\"v\":1,\"zone_opcode\":41223}",
+      "code": "MRC1.XY7LasMwEEX_ZdZG6GHJlncNmGwCIW2zFrI0Tgy2JRwni4b8e6cthNBZzCzOYe69w8lP6LrrMEZoQHJpGLeMC8ZpfhcUMPk1nN0lXZeAZB2O7bF17y3dj0_COWVo7pBySJF4aYVWjwIWPA1pJn-722_ediSuOOXRr-jykvphRDf8hIaZ_eXWjOtX63L2UhsyVG-CQN5ZX0UZStR9za3wslOhjBpNX_FaWOlVVwYdDVb_OD29QSMK-EozumdPIaV6fAM",
+      "code_sha256": "91f817532e419bc2f3ea84307e03d66a83fb5eaf19467167af6bb1d26a9ab22f"
     }
   ],
   "invalid": [

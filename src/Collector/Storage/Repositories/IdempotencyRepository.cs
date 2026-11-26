@@ -26,10 +26,13 @@ public sealed class IdempotencyRepository
 
     private const string BaselineMessageType = "UpdateAchievementBaseline";
 
-    // Baseline audit history is bounded, reflections have no revision, and batch revisions
-    // carry derived child ids. None can prove the original request was applied after pruning.
+    // Baseline audit history is bounded, reflections have no revision, batch revisions carry
+    // derived child ids, and the character profile and identity requests write no row keyed by
+    // their request id at all. None can prove the original request was applied after pruning, so
+    // each keeps a marker and a late replay is refused (contracts/error-codes.md rule 13).
     private const string RetainedRequestPredicate =
-        "message_type IN ('" + BaselineMessageType + "', 'SetRunReflection', 'BatchMutateRuns')";
+        "message_type IN ('" + BaselineMessageType + "', 'SetRunReflection', 'BatchMutateRuns', " +
+        "'CreateCharacterProfile', 'UpdateCharacterProfile', 'DeleteCharacterProfile', 'ResolveCharacterIdentity')";
 
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
@@ -71,6 +74,26 @@ public sealed class IdempotencyRepository
             "AND NOT (" + RetainedRequestPredicate + " AND response_json = 'null');";
         command.Parameters.AddWithValue("$request_id", requestId);
         return command.ExecuteScalar() as string;
+    }
+
+    /// <summary>
+    /// True when <c>CommitRunImport</c> <paramref name="requestId"/> already finished: its response is
+    /// still stored here, or - after that body was pruned - the import receipt keyed by the same id is
+    /// kept in <c>run_import_batches</c>, which the commit path replays from (audit 2026-11-26 RB-3).
+    /// </summary>
+    /// <param name="requestId">Client-generated request id.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    internal bool IsFinishedImportCommit(string requestId, SqliteTransaction transaction)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(requestId);
+        if (Lookup(requestId, transaction) is not null)
+            return true;
+
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id);";
+        command.Parameters.AddWithValue("$request_id", requestId);
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 
     /// <summary>

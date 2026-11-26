@@ -139,6 +139,18 @@ public sealed record MentorRun
     /// </summary>
     public RunReflection? Reflection { get; init; }
 
+    /// <summary>
+    /// True when the player answered a question the software left open on this run: the latest user
+    /// correction that cleared <see cref="PendingReview"/>, or filled a blank job, duty, entry kind or
+    /// UNKNOWN result without overruling anything recorded, was not undone by the revision after it.
+    ///
+    /// Not a <c>mentor_runs</c> column: derived from <c>run_revisions</c> by <c>RunRepository</c> on every
+    /// read and by the mutation that writes a revision, like <see cref="Reflection"/>. Character, region,
+    /// deletion, restore, undo and system revisions never make it true. The wire field
+    /// <c>review_confirmed</c> is this value while the run is not pending review.
+    /// </summary>
+    public bool ReviewConfirmed { get; init; }
+
     /// <summary>Provenance of an imported personal record; null for existing captures and manual entries.</summary>
     public RunImportMetadata? ImportMetadata { get; init; }
 

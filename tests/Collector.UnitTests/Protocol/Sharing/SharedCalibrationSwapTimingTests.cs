@@ -233,6 +233,27 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         Assert.Equal(2, _bed.AllRuns().Count);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26 D1b-1. A bind refused because the staging is not this session's (or overflowed) changes
+    /// nothing: the shared session leaves the candidate to try again, so the pipeline must not have installed the
+    /// reloaded selector either, or the next selection would bind the written profile without that commit.
+    /// </summary>
+    [Fact]
+    public void ABindRefusedForItsStagingLeavesTheSelectorAsItWas()
+    {
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
+        Assert.NotEqual(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        var session = _bed.Start(pipeline);
+        _bed.WriteSharedProfile(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload);
+
+        var refused = ((ISharedCalibrationHost)pipeline).CommitSharedBind(
+            new SharedBindRequest(Bed.SharedProfileId, _bed.DiskSelect(), null));
+
+        Assert.Equal(SharedBindOutcome.SessionChanged, refused.Outcome);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        Assert.NotEqual(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+    }
+
     private static async Task<IReadOnlyList<JsonObject>> StateChanges(LiveEventSubscription subscription) =>
         (await subscription.DrainAsync())
             .Where(payload => payload["kind"]?.GetValue<string>() == LiveEventBus.KindToken(LiveEventKind.RunStateChanged))

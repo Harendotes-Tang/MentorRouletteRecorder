@@ -234,6 +234,109 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         Assert.True(File.Exists(logger.CurrentPath));
     }
 
+    /// <summary>
+    /// Audit 2026-11-26, Gb-5: a viewer that holds today's full file open without delete sharing stops the
+    /// rotation, not the logging. The line goes on the end of that file and nothing is counted as lost.
+    /// </summary>
+    [Fact]
+    public void AFullFileHeldOpenByAViewerStillTakesTheNextLine()
+    {
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        logger.Write(LogLevel.Info, "ipc", "probe");
+        using (var grow = new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+        {
+            grow.SetLength(RotatingFileLogger.MaxFileBytes);
+        }
+
+        using var viewer = new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        logger.Write(LogLevel.Info, "ipc", "written_while_viewed");
+
+        Assert.Equal(0, logger.SuppressedWrites);
+        using var reader = new StreamReader(viewer, new UTF8Encoding(false));
+        Assert.Contains("written_while_viewed", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, RB-5: a file that cannot be rotated stops growing at twice the rotation size. Past it,
+    /// lines are dropped and counted, and the day's file gets one notice saying so - not one per line.
+    /// </summary>
+    [Fact]
+    public void AFileThatCannotBeRotatedStopsGrowingAtTheHardCap()
+    {
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        logger.Write(LogLevel.Info, "ipc", "probe");
+        using (var grow = new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+        {
+            grow.SetLength(RotatingFileLogger.MaxUnrotatedFileBytes);
+        }
+
+        using (new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            logger.Write(LogLevel.Info, "ipc", "dropped_first");
+            logger.Write(LogLevel.Info, "ipc", "dropped_second");
+        }
+
+        Assert.Equal(2, logger.SuppressedWrites);
+        var length = new FileInfo(logger.CurrentPath).Length;
+        Assert.InRange(length, RotatingFileLogger.MaxUnrotatedFileBytes, RotatingFileLogger.MaxUnrotatedFileBytes + 512);
+        using var stream = new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        stream.Seek(RotatingFileLogger.MaxUnrotatedFileBytes, SeekOrigin.Begin);
+        var tail = new StreamReader(stream, new UTF8Encoding(false)).ReadToEnd();
+        Assert.Single(tail.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains("log_lines_dropped", tail, StringComparison.Ordinal);
+        Assert.DoesNotContain("dropped_first", tail, StringComparison.Ordinal);
+        Assert.DoesNotContain("dropped_second", tail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, RB-5: after a failed rotation the move is tried again at most once a minute, not on every
+    /// line; once the minute is up and the viewer has gone, the next line rotates the file.
+    /// </summary>
+    [Fact]
+    public void AFailedRotationIsRetriedAtMostOnceAMinute()
+    {
+        var clock = Clock();
+        using var logger = new RotatingFileLogger(_directory.Path, clock);
+        logger.Write(LogLevel.Info, "ipc", "probe");
+        using (var grow = new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+        {
+            grow.SetLength(RotatingFileLogger.MaxFileBytes);
+        }
+
+        var rotated = Path.Combine(_directory.Path, Path.GetFileNameWithoutExtension(logger.CurrentPath) + ".1.log");
+        using (new FileStream(logger.CurrentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            logger.Write(LogLevel.Info, "ipc", "while_viewed");
+        }
+
+        clock.UtcNow = clock.UtcNow.AddSeconds(30);
+        logger.Write(LogLevel.Info, "ipc", "within_the_minute");
+        Assert.False(File.Exists(rotated), "a failed rotation was retried before a minute had passed");
+
+        clock.UtcNow = clock.UtcNow.AddSeconds(31);
+        logger.Write(LogLevel.Info, "ipc", "after_the_minute");
+        Assert.True(File.Exists(rotated), "the rotation was not retried once the minute was up");
+        Assert.Contains("within_the_minute", File.ReadAllText(rotated), StringComparison.Ordinal);
+        Assert.Contains("after_the_minute", File.ReadAllText(logger.CurrentPath), StringComparison.Ordinal);
+        Assert.Equal(0, logger.SuppressedWrites);
+    }
+
+    /// <summary>Audit 2026-11-26, Gb-5: an expired day held open elsewhere does not cost the first line of today.</summary>
+    [Fact]
+    public void AnExpiredDayHeldOpenDoesNotCostTodaysFirstLine()
+    {
+        var stale = _directory.Combine("collector-20260101.log");
+        File.WriteAllText(stale, "old\n");
+        using var logger = new RotatingFileLogger(_directory.Path, Clock());
+        using (new FileStream(stale, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            logger.Write(LogLevel.Info, "startup", "database_ready");
+        }
+
+        Assert.Equal(0, logger.SuppressedWrites);
+        Assert.Contains("database_ready", File.ReadAllText(logger.CurrentPath), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AFailureToWriteTheLogNeverPropagates()
     {

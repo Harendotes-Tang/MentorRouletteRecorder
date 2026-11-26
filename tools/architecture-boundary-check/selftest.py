@@ -678,6 +678,35 @@ class BoundaryCheckerTests(unittest.TestCase):
         code, report, stderr = self.fixture.run()
         self.assertEqual(0, code, (report, stderr))
 
+    def test_every_source_under_workflows_is_a_root(self) -> None:
+        # N2-3 (audit 2026-11-26): workflows/DisplayTimeZoneSync was included by no root, so a
+        # forbidden dependency added to it was never read.
+        for relative, content, rule, dependency in (
+            ("src/Desktop/cpp/workflows/NewWorkflow.cpp",
+             '#include "NewWorkflow.h"\n#include "AppController.h"\n',
+             "workflow-forbidden-include", "AppController.h"),
+            ("src/Desktop/cpp/workflows/nested/NestedWorkflow.h",
+             "#pragma once\nclass TtsService;\n",
+             "workflow-forbidden-reference", "TtsService"),
+        ):
+            with self.subTest(file=relative):
+                self.fixture.write("src/Desktop/cpp/workflows/NewWorkflow.h", "#pragma once\n")
+                path = self.fixture.write(relative, content)
+                try:
+                    item = self.assert_violation(rule, dependency, line=2)
+                    self.assertEqual(relative, item["file"])
+                finally:
+                    path.unlink()
+
+    def test_missing_workflows_directory_fails_closed(self) -> None:
+        workflows = self.fixture.root / "src/Desktop/cpp/workflows"
+        for path in sorted(workflows.rglob("*"), reverse=True):
+            path.unlink() if path.is_file() else path.rmdir()
+        workflows.rmdir()
+        code, report, _ = self.fixture.run()
+        self.assertEqual(2, code, report)
+        self.assertIn("required scope is missing: src/Desktop/cpp/workflows", report["errors"])
+
     def test_missing_coordinator_fails_closed(self) -> None:
         self.fixture.root.joinpath("src/Desktop/cpp/workflows/RunCompletionCoordinator.h").unlink()
         code, report, _ = self.fixture.run()

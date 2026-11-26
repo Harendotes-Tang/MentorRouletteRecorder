@@ -1,5 +1,6 @@
 #include "ReflectionLibraryController.h"
 #include "DisplayTimeZone.h"
+#include "Formatters.h"
 #include "IBackend.h"
 
 #include <QDate>
@@ -46,6 +47,8 @@ ReflectionLibraryController::ReflectionLibraryController(IBackend *backend, QObj
     // 列表分页回复不能覆盖选中记录的独立刷新结果：它可能来自更早的快照。
     connect(m_runs, &QAbstractItemModel::modelReset, this, &ReflectionLibraryController::selectionChanged);
     connect(m_runs, &RunListModel::loadingChanged, this, &ReflectionLibraryController::selectionChanged);
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this,
+            &ReflectionLibraryController::rebaseFilterDays);
     if (!backend)
         return;
     connect(backend, &QObject::destroyed, this, [this] {
@@ -134,6 +137,29 @@ void ReflectionLibraryController::applyFilter(const QVariantMap &next)
     Q_EMIT filterChanged();
     m_dirty = false;
     m_runs->setFilter(next);
+}
+
+void ReflectionLibraryController::rebaseFilterDays()
+{
+    // The same days in the new 显示时区: not a filter the player changed, so the
+    // selection stays and nothing asks about it; the list is read again with the
+    // new bounds (audit 2026-11-26, K1-1).
+    const auto rebased = [](QVariantMap filter) {
+        const auto put = [&filter](const QString &dayKey, const QString &boundKey, bool endOfDay) {
+            const QString day = filter.value(dayKey).toString();
+            const QString bound = day.isEmpty() ? QString() : Formatters::dayBoundaryUtc(day, endOfDay);
+            if (!bound.isEmpty())
+                filter.insert(boundKey, bound);
+        };
+        put(QStringLiteral("history_from_day"), QStringLiteral("from_utc"), false);
+        put(QStringLiteral("history_to_day"), QStringLiteral("to_utc"), true);
+        return filter;
+    };
+    if (!m_pendingFilter.isEmpty())
+        m_pendingFilter = rebased(m_pendingFilter);
+    const QVariantMap next = rebased(m_filter);
+    if (next != m_filter)
+        applyFilter(next);
 }
 
 QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending) const

@@ -5,6 +5,7 @@
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 このリポジトリには、「导随记录器」（MentorRecorder）のプレイヤーが共有する**キャリブレーションコード**を保存しています。
+`community/` ディレクトリには、プレイヤーが投稿した**コンテンツ用リマインダーとマクロ**も保存しています。各投稿者が選んだ CC BY 4.0 または CC BY-SA 4.0 で公開しており、詳細は [community/README.md](community/README.md) にあります。
 
 ゲームのアップデートでは、メッセージ番号（opcode）が変更される場合があります。同じリージョン・同じクライアントバージョンの番号はゲームクライアントに組み込まれており、すべてのプレイヤーで共通です。
 そのため、あるプレイヤーがソフトウェア上でキャリブレーションに成功すれば、その結果を共有でき、ほかのプレイヤーが一人ずつやり直す必要はありません。
@@ -45,6 +46,7 @@ Mac mini は、別途設定すればローカルでの研究やモデルによ�
   誤ったコードは、それが検出されるまでの間に、記録の欠落や誤記録を生じさせる可能性があります。ローカルトラフィックとの矛盾を検出した後は使用を停止し、そのコードから生成した記録を要再確認として扱います。
 - **無効化可能。** 共有キャリブレーションの取得は、ソフトウェアが標準で有効にする 2 種類の外向きリクエストの一つです。もう一つは新バージョンの確認で、メインプロジェクトのリリースページにあるバージョン情報ファイルを読み込みます。このリポジトリとは無関係です。
   どちらも設定で無効化できます。このほかに、プレイヤー自身が有効にするオンライン音声機能がありますが、標準では無効で、こちらもこのリポジトリとは無関係です。
+  プレイヤーが「リマインダーとマクロ」で公開ライブラリを有効にすると（標準では無効）、ソフトウェアはこのリポジトリの `community/` ディレクトリからリマインダーとマクロを読み取り専用でダウンロードします。サインインは不要です。
   リクエストの送信時機、送信内容、無効化方法は、ソフトウェアのプライバシーに関する説明に記載しています。
 
 ## コードに含まれる情報・含まれない情報
@@ -304,7 +306,9 @@ python tools/publish.py evidence compact --repo . [--apply]
 | `.github/workflows/evidence-calibration.yml` | 証拠の自動受け付け、隔離・復帰、候補保存、定期的な補処理 |
 | `.github/workflows/mirror-repository.yml` | プッシュ時、30 分ごと、および公開・証拠・報告の各ワークフローの実行終了後に、ブランチとタグを GitCode のミラーへ同期 |
 | `evidence-ledger.json`、`evidence-sweep.json` | 容量制限付きの証拠リプレイ防止記録、アカウントの最新の立場、epoch の理由、補処理カーソル。クライアントはダウンロードしない |
-| `schemas/`、`candidates/` | 唯一の証拠形式定義の複製と、未対応の候補ドラフト |
+| `schemas/`、`candidates/` | 唯一の証拠形式定義とリマインダー・マクロ形式定義の複製、未対応の候補ドラフト |
+| `community/` | プレイヤーが投稿したリマインダーとマクロ：`v1/index.json`、`v1/snapshot.json`（ソフトウェアがダウンロード）、`v1/submissions.json`（投稿台帳）。詳細は [community/README.md](community/README.md) |
+| `.github/ISSUE_TEMPLATE/share-community-content.yml`、`.github/workflows/publish-community-content.yml` | リマインダーとマクロの投稿フォームと公開ワークフロー |
 | `LICENSE.md`、`LICENSES/` | ライセンス |
 
 ## データとプライバシー
@@ -320,5 +324,6 @@ python tools/publish.py evidence compact --repo . [--apply]
 - **スクリプト、ワークフロー、フォーム、`templates/`**：MentorRecorder メインプロジェクトと同じ GPL-3.0-or-later。
 - **プレイヤーが提出したデータ**（`index.json`、`submissions.json`、各バージョンディレクトリ内のコード）：
   [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode)。提出は、この条件での公開に同意することを意味します。
+- **`community/` のリマインダーとマクロ**：各エントリーは投稿者が投稿時に選んだ CC BY 4.0 または CC BY-SA 4.0 で公開され、ライセンスはエントリーの `license` フィールドに記録されます。CC0 ではありません。
 
 詳細は [LICENSE.md](LICENSE.md) を参照してください。

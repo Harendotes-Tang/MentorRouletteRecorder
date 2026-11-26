@@ -234,59 +234,106 @@ public sealed class CaptureDetectionTests
     }
 
     /// <summary>
-    /// Audit 2026-11-03, A2-1. A region chosen while a client runs is bound to that installation:
-    /// it keeps fixing a client whose path is misleading (a TC client in a folder named in
-    /// Simplified Chinese), still applies to any client whose path names no region, and fails
-    /// closed for a different client whose path names another region. Only a fingerprint of the
-    /// path is stored, never the path (docs/privacy-boundary.md).
+    /// Audit 2026-11-26, A2b-1 (owner decision; replaces the 2026-11-03 binding rule). A path that
+    /// names exactly one region decides. A choice made with the game closed is neither applied to
+    /// nor bound by the next client when that client's path names another region (the Steam Global
+    /// client after a CN choice); it applies to, and is bound by, the first client whose path names
+    /// no region. A binding an older build made to a client whose path names another region stops
+    /// applying. Only a fingerprint of the path is ever stored (docs/privacy-boundary.md).
     /// </summary>
     [Fact]
-    public void AManualRegionStaysBoundToTheInstallationItWasChosenFor()
+    public void APathThatNamesOneRegionDecidesAndAChoiceOnlyFillsInWhereItNamesNone()
     {
-        const string misleading = @"D:\最终幻想14繁中服\game\ffxiv_dx11.exe";
-        const string cn = @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe";
+        const string steam = @"D:\Steam\steamapps\common\FINAL FANTASY XIV Online\game\ffxiv_dx11.exe";
         const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
         using var db = new TestDatabase();
         var settings = new Storage.Repositories.SettingsRepository(db.Database, db.Clock);
         settings.EnsureDefaults();
-        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, misleading);
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, steam);
         var locator = new GameProcessLocator(processes, new FakeGameFileReader())
             .WithRegionOverride(() => CaptureSettingsStore.ReadRegionOverride(settings));
-
-        CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = Region.Tc, RegionOverrideSpecified = true });
-        var chosenFor = locator.Locate();
-        Assert.Equal(Region.Tc, chosenFor.Region);
-        Assert.DoesNotContain(chosenFor.Warnings, warning =>
+        static bool Mismatch(GameProcessDetection detection) => detection.Warnings.Any(warning =>
             warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
-        // The path still names CN, so the relabelling is said out loud (re-review 2026-11-03, RV1-5).
-        Assert.Contains(chosenFor.Warnings, warning =>
+        static bool Applied(GameProcessDetection detection) => detection.Warnings.Any(warning =>
             warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideApplied().Key);
+
+        CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = Region.Cn, RegionOverrideSpecified = true });
+        var global = locator.Locate();
+        Assert.Equal(Region.Unknown, global.Region);
+        Assert.True(Mismatch(global));
+        Assert.False(Applied(global));
+        Assert.Equal("\"\"", settings.GetSetting(CaptureSettingsStore.RegionOverrideInstallSetting));
+
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 8, null, unmarked);
+        var cn = locator.Locate();
+        Assert.Equal(Region.Cn, cn.Region);
+        Assert.False(Mismatch(cn));
         var stored = settings.GetSetting(CaptureSettingsStore.RegionOverrideInstallSetting);
-        Assert.NotNull(stored);
-        Assert.DoesNotContain("繁中服", stored, StringComparison.Ordinal);
+        Assert.Equal("\"" + CaptureRegionOverride.Fingerprint(unmarked) + "\"", stored);
         Assert.DoesNotContain("ffxiv_dx11", stored, StringComparison.OrdinalIgnoreCase);
 
         processes.Clear();
-        processes.Add(GameProcessLocator.Dx11ProcessName, 8, null, cn);
-        var other = locator.Locate();
-        Assert.Equal(Region.Unknown, other.Region);
-        Assert.Contains(other.Warnings, warning =>
-            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
+        processes.Add(GameProcessLocator.Dx11ProcessName, 9, null, steam);
+        Assert.Equal(Region.Unknown, locator.Locate().Region);
 
-        processes.Clear();
-        processes.Add(GameProcessLocator.Dx11ProcessName, 9, null, unmarked);
-        var unmarkedClient = locator.Locate();
-        Assert.Equal(Region.Tc, unmarkedClient.Region);
-        Assert.DoesNotContain(unmarkedClient.Warnings, warning =>
-            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideApplied().Key);
-
-        processes.Clear();
-        processes.Add(GameProcessLocator.Dx11ProcessName, 10, null, misleading.ToUpperInvariant());
-        Assert.Equal(Region.Tc, locator.Locate().Region);
+        // Bound to the Steam installation by an older build: no longer applied, said so.
+        settings.SetSetting(CaptureSettingsStore.RegionOverrideInstallSetting,
+            "\"" + CaptureRegionOverride.Fingerprint(steam) + "\"");
+        var oldBinding = locator.Locate();
+        Assert.Equal(Region.Unknown, oldBinding.Region);
+        Assert.True(Mismatch(oldBinding));
+        Assert.False(Applied(oldBinding));
 
         CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = null, RegionOverrideSpecified = true });
-        Assert.Equal(Region.Cn, locator.Locate().Region);
+        Assert.Equal(Region.Global, locator.Locate().Region);
         Assert.Equal("null", settings.GetSetting(CaptureSettingsStore.RegionOverrideInstallSetting));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, A2b-1 / D2-2. CN and Global report the same build, so the executable itself
+    /// is the second check: when a shipped Oodle signature profile records this exact file for one
+    /// region, a client the path or the choice puts in another region fails closed, and a choice is
+    /// not bound to it. A file no profile knows changes nothing, and no region is ever named by it.
+    /// </summary>
+    [Fact]
+    public void AnExecutableAShippedProfileRecordsForAnotherRegionFailsClosed()
+    {
+        const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
+        const string cnMarked = @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe";
+        Region? known = Region.Global;
+        var bound = new List<string>();
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, unmarked);
+        var chosen = new GameProcessLocator(processes, new FakeGameFileReader())
+            .WithRegionOverride(() => new CaptureRegionOverride(Region.Cn, null, bound.Add))
+            .WithExecutableRegion(_ => known);
+
+        var labelled = chosen.Locate();
+        Assert.Equal(Region.Unknown, labelled.Region);
+        Assert.Contains(labelled.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
+        Assert.Empty(bound);
+
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 8, null, cnMarked);
+        var byPath = new GameProcessLocator(processes, new FakeGameFileReader()).WithExecutableRegion(_ => known);
+        Assert.Equal(Region.Unknown, byPath.Locate().Region);
+
+        known = Region.Cn;
+        Assert.Equal(Region.Cn, byPath.Locate().Region);
+        known = null;
+        Assert.Equal(Region.Cn, byPath.Locate().Region);
+
+        // Never a source of a region: an unmarked client with no choice stays Unknown.
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 9, null, unmarked);
+        known = Region.Global;
+        Assert.Equal(Region.Unknown, byPath.Locate().Region);
+
+        // The choice agrees with the file: applied and bound.
+        known = Region.Cn;
+        Assert.Equal(Region.Cn, chosen.Locate().Region);
+        Assert.Equal(new[] { unmarked }, bound);
     }
 
     [Fact]

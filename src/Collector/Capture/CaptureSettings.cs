@@ -83,8 +83,10 @@ public static class CaptureSettingsStore
     /// <summary>
     /// The installation <see cref="RegionOverrideSetting"/> was chosen for: a SHA-256 fingerprint of
     /// its executable path, never the path itself (docs/privacy-boundary.md keeps game paths out of
-    /// the database). An empty string means "chosen, not yet bound": the next running client binds
-    /// it. Absent or null means unbound, as an override saved by 1.8.0 is (audit 2026-11-03, A2-1).
+    /// the database). An empty string means "chosen, not yet bound": the next running client whose
+    /// path names no region (or several) binds it. Absent or null means unbound, as an override saved by 1.8.0 is (audit 2026-11-03, A2-1).
+    /// The binding is still written but no longer consulted: the choice applies to every client whose
+    /// path names no single region (re-review 2026-11-26, RA-3).
     /// </summary>
     public const string RegionOverrideInstallSetting = "capture.region_override_install";
 
@@ -425,9 +427,12 @@ public sealed record CaptureSettingsUpdate
 
 /// <summary>
 /// The region the user chose and the installation it was chosen for (audit 2026-11-03, A2-1). It
-/// applies to a client whose install path names no region, or several, and to the installation it
-/// is bound to whatever that path says; a different client whose path names another region is
-/// never relabelled by it.
+/// applies to every client whose install path names no region, or several, not only to the one it
+/// is bound to; a client whose path names exactly one region is never relabelled by it, not even
+/// the installation it is bound to (audit 2026-11-26, A2b-1: a binding made by an older build to
+/// such an installation no longer applies). The binding to the first such client is still written
+/// but no longer consulted: <c>IsBoundTo</c> has no caller in the region decision
+/// (re-review 2026-11-26, RA-3).
 /// </summary>
 /// <param name="Region">The region the user chose.</param>
 /// <param name="InstallFingerprint">Fingerprint of the executable path it is bound to; null while unbound.</param>

@@ -262,6 +262,7 @@
           "description": "导随心得, the user's own diary entry for this run (schema v3 table run_reflections). Present on every serialised Run and null when the run has none."
         },
         "import_metadata": { "$ref": "#/$defs/RunImportMetadata" },
+        "review_confirmed": { "type": "boolean", "description": "True when the user answered a question the software left open on this run, derived from its revisions. An undo is recognised by structure - a revision with actor USER and change_kind CORRECT that exactly reverses the revision right before it, whoever wrote that one (manually_corrected, which undo never reverts, and a profile_id reset to null are disregarded) - and is never itself a confirming revision. Every other revision with actor USER and change_kind CORRECT is confirming when it either changed pending_review from true to false, or filled a blank job_id, content_id, duty_name or joined_in_progress (old value null, empty, '未知' or 'UNKNOWN') or a result of UNKNOWN, and overruled nothing recorded (manually_corrected rule, docs/manual-correction.md). The latest confirming revision decides: true while it is in force. Undoing it makes it false; undoing that undo makes it true again, because the confirmation it brings back is in force again, not because the undo counts. Undoing a SYSTEM revision or a user's blanking of a field never makes it true. Always false while pending_review is true. Character (assign_profile) and region (move_region) moves, SOFT_DELETE, RESTORE and SYSTEM revisions never make it true. Sent since 2026-11-26 on every Run the Collector returns for display: QueryRuns items, the run in mutation answers (CreateManualRun, CorrectRun, UndoRevision, SoftDeleteRun, RestoreRun), live run events, ReflectionEntry.run, the run in the SetRunReflection answer and GetReflectionSummary.next_pending, and GetCurrentRun.run (always false there: a run still being followed has no answered question). Not on PreviewRunImport candidate runs and not in exported files. Absent from older Collectors - a client shows no confirmation mark unless the value is true." },
         "created_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
         "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
       }
@@ -722,8 +723,8 @@
             "required": ["result", "count", "share"],
             "properties": {
               "result": { "$ref": "#/$defs/RunResult" },
-              "count": { "type": "integer", "minimum": 0 },
-              "share": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+              "count": { "type": "integer", "minimum": 0, "description": "Every statistically eligible row with this result, attempts or not (docs/statistics-definitions.md section 9)." },
+              "share": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "This result's attempts divided by attempt_count, so the shares of all buckets add up to at most 1; null for CANCELLED_BEFORE_ENTRY, which is never an attempt, and when attempt_count is 0. Not count / attempt_count: an UNKNOWN row with no entry time is counted in count but is no attempt (Collectors up to 1.10.0-beta.3 divided count instead)." }
             }
           }
         }

@@ -236,10 +236,10 @@ private:
     QString m_sourceName;
     QString m_filePath;
     QString m_text;
-    // The source zone a batch starts with (defaultTimeZone()), and that default
-    // when it was last taken, so a 显示时区 change moves only an untouched choice.
-    QString m_defaultTimeZone = defaultTimeZone();
-    QString m_timeZone = m_defaultTimeZone;
+    // The source zone of the batch: defaultTimeZone() until the player picks one
+    // (setTimeZone), so a 显示时区 change and a new batch move only an unpicked zone.
+    QString m_timeZone = defaultTimeZone();
+    bool m_timeZoneChosen = false;
     QString m_previewId;
     QString m_commitRequestId;
     QString m_phase = QStringLiteral("empty");

@@ -863,12 +863,16 @@
         <translation>このアダプターを使う</translation>
     </message>
     <message>
-        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
-        <translation>アダプターが見つかりません。「接続状態」の横にある「アダプターを再検出」を押して再試行してください。</translation>
+        <source>没有找到网卡。请点右侧的“重新检测网卡”重试。</source>
+        <translation>アダプターが見つかりません。右側の「アダプターを再検出」を押して再試行してください。</translation>
     </message>
     <message>
-        <source>选择的网卡会一直使用，直到改回自动选择。</source>
-        <translation>選んだアダプターは、自動選択に戻すまで使われ続けます。</translation>
+        <source>重新检测网卡</source>
+        <translation>アダプターを再検出</translation>
+    </message>
+    <message>
+        <source>软件会优先使用这张网卡；游戏连接不在这张网卡上、而在另一张网卡上时，会自动改用那一张。</source>
+        <translation>このアダプターを優先して使います。ゲームの接続がこのアダプターではなく別のアダプター上にある場合は、自動的にそちらに切り替えます。</translation>
     </message>
     <message>
         <source>改回自动选择</source>
@@ -1384,6 +1388,10 @@
         <source>。</source>
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>。</translation>
+    </message>
+    <message>
+        <source>尚未安装 Npcap 驱动，暂时不能自动记录。</source>
+        <translation>Npcap ドライバーがインストールされていないため、自動記録できません。</translation>
     </message>
     <message>
         <source>自动寻找网络路径</source>
@@ -3424,11 +3432,6 @@ SHA256：%3</translation>
         <translation>このクライアントのインストール先が示すリージョンは、設定でこのクライアント用に手動指定したリージョンと一致しないため、手動指定したリージョンとして扱っています。意図したものでない場合は、設定で手動指定したリージョンを解除してください。</translation>
     </message>
     <message>
-        <source>设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.game.region_override_mismatch</comment>
-        <translation>設定で手動指定したリージョンはまだこのクライアントに関連付けられておらず、インストール先が示すリージョンとも一致しないため、現在は自動記録を一切行いません。このクライアントが本当に手動指定したリージョンのものである場合は、クライアントの起動中に設定でリージョンをもう一度選択してください。そうでない場合は、手動指定したリージョンを解除してください。</translation>
-    </message>
-    <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
         <translation>インストール先からリージョンを判定できません（パスは読み取れますが、識別できるリージョンの目印が含まれていません）。設定でリージョン（中国版 / 繁体字中国語版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません。</translation>
@@ -3462,11 +3465,6 @@ SHA256：%3</translation>
         <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
         <comment>capture.validation.failed_identity_key_unreadable</comment>
         <translation>キャラクター識別の採取に使うこの PC の鍵を今は読み取れないため、採取は始まらず、ファイルも作成されていません。しばらくしてからもう一度お試しください。詳細はこの PC の診断ログを確認してください。</translation>
-    </message>
-    <message>
-        <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.validation.waiting_region_mismatch</comment>
-        <translation>検証のみで、自動記録はしません。設定で手動指定したリージョンはまだこのクライアントに関連付けられておらず、インストール先が示すリージョンとも一致しません。このクライアントが本当に手動指定したリージョンのものである場合は、クライアントの起動中に設定でリージョンをもう一度選択してください。そうでない場合は、手動指定したリージョンを解除してください。</translation>
     </message>
     <message>
         <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
@@ -3509,9 +3507,19 @@ SHA256：%3</translation>
         <translation>校正の進捗をリセットできませんでした：校正の進捗を保存しているファイルがほかのプログラムに使用されています（たとえばセキュリティソフトがファイルをチェックしています）。しばらくしてからもう一度「校正の進捗をリセット」を押してください。</translation>
     </message>
     <message>
+        <source>设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.game.region_override_mismatch</comment>
+        <translation>設定で手動指定したリージョン、このクライアントのインストール先、そのプログラムファイルが示すリージョンが一致しないため、現在は自動記録を一切行いません。インストール先からリージョンがはっきりわかる場合は、インストール先を優先します。手動指定したリージョンが間違っている場合は、設定で解除してください。インストールフォルダーの名前のせいでリージョンを誤って判定した場合は、ほかのリージョンを示す文字が名前に含まれないフォルダーにゲームを移してから、ゲームを再起動してください。</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
         <comment>capture.validation.waiting_adapter_chosen</comment>
         <translation>検証のみで、自動記録はしません。選択したネットワークアダプターが接続されていないか、IPv4 アドレスがないため、採取は始まりません。キャンセルして、通信に使っているアダプターを選び直すか、「自動選択」を使ってください。</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.validation.waiting_region_mismatch</comment>
+        <translation>検証のみで、自動記録はしません。設定で手動指定したリージョン、このクライアントのインストール先、そのプログラムファイルが示すリージョンが一致しません。インストール先からリージョンがはっきりわかる場合は、インストール先を優先します。手動指定したリージョンが間違っている場合は、設定で解除してください。インストールフォルダーの名前のせいでリージョンを誤って判定した場合は、ほかのリージョンを示す文字が名前に含まれないフォルダーにゲームを移してから、ゲームを再起動してください。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4042,6 +4050,11 @@ SHA256：%3</translation>
         <comment>import.time_field.source_recorded</comment>
         <extracomment>The name of a time in an imported record; it opens the import.row.time_* sentences.</extracomment>
         <translation>元の記録時刻</translation>
+    </message>
+    <message>
+        <source>未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。</source>
+        <comment>import.warning.duty_unmatched</comment>
+        <translation>コンテンツを確認できなかったため、元の名前を残しています。確認してコンテンツを選んでください。わからない場合は不明のままで構いません。</translation>
     </message>
     <message>
         <source>未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。</source>
@@ -5747,6 +5760,18 @@ SHA256：%3</translation>
         <translation>プレイの記録はこの PC に保存</translation>
     </message>
     <message>
+        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <translation>「リマインダーとマクロ」で「公開ライブラリのオンライン接続を許可」をオンにすると、「公開ライブラリ」を開いたときや更新を押したときだけ、バックグラウンドサービスが GitHub 上の本プロジェクトの公開リポジトリから、投稿された内容を読み込みます（GitHub が 3 秒以内に応答しない場合や読み込めない場合は、GitCode 上の同名のミラーにも問い合わせ、先に届いた使える内容を使います）。これらのリクエストでは、ローカルの内容、キャラクター、絞り込み条件は送信しません。GitHub と GitCode にはあなたの IP アドレスがわかります。同じスイッチをオフにすると、これらのリクエストは止まります。</translation>
+    </message>
+    <message>
+        <source>在「投稿进度」里点「查看状态」时，后台服务会向 GitHub 查询你填写的 Issue 编号；这一查询不受上面的开关控制。</source>
+        <translation>「投稿の進み具合」で「状況を確認」を押すと、バックグラウンドサービスが入力した Issue 番号を GitHub に問い合わせます。この問い合わせは上のスイッチでは制御されません。</translation>
+    </message>
+    <message>
+        <source>目前发布的版本只通过浏览器投稿：软件复制投稿正文并在浏览器打开 GitHub 表单，你提交的正文以你自己的 GitHub 账号公开发布。软件不登录 GitHub，也不保存任何 GitHub 凭据。配置了软件内投稿的版本会在你选择直接提交时请你登录，授权令牌由 Windows 加密保存在本机，点「退出 GitHub」即可删除。</source>
+        <translation>現在公開しているバージョンでは、投稿はブラウザー経由のみです。アプリが投稿をコピーしてブラウザーで GitHub のフォームを開き、あなたが送信した本文はあなた自身の GitHub アカウントで公開されます。アプリは GitHub にサインインせず、GitHub の認証情報も一切保存しません。アプリ内投稿が設定されたバージョンでは、直接送信を選んだときにサインインを求めます。アクセストークンは Windows によって暗号化されてこの PC に保存され、「GitHubからサインアウト」を押すと削除できます。</translation>
+    </message>
+    <message>
         <source>会区分登录的角色（国服、国际服，默认开启，可关）</source>
         <translation>ログイン中のキャラクターを区別（中国版・グローバル版、既定でオン、オフにできます）</translation>
     </message>
@@ -5759,12 +5784,12 @@ SHA256：%3</translation>
         <translation>記録はこの PC のデータベースに保存し、画面とバックグラウンドサービスはこの PC 内でのみ通信します。テレメトリやクラウド同期はなく、以下のネットワーク通信でもデータベースはアップロードしません。</translation>
     </message>
     <message>
-        <source>后台服务仅为以下三类用途联网</source>
-        <translation>バックグラウンドサービスがネットワークを使うのは次の3つの用途だけです</translation>
+        <source>后台服务仅为以下四类用途联网</source>
+        <translation>バックグラウンドサービスがネットワークを使うのは次の4つの用途だけです</translation>
     </message>
     <message>
-        <source>界面本身不直接联网。后台服务只为下面三类用途发送请求，没有遥测。</source>
-        <translation>画面自体は直接ネットワークに接続しません。バックグラウンドサービスが次の3つの用途でのみリクエストを送ります。テレメトリはありません。</translation>
+        <source>界面本身不直接联网。后台服务只为下面四类用途发送请求，没有遥测。</source>
+        <translation>画面自体は直接ネットワークに接続しません。バックグラウンドサービスが次の4つの用途でのみリクエストを送ります。テレメトリはありません。</translation>
     </message>
     <message>
         <source>联网一：游戏更新后获取共享校准（默认开启，可关）</source>
@@ -5789,6 +5814,10 @@ SHA256：%3</translation>
     <message>
         <source>默认在启动软件时及持续运行期间定期检查更新，先从本项目在 GitHub 的公开发布页读取版本信息（GitHub 读取失败时，改从它在 GitCode 上的同名镜像读取），有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包（同样先从 GitHub 下载，失败时改从 GitCode 镜像下载），并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
         <translation>既定では、起動時と実行中に定期的に更新を確認します。まず GitHub 上の本プロジェクトの公開リリースページからバージョン情報を読み取り（GitHub から読み込めない場合は、GitCode 上の同名のミラーから読み込みます）、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロード（こちらもまず GitHub から行い、失敗した場合は GitCode のミラーから行います）と公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。GitHub、GitCode とそれらのダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
+    </message>
+    <message>
+        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
+        <translation>通信 4：リマインダーとマクロの公開ライブラリと投稿（既定でオフ）</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5983,6 +6012,14 @@ SHA256：%3</translation>
     <message>
         <source>游戏版本</source>
         <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>标签</source>
+        <translation>タグ</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
     </message>
     <message>
         <source>维护者核对过内容和适用范围</source>
@@ -6324,10 +6361,6 @@ SHA256：%3</translation>
         <translation>配布元の版が変わりました。更新して比較し直してください。</translation>
     </message>
     <message>
-        <source>来源或关联内容已撤回或不可用。</source>
-        <translation>配布元または関連項目は取り下げられたか、利用できません。</translation>
-    </message>
-    <message>
         <source>本地有同一条目或更新的修改，请重新加载。</source>
         <translation>同じ項目または新しいローカル変更が存在します。再読み込みしてください。</translation>
     </message>
@@ -6448,6 +6481,10 @@ SHA256：%3</translation>
         <translation>投稿結果を確認できませんでした。再試行する前にGitHubで確認してください。</translation>
     </message>
     <message>
+        <source>投稿没有发出，什么都没有提交，请稍后再试。</source>
+        <translation>投稿は送信されておらず、何も提出されていません。しばらくしてから再試行してください。</translation>
+    </message>
+    <message>
         <source>投稿已关闭。</source>
         <translation>投稿はクローズされています。</translation>
     </message>
@@ -6478,6 +6515,22 @@ SHA256：%3</translation>
     <message>
         <source>关闭</source>
         <translation>閉じる</translation>
+    </message>
+    <message>
+        <source>「%1」没有保存：</source>
+        <translation>「%1」は保存されていません：</translation>
+    </message>
+    <message>
+        <source>保存或取消当前表单后可以恢复。</source>
+        <translation>現在のフォームを保存またはキャンセルすると復元できます。</translation>
+    </message>
+    <message>
+        <source>恢复</source>
+        <translation>復元</translation>
+    </message>
+    <message>
+        <source>放弃</source>
+        <translation>破棄</translation>
     </message>
     <message>
         <source>还没有提醒或宏</source>
@@ -6644,6 +6697,10 @@ SHA256：%3</translation>
         <translation>ほかの人がコピー・改変して再共有できます。作者があなたであることの明記が必要で、改変版も同じ条件で公開しなければなりません。</translation>
     </message>
     <message>
+        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
+        <translation>この内容は公開ライブラリから取り下げられたか、提供が終了しています。公開ライブラリを更新してから再試行してください。</translation>
+    </message>
+    <message>
         <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
         <translation>投稿した内容はすべて公開ライブラリにすでにあるため、重ねて公開されませんでした。</translation>
     </message>
@@ -6803,6 +6860,22 @@ SHA256：%3</translation>
         <translation>選択中のターゲットの名前に置き換わります</translation>
     </message>
     <message>
+        <source>标题里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>タイトルに見えない特殊文字が含まれています。削除してから入力し直してください</translation>
+    </message>
+    <message>
+        <source>正文最多 1600 字，现在有 %1 字</source>
+        <translation>本文は最大 1600 文字です（現在 %1 文字）</translation>
+    </message>
+    <message>
+        <source>正文里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>本文に見えない特殊文字が含まれています。削除してから入力し直してください</translation>
+    </message>
+    <message>
+        <source>第 %1 行太长：游戏里一行宏最多 180 个字节，大约 60 个汉字</source>
+        <translation>%1 行目が長すぎます：ゲーム内のマクロは 1 行最大 180 バイト（漢字で約 60 文字）です</translation>
+    </message>
+    <message>
         <source>插入</source>
         <translation>挿入</translation>
     </message>
@@ -6817,6 +6890,10 @@ SHA256：%3</translation>
     <message>
         <source>BOSS / 阶段</source>
         <translation>ボス / フェーズ</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>ボス / フェーズに見えない特殊文字が含まれています。削除してから入力し直してください</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7111,10 +7188,6 @@ SHA256：%3</translation>
         <translation>貼り付けられるのはプログラムのコードのような長いテキストです。手を加えずに、そのまま GitHub のページで送信してください。</translation>
     </message>
     <message>
-        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
-        <translation>この %1 件のタイトル、本文、コンテンツ、ボス / フェーズ、リージョン、言語と、選んだライセンスが公開されます。共有する権利のある文章だけを投稿し、個人情報は含めないでください。</translation>
-    </message>
-    <message>
         <source>公开作者：@%1</source>
         <translation>公開時の投稿者：@%1</translation>
     </message>
@@ -7125,6 +7198,14 @@ SHA256：%3</translation>
     <message>
         <source>许可</source>
         <translation>ライセンス</translation>
+    </message>
+    <message>
+        <source>复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>投稿をコピーし、ブラウザーで開いた GitHub のフォームに貼り付けて送信してください。</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>この %1 件の種類、タイトル、本文、コンテンツ、ボス / フェーズ、ジョブ、ゲームバージョン、リージョン、言語、タグ、出典、関連項目と、選んだライセンスが公開されます。共有する権利のある文章だけを投稿し、個人情報は含めないでください。</translation>
     </message>
     <message>
         <source>收起全文</source>
@@ -7215,117 +7296,110 @@ SHA256：%3</translation>
         <translation>一度に投稿できるのは 20 件までです。選ぶ項目を減らしてから投稿してください。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>格式版本</source>
         <translation>形式バージョン</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>条目 ID</source>
         <translation>項目 ID</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>类型</source>
         <translation>種類</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>副本编号</source>
         <translation>コンテンツ ID</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>区服</source>
         <translation>リージョン</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>语言</source>
         <translation>言語</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>标题</source>
         <translation>タイトル</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>正文</source>
         <translation>本文</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>BOSS</source>
         <translation>ボス</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>阶段</source>
         <translation>フェーズ</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>职业</source>
         <translation>ジョブ</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>标签</source>
         <translation>タグ</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>游戏版本</source>
         <translation>ゲームバージョン</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>关联条目</source>
         <translation>関連項目</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>来源</source>
         <translation>出典</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="166"/>
         <source>（空）</source>
         <translation>（空欄）</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="297"/>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
         <source>本次投稿的「%1」已有相同正文，此项不再投稿</source>
         <translation>今回の投稿に同じ本文の「%1」があるため、この項目は省略します。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="307"/>
+        <source>来源：%1</source>
+        <translation>出典：%1</translation>
+    </message>
+    <message>
+        <source>标签：%1</source>
+        <translation>タグ：%1</translation>
+    </message>
+    <message>
+        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
+        <translation>出典に原作者の表記を加えると 240 文字を超え、公開ライブラリに収まらないため、この項目は投稿できません。</translation>
+    </message>
+    <message>
         <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>この下書きはリビジョン %1 に基づいています。公開ライブラリはリビジョン %2 に更新されています。項目に戻り、更新を確認して適用してから投稿してください。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="314"/>
         <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
         <translation>この下書きには基準リビジョンがありません。公開リビジョン %1 と比較し、確認してから投稿してください。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>收起对比</source>
         <translation>比較を閉じる</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>对比公共版本与本地稿件</source>
         <translation>公開版と下書きを比較</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="326"/>
         <source>− 公共版本 / + 本次投稿</source>
         <translation>− 公開版 / + 今回の投稿</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="344"/>
         <source>确认以此公共版本为基线</source>
         <translation>この公開版を基準として確認する</translation>
     </message>
@@ -7902,6 +7976,10 @@ SHA256：%3</translation>
         <translation>このラウンドでは、ルーレット番号・コンテンツ・ジョブがメッセージ内のどこにあるかを特定するため、少数の種類のメッセージの内容を記録します。対象はこのゲームバージョンの候補プロファイルに記載されたメッセージに限られます。候補の一部は想定と異なる種類である可能性があり、あなたのキャラクターに関する情報が含まれることがあります。ファイルはこのコンピューターにのみ保存され、自動でアップロードされることはありません。メンテナーに送るかどうかはあなたが決められます。</translation>
     </message>
     <message>
+        <source>导出的文件只包含这一轮的证据，其中也有软件读到的任务、职业和副本，以及你在这一轮中改过的答案。软件自己也会在本机保留这些报文内容最多 30 天，期间生成的数据库备份同样包含它们，删除那些备份即可清除。</source>
+        <translation>出力ファイルにはこの回の証拠のみが含まれます。そこには、アプリが読み取ったルーレット・ジョブ・コンテンツと、この回で変更した答えも含まれます。アプリ自体もこれらのパケットの内容をこの PC に最大 30 日間保存し、その間に作成されたデータベースのバックアップにも含まれます。それらのバックアップを削除すれば消去できます。</translation>
+    </message>
+    <message>
         <source>我已了解并同意这一轮记录这些报文的内容</source>
         <translation>このラウンドでこれらのメッセージの内容が記録されることを理解し、同意します</translation>
     </message>
@@ -7960,10 +8038,6 @@ SHA256：%3</translation>
     <message>
         <source>待处理</source>
         <translation>保留中</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>出力ファイルにはこの回の証拠のみが含まれます。</translation>
     </message>
     <message>
         <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
@@ -8279,6 +8353,10 @@ SHA256：%3</translation>
     <message>
         <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
         <translation>trace.jsonl、trace.jsonl.sha256 とこのレポートを、非公開でメンテナーに渡してください。</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、日志 collector-*.log（含几小段游戏主程序的指令字节）、截图和这段说明。</source>
+        <translation>採取ファイル・診断 JSON・ログ collector-*.log（ゲーム実行ファイルの機械語コードの短い断片を含みます）・スクリーンショット・このメモを 1 つの ZIP にまとめ、開発者に個別に送ってください。</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -8651,14 +8729,6 @@ SHA256：%3</translation>
         <translation>切断</translation>
     </message>
     <message>
-        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
-        <translation>今回はアプリがこの PC で見つけた読み取り方法を使いました。メンテナーがこのリージョンに対応するには、ログ内の検索結果が必要です（データフォルダーの logs）</translation>
-    </message>
-    <message>
-        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
-        <translation>今回はアプリがこの PC でゲームデータを読み取る方法を見つけられませんでした。メンテナーが原因を調べるには、ログ内の検索結果が必要です（データフォルダーの logs）</translation>
-    </message>
-    <message>
         <source>状态截图</source>
         <translation>状態のスクリーンショット</translation>
     </message>
@@ -8819,6 +8889,14 @@ SHA256：%3</translation>
         <translation>結果：%1</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>今回はアプリがこの PC で見つけた読み取り方法を使いました。メンテナーがこのリージョンに対応するには、ログ内の検索結果が必要です（ゲーム実行ファイルの機械語コードの短い断片を含みます。データフォルダーの logs）</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>今回はアプリがこの PC でゲームデータを読み取る方法を見つけられませんでした。メンテナーが原因を調べるには、ログ内の検索結果が必要です（ゲーム実行ファイルの機械語コードの短い断片を含みます。データフォルダーの logs）</translation>
+    </message>
+    <message>
         <source>缺失：%1</source>
         <translation>不足：%1</translation>
     </message>
@@ -8966,6 +9044,10 @@ SHA256：%3</translation>
         <translation>エラーコード：</translation>
     </message>
     <message>
+        <source>第二轮正在进行，先在上方结束这一轮，才能开始采证。</source>
+        <translation>第 2 ラウンドが進行中です。上でこのラウンドを終了してから採取を開始してください。</translation>
+    </message>
+    <message>
         <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
         <translation>現在は正式な記録中のため、データ採取には切り替えられません。既知バージョンのキャリブレーション確認は「ツール › 共有キャリブレーションの証拠」を使ってください。</translation>
     </message>
@@ -9044,10 +9126,6 @@ SHA256：%3</translation>
     <message>
         <source>去「设置 › 数据」备份</source>
         <translation>「設定 › データ」でバックアップ</translation>
-    </message>
-    <message>
-        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
-        <translation>第 2 ラウンドが進行中です。上の「終了してエクスポート」を押してから採取を開始してください。</translation>
     </message>
 </context>
 <context>
@@ -10939,6 +11017,10 @@ SHA256：%3</translation>
     <message>
         <source>清空</source>
         <translation>クリア</translation>
+    </message>
+    <message>
+        <source>还有 %1 项，输入名称查找</source>
+        <translation>あと %1 件。名前を入力して検索してください</translation>
     </message>
 </context>
 <context>
@@ -13327,6 +13409,14 @@ SHA256：%3</translation>
     <message>
         <source>通关后提醒记笔记</source>
         <translation>クリア後にメモを促す</translation>
+    </message>
+    <message>
+        <source>暂时无法确认后台服务是否采用了这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，可能仍按电脑的时区计算。后台服务重新连接后会再发送一次。</source>
+        <translation>バックグラウンドサービスがこのタイムゾーンを適用したか、まだ確認できません。カレンダーで記録のある日の判定と、日付しかわからない記録の並び順は、この PC のタイムゾーンで計算されている可能性があります。バックグラウンドサービスが再接続すると、もう一度送信します。</translation>
+    </message>
+    <message>
+        <source>后台服务没有采用这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，仍按电脑的时区计算。</source>
+        <translation>バックグラウンドサービスはこのタイムゾーンを適用できませんでした。カレンダーで記録のある日の判定と、日付しかわからない記録の並び順は、引き続きこの PC のタイムゾーンで計算されます。</translation>
     </message>
     <message>
         <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」</source>
@@ -15927,6 +16017,10 @@ SHA256：%3</translation>
         <translation>一括設定後のバッチが大きすぎて再検証できないため、記録は1件も変更していません。</translation>
     </message>
     <message>
+        <source>上一次保存仍在进行，这批记录保持不变。请稍后再点「重试确认保存」查看结果。</source>
+        <translation>前回の保存がまだ進行中のため、このバッチは変更されていません。しばらくしてから「保存の確認を再試行」を押して結果を確認してください。</translation>
+    </message>
+    <message>
         <source>尚未确认导入结果。输入已保留，可安全重试同一批次。</source>
         <translation>インポート結果をまだ確認できていません。入力内容は保持しているので、同じバッチを安全に再試行できます。</translation>
     </message>
@@ -16023,10 +16117,6 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::MockBackend</name>
-    <message>
-        <source>勾选记录暂不可用，请重试。</source>
-        <translation>選択した記録を一時的に利用できません。もう一度お試しください。</translation>
-    </message>
     <message>
         <source>有选中的记录已不存在，请重新勾选。</source>
         <translation>選択した記録の一部が存在しません。選び直してください。</translation>
@@ -17348,14 +17438,6 @@ SHA256：%3</translation>
         <translation>ダウンロードが取り消されたかまだ確認できていません。しばらくしてからダウンロードの状態を確認してください。</translation>
     </message>
     <message>
-        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
-        <translation>GitCode に切り替えませんでした：GitHub からのダウンロードのほうがミラーより速くなったため、引き続き GitHub からダウンロードします。</translation>
-    </message>
-    <message>
-        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
-        <translation>GitCode に切り替えませんでした：ミラーが一時的に使えないため、引き続き GitHub からダウンロードします。</translation>
-    </message>
-    <message>
         <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
         <translation>GitCode に切り替えませんでした：切り替えが反映される前に、GitHub からのダウンロードが終わりました。</translation>
     </message>
@@ -17386,6 +17468,14 @@ SHA256：%3</translation>
     <message>
         <source>下载安装包</source>
         <translation>インストーラーをダウンロード</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载比镜像更快，这次下载继续使用了 GitHub。</source>
+        <translation>GitCode に切り替えませんでした：GitHub からのダウンロードのほうがミラーより速いため、今回のダウンロードは引き続き GitHub を使いました。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，这次下载继续使用了 GitHub。</source>
+        <translation>GitCode に切り替えませんでした：ミラーが一時的に使えないため、今回のダウンロードは引き続き GitHub を使いました。</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>

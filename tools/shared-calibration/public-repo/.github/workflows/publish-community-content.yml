@@ -11,9 +11,9 @@ on:
         description: Stable community UUID (leave empty to sweep)
         type: string
       status:
-        description: Maintainer-reviewed status
+        description: Maintainer-reviewed status (removed deletes the entry and the links to it)
         type: choice
-        options: [verified, outdated, withdrawn, community]
+        options: [verified, outdated, withdrawn, community, removed]
       revision:
         description: Expected current public revision
         type: string

@@ -3,6 +3,8 @@
 #include "IBackend.h"
 #include "DutyCatalog.h"
 #include "Formatters.h"
+#include "DisplayTimeZone.h"
+#include "workflows/DisplayTimeZoneSync.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QJsonArray>
@@ -34,6 +36,33 @@ QJsonObject contractRunFields(const QJsonObject &fields)
     }
     return out;
 }
+
+/// The 显示时区 day \a key of \a filter names: "" unless the bound is exactly the
+/// start (or, with \a endOfDay, the end) of a day in the zone in force, as the
+/// history page's date fields send it (Formatters::dayBoundaryUtc).
+QString boundDay(const QJsonObject &filter, const QString &key, bool endOfDay)
+{
+    const QString bound = filter.value(key).toString();
+    const QDateTime at = QDateTime::fromString(bound, Qt::ISODateWithMs);
+    if (!at.isValid())
+        return {};
+    const QString day = mr::DisplayTimeZone::dateOf(at).toString(QStringLiteral("yyyy-MM-dd"));
+    return mr::Formatters::dayBoundaryUtc(day, endOfDay) == bound ? day : QString();
+}
+
+/// \a filter with the bounds of \a days recomputed in the zone in force; a
+/// bound that named no whole day is left as it is.
+QJsonObject withDayBounds(QJsonObject filter, const QString &fromDay, const QString &toDay)
+{
+    const auto put = [&filter](const QString &key, const QString &day, bool endOfDay) {
+        const QString bound = day.isEmpty() ? QString() : mr::Formatters::dayBoundaryUtc(day, endOfDay);
+        if (!bound.isEmpty())
+            filter.insert(key, bound);
+    };
+    put(QStringLiteral("from_utc"), fromDay, false);
+    put(QStringLiteral("to_utc"), toDay, true);
+    return filter;
+}
 } // namespace
 
 namespace mr {
@@ -63,6 +92,7 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     connect(m_runs, &QAbstractItemModel::modelReset, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(m_runs, &RunListModel::loadingChanged, this, &HistoryController::checkedRunsChanged);
     connect(m_runs, &RunListModel::reloadStarted, m_filterFacets, &HistoryFilterFacets::refresh);
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, &HistoryController::rebaseFilterDays);
     connect(backend, &IBackend::connectionChanged, this, [this] {
         invalidateResultRequests();
         cancelCheckAll();
@@ -310,15 +340,44 @@ void HistoryController::setHistoryFilter(const QVariantMap &filter)
     }
     if (!m_checkedRuns.isEmpty()) {
         m_proposedFilter = next;
+        m_proposedFromDay = boundDay(next, QStringLiteral("from_utc"), false);
+        m_proposedToDay = boundDay(next, QStringLiteral("to_utc"), true);
         m_filterConfirmationPending = true;
         Q_EMIT filterConfirmationChanged();
         return;
     }
+    applyHistoryFilter(next);
+}
+
+void HistoryController::applyHistoryFilter(const QJsonObject &next)
+{
     cancelCheckAll();
     m_historyFilter = next;
+    m_filterFromDay = boundDay(next, QStringLiteral("from_utc"), false);
+    m_filterToDay = boundDay(next, QStringLiteral("to_utc"), true);
     m_filterFacets->setFilter(next);
     m_runs->setFilter(next.toVariantMap());
     Q_EMIT historyFilterChanged();
+}
+
+void HistoryController::rebaseFilterDays()
+{
+    // The same calendar days, named in the new 显示时区: not a filter the player
+    // changed, so neither the selection confirmation nor the batch guard applies.
+    // The checked records stay checked; the list is read again with the new bounds
+    // (audit 2026-11-26, K3-2 / I2-2).
+    if (m_filterConfirmationPending)
+        m_proposedFilter = withDayBounds(m_proposedFilter, m_proposedFromDay, m_proposedToDay);
+    const QJsonObject next = withDayBounds(m_historyFilter, m_filterFromDay, m_filterToDay);
+    if (next == m_historyFilter)
+        return;
+    // A 勾选全部 still being read was frozen under the old bounds: applying the
+    // rebased filter cancels it, so it starts again on the new one rather than
+    // stopping without a word (re-review RD-1).
+    const bool checkAllWasLoading = m_checkAllLoading;
+    applyHistoryFilter(next);
+    if (checkAllWasLoading)
+        checkAllMatchingRuns();
 }
 
 void HistoryController::resetHistoryFilter()
@@ -432,7 +491,9 @@ void HistoryController::fetchMatchingPage(quint64 generation, int page)
         }
         auto &history = *guard;
         if (!ok || !issued || (!requestSelectionId.isEmpty() && selectionId != requestSelectionId)) {
-            history.failCheckAll(!ok && code == QLatin1String("ERR_UNKNOWN_MESSAGE"));
+            // An older Collector names the unknown type in either form (audit 2026-11-26, I2-4).
+            history.failCheckAll(!ok && (code == QLatin1String("ERR_UNKNOWN_MESSAGE")
+                                         || isUnknownMessageReply(reply.data())));
             return;
         }
         history.m_checkAllSelectionId = selectionId;

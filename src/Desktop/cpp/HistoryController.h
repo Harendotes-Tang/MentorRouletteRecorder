@@ -145,6 +145,11 @@ Q_SIGNALS:
 private:
     // 保留入口差异：openRun 不清消息，选择/取消选择会清消息；通知顺序一致。
     void resetSelectedDetails(bool clearErrorMessage);
+    /// Makes \a next the filter in force and reads the list with it.
+    void applyHistoryFilter(const QJsonObject &next);
+    /// 显示时区 changed: the applied (and a proposed) date range keeps its days,
+    /// whose UTC bounds are recomputed for the new zone.
+    void rebaseFilterDays();
     /// Sends one batch over the checked rows;  profileId is used by assign_profile only.
     void sendCheckedBatch(const QString &action, int profileId, const QString &reason,
                           const QJsonObject &migration = {});
@@ -197,6 +202,13 @@ private:
     QMap<QString, QJsonObject> m_checkedRuns;
     QStringList m_checkedOrder;
     QJsonObject m_proposedFilter;
+    /// The 显示时区 days (yyyy-MM-dd) the applied and the proposed filter's
+    /// from_utc / to_utc name, taken in the zone they were computed in; "" for
+    /// no bound or one that is not a whole day's edge.
+    QString m_filterFromDay;
+    QString m_filterToDay;
+    QString m_proposedFromDay;
+    QString m_proposedToDay;
     bool m_filterConfirmationPending = false;
     bool m_batchRunning = false;
     quint64 m_checkAllGeneration = 0;

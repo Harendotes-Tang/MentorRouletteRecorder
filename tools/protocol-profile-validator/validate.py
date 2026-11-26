@@ -45,6 +45,10 @@ FIELD_SIZES = {"u8": 1, "u16": 2, "u32": 4, "i32": 4, "u64": 8}
 INT64_MIN = -(2 ** 63)
 INT64_MAX = 2 ** 63 - 1
 
+# The longest hypothesis payload a guess may read from: Capture.ResearchPayloadPolicy.MaxPayloadBytes
+# in the Collector (ProfileLoader checks guesses against it). Change both together.
+RESEARCH_PAYLOAD_MAX = 512
+
 
 # --------------------------------------------------------------------------- canonical JSON
 
@@ -229,9 +233,9 @@ def semantic_errors(document: dict, path: str) -> list:
                 errors.append("another hypothesis already guesses %s" % guess["kind"])
             guess_kinds.add(guess["kind"])
             length = hypothesis.get("expected_length")
-            if length is None or length > 512 or guess["offset"] + guess["size"] > length:
-                errors.append("guess in %s needs an expected_length of at most 512 and must lie inside it"
-                              % hypothesis["name"])
+            if length is None or length > RESEARCH_PAYLOAD_MAX or guess["offset"] + guess["size"] > length:
+                errors.append("guess in %s needs an expected_length of at most %d and must lie inside it"
+                              % (hypothesis["name"], RESEARCH_PAYLOAD_MAX))
     names = [message.get("name") for message in messages]
     if len(names) != len(set(names)):
         errors.append("duplicate message name")

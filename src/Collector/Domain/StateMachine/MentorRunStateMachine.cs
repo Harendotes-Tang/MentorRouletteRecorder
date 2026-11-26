@@ -440,6 +440,13 @@ public sealed partial class MentorRunStateMachine
 
     private TransitionResult HandleMentorMatched(SemanticEvent ev)
     {
+        // A marker held for its territory is dropped by every later marker, exactly as in IDLE.
+        var heldEntry = _pendingQueueEntry;
+        if (ev is ZoneInitialization)
+        {
+            _pendingQueueEntry = null;
+        }
+
         switch (ev)
         {
             // A lost cancellation or replacement queue breaks the association with a later
@@ -463,26 +470,31 @@ public sealed partial class MentorRunStateMachine
             case ZoneInitialization zone when CanEnterDuty(zone, _matchedMono, _contentId):
                 return EnterDuty(zone);
 
-            // A zone change the profile cannot classify, arriving after the match window has
-            // lapsed, is the lapsed match itself: the player went somewhere without entering.
-            case ZoneInitialization { IsDutyInstance: null } zone
-                when zone.Mono - _matchedMono > EntryWindow:
-                // An announced match that lapsed says nothing about the queue behind it: the
-                // request has its own, much longer window, and a player who teleported after a
-                // false alarm is still queued. Without this an early or wrong announcement would
-                // cost the very record the queue request alone would have made.
-                var standing = _announcedRequest;
-                var lapsed = Finish(
-                    ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
-                    DetectionConfidence.Low);
-                if (standing is not null && zone.Mono - standing.Mono <= _options.MatchWindow)
+            // The same shape the IDLE path accepts for a queue-inferred profile: a marker with no
+            // territory evidence may be followed by its territory, so it waits for one instead of
+            // being judged now (docs/state-machine.md section 3.12, "same as section 3.2").
+            case ZoneInitialization zone when AwaitsLateTerritory(zone):
+                _pendingQueueEntry = zone;
+                return TransitionResult.Ignored(_state, _runId);
+
+            case ZoneInitialization zone:
+                return LapseOrIgnore(zone);
+
+            case TerritoryObserved territory when heldEntry is { } entry:
+                _pendingQueueEntry = null;
+                if (IsWithinTerritoryWindow(territory.Mono - entry.Mono) &&
+                    CanEnterDuty(entry, _matchedMono, _contentId, territory.TerritoryId))
                 {
-                    SetPendingQueue(standing);
+                    return EnterDuty(entry, territory);
                 }
 
-                return lapsed;
+                // Not the duty after all: the held marker is judged as it would have been.
+                return LapseOrIgnore(entry);
 
-            case ZoneInitialization:
+            case ZoneLeft:
+            case InstanceLeft:
+            case DutyResult:
+                _pendingQueueEntry = null;
                 return TransitionResult.Ignored(_state, _runId);
 
             // The server announced the match again: somebody declined and the finder re-formed
@@ -566,6 +578,54 @@ public sealed partial class MentorRunStateMachine
             default:
                 return TransitionResult.Ignored(_state, _runId);
         }
+    }
+
+    /// <summary>
+    /// True when an announced match on a queue-inferred profile should hold this marker for a
+    /// territory that may still follow it: the same conditions the IDLE path parks a marker
+    /// under, measured from the match, and only while the match or its request still stands.
+    /// </summary>
+    /// <param name="zone">Entry marker that could not enter on its own.</param>
+    private bool AwaitsLateTerritory(ZoneInitialization zone)
+    {
+        if (!_profile.MatchFromQueue || zone.TerritoryId is not null || zone.Mono < _matchedMono ||
+            RecentTerritory(zone.Mono) is not null)
+        {
+            return false;
+        }
+
+        return zone.Mono - _matchedMono <= EntryWindow ||
+            (_matchObserved && _announcedRequest is { } request && zone.Mono - request.Mono <= _options.MatchWindow);
+    }
+
+    /// <summary>
+    /// Judges a marker that did not enter the duty: past the entry window, a zone change the
+    /// profile cannot classify is the lapsed match itself; inside it, the marker proves nothing.
+    /// </summary>
+    /// <param name="zone">Entry marker that did not enter the duty.</param>
+    private TransitionResult LapseOrIgnore(ZoneInitialization zone)
+    {
+        // A zone change the profile cannot classify, arriving after the match window has
+        // lapsed, is the lapsed match itself: the player went somewhere without entering.
+        if (zone.IsDutyInstance is not null || zone.Mono - _matchedMono <= EntryWindow)
+        {
+            return TransitionResult.Ignored(_state, _runId);
+        }
+
+        // An announced match that lapsed says nothing about the queue behind it: the
+        // request has its own, much longer window, and a player who teleported after a
+        // false alarm is still queued. Without this an early or wrong announcement would
+        // cost the very record the queue request alone would have made.
+        var standing = _announcedRequest;
+        var lapsed = Finish(
+            zone, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
+            DetectionConfidence.Low);
+        if (standing is not null && zone.Mono - standing.Mono <= _options.MatchWindow)
+        {
+            SetPendingQueue(standing);
+        }
+
+        return lapsed;
     }
 
     private TransitionResult HandleEnteredDuty(SemanticEvent ev)
@@ -708,6 +768,10 @@ public sealed partial class MentorRunStateMachine
 
         _matchedMono = match.Mono;
         _contentId = (match as ContentFinderPop)?.ContentId ?? _contentId;
+
+        // A marker held for its territory belongs to the match as it stood; the IDLE path
+        // drops a parked marker on every queue change too.
+        _pendingQueueEntry = null;
 
         var commands = new StateCommand[]
         {

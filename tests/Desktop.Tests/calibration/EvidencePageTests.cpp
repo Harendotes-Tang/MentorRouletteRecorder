@@ -300,6 +300,7 @@ private Q_SLOTS:
         };
         QVERIFY(noteSearch(QStringLiteral("profile"), QStringLiteral("cn.2026.08.05")));
         QVERIFY(!logRequired());
+        QVERIFY(!scene.text(QStringLiteral("evidenceZipHint")).contains(QStringLiteral("collector-*.log")));
         QVERIFY(noteSearch(QStringLiteral("pattern-fallback"), QStringLiteral("discovered.global.2026.11.03")));
         QTRY_VERIFY(logRequired());
         // The required rows come first, so the log is not filed under 按需附加.
@@ -309,6 +310,11 @@ private Q_SLOTS:
         // A set found here may have decoded nothing: the row says it was used, never that it worked
         // (re-review 2026-11-20, R5-1).
         QVERIFY(!defs.at(4).toMap().value(QStringLiteral("desc")).toString().contains(QString::fromUtf8("读懂")));
+        // Audit 2026-11-26 K4-1: these are the rounds whose log holds excerpts of the game
+        // program's instruction bytes; the required row says so, and so does the ZIP sentence.
+        QVERIFY(defs.at(4).toMap().value(QStringLiteral("desc")).toString().contains(QString::fromUtf8("指令字节")));
+        QTRY_VERIFY(scene.text(QStringLiteral("evidenceZipHint")).contains(QStringLiteral("collector-*.log")));
+        QVERIFY(scene.text(QStringLiteral("evidenceZipHint")).contains(QString::fromUtf8("指令字节")));
 
         // Saved: the capture has stopped, the round still asks for the log.
         scene.report(roundStatus(QStringLiteral("COMPLETED"), QStringLiteral("round-search"), 520, 31,
@@ -328,6 +334,9 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.sessionValue("recording").toBool());
         QVERIFY(noteSearch(QStringLiteral("builtin"), QString()));
         QTRY_VERIFY(logRequired());
+        const QVariantList failedDefs = scene.sessionValue("fileDefs").toList();
+        QCOMPARE(failedDefs.at(4).toMap().value(QStringLiteral("key")).toString(), QStringLiteral("log"));
+        QVERIFY(failedDefs.at(4).toMap().value(QStringLiteral("desc")).toString().contains(QString::fromUtf8("指令字节")));
         QCOMPARE(scene.warnings->size(), 0);
     }
 

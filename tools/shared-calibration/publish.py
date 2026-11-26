@@ -948,6 +948,7 @@ def _is_pending(item: Any) -> bool:
         isinstance(item, dict) and _positive_int(item.get("number")) and item.get("state") == "open"
         and "pull_request" not in item and SUBMISSION_LABEL in _label_names(item)
         and not (_label_names(item) & ANSWER_LABELS)
+        and classify_community(item, _label_names(item)) == "other"
     )
 
 

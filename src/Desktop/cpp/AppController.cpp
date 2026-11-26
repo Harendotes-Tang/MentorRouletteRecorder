@@ -133,6 +133,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     if (DisplayTimeZone *zone = DisplayTimeZone::notifier())
         connect(zone, &DisplayTimeZone::changed, this, &AppController::displayTimeZoneChanged);
     m_displayZoneSync = new DisplayTimeZoneSync(backend, this);
+    connect(m_displayZoneSync, &DisplayTimeZoneSync::refusedChanged, this,
+            &AppController::displayTimeZoneRefusedChanged);
     connect(m_displayZoneSync, &DisplayTimeZoneSync::applied, this, [this] {
         m_history->runs()->reload();
         Q_EMIT displayTimeZoneApplied();
@@ -705,6 +707,16 @@ void AppController::navigate(int page)
 QString AppController::backendName() const
 {
     return m_backend ? m_backend->backendName() : QString();
+}
+
+bool AppController::displayTimeZoneRefused() const
+{
+    return m_displayZoneSync && m_displayZoneSync->refused();
+}
+
+bool AppController::displayTimeZoneUnconfirmed() const
+{
+    return m_displayZoneSync && m_displayZoneSync->unconfirmed();
 }
 
 bool AppController::backendConnected() const

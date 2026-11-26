@@ -509,7 +509,7 @@ public sealed partial class RunMutationService
                     new Dictionary<string, object?> { ["run_id"] = before.RunId });
             }
 
-            var candidate = before with { SoftDeleted = deleted };
+            var candidate = deleted ? before with { SoftDeleted = true } : Restored(before, tx);
             return Commit(
                 before, candidate, kind, reason, command.RequestId, fingerprint, tx,
                 markCorrected: false, clearPendingReview: deleted);
@@ -566,7 +566,28 @@ public sealed partial class RunMutationService
             },
             transaction);
 
+        // The 已确认 mark follows from the chain this revision just extended, as on every read.
+        final = final with
+        {
+            ReviewConfirmed = _revisions.FindReviewConfirmed([final.RunId], transaction).Contains(final.RunId),
+        };
         return new MutationSnapshot(fingerprint, final.RunId, final.Revision, revisionId, final, null);
+    }
+
+    /// <summary>
+    /// The run as a restore puts it back: not deleted, and pending review again when it was when it was
+    /// deleted. Deletion clears the flag; keeping it cleared on restore took a run off the review list
+    /// unanswered, and an unfinished automatic run back into the "still in flight" shape every statistic
+    /// leaves out (audit 2026-11-26 H1b-3). The value comes from the newest deletion revision's diff.
+    /// </summary>
+    /// <param name="before">The deleted run as stored.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    private MentorRun Restored(MentorRun before, SqliteTransaction transaction)
+    {
+        var deletion = _revisions.GetLatestOfKind(before.RunId, ChangeKind.SoftDelete, transaction);
+        var wasPending = deletion?.Changes.Any(change =>
+            change.Field == RunFields.PendingReview && Equals(change.OldValue, true)) == true;
+        return before with { SoftDeleted = false, PendingReview = before.PendingReview || wasPending };
     }
 
     private static DateTimeOffset? FinalDeletionTime(MentorRun before, MentorRun candidate, DateTimeOffset now) =>

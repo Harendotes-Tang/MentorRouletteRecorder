@@ -597,6 +597,18 @@ class PublicClaimTests(unittest.TestCase):
                 with self.subTest(readme=name, note=note):
                     self.assertNotIn(note, text)
 
+    def test_every_public_readme_and_the_licence_name_the_community_content_and_its_licences(self):
+        # Audit 2026-11-26 N1-2: the repository also publishes player text under CC BY / CC BY-SA, which
+        # the front page, the layout tables and LICENSE.md have to say, or CC0 reads as covering it.
+        for path in [*sorted(PUBLIC.glob("README*.md")), PUBLIC / "LICENSE.md"]:
+            text = path.read_text(encoding="utf-8")
+            for needle in ("community/README.md", "CC BY 4.0", "CC BY-SA 4.0"):
+                with self.subTest(path.name, needle=needle):
+                    self.assertIn(needle, text)
+        for path in sorted(PUBLIC.glob("README*.md")):
+            with self.subTest(path.name, row="layout"):
+                self.assertRegex(path.read_text(encoding="utf-8"), r"(?m)^\| `community/` \|")
+
     def test_every_public_readme_shows_the_same_maintainer_commands(self):
         # Audit 2026-11-20 N1-2: `restore` reached the Chinese README only, so the translations said a revoked
         # code could never come back while the bot's reply told every submitter that a maintainer can restore it.

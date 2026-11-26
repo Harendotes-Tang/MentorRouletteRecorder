@@ -1,0 +1,6 @@
+{
+  "protocol_version": 1,
+  "request_id": "11111111-2222-4333-8444-555555555555",
+  "message_type": "DutyCommunity",
+  "payload": { "action": "copy", "body": "/p 进本后先拉小怪，跟我走。", "mode": "chat" }
+}

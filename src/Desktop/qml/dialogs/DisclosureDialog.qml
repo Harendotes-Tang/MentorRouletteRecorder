@@ -16,7 +16,8 @@ import MentorRecorder 1.0
 // network request the Collector can send - the shared-calibration download (on
 // by default), online speech (opt-in, docs/privacy-boundary.md §8.3) and the
 // update check (on by default, docs/privacy-boundary.md §8.4) together with the
-// installer download the user asks for (§8.6) - and how to turn each off.
+// installer download the user asks for (§8.6), and the 提醒与宏 public library
+// with its GitHub submission (off by default, §8.7) - and how to turn each off.
 //
 // The live values (oodle_mode, reads_game_executable) come from GetStatus, so
 // the page states what this machine does rather than what the default is.
@@ -166,8 +167,8 @@ MotionDialog {
                             body: qsTr("记录保存在本机数据库，界面与后台服务只在本机通信。没有遥测或云同步，下列联网请求不会上传数据库。")
                         },
                         {
-                            title: qsTr("后台服务仅为以下三类用途联网"),
-                            body: qsTr("界面本身不直接联网。后台服务只为下面三类用途发送请求，没有遥测。")
+                            title: qsTr("后台服务仅为以下四类用途联网"),
+                            body: qsTr("界面本身不直接联网。后台服务只为下面四类用途发送请求，没有遥测。")
                         },
                         {
                             title: qsTr("联网一：游戏更新后获取共享校准（默认开启，可关）"),
@@ -200,6 +201,25 @@ MotionDialog {
                                        + "软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，"
                                        + "关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。")
                                   + "\n\n" + qsTr("GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。")
+                        },
+                        {
+                            title: qsTr("联网四：提醒与宏的公共共享库和投稿（默认关闭）"),
+                            // docs/privacy-boundary.md §8.7 (audit 2026-11-26 L1-1, RE-1 … RE-3).
+                            // The mirror is asked when GitHub has not answered within 3 s
+                            // (CommunityHttp.SlowAfter); the Issue lookup does not read the
+                            // switch (CommunityGithub.IssueStatusAsync); the in-app sign-in
+                            // needs a client id no published build carries.
+                            body: qsTr("在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，"
+                                       + "后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容"
+                                       + "（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。"
+                                       + "这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。"
+                                       + "关掉同一个开关即停止这类请求。")
+                                  + "\n\n" + qsTr("在「投稿进度」里点「查看状态」时，后台服务会向 GitHub 查询你填写的 Issue 编号；"
+                                       + "这一查询不受上面的开关控制。")
+                                  + "\n\n" + qsTr("目前发布的版本只通过浏览器投稿：软件复制投稿正文并在浏览器打开 GitHub 表单，"
+                                       + "你提交的正文以你自己的 GitHub 账号公开发布。软件不登录 GitHub，也不保存任何 GitHub 凭据。"
+                                       + "配置了软件内投稿的版本会在你选择直接提交时请你登录，"
+                                       + "授权令牌由 Windows 加密保存在本机，点「退出 GitHub」即可删除。")
                         }
                     ]
                     delegate: noteDelegate

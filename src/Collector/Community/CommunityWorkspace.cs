@@ -38,9 +38,12 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
     private JsonObject Save(JsonObject payload, SqliteTransaction tx)
     {
         var draft = Object(payload, "content");
-        CommunityContent.ValidateLocalDraft(draft);
+        // The stored row is read first: a field the edit leaves as it was is not judged by a
+        // character rule newer than the entry (CommunityContent.ValidateLocalDraft).
+        var old = draft["id"] is JsonValue key && key.TryGetValue<string>(out var storedId) &&
+            CommunityContent.IsId(storedId) ? repository.Get(storedId, tx) : null;
+        CommunityContent.ValidateLocalDraft(draft, old?["content"] as JsonObject);
         var id = Id(draft);
-        var old = repository.Get(id, tx);
         var revision = CommunityContent.Integer(payload, "revision");
         if (Revision(old) != revision)
             return Result("local_conflict");
@@ -121,9 +124,10 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
                 !JsonNode.DeepEquals(existing["upstream"]!["author"]!["id"], item["author"]!["id"])))
                 return Result("local_conflict");
         }
+        var installing = items.Select(item => Id(item)).ToHashSet(StringComparer.Ordinal);
         // Save in reverse so the selected entry appears above its newly installed links.
         foreach (var item in missing.Reverse())
-            repository.Save(Row(CommunityContent.Draft(item), 1, 0, false, item), tx);
+            repository.Save(Row(KeepInstalledLinks(CommunityContent.Draft(item), installing, tx), 1, 0, false, item), tx);
         return Result("installed");
     }
 
@@ -160,6 +164,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         var installed = AddMissing(items.Skip(1).ToArray(), tx);
         if (installed["status"]!.GetValue<string>() != "installed")
             return installed;
+        draft = KeepInstalledLinks(draft, new HashSet<string>(StringComparer.Ordinal), tx);
         repository.Save(Row(draft, Revision(old) + 1, CommunityContent.Integer(old, "position"),
             CommunityContent.Boolean(old, "favorite"), remote), tx);
         return Result("updated");
@@ -167,7 +172,8 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
 
     private JsonObject ImportFile(JsonObject payload, SqliteTransaction tx)
     {
-        var text = CommunityContent.String(payload, "file", 700_000, multiline: true);
+        // Each row is checked below; a published copy inside it keeps the rule it was published under.
+        var text = CommunityContent.String(payload, "file", 700_000, multiline: true, legacy: true);
         var bytes = Encoding.UTF8.GetBytes(text);
         if (bytes.Length > 700_000)
             throw new FormatException("invalid_file");
@@ -184,7 +190,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
             CommunityContent.ValidateLocalDraft(draft);
             if (row["upstream"] is JsonObject upstream)
             {
-                CommunityContent.Validate(upstream, published: true);
+                CommunityContent.ValidateAsPublished(upstream);
                 if (!JsonNode.DeepEquals(upstream["type"], draft["type"]))
                     throw new FormatException("invalid_type");
             }
@@ -216,25 +222,34 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         return Result("installed");
     }
 
+    // The selected entry first, then the entries it links to directly that are still available.
+    // A withdrawn link target is left out instead of blocking the install or the update, and the
+    // links of a linked entry are not followed further: only what the user chose comes along.
     private IReadOnlyList<JsonObject> GetRemoteSet(string id)
     {
         var publication = library.Current();
-        var items = new List<JsonObject>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<string>();
-        queue.Enqueue(id);
-        while (queue.TryDequeue(out var next))
+        var entry = publication?.Entries.GetValueOrDefault(id);
+        if (entry is null || Inactive(entry))
+            return [];
+        var items = new List<JsonObject> { entry };
+        foreach (var link in entry["links"]!.AsArray())
         {
-            if (!seen.Add(next))
-                continue;
-            var entry = publication?.Entries.GetValueOrDefault(next);
-            if (entry is null || Inactive(entry))
-                return [];
-            items.Add(entry);
-            foreach (var link in entry["links"]!.AsArray())
-                queue.Enqueue(link!.GetValue<string>());
+            var target = publication!.Entries.GetValueOrDefault(link!.GetValue<string>());
+            if (target is not null && !Inactive(target))
+                items.Add(target);
         }
         return items;
+    }
+
+    // An installed draft links only to entries this machine has (or is installing in the same
+    // change), so that saving it later never fails on a link that was left out.
+    private JsonObject KeepInstalledLinks(JsonObject draft, IReadOnlySet<string> installing, SqliteTransaction tx)
+    {
+        var links = draft["links"]!.AsArray().Select(link => link!.GetValue<string>())
+            .Where(link => installing.Contains(link) || repository.Get(link, tx) is not null)
+            .Select(link => (JsonNode?)JsonValue.Create(link)).ToArray();
+        draft["links"] = new JsonArray(links);
+        return draft;
     }
 
     private static bool Inactive(JsonObject item) => item["status"]!.GetValue<string>() == "withdrawn";

@@ -60,38 +60,45 @@
         "title": {
           "type": "string",
           "maxLength": 120,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "body": {
           "type": "string",
           "maxLength": 1600,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^[^\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "boss": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "phase": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "role": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "tags": {
           "type": "array",
           "items": {
             "type": "string",
             "maxLength": 40,
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
           },
           "maxItems": 10,
           "uniqueItems": true
         },
         "game_version": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "links": {
           "type": "array",
@@ -104,7 +111,8 @@
         },
         "source": {
           "type": "string",
-          "maxLength": 240
+          "maxLength": 240,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         }
       },
       "required": [
@@ -166,38 +174,45 @@
         "title": {
           "type": "string",
           "maxLength": 120,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "body": {
           "type": "string",
           "maxLength": 1600,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^[^\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "boss": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "phase": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "role": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "tags": {
           "type": "array",
           "items": {
             "type": "string",
             "maxLength": 40,
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
           },
           "maxItems": 10,
           "uniqueItems": true
         },
         "game_version": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "links": {
           "type": "array",
@@ -210,7 +225,8 @@
         },
         "source": {
           "type": "string",
-          "maxLength": 240
+          "maxLength": 240,
+          "pattern": "^[^\\u200b-\\u200d\\u2060\\ufeff\\u202a-\\u202e\\u2066-\\u2069\\u2028\\u2029]*$"
         },
         "author": {
           "type": "object",

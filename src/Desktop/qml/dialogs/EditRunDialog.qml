@@ -181,8 +181,9 @@ MotionDialog {
     function isEstimateNote(line) {
         return line === estimateNote || line === estimateNoteTranslated
     }
-    onEnteredDateChanged: dialog.dropReplacedEstimate()
-    onEnteredTimeChanged: dialog.dropReplacedEstimate()
+    // A zone change rewrites the same instant, which replaces no estimate (followDisplayTimeZone).
+    onEnteredDateChanged: { if (!dialog.rezoning) dialog.dropReplacedEstimate(); dialog.rememberTypedInstants() }
+    onEnteredTimeChanged: { if (!dialog.rezoning) dialog.dropReplacedEstimate(); dialog.rememberTypedInstants() }
     /// 跨天: shows the separate 进本日期 / 结束日期 fields even while they
     /// equal 日期. They show on their own whenever they differ.
     property bool dayFieldsOpen: false
@@ -278,6 +279,49 @@ MotionDialog {
         target: Runtime.app
         function onReflectionSaved(runId) { submission.reflectionSaved(runId) }
         function onReflectionFailed(code, message) { submission.reflectionFailed(code, message) }
+        function onDisplayTimeZoneChanged() { dialog.followDisplayTimeZone() }
+    }
+
+    // A new record's form can stay open behind the sidebar while 显示时区 changes
+    // (audit 2026-11-26, L1-2). Its texts are wall clocks of the zone they were typed
+    // in, so the instants they name are kept here and, on a change, written back as
+    // the new zone's wall clock; a date without a time that was that zone's today
+    // becomes the new zone's today. A correction is a modal popup: no zone changes
+    // under it.
+    property var typedInstants: ({})
+    property bool rezoning: false
+    function rememberTypedInstants() {
+        if (rezoning || editMode || !Runtime.runForm)
+            return
+        typedInstants = {
+            matched: buildUtc(matchedDate, matchedTime),
+            entered: buildUtc(enteredDate, enteredTime),
+            ended: buildUtc(endedDate, endedTime),
+            today: Runtime.fmt.todayLocal()
+        }
+    }
+    onMatchedDateChanged: rememberTypedInstants()
+    onMatchedTimeChanged: rememberTypedInstants()
+    onEndedDateChanged: rememberTypedInstants()
+    onEndedTimeChanged: rememberTypedInstants()
+    function followDisplayTimeZone() {
+        if (editMode || !editingActive || typedInstants.today === undefined)
+            return
+        const saved = typedInstants
+        const today = Runtime.fmt.todayLocal()
+        const estimateKept = estimatedEntry && enteredDate + " " + canonicalTime(enteredTime) === estimatedEntryAt
+        const dayOf = function(utc, typed) { return utc ? dateOrEmpty(utc) : (typed === saved.today ? today : typed) }
+        rezoning = true
+        matchedDate = dayOf(saved.matched, matchedDate)
+        enteredDate = dayOf(saved.entered, enteredDate)
+        endedDate = dayOf(saved.ended, endedDate)
+        if (saved.matched) matchedTime = timeOrEmpty(saved.matched)
+        if (saved.entered) enteredTime = timeOrEmpty(saved.entered)
+        if (saved.ended) endedTime = timeOrEmpty(saved.ended)
+        if (estimateKept)
+            estimatedEntryAt = enteredDate + " " + canonicalTime(enteredTime)
+        rezoning = false
+        rememberTypedInstants()
     }
     property bool contributesToGoal: true
     /// How the duty was entered, as $defs/Run.joined_in_progress carries it: true (中途加入),
@@ -1013,6 +1057,10 @@ MotionDialog {
         showTimeDetails = true
         resetWizard()
         refreshRecentDuties()
+        // Prefilled texts equal to the last form's raise no change signal: the
+        // instants that form remembered, in the zone of its day, must not carry over
+        // (re-review RD-4).
+        rememberTypedInstants()
         showEditor()
     }
 

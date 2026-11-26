@@ -344,6 +344,72 @@ private Q_SLOTS:
                      qPrintable(recording.message()));
     }
 
+    // Audit 2026-11-26 J-1: since b3e742c the Collector records the Global 2026.11.03 client
+    // with the shipped profile and offers self-calibration on Global (acf0fa5); only TC is a
+    // region nothing records. The mock answered region_unsupported for every Global client.
+    void aGlobalOverrideRecordsTheShippedGlobalBuild()
+    {
+        mr::MockBackend backend;
+        QVERIFY(ask(backend, QStringLiteral("UpdateCaptureSettings"), {{"region_override", "GLOBAL"}}).ok);
+        const Answer status = ask(backend, QStringLiteral("GetStatus"));
+        QVERIFY(status.ok);
+        const QJsonObject capture = status.payload.value("capture").toObject();
+        QCOMPARE(capture.value("region").toString(), QStringLiteral("GLOBAL"));
+        QCOMPARE(capture.value("game_build").toString(), QStringLiteral("2026.11.03.0000.0000"));
+        QCOMPARE(capture.value("profile_id").toString(), QStringLiteral("global.2026.11.03"));
+        QVERIFY(capture.value("profile_status").toString() != QLatin1String("UNSUPPORTED_BUILD"));
+        QCOMPARE(status.payload.value("game").toObject().value("region").toString(), QStringLiteral("GLOBAL"));
+        const QJsonObject profile = ask(backend, QStringLiteral("GetProtocolProfileStatus")).payload;
+        QCOMPARE(profile.value("region").toString(), QStringLiteral("GLOBAL"));
+        QCOMPARE(profile.value("profile_id").toString(), QStringLiteral("global.2026.11.03"));
+        QCOMPARE(profile.value("game_build").toString(), capture.value("game_build").toString());
+        QVERIFY(profile.value("message").isNull());
+        QVERIFY(!profile.contains("message_ref"));
+
+        // The live run is a Global one, named from the Global catalogue, and its events go out.
+        const QJsonObject current = ask(backend, QStringLiteral("GetCurrentRun")).payload;
+        QCOMPARE(current.value("state").toString(), QStringLiteral("ENTERED_DUTY"));
+        const QJsonObject run = current.value("run").toObject();
+        QCOMPARE(run.value("region").toString(), QStringLiteral("GLOBAL"));
+        QCOMPARE(run.value("duty_name").toString(),
+                 mr::DutyCatalog::shared()->lookup(17, QStringLiteral("GLOBAL")).value("duty_name").toString());
+        QSignalSpy events(&backend, &mr::IBackend::liveEvent);
+        backend.simulateRunTransitions(QStringLiteral("COMPLETED"));
+        QVERIFY(events.size() > 0);
+
+        // Self-calibration is offered on Global: its messages are not refused for the region.
+        backend.setCalibrationFixture(QStringLiteral("observing"));
+        const QJsonObject calibrating = ask(backend, QStringLiteral("GetCaptureStatus")).payload;
+        QCOMPARE(calibrating.value("region").toString(), QStringLiteral("GLOBAL"));
+        QVERIFY(!calibrating.value("calibration").toObject().isEmpty());
+        QVERIFY(ask(backend, QStringLiteral("DiscardCalibration")).ok);
+    }
+
+    // Re-review RD-6: maintainer candidate validation on a Global client described the CN
+    // candidate on the build global.2026.11.03 records. A candidate is validated on a build
+    // no profile records, and on Global it is the Global candidate.
+    void globalCandidateValidationDescribesAGlobalCandidate()
+    {
+        mr::MockBackend backend;
+        QVERIFY(ask(backend, QStringLiteral("UpdateCaptureSettings"),
+                    {{"region_override", "GLOBAL"}, {"candidate_validation_enabled", true}}).ok);
+        const QJsonObject capture = ask(backend, QStringLiteral("GetCaptureStatus")).payload;
+        QCOMPARE(capture.value("region").toString(), QStringLiteral("GLOBAL"));
+        QVERIFY(capture.value("candidate_validation_enabled").toBool());
+        QCOMPARE(capture.value("profile_status").toString(), QStringLiteral("UNSUPPORTED_BUILD"));
+        QVERIFY(capture.value("game_build").toString() != QLatin1String("2026.11.03.0000.0000"));
+        QVERIFY(capture.value("profile_id").isNull());
+        QVERIFY(!capture.value("profile_matches_build").toBool(true));
+        const QString candidate = capture.value("candidate_profile_id").toString();
+        QVERIFY2(candidate.startsWith(QLatin1String("global.")), qPrintable(candidate));
+        const QString buildDate = capture.value("game_build").toString().section(QLatin1Char('.'), 0, 2);
+        QVERIFY2(candidate.contains(buildDate), qPrintable(candidate));
+        const QJsonObject profile = ask(backend, QStringLiteral("GetProtocolProfileStatus")).payload;
+        QCOMPARE(profile.value("region").toString(), QStringLiteral("GLOBAL"));
+        QCOMPARE(profile.value("game_build").toString(), capture.value("game_build").toString());
+        QVERIFY(profile.value("profile_id").isNull());
+    }
+
     // 角色档案: every region starts with one unnamed current profile that carries the
     // region's numbers, so a player with one character sees what they saw before.
     void aRegionStartsWithOneUnnamedCurrentProfileCarryingItsNumbers()

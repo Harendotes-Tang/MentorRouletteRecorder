@@ -158,6 +158,11 @@ private:
     void buildTimeline();
     void writeSettings(const QJsonObject &changes, std::function<void()> applied = {});
     void clearRoundFinishDraft();
+    /// Reads the exported player round kept in the local settings (I4-1).
+    void restoreExportedRound();
+    /// Keeps the exported player round and its two files in the local settings; an empty
+    /// round id forgets it.
+    void rememberExportedRound(const QString &roundId, const QVariantMap &result);
     void exportEvidence(const QString &roundId);
     void openExportFolder(const QVariantMap &result, LiveText &error);
     void disconnected();

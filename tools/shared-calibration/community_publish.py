@@ -39,14 +39,28 @@ LICENSES = {"CC-BY-4.0", "CC-BY-SA-4.0"}
 MAX_BYTES = 1_250_000
 MAX_ISSUE = 30_000
 MAX_ENTRIES = 400
+# MAX_ENTRIES is what the app accepts in one snapshot, withdrawn entries included. Live entries
+# have their own, lower capacity so that withdrawn ones never take a submission's place; a
+# maintainer removes withdrawn entries (--status removed) before they reach MAX_ENTRIES.
+MAX_LIVE_ENTRIES = 350
+# One account cannot fill the library: at most this many of its entries are live at a time, and
+# at most this many of its Issues publish something on one day (by the Issue's update date).
+MAX_ACCOUNT_ENTRIES = 40
+MAX_ACCOUNT_DAILY = 5
 MAX_BATCH = 20
 # Two bodies at least this alike are reported to the maintainer; the app folds them together.
 # The app computes the same number (src/Desktop/qml/dialogs/DutyCommunityMatch.js).
 SIMILAR = 0.9
 SOUND = re.compile(r"<se\.[0-9]+>", re.IGNORECASE | re.ASCII)
 # Spelled out so that Python and the app's JavaScript (whose \s differs) drop the same characters.
-SPACE = re.compile("[\t\n\x0b\x0c\r \x1c-\x1f\x85\xa0  -     　﻿]+")
+SPACE = re.compile("[\t\n\x0b\x0c\r \x1c-\x1f\x85\xa0  - \u2028\u2029  　\ufeff]+")
 TRAILING_SPACE = re.compile(SPACE.pattern + "$")
+# Refused in every text field: bidirectional controls, which reorder what a reader sees, and the
+# line and paragraph separators, which break a line where the line rules do not count one.
+# Single-line fields also refuse the invisible characters. The app checks the same characters
+# (src/Collector/Community/CommunityContent.cs, tests/Fixtures/shared-calibration/community-text-vectors.json).
+REFUSED = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u2028\u2029"
+INVISIBLE = "\u200b\u200c\u200d\u2060\ufeff"
 
 
 class Invalid(ValueError):
@@ -79,7 +93,8 @@ def decode(raw):
         raise Invalid("Invalid JSON data.") from error
 
 
-def text(value, maximum, multiline=False):
+def text(value, maximum, multiline=False, legacy=False):
+    """legacy: the rule before REFUSED and INVISIBLE were refused, for entries already published."""
     if not isinstance(value, str):
         return False
     try:
@@ -88,7 +103,9 @@ def text(value, maximum, multiline=False):
     except UnicodeEncodeError:
         return False
     normalized = value.replace("\r\n", "\n") if multiline else value
-    return all(unicodedata.category(char) != "Cc" or (multiline and char in "\n\t") for char in normalized)
+    refused = "" if legacy else REFUSED if multiline else REFUSED + INVISIBLE
+    return all((unicodedata.category(char) != "Cc" or (multiline and char in "\n\t")) and char not in refused
+               for char in normalized)
 
 
 def integer(value, low, high=2_147_483_647):
@@ -99,7 +116,9 @@ def values(value, maximum, predicate):
     return isinstance(value, list) and len(value) <= maximum and all(predicate(x) for x in value) and len(set(value)) == len(value)
 
 
-def validate(item, published=False):
+def validate(item, published=False, legacy=False):
+    """legacy checks an entry with the rule it was published under: REFUSED and INVISIBLE are
+    refused only in items an Issue adds or changes, never in entries already in the library."""
     fields = PUBLIC_FIELDS if published else FIELDS
     if not isinstance(item, dict) or set(item) != fields or not integer(item["schema_version"], 1, 1):
         raise Invalid("Unexpected content fields or schema version.")
@@ -108,11 +127,13 @@ def validate(item, published=False):
     if item["type"] not in ("reminder", "macro") or item["region"] not in ("ALL", "CN", "GLOBAL", "TC") or \
             item["language"] not in ("zh-Hans", "zh-Hant", "en", "ja") or not integer(item["content_id"], 0, 65535):
         raise Invalid("Invalid type, region, language, or duty ID.")
-    if not text(item["title"], 120) or not item["title"].strip() or not text(item["body"], 1600, True) or not item["body"].strip():
+    if not text(item["title"], 120, legacy=legacy) or not item["title"].strip() or \
+            not text(item["body"], 1600, True, legacy) or not item["body"].strip():
         raise Invalid("Title or body is empty, invalid, or too long.")
-    if not text(item["source"], 240) or any(not text(item[key], 80) for key in ("role", "boss", "phase", "game_version")):
+    if not text(item["source"], 240, legacy=legacy) or \
+            any(not text(item[key], 80, legacy=legacy) for key in ("role", "boss", "phase", "game_version")):
         raise Invalid("Invalid metadata or source.")
-    if not values(item["tags"], 10, lambda tag: text(tag, 40) and bool(tag)) or not values(
+    if not values(item["tags"], 10, lambda tag: text(tag, 40, legacy=legacy) and bool(tag)) or not values(
             item["links"], 10, lambda link: text(link, 36) and ID.fullmatch(link) and link != item["id"]):
         raise Invalid("Invalid tags or links.")
     if item["type"] == "macro":
@@ -251,8 +272,10 @@ def parse_submission(issue):
     items = data["items"]
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH:
         raise Invalid("A submission must contain between 1 and 20 items.")
+    # An item the Issue leaves as published is not judged again; evaluate checks the added and
+    # changed items with the current rule.
     for item in items:
-        validate(item)
+        validate(item, legacy=True)
     ids = {item["id"] for item in items}
     if len(ids) != len(items):
         raise Invalid("A submission contains a repeated ID.")
@@ -262,7 +285,49 @@ def parse_submission(issue):
     return data
 
 
-def evaluate(issue, entries):
+def live(entries, author_id=None):
+    """How many entries are not withdrawn, all of them or one account's."""
+    return sum(item["status"] != "withdrawn" and (author_id is None or item["author"]["id"] == author_id)
+               for item in entries.values())
+
+
+def published_on(ledger, author_id, day):
+    """How many times this account published something on this day (edits of an Issue included),
+    from the ledger's tally. The tally only grows: an Issue edited into a failing body afterwards
+    keeps its count."""
+    return (ledger.get("daily") or {}).get(str(author_id), {}).get(day, 0)
+
+
+def count_publication(ledger, author_id, day):
+    days = ledger.setdefault("daily", {}).setdefault(str(author_id), {})
+    days[day] = days.get(day, 0) + 1
+
+
+def ledger_record(issue, digest, result):
+    user = issue.get("user") or {}
+    return {"fingerprint": digest, "result": result, "author": user.get("id"),
+            "day": str(issue.get("updated_at") or "")[:10]}
+
+
+def without(entries, identifier, now):
+    """The library with one entry removed: links to it are dropped and the entries that had
+    them get a new revision, so that installed copies can update."""
+    revised = {}
+    for key, item in entries.items():
+        if key == identifier:
+            continue
+        if identifier in item["links"]:
+            item = dict(item, links=[link for link in item["links"] if link != identifier],
+                        revision=item["revision"] + 1, updated_at=now)
+            validate(item, published=True, legacy=True)
+        revised[key] = item
+    validate_links(revised)
+    return revised
+
+
+def evaluate(issue, entries, ledger=None):
+    """ledger: the submissions ledger (its daily tally and removed IDs); None for an empty one."""
+    ledger = ledger or {}
     category = classify(issue)
     if issue.get("state") != "open" or "pull_request" in issue or category == "other":
         return None, entries
@@ -279,6 +344,8 @@ def evaluate(issue, entries):
         revised = dict(entries)
         unchanged, candidates = set(), []
         for draft in data["items"]:
+            if draft["id"] in ledger.get("removed", ()):
+                raise Invalid("A maintainer removed this ID from the library. Create a new ID.")
             current = entries.get(draft["id"])
             base = data["base_revisions"].get(draft["id"])
             if current:
@@ -295,7 +362,10 @@ def evaluate(issue, entries):
                     raise Invalid("Update conflict. Refresh the community library and review the latest source revision.")
             elif base is not None:
                 raise Invalid("The base revision does not exist.")
+            validate(draft)
             candidates.append(draft)
+        if candidates and published_on(ledger, author["id"], timestamp[:10]) >= MAX_ACCOUNT_DAILY:
+            raise Invalid(f"This account has published {MAX_ACCOUNT_DAILY} submissions today. Edit this Issue again tomorrow.")
         # The same text twice is published once: the first stays and a later one is named in the
         # receipt and left out. Links to a left-out new item point at the first; a left-out
         # revision keeps the published version, so links to it stay.
@@ -323,7 +393,11 @@ def evaluate(issue, entries):
                 revised[identifier] = dict(item, links=links)
                 validate(revised[identifier], published=True)
         validate_links(revised)
-        if len(revised) > MAX_ENTRIES or len(encode(list(revised.values()))) + 100 > MAX_BYTES:
+        own = live(revised, author["id"])
+        if own > MAX_ACCOUNT_ENTRIES and own > live(entries, author["id"]):
+            raise Invalid(f"An account can have at most {MAX_ACCOUNT_ENTRIES} live entries in the library.")
+        if live(revised) > MAX_LIVE_ENTRIES and live(revised) > live(entries) or len(revised) > MAX_ENTRIES or \
+                len(encode(list(revised.values()))) + 100 > MAX_BYTES:
             raise Invalid("The current community release has reached its capacity.")
         if not kept:
             return {"status": "duplicate", "skipped": skipped}, entries
@@ -366,7 +440,14 @@ def write(path, value):
 def load():
     index = decode(INDEX.read_bytes())
     ledger = decode(LEDGER.read_bytes())
-    if set(ledger) != {"schema_version", "issues"} or ledger["schema_version"] != 1:
+    # "daily" (the per-account publishing tally) and "removed" (IDs a maintainer removed) are
+    # added the first time they are needed, so a ledger without them is valid.
+    if not isinstance(ledger, dict) or not {"schema_version", "issues"} <= set(ledger) <= \
+            {"schema_version", "issues", "daily", "removed"} or ledger["schema_version"] != 1 or \
+            not isinstance(ledger["issues"], dict) or not isinstance(ledger.get("daily", {}), dict) or \
+            not isinstance(ledger.get("removed", []), list) or not all(isinstance(days, dict) and all(integer(count, 1) for count in days.values())
+                    for days in ledger.get("daily", {}).values()) or \
+            not all(isinstance(removed, str) and ID.fullmatch(removed) for removed in ledger.get("removed", [])):
         raise Invalid("Existing submission ledger is invalid.")
     if not SNAPSHOT.exists() and index["generation"] == 0:
         return index, ledger, {}
@@ -384,7 +465,7 @@ def load():
         raise Invalid("Existing snapshot generation is invalid.")
     items = {}
     for item in snapshot["entries"]:
-        validate(item, published=True)
+        validate(item, published=True, legacy=True)
         if item["id"] in items:
             raise Invalid("Existing snapshot contains duplicate IDs.")
         items[item["id"]] = item
@@ -485,12 +566,14 @@ def process(repo, number):
         if previous and previous["fingerprint"] == digest:
             reply(repo, number, issue, previous["result"])
             return
-        result, revised = evaluate(issue, entries)
+        result, revised = evaluate(issue, entries, ledger)
         if result is None:
             return
+        record = ledger_record(issue, digest, result)
         if revised != entries:
             index = files_for(entries, revised, index["generation"] + 1)
-        ledger["issues"][str(number)] = {"fingerprint": digest, "result": result}
+            count_publication(ledger, record["author"], record["day"])
+        ledger["issues"][str(number)] = record
         write(INDEX, index)
         write(LEDGER, ledger)
         git("add", "--", INDEX.as_posix(), LEDGER.as_posix())
@@ -555,11 +638,39 @@ def moderate(identifier, status, expected_revision):
     raise RuntimeError("main advanced during all review attempts.")
 
 
+def remove(identifier, expected_revision):
+    """Deletes one entry from the library (spam, or a withdrawn entry taking up room) and drops
+    the links to it. The ID is recorded in the ledger and can never be published again, by an
+    edit of the same Issue or by a new one."""
+    if not ID.fullmatch(identifier) or expected_revision is None:
+        raise Invalid("A valid ID and expected revision are required.")
+    for attempt in range(3):
+        latest_checkout()
+        index, ledger, entries = load()
+        current = entries.get(identifier)
+        if current is None or current["revision"] != expected_revision:
+            raise Invalid("The item or its expected revision is no longer current.")
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        revised = without(entries, identifier, now)
+        folder = "reminders" if current["type"] == "reminder" else "macros"
+        git("rm", "-q", "--ignore-unmatch", "--", (ROOT / folder / (identifier + ".json")).as_posix())
+        index = files_for(entries, revised, index["generation"] + 1)
+        ledger["removed"] = sorted(set(ledger.get("removed", [])) | {identifier})
+        write(INDEX, index)
+        write(LEDGER, ledger)
+        git("add", "--", INDEX.as_posix(), LEDGER.as_posix())
+        git("commit", "-m", "Remove community content")
+        if subprocess.run(("git", "push", "origin", "HEAD:main"), check=False).returncode == 0:
+            return
+        time.sleep(attempt + 1)
+    raise RuntimeError("main advanced during all removal attempts.")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--event", type=Path)
     parser.add_argument("--moderate")
-    parser.add_argument("--status", choices=["community", "verified", "outdated", "withdrawn"])
+    parser.add_argument("--status", choices=["community", "verified", "outdated", "withdrawn", "removed"])
     parser.add_argument("--revision", type=int)
     args = parser.parse_args()
     repo = os.environ["GH_REPO"]
@@ -572,6 +683,8 @@ def main():
         issue = json.loads(args.event.read_bytes())["issue"]
         if classify(issue) != "other":
             process(repo, issue["number"])
+    elif args.moderate and args.status == "removed":
+        remove(args.moderate, args.revision)
     elif args.moderate:
         moderate(args.moderate, args.status, args.revision)
     else:

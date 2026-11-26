@@ -87,6 +87,7 @@ SAMPLES: dict[str, str] = {
     "NET-007/gitcode-asset-hosts": '        const string Asset = "https://file-cdn.gitcode.com/release/file";',
     "NET-007/gitcode-upload-host": '        const string Upload = "https://file.gitcode.com/release/file";',
     "NET-007/speech-host": '        const string Endpoint = "https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1";',
+    "NET-007/github-api-hosts": '        const string Issues = "https://api.github.com/repos/owner/repo/issues";',
     "NET-008": '        using var client = new TcpClient("example.invalid", 443);',
     "NET-009/downloads": "        Invoke-WebRequest -Uri $url -OutFile $target",
     "NET-009/qml-remote": '        banner.source = "https://example.invalid/banner.png"',
@@ -116,6 +117,11 @@ QML_SITE = "src/Desktop/qml/Sample.qml"
 PY_SITE = "tools/some-tool/sample.py"
 MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-007/gitcode-asset-hosts", 'const string Upload = "https://file-upload.gitcode.com/release/file";', DEFAULT_SITE),
+    # N2-2 (audit 2026-11-26): the web login page, and the device and token endpoints built from a
+    # host constant ("/login/device", "/login/oauth/access_token"), each caught on its own.
+    ("NET-007/github-api-hosts", '        const string Login = "https://GitHub.com/login?return_to=x";', DEFAULT_SITE),
+    ("NET-007/github-api-hosts", '        const string DeviceUrl = Host + "/login/device/code";', DEFAULT_SITE),
+    ("NET-007/github-api-hosts", '        const string TokenUrl = Host + "/LOGIN/OAUTH/access_token";', DEFAULT_SITE),
     ("INJ-001", "        Toolhelp32ReadProcessMemory(processId, address, buffer, size, out _);", DEFAULT_SITE),
     ("INJ-001", "        NtReadVirtualMemory(handle, address, buffer, size, out _);", DEFAULT_SITE),
     ("INJ-001", "        ZwReadVirtualMemory(handle, address, buffer, size, out _);", DEFAULT_SITE),
@@ -755,6 +761,8 @@ SHARED_CLIENT = "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs"
 SPEECH_CLIENT = "src/Collector/Speech/OnlineSpeechClient.cs"
 UPDATE_CLIENT = "src/Collector/Update/UpdateCheckClient.cs"
 COMMUNITY_CLIENT = "src/Collector/Community/CommunityHttp.cs"
+COMMUNITY_GITHUB = "src/Collector/Community/CommunityGithub.cs"
+COMMUNITY_CONTROLLER = "src/Desktop/cpp/DutyCommunityController.cpp"
 DUTY_GENERATOR = "tools/duty-data-generator/generate.py"
 RELEASE_MIRROR = "tools/release-mirror/sync_release.py"
 RULE_SCOPES: dict[str, dict[str, tuple[str, ...]]] = {
@@ -784,6 +792,11 @@ RULE_SCOPES: dict[str, dict[str, tuple[str, ...]]] = {
     "NET-007/gitcode-asset-hosts": {"allow_paths": (UPDATE_CLIENT, RELEASE_MIRROR)},
     "NET-007/gitcode-upload-host": {"allow_paths": (RELEASE_MIRROR,)},
     "NET-007/speech-host": {"allow_paths": (SPEECH_CLIENT,)},
+    "NET-007/github-api-hosts": {"allow_paths": (COMMUNITY_GITHUB, COMMUNITY_CLIENT, COMMUNITY_CONTROLLER,
+                                                 DUTY_GENERATOR, RELEASE_MIRROR,
+                                                 "tools/security-quality/check.py",
+                                                 "tools/security-quality/test_check.py"),
+                                 "allow_path_prefixes": ("tools/shared-calibration/",)},
     # RV5-1: the Deucalion and packet-send/capture rules fold letter case in the same file types.
     "DEU-001": {"ignore_case_extensions": SCRIPT_TYPES},
     "DEU-002": {"ignore_case_extensions": SCRIPT_TYPES},
@@ -2039,6 +2052,37 @@ def cases() -> Iterable[tuple[str, callable]]:
                 else:
                     expect_violation(root, f"GitCode API in {path}", "NET-007", "NET-007/gitcode-api-host")
         yield f"GitCode API allowance for {path} is {allowed}", gitcode_api_scope
+
+    # N2-2 (audit 2026-11-26): the authenticated GitHub endpoints - device login, the user and the
+    # issue API - belong to the duty community client alone (docs/privacy-boundary.md section 8.7).
+    # The other outbound clients, already NET-006-exempt, may not start talking to them.
+    for path, allowed in ((COMMUNITY_CLIENT, True), (COMMUNITY_GITHUB, True),
+                          (COMMUNITY_CONTROLLER, True),
+                          (client, False), (updates, False),
+                          ("src/Collector/Speech/OnlineSpeechClient.cs", False),
+                          ("src/Collector/Community/CommunityLibrary.cs", False),
+                          ("src/Collector/Ipc/CommunityHandlers.cs", False),
+                          ("src/Desktop/cpp/DutyCommunityController.h", False),
+                          ("tests/Collector.UnitTests/Storage/CommunityGithub.cs", False),
+                          ("tools/security-quality/other.py", False)):
+        def github_api_scope(path: str = path, allowed: bool = allowed) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, path, '        var url = "https://API.GITHUB.COM/repos/owner/repo/issues";')
+                if allowed:
+                    expect_clean(root, f"GitHub API in {path}")
+                else:
+                    expect_violation(root, f"GitHub API in {path}", "NET-007", "NET-007/github-api-hosts")
+        yield f"GitHub API allowance for {path} is {allowed}", github_api_scope
+
+    def github_api_allowance_does_not_open_net006() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, COMMUNITY_GITHUB, "        using var client = new HttpClient();")
+            expect_violation(root, f"HttpClient in {COMMUNITY_GITHUB}", "NET-006")
+    yield "the GitHub API allowance does not lift NET-006", github_api_allowance_does_not_open_net006
 
     def calibration_cannot_name_asset_cdn() -> None:
         with tempfile.TemporaryDirectory() as tmp:

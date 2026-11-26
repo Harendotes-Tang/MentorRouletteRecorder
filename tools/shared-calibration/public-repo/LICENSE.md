@@ -18,6 +18,13 @@
 
 这里不放 CC0 的全文副本，以免与官方文本不一致；以上面链接的官方文本为准。
 
+## 副本提醒与导随宏：CC BY 4.0 / CC BY-SA 4.0
+
+`community/` 下玩家投稿的副本提醒与导随宏**不是** CC0：每一条按作者投稿时选择的
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode) 或
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode) 公开，所选许可写在该条目的 `license` 字段中，
+使用时需按许可署名作者。上面的 CC0 只适用于校准数据。投稿规则见 [community/README.md](community/README.md)。
+
 ---
 
 Tools, workflows and the issue form are licensed GPL-3.0-or-later, like the MentorRecorder project they are
@@ -25,3 +32,5 @@ copied from; `templates/` are byte-for-byte copies of the project's shipped prof
 The submitted data — the index, the ledger and the share codes — is released under
 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/legalcode) (decided 2026-09-16);
 submitting a share code through the issue form means agreeing to publish it under CC0-1.0.
+The duty reminders and macros under `community/` are not CC0: each entry is published under CC BY 4.0 or CC BY-SA 4.0,
+as its author chose (see the entry's `license` field and [community/README.md](community/README.md)).

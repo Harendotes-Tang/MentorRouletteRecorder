@@ -37,10 +37,13 @@ private Q_SLOTS:
     void communityBlankStatesAreCentred();
     void communityExamplesStartNamedMacros();
     void communityEditorFollowsTheDesign();
+    void communityEditorSaysWhyASaveIsRefused();
+    void communityLateRepliesKeepThePlayersPlace();
     void communityAuthorizationIgnoresSupersededReplies();
     void communityPublicLibraryFoldsAndFilters();
     void communityDirectorySetsTheRangeAndGroupsTheList();
     void communityTextRulesMatchThePublisher();
+    void overlayGuideTipSaysWhereItGoes();
 public:
     Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
     QList<QUrl> opened;
@@ -214,10 +217,26 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
         {QStringLiteral("role"), QStringLiteral("MT")}, {QStringLiteral("tags"), QVariantList{s("开场")}},
         {QStringLiteral("game_version"), QStringLiteral("6.0 - 7.3")}, {QStringLiteral("links"), QVariantList{}},
         {QStringLiteral("source"), s("群友")}};
-    const auto rowOf = [](const QVariantMap &item) {
-        return QVariantMap{{QStringLiteral("content"), item}, {QStringLiteral("revision"), 2},
+    // The revision the entry has in the local list, 0 before it is saved: the Collector (and the
+    // mock) refuses a save made from another one.
+    const auto revisionNow = [&] {
+        for (const QVariant &entry : qmlList(dialog->property("localRows"))) {
+            const QVariantMap row = qmlMap(entry);
+            if (qmlMap(row.value(QStringLiteral("content"))).value(QStringLiteral("id")) == id)
+                return row.value(QStringLiteral("revision")).toInt();
+        }
+        return 0;
+    };
+    const auto rowOf = [&](const QVariantMap &item) {
+        return QVariantMap{{QStringLiteral("content"), item}, {QStringLiteral("revision"), revisionNow()},
                            {QStringLiteral("position"), 3}, {QStringLiteral("favorite"), true}};
     };
+    // The entry exists already, as one opened for editing does.
+    const QVariant firstSave = rowOf(content);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "call", Q_ARG(QVariant, QStringLiteral("save")), Q_ARG(QVariant, firstSave),
+                                      Q_ARG(QVariant, QVariant()), Q_ARG(QVariant, QVariant())));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadLocal"));
+    QTRY_COMPARE(revisionNow(), 1);
     const auto field = [&](const char *name) { return scene.item(QString::fromLatin1(name), true); };
     // The mock reopens its modal automatic-recording alert after a save; a modal popup on top
     // takes the keyboard and blocks the dialog's shortcuts, as it would for a player.
@@ -303,13 +322,7 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QCOMPARE(value.value(QStringLiteral("position")).toInt(), 3);
     QCOMPARE(value.value(QStringLiteral("favorite")).toBool(), true);
     // The save goes to the Collector (here the mock); it lands before the entry opens again.
-    const auto landed = [&] {
-        for (const QVariant &entry : qmlList(dialog->property("localRows")))
-            if (qmlMap(qmlMap(entry).value(QStringLiteral("content"))).value(QStringLiteral("id")) == id)
-                return true;
-        return false;
-    };
-    QTRY_VERIFY(landed());
+    QTRY_COMPARE(revisionNow(), 2);
 
     // A changed BOSS / 阶段 is one value now: it becomes the boss. Jobs are saved as their
     // abbreviations in the catalogue's order.
@@ -344,6 +357,7 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QCOMPARE(item.value(QStringLiteral("game_version")).toString(), QStringLiteral("7.2-"));
     QCOMPARE(item.value(QStringLiteral("role")).toString(), QStringLiteral("PLD,WAR"));
     QTRY_VERIFY(dialog->property("mode").toString() == QStringLiteral("view"));
+    QTRY_COMPARE(revisionNow(), 3);
     QTest::qWait(50);
 
     // A version written by hand is shown under the range and can be cleared, as can 职业. An
@@ -384,6 +398,7 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QCOMPARE(item.value(QStringLiteral("game_version")).toString(), QString());
     QCOMPARE(item.value(QStringLiteral("role")).toString(), QString());
     QTRY_VERIFY(dialog->property("mode").toString() == QStringLiteral("view"));
+    QTRY_COMPARE(revisionNow(), 4);
     QTest::qWait(50);
 
     // A 职能 chosen whole is kept as the group, so later jobs count too (Design: 职业怎么存). A
@@ -413,6 +428,7 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QCOMPARE(item.value(QStringLiteral("role")).toString(), QStringLiteral("TANK,SCH,AST,SGE"));
     QCOMPARE(item.value(QStringLiteral("game_version")).toString(), QStringLiteral("7.3-6.0"));
     QTRY_VERIFY(dialog->property("mode").toString() == QStringLiteral("view"));
+    QTRY_COMPARE(revisionNow(), 5);
     QTest::qWait(50);
 
     // Esc goes back to the list without saving (Design: Esc 或左上角回到列表).
@@ -444,6 +460,113 @@ void DutyCommunityTests::communityEditorFollowsTheDesign()
     QCOMPARE(call("jobsLabel", QStringLiteral("PLD,WAR")), s("骑士、战士"));
     QCOMPARE(call("jobsLabel", QStringLiteral("TANK,BRD")), s("坦克、吟游诗人"));
     QCOMPARE(call("jobsLabel", QStringLiteral("MT")), QStringLiteral("MT"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// A save the Collector refuses comes back into the form with the reason in it, not in the footer
+// the form hides. What the form can tell before sending - a macro line over 180 UTF-8 bytes, a
+// body over 1600 characters, a hidden direction mark in the title - is said under the field and
+// not sent (audit 2026-11-26 R2-1, R1-4).
+void DutyCommunityTests::communityEditorSaysWhyASaveIsRefused()
+{
+    const auto s = [](const char *text) { return QString::fromUtf8(text); };
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    const auto field = [&](const char *name) { return scene.item(QString::fromLatin1(name), true); };
+    // Read at another revision than the one the Collector holds: it answers local_conflict.
+    QVariantMap row = qmlList(dialog->property("localRows")).constFirst().toMap();
+    row.insert(QStringLiteral("revision"), row.value(QStringLiteral("revision")).toInt() + 1);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "startEdit", Q_ARG(QVariant, row)));
+    QTRY_VERIFY(field("dutyCommunityEditorSave"));
+    QVERIFY(!field("dutyCommunityEditorRefusal"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
+    QTRY_VERIFY(field("dutyCommunityEditorRefusal"));
+    QCOMPARE(field("dutyCommunityEditorRefusal")->property("text").toString(), s("本地有同一条目或更新的修改，请重新加载。"));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+
+    QQuickItem *editor = field("dutyCommunityEditor");
+    QSignalSpy saved(editor, SIGNAL(saved(QVariant)));
+    QQuickItem *body = field("dutyCommunityEditorBody");
+    const auto problem = [&](const char *name) {
+        QQuickItem *shown = field(name);
+        return shown ? shown->property("text").toString() : QStringLiteral("<not shown>");
+    };
+    // "/p " and 70 CJK characters: 213 UTF-8 bytes, more than a macro line may hold.
+    body->setProperty("text", QStringLiteral("/p ") + QString(70, QChar(0x6C49)));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
+    QCOMPARE(saved.count(), 0);
+    QCOMPARE(problem("dutyCommunityEditorBodyProblem"), s("第 1 行太长：游戏里一行宏最多 180 个字节，大约 60 个汉字"));
+    QVERIFY(!field("dutyCommunityEditorRefusal"));
+    // Sixteen short lines of 101 characters: 1616 in all.
+    QString longBody;
+    for (int line = 0; line < 16; ++line)
+        longBody += QStringLiteral("/p ") + QString(97, QLatin1Char('a')) + QLatin1Char('\n');
+    body->setProperty("text", longBody);
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
+    QCOMPARE(saved.count(), 0);
+    QCOMPARE(problem("dutyCommunityEditorBodyProblem"), s("正文最多 1600 字，现在有 1616 字"));
+    // A right-to-left override would show the title in another order than it is stored.
+    body->setProperty("text", QStringLiteral("/p ok"));
+    field("dutyCommunityEditorTitle")->setProperty("text", QStringLiteral("ok") + QChar(0x202E) + QStringLiteral("cba"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
+    QCOMPARE(saved.count(), 0);
+    QCOMPARE(problem("dutyCommunityEditorTitleProblem"), s("标题里有看不见的特殊字符，请删掉后重新输入"));
+    QVERIFY(!field("dutyCommunityEditorBodyProblem"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// Answers that arrive after the player moved on leave the new place alone: 投稿进度's answer for
+// a number the field no longer shows is dropped, and a save answered after a new form was opened
+// does not close that form (audit 2026-11-26 R2-3, R2-5).
+void DutyCommunityTests::communityLateRepliesKeepThePlayersPlace()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QObject *service = dialog->property("service").value<QObject *>();
+    QVERIFY(service);
+    dialog->setProperty("issueText", QStringLiteral("128"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "checkIssue"));
+    const int asked = dialog->property("serial").toInt();
+    // The player types another number, as onTextEdited does, before #128 is answered.
+    dialog->setProperty("issueText", QStringLiteral("129"));
+    dialog->setProperty("issueState", QString());
+    const QVariantMap published{{QStringLiteral("status"), QStringLiteral("published")}};
+    QVERIFY(QMetaObject::invokeMethod(service, "answered", Q_ARG(int, asked), Q_ARG(QVariantMap, published),
+                                      Q_ARG(QString, QString())));
+    QCOMPARE(dialog->property("issueState").toString(), QString());
+
+    // Entry A saved, then 新建宏 before the save is answered: the new form stays open.
+    const QVariantMap row = qmlList(dialog->property("localRows")).constFirst().toMap();
+    const int revision = row.value(QStringLiteral("revision")).toInt();
+    const auto firstRevision = [&] {
+        return qmlList(dialog->property("localRows")).constFirst().toMap().value(QStringLiteral("revision")).toInt();
+    };
+    QVERIFY(QMetaObject::invokeMethod(dialog, "startEdit", Q_ARG(QVariant, row)));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityEditorSave"), true));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
+                                      Q_ARG(QVariant, QVariant())));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+    QTRY_COMPARE(firstRevision(), revision + 1);
+    QTest::qWait(50);
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+    QCOMPARE(scene.item(QStringLiteral("dutyCommunityEditorHeading"), true)->property("text").toString(),
+             QString::fromUtf8("新建宏"));
+
+    // The save answered before 新建提醒 opened, the list after it (audit 2026-11-26 RE-9): the
+    // saved entry is not revealed over the new form.
+    dialog->setProperty("mode", QStringLiteral("view"));
+    dialog->setProperty("revealId", qmlMap(row.value(QStringLiteral("content"))).value(QStringLiteral("id")));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadLocal"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("reminder")),
+                                      Q_ARG(QVariant, QVariant())));
+    QTRY_COMPARE(dialog->property("revealId").toString(), QString());
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+    QCOMPARE(scene.item(QStringLiteral("dutyCommunityEditorHeading"), true)->property("text").toString(),
+             QString::fromUtf8("新建提醒"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -599,6 +722,26 @@ void DutyCommunityTests::communityPublicLibraryFoldsAndFilters()
     QVERIFY(!dialog->property("filterActive").toBool());
     dialog->setProperty("tab", QStringLiteral("public"));
     setFilter("job", {});
+
+    // The panel lists a dozen rows before a search: a chosen option past them keeps its row, and
+    // the rest are counted for the hint that a search finds them (audit 2026-11-26 K3-3).
+    QQuickItem *jobFilter = scene.item(QStringLiteral("dutyCommunityJobFilter"), true);
+    QVERIFY(jobFilter);
+    QVariantList many;
+    for (int number = 0; number < 15; ++number)
+        many << QVariantMap{{QStringLiteral("value"), QStringLiteral("J%1").arg(number)},
+                            {QStringLiteral("label"), QStringLiteral("Job %1").arg(number)},
+                            {QStringLiteral("sub"), QString()}, {QStringLiteral("count"), 1}};
+    jobFilter->setProperty("options", many);
+    jobFilter->setProperty("selection", QVariantList{QStringLiteral("J14")});
+    QVariant listed;
+    QVERIFY(QMetaObject::invokeMethod(jobFilter, "listed", Q_RETURN_ARG(QVariant, listed), Q_ARG(QVariant, QString())));
+    QStringList values;
+    for (const QVariant &option : qmlMap(listed).value(QStringLiteral("rows")).toList())
+        values << option.toMap().value(QStringLiteral("value")).toString();
+    QCOMPARE(values.size(), 13);
+    QCOMPARE(values.last(), QStringLiteral("J14"));
+    QCOMPARE(qmlMap(listed).value(QStringLiteral("hidden")).toInt(), 2);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -769,6 +912,47 @@ void DutyCommunityTests::communityTextRulesMatchThePublisher()
                  qPrintable(QStringLiteral("%1 / %2: %3").arg(item.at(0).toString(), item.at(1).toString())
                                 .arg(value)));
     }
+    // What a submission leaves out as a repeat (audit 2026-11-26 R2-10) and what a text field may
+    // hold (R1-4): the publisher and the Collector run the same cases.
+    const QJsonArray repeats = vectors.value(QStringLiteral("repeats")).toArray();
+    QVERIFY(!repeats.isEmpty());
+    for (const QJsonValue &value : repeats) {
+        const QJsonObject testCase = value.toObject();
+        QVariantMap library;
+        for (const QJsonValue &entry : testCase.value(QStringLiteral("library")).toArray())
+            library.insert(entry.toObject().value(QStringLiteral("id")).toString(), entry.toObject().toVariantMap());
+        const QJSValue drafts = engine.toScriptValue(testCase.value(QStringLiteral("drafts")).toArray().toVariantList());
+        const QVariantMap found = call("repeats", {drafts, engine.toScriptValue(library)}).toVariant().toMap();
+        QVariantMap twins;
+        for (auto twin = found.cbegin(); twin != found.cend(); ++twin)
+            twins.insert(twin.key(), twin.value().toMap().value(QStringLiteral("id")));
+        const QString name = testCase.value(QStringLiteral("name")).toString();
+        QVERIFY2(twins == testCase.value(QStringLiteral("expected")).toObject().toVariantMap(), qPrintable(name));
+    }
+    const QJsonArray fields = vectors.value(QStringLiteral("field_text")).toArray();
+    QVERIFY(!fields.isEmpty());
+    for (const QJsonValue &value : fields) {
+        const QJsonArray item = value.toArray();
+        const bool accepted = call("validText", {item.at(0).toString(), item.at(1).toBool()}).toBool();
+        QVERIFY2(accepted == item.at(2).toBool(),
+                 qPrintable(item.at(0).toString() + (item.at(1).toBool() ? QStringLiteral(" (multi-line)")
+                                                                          : QStringLiteral(" (single line)"))));
+    }
+}
+
+// The float's 攻略 button is an icon alone, so its tooltip is the sentence that says where it
+// goes, not the caption with an arrow a text button shows (audit 2026-11-26 L3-1).
+void DutyCommunityTests::overlayGuideTipSaysWhereItGoes()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->toggleModule(QStringLiteral("current_duty"));
+    QVERIFY(scene.showFloating());
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingDutyGuide"), true));
+    QCOMPARE(scene.item(QStringLiteral("floatingDutyGuide"), true)->property("tip").toString(),
+             QString::fromUtf8("在浏览器打开「新大陆见闻录」的攻略目录"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
 MR_DESKTOP_TEST_SUITE(DutyCommunity)

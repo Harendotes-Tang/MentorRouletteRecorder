@@ -41,13 +41,33 @@
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTranslator>
 
 namespace {
 
 using mrtest::findVisualItem;
+
+/// The interface in another language: only the recording controller's missing-Npcap
+/// sentence is translated, as the shipping en catalogue words it (audit 2026-11-26 K2-4).
+class NpcapSentenceTranslator final : public QTranslator
+{
+public:
+    bool isEmpty() const override { return false; }
+    QString translate(const char *context, const char *sourceText, const char *, int) const override
+    {
+        if (qstrcmp(context, "mr::AutomaticRecordingController") != 0)
+            return {};
+        if (QString::fromUtf8(sourceText)
+            == QString::fromUtf8("尚未安装 Npcap 驱动，暂时不能自动记录。请按「捕获诊断」中的说明安装。"))
+            return QString::fromUtf8("The Npcap driver isn't installed, so automatic recording is unavailable "
+                                     "for now. Install it as described in “Capture diagnostics”.");
+        return {};
+    }
+};
 using PageScene = CapturePageScene;
 
 /// Answers GetStatus / GetCaptureStatus with one hand-written capture status;
@@ -1211,6 +1231,37 @@ private slots:
         QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
     }
 
+    // Audit 2026-11-26 K2-4: the same in another interface language. The pointer was
+    // removed by a pattern over the zh-CN / zh-TW wording, so the English sentence kept
+    // "Install it as described in “Capture diagnostics”" while the steps were hidden.
+    void aKeptNpcapIncidentDoesNotPointAtHiddenStepsInAnotherLanguage()
+    {
+        NpcapSentenceTranslator english;
+        QVERIFY(QCoreApplication::installTranslator(&english));
+        const auto removeTranslator = qScopeGuard([&english] { QCoreApplication::removeTranslator(&english); });
+        PageScene scene;
+        auto *source = scene.fake<UnreadableBackend>();
+        source->connected = true;
+        source->statusReadable = true;
+        source->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                           {QStringLiteral("ffxiv_running"), true},
+                           {QStringLiteral("ffxiv_process_id"), 18244},
+                           {QStringLiteral("npcap_installed"), false},
+                           {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QVERIFY(scene.app->recording()->message().contains(QStringLiteral("Capture diagnostics")));
+
+        source->setConnected(false);
+        QVERIFY(!scene.app->backendConnected());
+        QCOMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_VERIFY(!scene.text(QStringLiteral("captureHeroText")).isEmpty());
+        const QString hero = scene.text(QStringLiteral("captureHeroText"));
+        QVERIFY2(!hero.contains(QStringLiteral("Capture diagnostics")) && !hero.contains(QStringLiteral("described")),
+                 qPrintable(hero));
+        QVERIFY2(hero.contains(QStringLiteral("Npcap")), qPrintable(hero));
+    }
+
     // OB8-D1：只读得到 Npcap 自带 libpcap 的版本时，采集服务报「libpcap 1.10.6」；页面在
     // 前面再加「v」就成了「vlibpcap 1.10.6」。只有以数字开头的版本号才加「v」。
     void aLibpcapVersionIsNotPrefixedWithAV()
@@ -1901,22 +1952,28 @@ private slots:
     }
 
     // The TCP-table reading alone can call for a choice: the game's connections
-    // on no card of Npcap's (UNMAPPED), IPv6 only, or a local proxy (LOOPBACK),
-    // while nothing is being read. A running recovery is the Collector's own
-    // search and keeps the cards; the stale-card notice, with its one-click
-    // answer, outranks the picker.
+    // on no card of Npcap's (UNMAPPED) or a local proxy (LOOPBACK), while
+    // nothing is being read. A running recovery is the Collector's own search
+    // and keeps the cards; the stale-card notice, with its one-click answer,
+    // outranks the picker. Audit 2026-11-26 K2-1: an IPv6-only connection is
+    // not offered the cards - the Collector reads IPv4 only, so no card can
+    // help, and the hero says the connection cannot be read - nor is a local
+    // proxy when the Collector says loopback cannot be captured.
     void aPathTheCollectorCannotMapOffersTheCards_data()
     {
         QTest::addColumn<QString>("kind");
         QTest::addColumn<QString>("recovery");
         QTest::addColumn<bool>("stale");
+        QTest::addColumn<bool>("loopbackCapturable");
         QTest::addColumn<bool>("picker");
-        QTest::newRow("unmapped") << QStringLiteral("UNMAPPED") << QStringLiteral("NONE") << false << true;
-        QTest::newRow("ipv6 only") << QStringLiteral("IPV6_ONLY") << QStringLiteral("NONE") << false << true;
-        QTest::newRow("loopback") << QStringLiteral("LOOPBACK") << QStringLiteral("NONE") << false << true;
-        QTest::newRow("mapped") << QStringLiteral("SELECTED_INTERFACE") << QStringLiteral("NONE") << false << false;
-        QTest::newRow("recovering") << QStringLiteral("UNMAPPED") << QStringLiteral("RECOVERING") << false << false;
-        QTest::newRow("stale notice first") << QStringLiteral("UNMAPPED") << QStringLiteral("FAILED") << true << false;
+        QTest::newRow("unmapped") << QStringLiteral("UNMAPPED") << QStringLiteral("NONE") << false << true << true;
+        QTest::newRow("ipv6 only") << QStringLiteral("IPV6_ONLY") << QStringLiteral("NONE") << false << true << false;
+        QTest::newRow("loopback") << QStringLiteral("LOOPBACK") << QStringLiteral("NONE") << false << true << true;
+        QTest::newRow("loopback not capturable")
+            << QStringLiteral("LOOPBACK") << QStringLiteral("NONE") << false << false << false;
+        QTest::newRow("mapped") << QStringLiteral("SELECTED_INTERFACE") << QStringLiteral("NONE") << false << true << false;
+        QTest::newRow("recovering") << QStringLiteral("UNMAPPED") << QStringLiteral("RECOVERING") << false << true << false;
+        QTest::newRow("stale notice first") << QStringLiteral("UNMAPPED") << QStringLiteral("FAILED") << true << true << false;
     }
 
     void aPathTheCollectorCannotMapOffersTheCards()
@@ -1924,6 +1981,7 @@ private slots:
         QFETCH(QString, kind);
         QFETCH(QString, recovery);
         QFETCH(bool, stale);
+        QFETCH(bool, loopbackCapturable);
         QFETCH(bool, picker);
         PageScene scene;
         auto *backend = scene.fake<CaptureBackend>();
@@ -1931,7 +1989,9 @@ private slots:
                             {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
                             {"game_build", "2026.10.06.0000.0000"},
                             {"path_recovery", QJsonObject{{"state", recovery}, {"attempts", 0}, {"retry_after_ms", 0}}},
-                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", kind}}}};
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", kind},
+                                                         {"loopback_capture_available", loopbackCapturable},
+                                                         {"ipv6_capture_supported", false}}}};
         backend->adapters = {{"adapters", QJsonArray{
                QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", stale},
                            {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
@@ -1941,6 +2001,80 @@ private slots:
         QTRY_COMPARE(scene.app->captureAdapters().size(), 2);
         QTRY_COMPARE(scene.shows(QStringLiteral("captureAdapterPicker")), picker);
         QCOMPARE(scene.shows(QStringLiteral("useRecommendedAdapterButton")), stale);
+        if (kind == QLatin1String("IPV6_ONLY")) {
+            // Instead of the cards, the page says this connection cannot be read.
+            QVERIFY2(scene.text(QStringLiteral("captureNetworkPathSummary")).contains(QString::fromUtf8("暂不支持读取")),
+                     qPrintable(scene.text(QStringLiteral("captureNetworkPathSummary"))));
+            QVERIFY(chainSub(scene, "adapter") != QString::fromUtf8("请在下方选择网卡"));
+        }
+    }
+
+    // Audit 2026-11-26 K2-2: a card the Collector would ignore (no IPv4 address, or
+    // not connected - CapturePathPlan.IsUsable) cannot be chosen, and the note under
+    // a choice says what the Collector really does with it.
+    void theCardsOfferOnlyWhatTheCollectorCanUse()
+    {
+        PageScene scene;
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->acceptWrites = true;
+        backend->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
+                            {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"},
+                            {"path_recovery", QJsonObject{{"state", "NONE"}, {"attempts", 0}, {"retry_after_ms", 0}}},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "UNMAPPED"}}}};
+        backend->adapters = {{"adapters", QJsonArray{
+               QJsonObject{{"adapter_id", "v6"}, {"friendly_name", "IPv6 only"}, {"ipv4_addresses", QJsonArray{}},
+                           {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "down"}, {"friendly_name", "Unplugged"}, {"ipv4_addresses", QJsonArray{"10.0.0.x"}},
+                           {"is_loopback", false}, {"is_up", false}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "lo"}, {"friendly_name", "Loopback"}, {"ipv4_addresses", QJsonArray{}},
+                           {"is_loopback", true}, {"is_up", true}, {"recommended", false}},
+               QJsonObject{{"adapter_id", "tap"}, {"friendly_name", "TAP"}, {"ipv4_addresses", QJsonArray{"10.8.0.x"}},
+                           {"is_loopback", false}, {"is_up", true}, {"recommended", false}}}}};
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->captureAdapters().size(), 4);
+        QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterPicker")));
+        QTRY_VERIFY(scene.item(QStringLiteral("captureAdapterUseButton_3")));
+        const bool expected[] = {false, false, true, true};
+        for (int index = 0; index < 4; ++index) {
+            auto *use = scene.item(QStringLiteral("captureAdapterUseButton_%1").arg(index));
+            QVERIFY(use);
+            QTRY_COMPARE(use->property("enabled").toBool(), expected[index]);
+        }
+        QVERIFY(!scene.shows(QStringLiteral("captureAdapterChosenNote")));
+
+        auto *tap = scene.item(QStringLiteral("captureAdapterUseButton_3"));
+        QVERIFY(QMetaObject::invokeMethod(tap, "clicked"));
+        QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterChosenNote")));
+        const QString note = scene.text(QStringLiteral("captureAdapterChosenNote"));
+        QVERIFY2(note.contains(QString::fromUtf8("会自动改用那一张")), qPrintable(note));
+        QVERIFY2(!note.contains(QString::fromUtf8("一直使用")), qPrintable(note));
+    }
+
+    // Audit 2026-11-26 K2-3: with no card listed, the card offers 重新检测网卡 itself
+    // rather than pointing at the hero's button, which a player does not see before the
+    // Collector's own recovery has run.
+    void anEmptyCardListOffersItsOwnRescan()
+    {
+        PageScene scene;
+        auto *backend = scene.fake<CaptureBackend>();
+        backend->capture = {{"state", "STOPPED"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
+                            {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
+                            {"game_build", "2026.10.06.0000.0000"},
+                            {"path_recovery", QJsonObject{{"state", "NONE"}, {"attempts", 0}, {"retry_after_ms", 0}}},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "UNMAPPED"}}}};
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterPicker")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterPickerEmpty")));
+        QVERIFY(!scene.shows(QStringLiteral("rescanAdaptersButton")));
+        const QString empty = scene.text(QStringLiteral("captureAdapterPickerEmpty"));
+        QVERIFY2(!empty.contains(QString::fromUtf8("连接状态旁")), qPrintable(empty));
+        QVERIFY(scene.shows(QStringLiteral("captureAdapterPickerRescan")));
+        auto *rescan = scene.item(QStringLiteral("captureAdapterPickerRescan"));
+        QVERIFY(rescan);
+        const int before = backend->counts.value(QStringLiteral("ListCaptureAdapters"));
+        QVERIFY(QMetaObject::invokeMethod(rescan, "clicked"));
+        QTRY_VERIFY(backend->counts.value(QStringLiteral("ListCaptureAdapters")) > before);
     }
 
     void aPlayersPageCarriesNoWireVocabulary()

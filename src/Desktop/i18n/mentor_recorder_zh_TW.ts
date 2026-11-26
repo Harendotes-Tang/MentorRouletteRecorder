@@ -863,12 +863,16 @@
         <translation>使用這張網路卡</translation>
     </message>
     <message>
-        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
-        <translation>找不到網路卡。請點連線狀態旁的「重新偵測網路卡」重試。</translation>
+        <source>没有找到网卡。请点右侧的“重新检测网卡”重试。</source>
+        <translation>找不到網路卡。請點右側的「重新偵測網路卡」重試。</translation>
     </message>
     <message>
-        <source>选择的网卡会一直使用，直到改回自动选择。</source>
-        <translation>選擇的網路卡會一直使用，直到改回自動選擇。</translation>
+        <source>重新检测网卡</source>
+        <translation>重新偵測網路卡</translation>
+    </message>
+    <message>
+        <source>软件会优先使用这张网卡；游戏连接不在这张网卡上、而在另一张网卡上时，会自动改用那一张。</source>
+        <translation>軟體會優先使用這張網路卡；遊戲連線不在這張網路卡上、而在另一張網路卡上時，會自動改用那一張。</translation>
     </message>
     <message>
         <source>改回自动选择</source>
@@ -1384,6 +1388,10 @@
         <source>。</source>
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>。</translation>
+    </message>
+    <message>
+        <source>尚未安装 Npcap 驱动，暂时不能自动记录。</source>
+        <translation>尚未安裝 Npcap 驅動程式，暫時無法自動記錄。</translation>
     </message>
     <message>
         <source>自动寻找网络路径</source>
@@ -3424,11 +3432,6 @@ SHA256：%3</translation>
         <translation>這個用戶端的安裝路徑表明的伺服器地區與設定中為它手動指定的伺服器地區不一致，已按手動指定的伺服器地區處理。若這不是你想要的，請到設定中清除手動指定的伺服器地區。</translation>
     </message>
     <message>
-        <source>设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.game.region_override_mismatch</comment>
-        <translation>設定中手動指定的伺服器地區尚未綁定到這個用戶端，且與它的安裝路徑表明的伺服器地區不一致，因此暫不進行任何自動記錄。若這個用戶端確實屬於手動指定的伺服器地區，請在它執行時到設定中重新選擇一次伺服器地區；否則請清除手動指定的伺服器地區。</translation>
-    </message>
-    <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
         <translation>無法從安裝路徑判斷伺服器地區（路徑可讀取，但不含可辨識的伺服器地區標記）。請到設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
@@ -3462,11 +3465,6 @@ SHA256：%3</translation>
         <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
         <comment>capture.validation.failed_identity_key_unreadable</comment>
         <translation>暫時讀不到角色識別採證要用的本機金鑰，採證沒有開始，也沒有產生檔案。請稍後再試；詳情請見本機診斷記錄檔。</translation>
-    </message>
-    <message>
-        <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.validation.waiting_region_mismatch</comment>
-        <translation>僅驗證，不自動記錄。設定中手動指定的伺服器地區尚未綁定到這個用戶端，且與它的安裝路徑表明的伺服器地區不一致。若這個用戶端確實屬於手動指定的伺服器地區，請在它執行時到設定中重新選擇一次伺服器地區；否則請清除手動指定的伺服器地區。</translation>
     </message>
     <message>
         <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
@@ -3509,9 +3507,19 @@ SHA256：%3</translation>
         <translation>沒能清空校準進度：儲存校準進度的檔案正被其他程式佔用（例如安全軟體正在檢查它）。請稍後再點「清空校準進度」。</translation>
     </message>
     <message>
+        <source>设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.game.region_override_mismatch</comment>
+        <translation>設定中手動指定的伺服器地區、這個用戶端的安裝路徑和它的程式檔案表明的伺服器地區不一致，因此暫不進行任何自動記錄。安裝路徑能明確表明伺服器地區時以路徑為準：如果手動指定的伺服器地區選錯了，請到設定中清除它；如果是安裝資料夾的名稱讓軟體認錯了伺服器地區，請把遊戲移到名稱裡不含其他伺服器地區字樣的資料夾，再重新啟動遊戲。</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
         <comment>capture.validation.waiting_adapter_chosen</comment>
         <translation>僅驗證，不自動記錄。所選網路卡未連線或沒有 IPv4 位址，取證不會開始。請取消後改選正在上網的網路卡，或改用「自動選擇」。</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.validation.waiting_region_mismatch</comment>
+        <translation>僅驗證，不自動記錄。設定中手動指定的伺服器地區、這個用戶端的安裝路徑和它的程式檔案表明的伺服器地區不一致。安裝路徑能明確表明伺服器地區時以路徑為準：如果手動指定的伺服器地區選錯了，請到設定中清除它；如果是安裝資料夾的名稱讓軟體認錯了伺服器地區，請把遊戲移到名稱裡不含其他伺服器地區字樣的資料夾，再重新啟動遊戲。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4042,6 +4050,11 @@ SHA256：%3</translation>
         <comment>import.time_field.source_recorded</comment>
         <extracomment>The name of a time in an imported record; it opens the import.row.time_* sentences.</extracomment>
         <translation>原記錄時間</translation>
+    </message>
+    <message>
+        <source>未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。</source>
+        <comment>import.warning.duty_unmatched</comment>
+        <translation>無法確認副本，已保留原名稱。請核對並選擇副本；不確定可保留未知。</translation>
     </message>
     <message>
         <source>未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。</source>
@@ -5747,6 +5760,18 @@ SHA256：%3</translation>
         <translation>遊戲記錄儲存在本機</translation>
     </message>
     <message>
+        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <translation>在「提醒與巨集」中開啟「允許公共庫連線」後，只在你開啟「公共共享庫」或點重新整理時，背景服務才會從本專案在 GitHub 的公開儲存庫讀取大家投稿的內容（GitHub 3 秒內沒有回應或讀取失敗時，也會向它在 GitCode 上的同名鏡像讀取，採用先讀到的可用內容）。這類請求不傳送你本機的內容、角色或篩選條件，GitHub 與 GitCode 能看到你的 IP 位址。關閉同一個開關即停止這類請求。</translation>
+    </message>
+    <message>
+        <source>在「投稿进度」里点「查看状态」时，后台服务会向 GitHub 查询你填写的 Issue 编号；这一查询不受上面的开关控制。</source>
+        <translation>在「投稿進度」中點「檢視狀態」時，背景服務會向 GitHub 查詢你填寫的 Issue 編號；這項查詢不受上面的開關控制。</translation>
+    </message>
+    <message>
+        <source>目前发布的版本只通过浏览器投稿：软件复制投稿正文并在浏览器打开 GitHub 表单，你提交的正文以你自己的 GitHub 账号公开发布。软件不登录 GitHub，也不保存任何 GitHub 凭据。配置了软件内投稿的版本会在你选择直接提交时请你登录，授权令牌由 Windows 加密保存在本机，点「退出 GitHub」即可删除。</source>
+        <translation>目前發布的版本只透過瀏覽器投稿：軟體複製投稿內文並在瀏覽器開啟 GitHub 表單，你送出的內文以你自己的 GitHub 帳號公開發布。軟體不登入 GitHub，也不儲存任何 GitHub 憑證。設定了軟體內投稿的版本會在你選擇直接送出時請你登入，授權權杖由 Windows 加密儲存在本機，點「登出 GitHub」即可刪除。</translation>
+    </message>
+    <message>
         <source>会区分登录的角色（国服、国际服，默认开启，可关）</source>
         <translation>會區分登入的角色（國服、國際服，預設開啟，可關）</translation>
     </message>
@@ -5759,12 +5784,12 @@ SHA256：%3</translation>
         <translation>記錄儲存在本機資料庫，介面與背景服務只在本機通訊。沒有遙測或雲端同步，下列連網請求不會上傳資料庫。</translation>
     </message>
     <message>
-        <source>后台服务仅为以下三类用途联网</source>
-        <translation>背景服務僅為以下三類用途連網</translation>
+        <source>后台服务仅为以下四类用途联网</source>
+        <translation>背景服務僅為以下四類用途連網</translation>
     </message>
     <message>
-        <source>界面本身不直接联网。后台服务只为下面三类用途发送请求，没有遥测。</source>
-        <translation>介面本身不直接連網。背景服務只為下面三類用途傳送請求，沒有遙測。</translation>
+        <source>界面本身不直接联网。后台服务只为下面四类用途发送请求，没有遥测。</source>
+        <translation>介面本身不直接連網。背景服務只為下面四類用途傳送請求，沒有遙測。</translation>
     </message>
     <message>
         <source>联网一：游戏更新后获取共享校准（默认开启，可关）</source>
@@ -5789,6 +5814,10 @@ SHA256：%3</translation>
     <message>
         <source>默认在启动软件时及持续运行期间定期检查更新，先从本项目在 GitHub 的公开发布页读取版本信息（GitHub 读取失败时，改从它在 GitCode 上的同名镜像读取），有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包（同样先从 GitHub 下载，失败时改从 GitCode 镜像下载），并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
         <translation>預設在啟動軟體時及持續執行期間定期檢查更新，先從本專案在 GitHub 的公開發布頁讀取版本資訊（GitHub 讀取失敗時，改從它在 GitCode 上的同名鏡像讀取），有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載安裝程式」只下載安裝程式（同樣先從 GitHub 下載，失敗時改從 GitCode 鏡像下載），並核對發布時公布的校驗值；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，GitHub、GitCode 及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝程式會刪除。</translation>
+    </message>
+    <message>
+        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
+        <translation>連網四：提醒與巨集的公共共享庫和投稿（預設關閉）</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5983,6 +6012,14 @@ SHA256：%3</translation>
     <message>
         <source>游戏版本</source>
         <translation>遊戲版本</translation>
+    </message>
+    <message>
+        <source>标签</source>
+        <translation>標籤</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
     </message>
     <message>
         <source>维护者核对过内容和适用范围</source>
@@ -6324,10 +6361,6 @@ SHA256：%3</translation>
         <translation>來源版本已變更，請重新整理並比較。</translation>
     </message>
     <message>
-        <source>来源或关联内容已撤回或不可用。</source>
-        <translation>來源或關聯內容已撤回或無法使用。</translation>
-    </message>
-    <message>
         <source>本地有同一条目或更新的修改，请重新加载。</source>
         <translation>本機有相同項目或較新的修改，請重新載入。</translation>
     </message>
@@ -6448,6 +6481,10 @@ SHA256：%3</translation>
         <translation>目前無法確認提交結果，請在 GitHub 檢查投稿後再重試。</translation>
     </message>
     <message>
+        <source>投稿没有发出，什么都没有提交，请稍后再试。</source>
+        <translation>投稿沒有送出，什麼都沒有提交，請稍後再試。</translation>
+    </message>
+    <message>
         <source>投稿已关闭。</source>
         <translation>投稿已關閉。</translation>
     </message>
@@ -6478,6 +6515,22 @@ SHA256：%3</translation>
     <message>
         <source>关闭</source>
         <translation>關閉</translation>
+    </message>
+    <message>
+        <source>「%1」没有保存：</source>
+        <translation>「%1」沒有儲存：</translation>
+    </message>
+    <message>
+        <source>保存或取消当前表单后可以恢复。</source>
+        <translation>儲存或取消目前的表單後即可恢復。</translation>
+    </message>
+    <message>
+        <source>恢复</source>
+        <translation>恢復</translation>
+    </message>
+    <message>
+        <source>放弃</source>
+        <translation>放棄</translation>
     </message>
     <message>
         <source>还没有提醒或宏</source>
@@ -6644,6 +6697,10 @@ SHA256：%3</translation>
         <translation>別人可以複製、修改並再次分享，要寫明原作者是你，改過的版本也必須按同樣的規則公開。</translation>
     </message>
     <message>
+        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
+        <translation>這則內容已從公共共享庫撤回或不再提供，請重新整理公共共享庫後再試。</translation>
+    </message>
+    <message>
         <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
         <translation>投稿的內容公共共享庫裡都已經有了，沒有重複發布。</translation>
     </message>
@@ -6803,6 +6860,22 @@ SHA256：%3</translation>
         <translation>換成你選中的目標的名字</translation>
     </message>
     <message>
+        <source>标题里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>標題裡有看不見的特殊字元，請刪掉後重新輸入</translation>
+    </message>
+    <message>
+        <source>正文最多 1600 字，现在有 %1 字</source>
+        <translation>內文最多 1600 字，現在有 %1 字</translation>
+    </message>
+    <message>
+        <source>正文里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>內文裡有看不見的特殊字元，請刪掉後重新輸入</translation>
+    </message>
+    <message>
+        <source>第 %1 行太长：游戏里一行宏最多 180 个字节，大约 60 个汉字</source>
+        <translation>第 %1 行太長：遊戲裡一行巨集最多 180 個位元組，大約 60 個漢字</translation>
+    </message>
+    <message>
         <source>插入</source>
         <translation>插入</translation>
     </message>
@@ -6817,6 +6890,10 @@ SHA256：%3</translation>
     <message>
         <source>BOSS / 阶段</source>
         <translation>BOSS / 階段</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>BOSS / 階段裡有看不見的特殊字元，請刪掉後重新輸入</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7111,10 +7188,6 @@ SHA256：%3</translation>
         <translation>貼上的是一大段像程式碼的文字，不要刪改，直接在 GitHub 頁面上提交。</translation>
     </message>
     <message>
-        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
-        <translation>會公開這 %1 項的標題、正文、副本、BOSS / 階段、區服和語言，以及所選授權。只投稿你有權分享的文字，避免包含個人資訊。</translation>
-    </message>
-    <message>
         <source>公开作者：@%1</source>
         <translation>公開作者：@%1</translation>
     </message>
@@ -7125,6 +7198,14 @@ SHA256：%3</translation>
     <message>
         <source>许可</source>
         <translation>授權</translation>
+    </message>
+    <message>
+        <source>复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>複製投稿內文，在瀏覽器開啟的 GitHub 表單中貼上並送出。</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>會公開這 %1 項的類型、標題、正文、副本、BOSS / 階段、職業、遊戲版本、區服、語言、標籤、來源和關聯項目，以及所選授權。只投稿你有權分享的文字，避免包含個人資訊。</translation>
     </message>
     <message>
         <source>收起全文</source>
@@ -7215,117 +7296,110 @@ SHA256：%3</translation>
         <translation>一次最多投稿 20 項，請少選幾項再投稿。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>格式版本</source>
         <translation>格式版本</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>条目 ID</source>
         <translation>項目 ID</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>类型</source>
         <translation>類型</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>副本编号</source>
         <translation>副本編號</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>区服</source>
         <translation>區服</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>语言</source>
         <translation>語言</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>标题</source>
         <translation>標題</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>正文</source>
         <translation>內文</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>BOSS</source>
         <translation>BOSS</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>阶段</source>
         <translation>階段</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>职业</source>
         <translation>職業</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>标签</source>
         <translation>標籤</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>游戏版本</source>
         <translation>遊戲版本</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>关联条目</source>
         <translation>關聯項目</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>来源</source>
         <translation>來源</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="166"/>
         <source>（空）</source>
         <translation>（空白）</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="297"/>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
         <source>本次投稿的「%1」已有相同正文，此项不再投稿</source>
         <translation>本次投稿的「%1」已有相同內文，此項將略過。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="307"/>
+        <source>来源：%1</source>
+        <translation>來源：%1</translation>
+    </message>
+    <message>
+        <source>标签：%1</source>
+        <translation>標籤：%1</translation>
+    </message>
+    <message>
+        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
+        <translation>來源加上原作者署名後超過 240 字，公共共享庫放不下，這一項無法投稿。</translation>
+    </message>
+    <message>
         <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>本機稿件以第 %1 版為基礎，公開資料庫已更新至第 %2 版。請返回項目，比對並套用來源更新後再投稿。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="314"/>
         <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
         <translation>此稿件缺少來源版本編號。請與公開資料庫第 %1 版比對，確認後再投稿。</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>收起对比</source>
         <translation>收合比對</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>对比公共版本与本地稿件</source>
         <translation>比對公開版本與本機稿件</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="326"/>
         <source>− 公共版本 / + 本次投稿</source>
         <translation>− 公開版本 / + 本次投稿</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="344"/>
         <source>确认以此公共版本为基线</source>
         <translation>確認以此公開版本為基準</translation>
     </message>
@@ -7902,6 +7976,10 @@ SHA256：%3</translation>
         <translation>這一輪會記錄少數幾種封包的內容，用來確定任務編號、副本和職業在封包裡的位置。範圍只限於這個遊戲版本的候選設定檔裡列出的封包；其中個別候選可能並不是我們以為的那一種，裡面可能包含與您的角色有關的資訊。檔案只儲存在這台電腦上，不會自動上傳，由您決定是否寄給維護者。</translation>
     </message>
     <message>
+        <source>导出的文件只包含这一轮的证据，其中也有软件读到的任务、职业和副本，以及你在这一轮中改过的答案。软件自己也会在本机保留这些报文内容最多 30 天，期间生成的数据库备份同样包含它们，删除那些备份即可清除。</source>
+        <translation>匯出的檔案只包含這一輪的證據，其中也有軟體讀到的任務、職業和副本，以及你在這一輪中改過的答案。軟體自己也會在本機保留這些報文內容最多 30 天，期間產生的資料庫備份同樣包含它們，刪除那些備份即可清除。</translation>
+    </message>
+    <message>
         <source>我已了解并同意这一轮记录这些报文的内容</source>
         <translation>我已瞭解並同意這一輪記錄這些封包的內容</translation>
     </message>
@@ -7960,10 +8038,6 @@ SHA256：%3</translation>
     <message>
         <source>待处理</source>
         <translation>待處理</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>匯出的檔案只包含這一輪的證據。</translation>
     </message>
     <message>
         <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
@@ -8279,6 +8353,10 @@ SHA256：%3</translation>
     <message>
         <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
         <translation>私下交給維護者：trace.jsonl、trace.jsonl.sha256 和這段說明。</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、日志 collector-*.log（含几小段游戏主程序的指令字节）、截图和这段说明。</source>
+        <translation>打包成一個 ZIP，私下交給維護者：採證檔案、診斷 JSON、記錄檔 collector-*.log（含幾小段遊戲主程式的指令位元組）、截圖和這段說明。</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -8651,14 +8729,6 @@ SHA256：%3</translation>
         <translation>斷線</translation>
     </message>
     <message>
-        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
-        <translation>這一輪用了軟體在本機找到的讀取方法，維護者要用記錄檔裡的查找結果為這個區服適配；在資料目錄 logs</translation>
-    </message>
-    <message>
-        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
-        <translation>這一輪軟體沒能在本機找到讀懂遊戲資料的方法，維護者要用記錄檔裡的查找結果排查；在資料目錄 logs</translation>
-    </message>
-    <message>
         <source>状态截图</source>
         <translation>狀態截圖</translation>
     </message>
@@ -8819,6 +8889,14 @@ SHA256：%3</translation>
         <translation>結果：%1</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>這一輪用了軟體在本機找到的讀取方法，維護者要用記錄檔裡的查找結果為這個區服適配；含幾小段遊戲主程式的指令位元組，在資料目錄 logs</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>這一輪軟體沒能在本機找到讀懂遊戲資料的方法，維護者要用記錄檔裡的查找結果排查；含幾小段遊戲主程式的指令位元組，在資料目錄 logs</translation>
+    </message>
+    <message>
         <source>缺失：%1</source>
         <translation>缺失：%1</translation>
     </message>
@@ -8966,6 +9044,10 @@ SHA256：%3</translation>
         <translation>錯誤碼：</translation>
     </message>
     <message>
+        <source>第二轮正在进行，先在上方结束这一轮，才能开始采证。</source>
+        <translation>第二輪正在進行，先在上方結束這一輪，才能開始採證。</translation>
+    </message>
+    <message>
         <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
         <translation>目前正在正式記錄，不能切換為採證。已有版本的校準核實請用「工具 › 共享校準證據」。</translation>
     </message>
@@ -9044,10 +9126,6 @@ SHA256：%3</translation>
     <message>
         <source>去「设置 › 数据」备份</source>
         <translation>去「設定 › 資料」備份</translation>
-    </message>
-    <message>
-        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
-        <translation>第二輪正在進行，按上方的「結束並匯出」後才能開始採證。</translation>
     </message>
 </context>
 <context>
@@ -10939,6 +11017,10 @@ SHA256：%3</translation>
     <message>
         <source>清空</source>
         <translation>清空</translation>
+    </message>
+    <message>
+        <source>还有 %1 项，输入名称查找</source>
+        <translation>還有 %1 項，輸入名稱查找</translation>
     </message>
 </context>
 <context>
@@ -13327,6 +13409,14 @@ SHA256：%3</translation>
     <message>
         <source>通关后提醒记笔记</source>
         <translation>通關後提醒記筆記</translation>
+    </message>
+    <message>
+        <source>暂时无法确认后台服务是否采用了这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，可能仍按电脑的时区计算。后台服务重新连接后会再发送一次。</source>
+        <translation>暫時無法確認背景服務是否採用了這個時區：日曆中哪些日子有記錄、只知道日期的記錄如何排序，可能仍按電腦的時區計算。背景服務重新連線後會再傳送一次。</translation>
+    </message>
+    <message>
+        <source>后台服务没有采用这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，仍按电脑的时区计算。</source>
+        <translation>背景服務沒有採用這個時區：日曆中哪些日子有記錄、只知道日期的記錄如何排序，仍按電腦的時區計算。</translation>
     </message>
     <message>
         <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」</source>
@@ -15927,6 +16017,10 @@ SHA256：%3</translation>
         <translation>批次設定後這批記錄太大，無法重新驗證，沒有修改任何記錄。</translation>
     </message>
     <message>
+        <source>上一次保存仍在进行，这批记录保持不变。请稍后再点「重试确认保存」查看结果。</source>
+        <translation>上一次的儲存仍在進行，這批記錄保持不變。請稍後再點「重試確認儲存」查看結果。</translation>
+    </message>
+    <message>
         <source>尚未确认导入结果。输入已保留，可安全重试同一批次。</source>
         <translation>尚未確認匯入結果。輸入內容已保留，可安全重試同一批次。</translation>
     </message>
@@ -16023,10 +16117,6 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::MockBackend</name>
-    <message>
-        <source>勾选记录暂不可用，请重试。</source>
-        <translation>勾選記錄暫時無法使用，請重試。</translation>
-    </message>
     <message>
         <source>有选中的记录已不存在，请重新勾选。</source>
         <translation>部分勾選記錄已不存在，請重新勾選。</translation>
@@ -17348,14 +17438,6 @@ SHA256：%3</translation>
         <translation>尚未確認下載是否已取消，請稍後檢視下載狀態。</translation>
     </message>
     <message>
-        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
-        <translation>沒有切換到 GitCode：GitHub 的下載已經比鏡像更快，仍從 GitHub 下載。</translation>
-    </message>
-    <message>
-        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
-        <translation>沒有切換到 GitCode：鏡像暫時無法使用，仍從 GitHub 下載。</translation>
-    </message>
-    <message>
         <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
         <translation>沒有切換到 GitCode：切換生效之前，GitHub 的下載已經結束。</translation>
     </message>
@@ -17386,6 +17468,14 @@ SHA256：%3</translation>
     <message>
         <source>下载安装包</source>
         <translation>下載安裝程式</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载比镜像更快，这次下载继续使用了 GitHub。</source>
+        <translation>沒有切換到 GitCode：GitHub 的下載比鏡像更快，這次下載繼續使用了 GitHub。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，这次下载继续使用了 GitHub。</source>
+        <translation>沒有切換到 GitCode：鏡像暫時無法使用，這次下載繼續使用了 GitHub。</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>

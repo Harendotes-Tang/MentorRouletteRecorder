@@ -312,6 +312,115 @@ public sealed class MatchAnnouncedStateMachineTests
     }
 
     /// <summary>
+    /// Audit 2026-11-26 D1-1: an announced match accepts the shape the IDLE path accepts. The
+    /// entry marker carries no territory and none was announced before it; the duty's territory
+    /// follows it inside the territory window, and the run enters at the marker and completes.
+    /// </summary>
+    [Fact]
+    public void AnAnnouncedMatchEntersWhenTheTerritoryFollowsTheMarker()
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        Assert.Equal(RunState.MentorMatched, machine.Handle(Announced(600)).ToState);
+        var marker = ZoneUnknown(630);
+
+        var held = machine.Handle(marker);
+        Assert.Empty(held.Commands);
+        Assert.Equal(RunState.MentorMatched, machine.State);
+        var beforeTerritory = machine.Checkpoint();
+        var territory = Territory(630_050, 1039);
+
+        var entered = machine.Handle(territory);
+
+        Assert.Equal(RunState.MentorMatched, entered.FromState);
+        Assert.Equal(RunState.EnteredDuty, entered.ToState);
+        Assert.Equal(marker.ObservedAtUtc, Assert.Single(entered.Commands.OfType<EnterDutyCommand>()).EnteredAtUtc);
+        Assert.Equal(1039, Assert.Single(entered.Commands.OfType<SetDutyCommand>()).TerritoryId);
+        Assert.Equal(marker.Mono, machine.EnteredMono);
+
+        // A failed commit rolls back to the held marker, and the same territory enters again.
+        machine.Restore(beforeTerritory);
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(territory).ToState);
+
+        var completed = machine.Handle(Result(1500, victory: true));
+        var finish = Assert.Single(completed.Commands.OfType<FinishRunCommand>());
+        Assert.Equal(RunResult.Completed, finish.Result);
+        Assert.Equal(870_000L, finish.DurationMs);
+    }
+
+    /// <summary>
+    /// What the IDLE path drops, the announced path drops: a territory after the window, a town's
+    /// territory, or a later marker leaves the held marker unentered and the match standing.
+    /// </summary>
+    [Theory]
+    [InlineData("late")]
+    [InlineData("town")]
+    [InlineData("marker")]
+    [InlineData("leave")]
+    public void AnAnnouncedMatchDoesNotEnterOnATerritoryTheIdlePathWouldDrop(string shape)
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        machine.Handle(Announced(600));
+        Assert.Empty(machine.Handle(ZoneUnknown(630)).Commands);
+
+        switch (shape)
+        {
+            case "late":
+                Assert.Empty(machine.Handle(Territory(640_001, 1039)).Commands);
+                break;
+            case "town":
+                Assert.Empty(machine.Handle(Territory(630_050, 5000)).Commands);
+                Assert.Empty(machine.Handle(Territory(630_100, 1039)).Commands);
+                break;
+            case "marker":
+                Assert.Empty(machine.Handle(ZoneUnknown(631) with { TerritoryId = 5000 }).Commands);
+                Assert.Empty(machine.Handle(Territory(631_050, 1039)).Commands);
+                break;
+            default:
+                Assert.Empty(machine.Handle(Leave(631)).Commands);
+                Assert.Empty(machine.Handle(Territory(631_050, 1039)).Commands);
+                break;
+        }
+
+        Assert.Equal(RunState.MentorMatched, machine.State);
+        Assert.Null(machine.EnteredMono);
+    }
+
+    /// <summary>
+    /// Past the announcement's own window the request still stands behind a known duty, so a held
+    /// marker whose territory names the duty enters the announced run; one whose territory names a
+    /// town is the lapsed match, closed at the marker, with the request left standing.
+    /// </summary>
+    [Theory]
+    [InlineData(1039, true)]
+    [InlineData(5000, false)]
+    public void AHeldMarkerPastTheAnnouncedWindowIsJudgedByItsTerritory(int territoryId, bool enters)
+    {
+        var machine = QueueMachine(territory => territory == 1039);
+        machine.Handle(Queue(0));
+        var opened = machine.Handle(Announced(10));
+        var marker = ZoneUnknown(300);
+        Assert.Empty(machine.Handle(marker).Commands);
+
+        var result = machine.Handle(Territory(300_050, territoryId));
+
+        Assert.Equal(enters ? RunState.EnteredDuty : RunState.CancelledBeforeEntry, result.ToState);
+        Assert.Equal(opened.RunId, result.RunId);
+        if (enters)
+        {
+            Assert.Equal(marker.ObservedAtUtc, Assert.Single(result.Commands.OfType<EnterDutyCommand>()).EnteredAtUtc);
+            return;
+        }
+
+        var finish = Assert.Single(result.Commands.OfType<FinishRunCommand>());
+        Assert.Equal(marker.ObservedAtUtc, finish.EndedAtUtc);
+        Assert.Equal(DetectionConfidence.Low, finish.Confidence);
+        machine.Handle(Territory(900_000, 1039));
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(ZoneUnknown(901)).ToState);
+    }
+
+    /// <summary>
     /// A learned message that turns out to be chatty must not write a trail row per arrival for
     /// as long as the match stands.
     /// </summary>

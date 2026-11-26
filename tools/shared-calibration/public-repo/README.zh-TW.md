@@ -5,6 +5,7 @@
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 本儲存庫存放「導隨記錄器」（MentorRecorder）玩家分享的**共用校準碼**。
+`community/` 目錄另存玩家投稿的**副本提醒與導隨巨集**，依投稿時選擇的 CC BY 4.0 或 CC BY-SA 4.0 公開，規則見 [community/README.md](community/README.md)。
 
 遊戲每次更新都可能重新排列封包編號（opcode）。同一區服、同一遊戲用戶端版本的編號編譯在用戶端內，對所有玩家都相同。
 因此，一名玩家在軟體中校準成功後，就可以分享結果，其他玩家的軟體不必各自重新校準。
@@ -45,6 +46,7 @@ Mac mini 可以另行設定，作為本機研究或模型輔助設備，但本�
   錯誤的校準碼在被辨識出來之前，可能使記錄缺漏或出錯；軟體判定它與本機流量矛盾後，會停用它，並將它產生的記錄標記為待複核。
 - **可以關閉。** 取得共用校準是軟體預設開啟的兩類對外連線請求之一；另一類是檢查新版本，讀取主專案發布頁上的版本號檔案，與本儲存庫無關。
   兩者都可以在設定中關閉。另外還有玩家自行開啟的線上語音，預設關閉，也與本儲存庫無關。
+  玩家在「提醒與巨集」中開啟公共共享庫後，軟體還會從本儲存庫的 `community/` 目錄唯讀下載副本提醒與導隨巨集，不需要登入；預設關閉。
   請求的發出時機、攜帶內容與關閉方式，均記載於軟體的隱私範圍說明。
 
 ## 校準碼包含與不包含的內容
@@ -305,7 +307,9 @@ python tools/publish.py evidence compact --repo . [--apply]
 | `.github/workflows/evidence-calibration.yml` | 自動證據受理、隔離恢復、候選歸檔與定時補處理 |
 | `.github/workflows/mirror-repository.yml` | 將分支與標籤同步到 GitCode 鏡像：推送時、每 30 分鐘，以及發布、證據、回報工作流程每次執行結束後 |
 | `evidence-ledger.json`、`evidence-sweep.json` | 有界的證據防重放、最新帳號立場、epoch 原因與補處理游標；用戶端不會下載 |
-| `schemas/`、`candidates/` | 唯一證據格式副本與尚未支援的候選草案 |
+| `schemas/`、`candidates/` | 唯一證據格式副本、副本提醒與導隨巨集的格式副本，以及尚未支援的候選草案 |
+| `community/` | 玩家投稿的副本提醒與導隨巨集：`v1/index.json`、`v1/snapshot.json`（軟體下載）、`v1/submissions.json`（投稿台帳），說明見 [community/README.md](community/README.md) |
+| `.github/ISSUE_TEMPLATE/share-community-content.yml`、`.github/workflows/publish-community-content.yml` | 副本提醒與導隨巨集的投稿表單與發布工作流程 |
 | `LICENSE.md`、`LICENSES/` | 授權 |
 
 ## 資料與隱私
@@ -321,5 +325,6 @@ python tools/publish.py evidence compact --repo . [--apply]
 - **指令碼、工作流程、表單與 `templates/`**：GPL-3.0-or-later，與 MentorRecorder 主專案一致。
 - **玩家提交的資料**（`index.json`、`submissions.json` 與各版本目錄下的校準碼）：
   [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode)，提交即表示同意依此公開。
+- **`community/` 下的副本提醒與導隨巨集**：每一筆依作者投稿時選擇的 CC BY 4.0 或 CC BY-SA 4.0 公開，授權寫在該筆的 `license` 欄位；不是 CC0。
 
 詳見 [LICENSE.md](LICENSE.md)。

@@ -26,6 +26,18 @@ HistoryFilterButton {
         return labels.length <= 2 ? labels.join(separator)
                                   : labels.slice(0, 2).join(separator) + " +" + (labels.length - 2)
     }
+    /// The rows a searchable panel shows for `term`: the first dozen matches, then every chosen one
+    /// past them, so a choice always has its row. `hidden` counts the matches left out.
+    function listed(term) {
+        const wanted = searchable ? String(term || "").trim().toLowerCase() : ""
+        // The second line counts too: a job is found by its abbreviation as well as its name.
+        const matched = options.filter(option => !wanted || option.label.toLowerCase().includes(wanted)
+                                                 || String(option.sub || "").toLowerCase().includes(wanted))
+        const limit = searchable ? shownLimit : matched.length
+        const rows = matched.slice(0, limit)
+            .concat(matched.slice(limit).filter(option => selection.includes(option.value)))
+        return { rows: rows, hidden: matched.length - rows.length }
+    }
     function toggle(value) {
         selectionEdited(selection.includes(value) ? selection.filter(entry => entry !== value)
                                                   : selection.concat([value]))
@@ -37,6 +49,8 @@ HistoryFilterButton {
     Accessible.name: text
 
     menuContent: ColumnLayout {
+        id: panel
+        readonly property var shown: control.listed(finder.text)
         spacing: 2
 
         RowLayout {
@@ -77,13 +91,7 @@ HistoryFilterButton {
 
         Repeater {
             id: choices
-            model: {
-                const term = control.searchable ? finder.text.trim().toLowerCase() : ""
-                // The second line counts too: a job is found by its abbreviation as well as its name.
-                return control.options.filter(option => !term || option.label.toLowerCase().includes(term)
-                                                        || String(option.sub || "").toLowerCase().includes(term))
-                                      .slice(0, control.shownLimit)
-            }
+            model: panel.shown.rows
 
             delegate: RowLayout {
                 id: choice
@@ -108,6 +116,18 @@ HistoryFilterButton {
                     font.pixelSize: Theme.fs(12)
                 }
             }
+        }
+
+        Text {
+            objectName: "multiFilterMore"
+            renderType: Theme.bodyRenderType
+            visible: panel.shown.hidden > 0
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            wrapMode: Text.Wrap
+            text: qsTr("还有 %1 项，输入名称查找").arg(panel.shown.hidden)
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
         }
 
         Text {

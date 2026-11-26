@@ -304,6 +304,56 @@ ApplicationWindow {
         QCOMPARE(runIds(dialog), newest);
     }
 
+    // Minimised while saving (audit 2026-11-20 L2-2): no frame comes until the window is
+    // restored, and that is no reason to give up on the image (audit 2026-11-26, L2-1).
+    void aSaveWaitsWhileTheWindowIsNotExposed()
+    {
+        ShareScene share;
+        auto &controller = share.controller;
+        auto &scene = share.scene;
+        QVERIFY2(scene.create(kOrderDialogQml, QStringLiteral("/ReflectionShareExposeTest.qml")), qPrintable(scene.errors));
+        auto *window = scene.window();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dialog"));
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(ShareScene::runs()))));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *mode = findVisualItem(window->contentItem(), QStringLiteral("reflectionImageOutputMode"));
+        auto *combined = findVisualItem(window->contentItem(), QStringLiteral("reflectionShareCombinedCard"));
+        QVERIFY(mode && combined);
+        mode->setProperty("currentIndex", 1);
+        QTRY_VERIFY(combined->isVisible());
+
+        window->showMinimized();
+        QTest::qWait(300);
+        if (window->isExposed() || !window->isVisible()) {
+            window->showNormal();
+            QSKIP("This platform plugin does not report a minimised window as unexposed.");
+        }
+        constexpr int kWaitMs = 100;
+        controller.setCaptureTimeoutForTesting(kWaitMs);
+        QTemporaryDir target;
+        QVERIFY(target.isValid());
+        const QString path = target.filePath(QStringLiteral("combined.png"));
+        controller.saveTo(combined, path);
+        QVERIFY(controller.busy());
+        // Several waits go by: still saving, nothing failed.
+        QTest::qWait(kWaitMs * 6);
+        QVERIFY(controller.busy());
+        QVERIFY(!QFileInfo::exists(path));
+        // Back to the real wait before restoring, so the frame and the grab that follow
+        // are not raced by the short one (one more short wait re-arms it).
+        controller.setCaptureTimeoutForTesting(15000);
+        QTest::qWait(kWaitMs * 3);
+        QVERIFY(controller.busy());
+
+        window->showNormal();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 20000);
+        QCOMPARE(controller.savedPath(), QFileInfo(path).absoluteFilePath());
+        QVERIFY(!QImage(path).isNull());
+    }
+
 
     void combinedDragCoversTheRowBelowAndKeepsItsLastLine_data()
     {

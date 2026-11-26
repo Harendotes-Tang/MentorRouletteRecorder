@@ -319,7 +319,17 @@ public sealed class CollectorHost : IDisposable
                     Clock = services.Clock, Logger = services.Logger, CollectorVersion = services.CollectorVersion,
                 },
             });
-            host.HistoryRetention.CheckExpired(force: true);
+            try
+            {
+                host.HistoryRetention.CheckExpired(force: true);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Emptying the expired part of the recycle bin is maintenance, not a reason to
+                // refuse to record: the failure is logged as the hourly check logs it, and that
+                // check tries again within the hour (audit 2026-11-26, Gb-4).
+                host._logger.WriteError("storage", "history_retention_failed", ex);
+            }
             host.HistoryRetention.StartDailyChecks(
                 ex => host._logger.WriteError("storage", "history_retention_failed", ex),
                 count => host.LiveEvents.PublishStatsInvalidated($"已清理 {count} 条到期历史记录，请重新查询并处理附件清理任务。"));

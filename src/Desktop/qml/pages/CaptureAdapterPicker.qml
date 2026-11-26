@@ -10,7 +10,7 @@ import MentorRecorder 1.0
 // its sentence told the player to choose a card on this page, which had nowhere
 // to do so. The same card answers a TCP-table reading that puts the game's
 // connections where no card of Npcap's is (network_path.kind UNMAPPED /
-// IPV6_ONLY / LOOPBACK). The rows are ListCaptureAdapters as the maintainer
+// LOOPBACK). The rows are ListCaptureAdapters as the maintainer
 // table lists them, without the opaque adapter_id; 「使用这张网卡」 writes the
 // card into CaptureSettings.adapter_id the way the stale-card notice does, and
 // the Collector's own poll retries with it; 「改回自动选择」 clears the setting.
@@ -48,8 +48,18 @@ Card {
         return parts.join(" · ")
     }
 
+    /// Mirrors the Collector's CapturePathPlan.IsUsable: a card that is up and
+    /// is the loopback card or has an IPv4 address. Any other card the
+    /// Collector ignores, so it cannot be chosen here (audit 2026-11-26 K2-2).
+    function usable(row) {
+        return !!row.is_up && (!!row.is_loopback || (row.ipv4_addresses || []).length > 0)
+    }
+
     /// Writes the choice; an empty id is 自动选择. The Collector reads the
-    /// setting on its next start attempt, so nothing else is asked of it.
+    /// setting on its next start attempt, and a following capture that reads
+    /// nothing is replaced onto the chosen card by the Collector's own path
+    /// rediscovery (CaptureController.RediscoverNetworkPaths), so nothing else
+    /// is asked of it.
     function choose(adapterId) {
         Runtime.app.updateCaptureSetting("adapter_id", adapterId.length > 0 ? adapterId : null)
         Runtime.app.captureAdapterId = adapterId
@@ -161,20 +171,36 @@ Card {
                 variant: "primary"
                 text: qsTr("使用这张网卡")
                 enabled: picker.writable && adapterRow.adapterId.length > 0
+                         && picker.usable(adapterRow.modelData)
                 onClicked: picker.choose(adapterRow.adapterId)
             }
         }
     }
 
-    Text {
-        objectName: "captureAdapterPickerEmpty"
+    // The empty state carries its own 重新检测网卡: the hero's button is shown
+    // to a player only after the Collector's own recovery, and the refusal that
+    // raises this card normally comes before any (audit 2026-11-26 K2-3).
+    RowLayout {
         Layout.fillWidth: true
         visible: Runtime.app.captureAdapters.length === 0
-        text: qsTr("没有找到网卡。请点连接状态旁的“重新检测网卡”重试。")
-        textFormat: Text.PlainText
-        color: Theme.textSecondary
-        font.pixelSize: Theme.fs(12)
-        wrapMode: Text.WordWrap
+        spacing: 8
+
+        Text {
+            objectName: "captureAdapterPickerEmpty"
+            Layout.fillWidth: true
+            text: qsTr("没有找到网卡。请点右侧的“重新检测网卡”重试。")
+            textFormat: Text.PlainText
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+
+        AppButton {
+            objectName: "captureAdapterPickerRescan"
+            compact: true
+            text: qsTr("重新检测网卡")
+            onClicked: Runtime.app.rescanAdapters()
+        }
     }
 
     RowLayout {
@@ -184,7 +210,8 @@ Card {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("选择的网卡会一直使用，直到改回自动选择。")
+            objectName: "captureAdapterChosenNote"
+            text: qsTr("软件会优先使用这张网卡；游戏连接不在这张网卡上、而在另一张网卡上时，会自动改用那一张。")
             textFormat: Text.PlainText
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)

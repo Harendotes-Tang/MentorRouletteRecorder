@@ -406,6 +406,40 @@ private Q_SLOTS:
         QCOMPARE(milestone.size(), 0);
     }
 
+    void aBindThatTimedOutStillOwesARead()
+    {
+        // Audit 2026-11-26 I2-1: a BIND sent and then lost may have been applied by the
+        // Collector all the same. Until a read arrives, the moved runs must not look like
+        // new completions to the float's 「+N」.
+        mr::MockBackend backend;
+        seed(backend);
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 0, true);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTest::qWait(50); // nothing of the first load left on the wire
+        QSignalSpy failed(&app, &mr::AppController::characterProfileFailed);
+        backend.setReplyDelay(5000, QStringLiteral("ResolveCharacterIdentity"));
+        // The read the Collector's stats_invalidated asks for is held until the end.
+        backend.setReplyDelay(5000, QStringLiteral("GetDashboardStats"));
+        app.bindCharacterIdentity(identity, second);
+        QVERIFY(app.runMovesSettling());
+        mr::BackendReply *bind = nullptr;
+        for (auto *reply : backend.findChildren<mr::BackendReply *>()) {
+            if (reply->messageType() == QLatin1String("ResolveCharacterIdentity") && !reply->isFinished())
+                bind = reply;
+        }
+        QVERIFY(bind);
+        bind->failTransport(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("timed out"));
+        QTRY_COMPARE(failed.size(), 1);
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("ERR_TIMEOUT"));
+        QTest::qWait(50);
+        QVERIFY(app.runMovesSettling());
+        backend.setReplyDelay(0, QStringLiteral("GetDashboardStats"));
+        app.refreshDashboard();
+        QTRY_VERIFY(!app.runMovesSettling());
+    }
+
     void bindSwitchesOnlyToTheLoggedInCharacter()
     {
         mr::MockBackend backend;

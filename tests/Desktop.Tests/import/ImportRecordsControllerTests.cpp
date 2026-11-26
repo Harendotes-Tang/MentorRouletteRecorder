@@ -1413,6 +1413,31 @@ private Q_SLOTS:
         QCOMPARE(fresh.timeZone(), QStringLiteral("+09:00"));
     }
 
+    void aZoneChangeDuringABatchStillReachesTheNextBatch()
+    {
+        const auto restore = qScopeGuard([] { mr::DisplayTimeZone::set(QString()); });
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        answer(backend, previewCandidates(QJsonArray{QJsonObject{{"duty_name", "one"}}}, "first", {10}));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        // The rows on screen were read in +08:00 and keep it.
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        // The next batch takes the 显示时区's default, and later changes still move it
+        // (audit 2026-11-26, I3-2).
+        controller.reset();
+        QCOMPARE(controller.timeZone(), QStringLiteral("+09:00"));
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Kolkata"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+05:30"));
+        // A zone the player picked stays for the next batch too.
+        controller.setTimeZone(QStringLiteral("+00:00"));
+        controller.reset();
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
+    }
+
     void revalidationRestoresOnlyPreviouslySelectedImportableRowNumbers()
     {
         ImportBackend backend;
@@ -2833,6 +2858,61 @@ private Q_SLOTS:
         QCOMPARE(controller.selectedCount(), 1);
         QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("合成副本"));
         QVERIFY(controller.canCommit());
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        QCOMPARE(backend.calls.last().payload, request);
+    }
+
+    // A 重试确认保存 is no answer to the first commit when it never left (the pipe was down,
+    // audit 2026-11-26 I3-1) or when the Collector says it is still writing that very commit
+    // (ERR_DB_BUSY for the same request id, I5-1): the batch stays frozen, and the next retry
+    // sends the same request again, whose answer completes the import.
+    void aRetryThatAnswersNothingKeepsTheBatchFrozen()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        answer(backend, preview());
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        const QString id = backend.calls.last().requestId;
+        const QJsonObject request = backend.calls.last().payload;
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
+        QVERIFY(controller.pendingCommitConfirmation());
+
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        backend.calls.last().reply->failUnsent(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("未连接"));
+        QVERIFY(controller.pendingCommitConfirmation());
+        QVERIFY(!controller.committing());
+
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        QCOMPARE(backend.calls.last().payload, request);
+        backend.calls.last().reply->fail(QStringLiteral("ERR_DB_BUSY"),
+                                         QStringLiteral("记录导入正在进行，请稍后用相同的请求编号重试。"), {},
+                                         QJsonObject{{QStringLiteral("key"), QStringLiteral("import.busy")}});
+        QVERIFY(controller.pendingCommitConfirmation());
+        QVERIFY(!controller.committing());
+        QVERIFY(controller.errorText().contains(QStringLiteral("上一次保存仍在进行")));
+        controller.updateCandidate(0, {{"duty_name", QStringLiteral("不得改变仍在保存的批次")}});
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("合成副本"));
+
+        // A locked database is busy too, but nothing is still running: the attempt was
+        // rolled back. The batch stays frozen; the sentence does not claim a save in
+        // progress (re-review RD-3).
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        QCOMPARE(backend.calls.last().payload, request);
+        backend.calls.last().reply->fail(QStringLiteral("ERR_DB_BUSY"),
+                                         QStringLiteral("数据库正忙，请稍后用相同的请求编号重试。"), {},
+                                         QJsonObject{{QStringLiteral("key"), QStringLiteral("database.busy_retry")}});
+        QVERIFY(controller.pendingCommitConfirmation());
+        QVERIFY(!controller.committing());
+        QVERIFY2(!controller.errorText().contains(QStringLiteral("仍在进行")), qPrintable(controller.errorText()));
+        QVERIFY(!controller.errorText().isEmpty());
+
         controller.commit();
         QCOMPARE(backend.calls.last().requestId, id);
         QCOMPARE(backend.calls.last().payload, request);

@@ -401,6 +401,107 @@ public sealed class DutyNameResolutionTests
         Assert.Equal(old.RunId, Row(preview)["matching_run_id"]!.GetValue<string>());
     }
 
+    /// <summary>
+    /// Audit 2026-11-26 H2-2. The GLOBAL catalogue keeps XIVAPI's spelling ("the Tam–Tara Deepcroft", lowercase article,
+    /// en dash); a table written the way the game and this software's English interface write it ("The Tam-Tara
+    /// Deepcroft") still names that duty. Only GLOBAL rows are read loosely, an exact spelling wins over a loose one, and
+    /// a loose name that fits two duties still resolves to nothing.
+    /// </summary>
+    [Fact]
+    public void GlobalNamesMatchIgnoringCaseAndTheEnDash()
+    {
+        var installed = DutyCatalog.Default;
+        Assert.Equal("the Tam–Tara Deepcroft", installed.Find(2, Region.Global)!.LocalizedName);
+        foreach (var typed in new[] { "The Tam-Tara Deepcroft", "the tam–tara deepcroft", " THE TAM-TARA DEEPCROFT " })
+        {
+            Assert.Equal(2, installed.FindByName(typed, Region.Global)!.ContentId);
+            Assert.Equal(2, installed.FindByName(typed, Region.Unknown)!.ContentId);
+        }
+        Assert.Equal(1, installed.FindByName("The Thousand Maws of Toto-Rak", Region.Global)!.ContentId);
+        Assert.Null(installed.FindByName("The Tam-Tara Deepcroft", Region.Cn));
+
+        var catalog = DutyCatalog.Compose(new[]
+        {
+            Document("CN", "v1", """
+                {"content_id":1,"localized_name":"Chinese"}
+                """),
+            Document("GLOBAL", "v1", """
+                {"content_id":2,"localized_name":"the Two–Faced"},
+                {"content_id":3,"localized_name":"The Two-Faced"},
+                {"content_id":4,"localized_name":"the Exact"},
+                {"content_id":5,"localized_name":"The Exact"}
+                """),
+        });
+        Assert.Null(catalog.FindByName("THE TWO-FACED", Region.Global));
+        Assert.Equal(3, catalog.FindByName("The Two-Faced", Region.Global)!.ContentId);
+        Assert.Equal(4, catalog.FindByName("the Exact", Region.Global)!.ContentId);
+        Assert.Equal(5, catalog.FindByName("The Exact", Region.Global)!.ContentId);
+        Assert.Null(catalog.FindByName("chinese", Region.Cn));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26 H2-2. A GLOBAL row spelled "The …" takes the duty's identity, map and category, and a duty name
+    /// that names no single duty is reported like an unmatched job instead of being dropped silently.
+    /// </summary>
+    [Fact]
+    public void NormalizerResolvesAGlobalNameWrittenTheGamesWayAndWarnsAboutAnUnmatchedDuty()
+    {
+        var resolved = Normalize(new JsonObject { ["duty_name"] = "The Tam-Tara Deepcroft", ["region"] = "国际服" });
+        Assert.Empty(resolved.Errors);
+        Assert.Equal(Region.Global, resolved.Run!.Region);
+        Assert.Equal(2, resolved.Run.ContentId);
+        Assert.Equal(1037, resolved.Run.TerritoryId);
+        Assert.Equal("四人迷宫", resolved.Run.DutyCategory);
+        Assert.Equal("The Tam-Tara Deepcroft", resolved.Run.DutyName);
+        Assert.DoesNotContain(resolved.Warnings, warning => warning.Text?.Key == "import.warning.duty_unmatched");
+
+        var unmatched = Normalize(new JsonObject { ["duty_name"] = "The Nowhere Deepcroft", ["region"] = "国际服" });
+        Assert.Null(unmatched.Run!.ContentId);
+        Assert.Equal("The Nowhere Deepcroft", unmatched.Run.DutyName);
+        Assert.Contains(unmatched.Warnings, warning => warning.Text?.Key == "import.warning.duty_unmatched");
+
+        // A name several duties share names none of them either.
+        var shared = DutyCatalog.Default.Documents.Where(document => document.Region == Region.Cn)
+            .SelectMany(document => document.Rows.Values)
+            .GroupBy(row => row.LocalizedName, StringComparer.Ordinal)
+            .First(group => group.Select(row => row.ContentId).Distinct().Count() > 1 && group.Key != "阿修罗歼灭战").Key;
+        var ambiguous = Normalize(new JsonObject { ["duty_name"] = shared, ["region"] = "CN" });
+        Assert.Null(ambiguous.Run!.ContentId);
+        Assert.Contains(ambiguous.Warnings, warning => warning.Text?.Key == "import.warning.duty_unmatched");
+
+        var explicitId = Normalize(new JsonObject { ["content_id"] = 69, ["duty_name"] = "Not in the installed reference", ["region"] = "CN" });
+        Assert.Empty(explicitId.Errors);
+        Assert.DoesNotContain(explicitId.Warnings, warning => warning.Text?.Key == "import.warning.duty_unmatched");
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26 H2-2: a GLOBAL row imported while its "The …" name still named no duty reads as a duplicate of
+    /// that import now that the name resolves, rather than as a new record.
+    /// </summary>
+    [Fact]
+    public void GlobalRowsImportedBeforeTheLooseMatchStillMatchTheirImport()
+    {
+        using var fixture = new TestDatabase();
+        const string csv = "duty_name,job_name,source_recorded_at,region\nThe Tam-Tara Deepcroft,骑士,2026-10-01,国际服\n";
+        var row = RunImportSourceParser.Parse("CSV", text: csv)[0];
+        var sourceKey = EarlierImports.RowKey(row);
+        row.Values["source_key"] = sourceKey;
+        var current = RunImportCandidateNormalizer.Normalize(row, "CSV", "synthetic-upgrade", null, fixture.Clock.UtcNow);
+        Assert.Equal(2, current.Run!.ContentId);
+        Assert.Equal(Region.Global, current.Run.Region);
+
+        var old = current.Run with { ContentId = null, TerritoryId = null, DutyCategory = null, DutySource = null };
+        var fingerprint = EarlierImports.Fingerprint("CSV", "synthetic-upgrade", sourceKey, old);
+        Assert.Contains(fingerprint, current.PreviousDutyNameFingerprints!);
+        old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
+        fixture.InsertImported(old);
+
+        var preview = new RunImportService(fixture.Database, fixture.Clock)
+            .PreviewSource("CSV", text: csv, sourceName: "synthetic-upgrade");
+        Assert.Equal("duplicate", Status(preview));
+        Assert.Equal(old.RunId, Row(preview)["matching_run_id"]!.GetValue<string>());
+    }
+
     private static DutyCatalog Parse(string rows) => DutyCatalog.Compose(new[] { Document("CN", "v1", rows) });
 
     private static DutyDocument Document(string region, string version, string rows) => DutyCatalog.ParseDocument(

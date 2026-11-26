@@ -7,6 +7,7 @@ namespace MentorRecorder.Collector.Storage.Repositories;
 internal sealed class CommunityRepository(SqliteDatabase database)
 {
     private const int MaxItems = 400;
+    internal const int KeptReceipts = 500;
 
     internal JsonArray List(int offset = 0, SqliteTransaction? transaction = null) => database.Read(_ =>
     {
@@ -42,12 +43,18 @@ internal sealed class CommunityRepository(SqliteDatabase database)
             }
 
             var response = change(transaction);
+            // A receipt only answers the Desktop's retry of the same request, which comes within
+            // seconds, so only the newest receipts are kept. The table has no time column, so age is
+            // the insertion order (rowid only grows: the oldest rows are the ones deleted).
             command.CommandText = """
                 INSERT INTO community_receipts(request_id, fingerprint, response_json)
-                VALUES ($id, $fingerprint, $response)
+                VALUES ($id, $fingerprint, $response);
+                DELETE FROM community_receipts
+                WHERE rowid <= (SELECT MAX(rowid) FROM community_receipts) - $keep;
                 """;
             command.Parameters.AddWithValue("$fingerprint", fingerprint);
             command.Parameters.AddWithValue("$response", response.ToJsonString());
+            command.Parameters.AddWithValue("$keep", KeptReceipts);
             command.ExecuteNonQuery();
             return response;
         });

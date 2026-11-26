@@ -121,9 +121,9 @@ function Test-ChangelogTopIsCorrect {
         CHANGELOG 顶部段落是否与当前版本相符 / Does the top section match this version?
     .DESCRIPTION
         正式版：最上方必须是 "## [x.y.z]"，且与版本号一致——这是 0.2.2 以来的规则。
-        先行版（x.y.z-beta.N）：最上方必须是 "## [Unreleased]"。测试包是从尚未发布的工作
-        中切出来的，它携带的条目仍然属于未发布内容；写成编号标题等于声称该版本已经发布，
-        而 Assert-ReleasedChangelogSectionsUnchanged 随后还会把那个段落锁死在一个并不存在的 tag 上。
+        先行版（x.y.z-beta.N）：最上方必须是 "## [Unreleased]"。先行版的发布提交把条目移入它自己的
+        "## [x.y.z-beta.N] - 日期" 段落，放在一个空的 [Unreleased] 之下（docs/release-checklist.md §9.3）；
+        这里只核对最上方仍是 [Unreleased]，不核对其下的先行版段落。
     #>
     param(
         [AllowEmptyString()][AllowNull()][string]$Heading,
@@ -274,6 +274,78 @@ function Get-UnsuffixedVersionRefusal {
             $Version, $release, $observed, $advice)
     }
     return $null
+}
+
+function Get-VersionTagState {
+    <#
+    .SYNOPSIS
+        版本 tag 与 HEAD 各指向哪个提交 / Which commit tag v<Version> and HEAD point at.
+    .DESCRIPTION
+        返回 @{ Tag; TagCommit; HeadCommit; Problem }。没有这个 tag 时 TagCommit 为 $null；
+        找不到 git 或任一命令失败时 Problem 说明原因，两个提交都不可信。
+        rev-list 取 tag 所指的提交，轻量 tag 与附注 tag 都一样。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    $state = [ordered]@{ Tag = "v$Version"; TagCommit = $null; HeadCommit = $null; Problem = $null }
+    if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+        $state.Problem = '找不到 git'
+        return $state
+    }
+
+    $head = @(& git -C $RepoRoot rev-parse --verify HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or $head[0] -notmatch '^[0-9a-f]{40}$') {
+        $state.Problem = ("git rev-parse HEAD 失败（退出码 {0}）" -f $LASTEXITCODE)
+        return $state
+    }
+    $state.HeadCommit = [string]$head[0]
+
+    $listed = @(& git -C $RepoRoot tag --list $state.Tag 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        $state.Problem = ("git tag --list 失败（退出码 {0}）" -f $LASTEXITCODE)
+        return $state
+    }
+    if (@($listed | Where-Object { $_ -ceq $state.Tag }).Count -eq 0) { return $state }
+
+    $tagged = @(& git -C $RepoRoot rev-list -n 1 ("refs/tags/{0}" -f $state.Tag) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $tagged.Count -ne 1 -or $tagged[0] -notmatch '^[0-9a-f]{40}$') {
+        $state.Problem = ("无法读取 tag {0} 指向的提交（退出码 {1}）" -f $state.Tag, $LASTEXITCODE)
+        return $state
+    }
+    $state.TagCommit = [string]$tagged[0]
+    return $state
+}
+
+function Get-ReusedVersionRefusal {
+    <#
+    .SYNOPSIS
+        这个版本号是否已经发过另一份内容 / Why this version may not be packaged again; $null when it may.
+    .DESCRIPTION
+        一个发出去的版本号（先行版也一样）不再用于另一份内容：已安装旧包的人比较版本号时认为两者相同，
+        永远不会被引到重打的包上（审计 2026-11-26 M-2：1.10.0-beta.2、1.9.1-beta.3/4 与 1.9.1 都曾以同一
+        版本号重打）。tag v<Version> 已存在且不指向 HEAD 时返回拒绝的说明；git 无法回答时同样拒绝，
+        因为无法确认这个号是否已被用掉。没有这个 tag，或 tag 正指向 HEAD（同一提交重打）时返回 $null。
+        package.ps1 在验证与构建之前停下，除非显式给出 -AllowReusedVersion。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Version,
+        [AllowEmptyString()][AllowNull()][string]$TagCommit,
+        [AllowEmptyString()][AllowNull()][string]$HeadCommit,
+        [AllowEmptyString()][AllowNull()][string]$Problem
+    )
+
+    $advice = '撤回的版本请改用下一个号（如 beta.N 之后用 beta.N+1）；确需以同一版本号重打时加 -AllowReusedVersion'
+    if (-not [string]::IsNullOrWhiteSpace($Problem)) {
+        return ("无法确认版本 {0} 的 tag v{0} 是否已存在：{1}。{2}" -f $Version, $Problem, $advice)
+    }
+    if ([string]::IsNullOrWhiteSpace($TagCommit)) { return $null }
+    if ($TagCommit -ceq $HeadCommit) { return $null }
+    $short = { param($commit) if ([string]::IsNullOrWhiteSpace($commit)) { '（未知）' } else { $commit.Substring(0, [Math]::Min(12, $commit.Length)) } }
+    return ("版本 {0} 已经发过：tag v{0} 指向 {1}，而 HEAD 是 {2}。同一个版本号不能再打出另一份内容。{3}" -f
+        $Version, (& $short $TagCommit), (& $short $HeadCommit), $advice)
 }
 
 function Get-SourceTreeState {

@@ -64,6 +64,25 @@ public sealed class DisplayTimeZoneTests
         Assert.Equal(TimeZoneInfo.Local.Id, zone.Id);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26 D1-3: the runtime caches the computer's zone for the life of the process,
+    /// so every SetDisplayTimeZone drops that cache and a Windows zone changed since start is seen.
+    /// A fresh <see cref="TimeZoneInfo.Local"/> instance is the observable sign the cache was cleared.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Asia/Tokyo")]
+    public void EverySetReReadsTheComputersZone(string? id)
+    {
+        using var restore = DisplayTimeZone.Use("America/New_York");
+        var cached = TimeZoneInfo.Local;
+        Assert.Same(cached, TimeZoneInfo.Local);
+
+        DisplayTimeZone.Set(id);
+
+        Assert.NotSame(cached, TimeZoneInfo.Local);
+    }
+
     [Theory]
     [InlineData("Mars/Olympus_Mons")]
     [InlineData("Etc/GMT+99")]

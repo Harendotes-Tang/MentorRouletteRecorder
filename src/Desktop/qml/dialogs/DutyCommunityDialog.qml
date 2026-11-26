@@ -780,6 +780,8 @@ MotionDialog {
             if (!request || (request.isCurrent && !request.isCurrent())) return
             if (error && root.visible) root.note = error
             if (result.app_configured !== undefined) root.configured = result.app_configured
+            // A build without a GitHub App offers the browser route alone.
+            if (result.status === "app_not_configured") root.configured = false
             request.done(error ? { status: "transport_error" } : result)
         }
     }
@@ -830,10 +832,11 @@ MotionDialog {
         pages("list", {}, entries => {
             localRows = entries
             favoriteBusy = false
-            // An entry just saved stays in view: filters that would hide it are dropped.
+            // An entry just saved stays in view: filters that would hide it are dropped. A form
+            // opened meanwhile is left as it is.
             const wanted = revealId
             revealId = ""
-            if (wanted) reveal(wanted)
+            if (wanted && !editing) reveal(wanted)
         }, result => { favoriteBusy = false; report(result) }, () => request === localRequest)
     }
     function reload() { loadLocal(); loadPublic("browse") }
@@ -912,6 +915,18 @@ MotionDialog {
         ++revealTick
     }
     function showLocal(id) { reveal(id) }
+    /// 关联项: opens the linked entry wherever it is. A local one is revealed as a saved entry is;
+    /// on the public tab the search and filters are cleared, 区服 and 语言 too when only they hide
+    /// it, and the directory goes to 全部 when its range does not hold it.
+    function openLinked(id) {
+        if (!remote) { reveal(id); return }
+        const row = rows.find(entry => entry.content.id === id)
+        if (!row) return
+        resetFilters()
+        if (!matches(row, "")) showEveryPlace()
+        if (!inScope(row, activeScope)) pickScope("all")
+        select(id)
+    }
     function toggleChecked(id) {
         basket = basket.includes(id) ? basket.filter(entry => entry !== id) : basket.concat([id])
     }
@@ -954,16 +969,38 @@ MotionDialog {
         call(action, args, result => {
             report(result)
             if (!["saved", "installed", "deleted", "updated"].includes(result.status)) {
-                if (action === "save") startEdit(args)
+                // A refused save comes back into the form with the reason in it. When the player
+                // has opened another form meanwhile, it is offered back instead of being dropped.
+                if (action === "save") {
+                    const reason = result.status === "transport_error" ? (note || statusText(result.status))
+                                                                       : statusText(result.status)
+                    if (editing) {
+                        refusedSave = { args: args, reason: reason }
+                    } else {
+                        startEdit(args)
+                        editor.refusal = reason
+                    }
+                }
                 return
             }
-            if (nextId !== undefined) {
+            // A form opened before the answer came stays open.
+            if (nextId !== undefined && !editing) {
                 tab = "local"
                 select(nextId)
                 revealId = nextId
             }
             loadLocal()
         })
+    }
+    /// A save refused while another form was open, { args, reason }: kept until the player
+    /// restores or drops it (audit 2026-11-26 RE-7).
+    property var refusedSave: null
+    function restoreRefused() {
+        const refused = refusedSave
+        if (!refused || editing) return
+        refusedSave = null
+        startEdit(refused.args)
+        editor.refusal = refused.reason
     }
     function toggleFavorite(row) {
         if (favoriteBusy) return
@@ -1047,10 +1084,12 @@ MotionDialog {
         mutate("fork", { id: currentId, local_id: id, revision: current.revision }, id)
     }
     function checkIssue() {
+        const asked = issueNumber
         issueState = "checking"
-        call("issue_status", { issue: issueNumber }, result => {
+        // The answer belongs to the number it was asked for: once the field says another, it is dropped.
+        call("issue_status", { issue: asked }, result => {
             issueState = result.status === "transport_error" ? "" : result.status
-        })
+        }, () => asked === issueNumber)
     }
 
     function report(result) { if (result.status !== "transport_error") note = statusText(result.status) }
@@ -1073,7 +1112,8 @@ MotionDialog {
         case "updated": return qsTr("已应用来源更新。")
         case "already_installed": return qsTr("已安装，请在本地查看或检查更新。")
         case "source_changed": return qsTr("来源版本已变化，请重新刷新和对比。")
-        case "source_unavailable": return qsTr("来源或关联内容已撤回或不可用。")
+        // Only the chosen entry itself: a withdrawn linked entry is left out, not refused (RC-5).
+        case "source_unavailable": return qsTr("这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。")
         case "local_conflict": return qsTr("本地有同一条目或更新的修改，请重新加载。")
         case "local_limit": return qsTr("本地库已达到 400 条。")
         case "invalid_title": return qsTr("请填写标题，最多 120 字。")
@@ -1105,6 +1145,8 @@ MotionDialog {
         case "duplicate": return qsTr("投稿的内容公共共享库里都已经有了，没有重复发布。")
         case "processing_failed": return qsTr("处理失败，请打开 GitHub Issue 查看原因。")
         case "submit_unconfirmed": return qsTr("提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。")
+        // Failed before anything was sent (audit 2026-11-26 RC-4).
+        case "submit_not_sent": return qsTr("投稿没有发出，什么都没有提交，请稍后再试。")
         case "closed": return qsTr("投稿已关闭。")
         case "prepared": return qsTr("投稿正文已复制，请粘贴到浏览器表单并提交。")
         case "verified": return qsTr("社区投稿 · 已核验")
@@ -1259,6 +1301,45 @@ MotionDialog {
         }
 
         Divider {}
+
+        // A save the Collector refused after another form was opened: what was not saved, why,
+        // and the way back to it once the open form is saved or left.
+        RowLayout {
+            objectName: "dutyCommunityRefusedSave"
+            Layout.fillWidth: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 8
+            Layout.bottomMargin: 8
+            visible: !!root.refusedSave
+            spacing: 10
+            Text {
+                objectName: "dutyCommunityRefusedSaveText"
+                renderType: Theme.bodyRenderType
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                text: !root.refusedSave ? ""
+                    : qsTr("「%1」没有保存：").arg(root.refusedSave.args.content.title) + root.refusedSave.reason
+                      + (root.editing ? " " + qsTr("保存或取消当前表单后可以恢复。") : "")
+                color: Theme.red
+                font.pixelSize: Theme.fs(12)
+            }
+            AppButton {
+                objectName: "dutyCommunityRestoreRefused"
+                compact: true
+                enabled: !root.editing
+                text: qsTr("恢复")
+                onClicked: root.restoreRefused()
+            }
+            AppButton {
+                objectName: "dutyCommunityDropRefused"
+                compact: true
+                variant: "ghost"
+                text: qsTr("放弃")
+                onClicked: root.refusedSave = null
+            }
+        }
 
         Item {
             Layout.fillWidth: true
@@ -1548,12 +1629,8 @@ MotionDialog {
                 StyledTextArea {
                     readOnly: true
                     textFormat: TextEdit.PlainText
-                    text: {
-                        if (!root.source || !root.current) return ""
-                        const old = root.current.upstream
-                        const keys = Object.keys(root.source).filter(k => JSON.stringify(root.source[k]) !== JSON.stringify(old[k]))
-                        return keys.map(k => k + "\n− " + JSON.stringify(old[k]) + "\n+ " + JSON.stringify(root.source[k])).join("\n\n")
-                    }
+                    wrapMode: TextEdit.Wrap
+                    text: root.sourceChanges
                 }
             }
             RowLayout {
@@ -1566,4 +1643,8 @@ MotionDialog {
         }
     }
     function compareSource() { compare.show() }
+    /// 来源更新对比: the content fields and the licence that changed between the version this
+    /// entry came from and the newer public one, named in words as the submission names them.
+    readonly property string sourceChanges: !source || !current || !current.upstream ? ""
+        : submission.comparisonText(Match.differences(current.upstream, source, source.license))
 }

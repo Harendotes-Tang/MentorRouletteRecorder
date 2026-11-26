@@ -262,7 +262,11 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 
 ## 8. 软删除的语义
 
-- 软删除将 `pending_review` 置 0：删除一条记录同样构成一次复核。恢复操作不改变该字段。
+- 软删除将 `pending_review` 置 0：删除一条记录同样构成一次复核。恢复（`RestoreRun` 与 `BatchMutateRuns` 的 `restore`）
+  把 `pending_review` 还原为删除前的值（取自最近一次删除修订的改动），恢复修订因此可能记下 `pending_review` 由 0 变 1。
+  删除与恢复都不会让记录显示「已确认」（`review_confirmed`，[data-model.md](data-model.md) §1.2）。
+  撤销本身也不算确认：撤销一次确认后不再显示「已确认」，再撤销这次撤销后恢复；撤销系统修订或撤销把某项清空的改动，
+  都不会显示「已确认」。
 - `soft_deleted = 1` 的记录**永远不参与任何统计**，
   定义见 [statistics-definitions.md](statistics-definitions.md) §0。
 - 软删除的记录默认不出现在列表中，只有 `RunFilter.include_deleted = true` 时才显示，

@@ -196,6 +196,57 @@ public sealed class HistoryBatchIpcTests
         Assert.Equal(ids[1], Assert.Single(remaining["items"]!.AsArray())!["run_id"]!.GetValue<string>());
         Assert.Equal(2, (await Query(new JsonObject()))["page_info"]!["total"]!.GetValue<int>());
     }
+    /// <summary>
+    /// Audit 2026-11-26 K3-1 and H1b-3 over the pipe: every Run the Desktop reads says whether the player
+    /// answered its open question (review_confirmed), within the contract; a pending run that is deleted and
+    /// restored comes back pending and unconfirmed, and an export never carries the presentation field.
+    /// </summary>
+    [Fact]
+    public async Task RealPipe_ReviewConfirmedTellsAnAnswerFromADeleteAndRestore()
+    {
+        await using var f = ServerFixture.Start();
+        await using var client = await f.ConnectAsync();
+        async Task<string> Pending()
+        {
+            var manual = Manual();
+            manual["result"] = "UNKNOWN";
+            var id = (await client.SendAsync("CreateManualRun", manual)).Require()["run_id"]!.GetValue<string>();
+            var stored = f.Host.Runs.Get(id)!;
+            f.Host.Database.RunInTransaction(tx => f.Host.Runs.Update(stored with { PendingReview = true }, stored.Revision, tx));
+            return id;
+        }
+        var answered = await Pending();
+        var restored = await Pending();
+
+        var corrected = (await client.SendAsync("CorrectRun", new JsonObject
+        {
+            ["run_id"] = answered, ["expected_revision"] = 1, ["reason"] = "确认结局",
+            ["changes"] = new JsonObject { ["pending_review"] = false },
+        })).Require();
+        Assert.True(corrected["run"]!["review_confirmed"]!.GetValue<bool>());
+        (await client.SendAsync("BatchMutateRuns", Batch("soft_delete", (restored, 1)))).Require();
+        (await client.SendAsync("BatchMutateRuns", Batch("restore", (restored, 2)))).Require();
+
+        var listed = (await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["run_id"] = new JsonArray(answered, restored) }, ["page"] = 1, ["page_size"] = 10,
+        })).Require();
+        ContractSchema.Validate("$defs/Responses/QueryRuns", listed, "runs with review_confirmed");
+        var items = listed["items"]!.AsArray().ToDictionary(item => item!["run_id"]!.GetValue<string>(), item => item!);
+        Assert.True(items[answered]["review_confirmed"]!.GetValue<bool>());
+        Assert.False(items[answered]["pending_review"]!.GetValue<bool>());
+        Assert.False(items[restored]["review_confirmed"]!.GetValue<bool>());
+        Assert.True(items[restored]["pending_review"]!.GetValue<bool>());
+
+        var target = Path.Combine(Path.GetDirectoryName(f.DatabasePath)!, "confirmed.json");
+        (await client.SendAsync("ExportJson", new JsonObject
+        {
+            ["target_path"] = target, ["filter"] = new JsonObject { ["run_id"] = new JsonArray(answered) },
+        })).Require();
+        Assert.All(JsonNode.Parse(File.ReadAllText(target))!.AsArray(),
+            item => Assert.False(item!.AsObject().ContainsKey("review_confirmed")));
+    }
+
     [Fact]
     public async Task RealPipe_StaleBatchDeletesNothingThenPurgeRefusesOldBodyReplay()
     {

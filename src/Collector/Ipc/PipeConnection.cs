@@ -37,11 +37,16 @@ public sealed class PipeConnection
     /// sending but never reads. A request past this limit closes the connection, which also cancels
     /// every outstanding reply. All of a connection's unanswered <c>CheckUpdateNow</c> count as one:
     /// they wait on the same update check (<see cref="Update.UpdateCheckService.CheckNowIfAllowedAsync"/>
-    /// joins the one in flight), so pressing 立即检查 again cannot push a legitimate peer - four sentences,
-    /// the integrity check, an import and the update check at most - to the limit; they are held to the
-    /// same limit among themselves (audit 2026-10-20, G-1).
+    /// joins the one in flight), so pressing 立即检查 again cannot push a legitimate peer to the limit
+    /// (audit 2026-10-20, G-1). All of its unanswered whole-file jobs
+    /// (<see cref="MessageDispatcher.FileJobMessageTypes"/>: exports, the backup, the diagnostics report, the
+    /// candidate evidence) count as one too: they run one at a time on one slot, so a backup waiting behind an
+    /// export takes no slot of its own (audit 2026-11-26, RB-2). Each of the two groups is held to the same
+    /// limit among its own members. A legitimate peer has at most four sentences, the integrity check, an
+    /// import, the update check, the file-job slot, a batch change over a staged selection and one 提醒与宏
+    /// request outstanding: ten.
     /// </summary>
-    public const int MaxDeferredResponses = 8;
+    public const int MaxDeferredResponses = 10;
 
     private const string UpdateCheckMessageType = "CheckUpdateNow";
 
@@ -112,9 +117,11 @@ public sealed class PipeConnection
         finally
         {
             await connectionScope.CancelAsync().ConfigureAwait(false);
-            if (subscriptions.Count > 0 || deferred.Requests.Count > 0 || deferred.UpdateChecks.Count > 0)
+            if (subscriptions.Count > 0 || deferred.Requests.Count > 0 || deferred.UpdateChecks.Count > 0 ||
+                deferred.FileJobs.Count > 0)
             {
-                await Task.WhenAll(subscriptions.Concat(deferred.Requests).Concat(deferred.UpdateChecks)).ConfigureAwait(false);
+                await Task.WhenAll(subscriptions.Concat(deferred.Requests).Concat(deferred.UpdateChecks)
+                    .Concat(deferred.FileJobs)).ConfigureAwait(false);
             }
         }
     }
@@ -159,11 +166,14 @@ public sealed class PipeConnection
                 // dropped here; the rest are awaited when the connection closes.
                 deferred.Requests.RemoveAll(task => task.IsCompleted);
                 deferred.UpdateChecks.RemoveAll(task => task.IsCompleted);
-                var updateCheck = string.Equals(request.MessageType, UpdateCheckMessageType, StringComparison.Ordinal);
-                var joins = updateCheck && deferred.UpdateChecks.Count > 0;
-                var full = joins
-                    ? deferred.UpdateChecks.Count >= MaxDeferredResponses
-                    : deferred.Requests.Count + (deferred.UpdateChecks.Count > 0 ? 1 : 0) >= MaxDeferredResponses;
+                deferred.FileJobs.RemoveAll(task => task.IsCompleted);
+                var group = string.Equals(request.MessageType, UpdateCheckMessageType, StringComparison.Ordinal)
+                    ? deferred.UpdateChecks
+                    : MessageDispatcher.FileJobMessageTypes.Contains(request.MessageType) ? deferred.FileJobs : null;
+                var full = group is { Count: > 0 }
+                    ? group.Count >= MaxDeferredResponses
+                    : deferred.Requests.Count + (deferred.UpdateChecks.Count > 0 ? 1 : 0) +
+                        (deferred.FileJobs.Count > 0 ? 1 : 0) >= MaxDeferredResponses;
                 if (full)
                 {
                     // Do not enqueue even a refusal: it would wait behind the same blocked
@@ -174,8 +184,7 @@ public sealed class PipeConnection
                     return null;
                 }
 
-                (updateCheck ? deferred.UpdateChecks : deferred.Requests)
-                    .Add(RespondLaterAsync(channel, request, connectionScope.Token));
+                (group ?? deferred.Requests).Add(RespondLaterAsync(channel, request, connectionScope.Token));
                 return null;
             }
 
@@ -202,14 +211,16 @@ public sealed class PipeConnection
     }
 
     /// <summary>
-    /// A connection's deferred answers still outstanding: update checks apart, because together they hold one slot
-    /// (<see cref="MaxDeferredResponses"/>).
+    /// A connection's deferred answers still outstanding: update checks and whole-file jobs apart, because each group
+    /// together holds one slot (<see cref="MaxDeferredResponses"/>).
     /// </summary>
     private sealed class Deferred
     {
         public List<Task> Requests { get; } = new();
 
         public List<Task> UpdateChecks { get; } = new();
+
+        public List<Task> FileJobs { get; } = new();
     }
 
     private async Task RespondLaterAsync(FrameChannel channel, IpcRequest request, CancellationToken cancellationToken)

@@ -121,7 +121,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。", "capture.game.path_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_ambiguous"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。", "capture.game.region_override_applied"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。", "capture.game.region_override_mismatch"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。", "capture.game.region_override_mismatch"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_unmarked"), .args = ""},
     //: Placeholders: {file} shown as it is. Keep every {placeholder} exactly as written. {file} is the game's version file name, ffxivgame.ver.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未能在游戏目录中读取到 {file}，客户端版本未知。", "capture.game.version_file_missing"), .args = "file:text"},
@@ -197,7 +197,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待游戏启动。", "capture.validation.waiting_game"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。", "capture.validation.waiting_identity"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。", "capture.validation.waiting_region"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。", "capture.validation.waiting_region_mismatch"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。", "capture.validation.waiting_region_mismatch"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。", "capture.validation.waiting_restart_connected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。", "capture.validation.waiting_restart_selected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。", "capture.validation.waiting_selection"), .args = ""},
@@ -382,6 +382,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "匹配时间", "import.time_field.matched"), .args = ""},
     //: The name of a time in an imported record; it opens the import.row.time_* sentences.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "原记录时间", "import.time_field.source_recorded"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。", "import.warning.duty_unmatched"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。", "import.warning.job_unmatched"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "原记录没有打本心情，已保留为「未记录心情」。", "import.warning.mood_missing"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "原记录未提供结果，已预填为通关，请核对后确认或修改。", "import.warning.result_defaulted"), .args = ""},

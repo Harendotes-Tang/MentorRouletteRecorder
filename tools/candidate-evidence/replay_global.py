@@ -19,11 +19,35 @@ ZONE = "TERRITORY_CANDIDATE_00AB"
 
 
 def candidate_shapes():
+    """The three hypotheses' shapes in the candidate profile as it is in this checkout."""
     path = ROOT / "protocol-profiles" / "global" / (PROFILE_ID + ".json")
     hypotheses = json.loads(path.read_text(encoding="utf-8"))["hypotheses"]
     directions = {"SERVER_TO_CLIENT": "S2C", "CLIENT_TO_SERVER": "C2S"}
     return {h["name"]: (directions[h["direction"]], h["opcode"], h["expected_length"])
             for h in hypotheses if h["name"] in (QUEUE, NOTICE, ZONE)}
+
+
+def export_shapes(observations):
+    """The three hypotheses' shapes as the export itself records them.
+
+    The candidate profile is edited in place under the same profile id between evidence rounds, so
+    an older export is read by its own rows, never by the profile in the checkout (audit 2026-11-26,
+    N3-1). One hypothesis seen with two shapes in one export is refused rather than half used.
+    """
+    shapes = {}
+    for row in observations:
+        if row.hypothesis_name in (QUEUE, NOTICE, ZONE):
+            shape = (row.direction, row.opcode, row.length)
+            if shapes.setdefault(row.hypothesis_name, shape) != shape:
+                raise EvidenceError(row.hypothesis_name + " has more than one packet shape in this export")
+    return shapes
+
+
+def shape_notes(observations):
+    """One line per hypothesis whose exported shape differs from the profile in the checkout."""
+    current = candidate_shapes()
+    return [f"{name}: the export has {shape}, the current candidate profile has {current.get(name)}"
+            for name, shape in sorted(export_shapes(observations).items()) if current.get(name) != shape]
 
 
 def replay_stream(rows, territories):
@@ -57,14 +81,14 @@ def replay_stream(rows, territories):
 
 
 def replay(evidence, territories):
-    shapes = candidate_shapes()
+    export_shapes(evidence.observations)
     streams = defaultdict(list)
     sessions = {}
     for row in evidence.observations:
         if row.profile_id != PROFILE_ID:
             raise EvidenceError("expected observations from " + PROFILE_ID)
         sessions.setdefault(row.session, [])
-        if shapes.get(row.hypothesis_name) == (row.direction, row.opcode, row.length):
+        if row.hypothesis_name in (QUEUE, NOTICE, ZONE):
             streams[row.session, row.connection].append(row)
     for (session, _), rows in streams.items():
         sessions[session].extend(replay_stream(rows, territories))
@@ -85,10 +109,11 @@ def main():
         territories = {d["territory_id"] for d in catalog["duties"] if d["enabled"] and d["territory_id"]}
         evidence = load_evidence(args.export)
         sessions = replay(evidence, territories)
+        notes = shape_notes(evidence.observations)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f"Cannot replay evidence: {error}\n")
     print(json.dumps({"status": "ANALYSIS_ONLY", "source_sha256": evidence.source_sha256,
-                      "sessions": sessions}, indent=2))
+                      "sessions": sessions, "shape_notes": notes}, indent=2))
 
 
 if __name__ == "__main__":

@@ -35,7 +35,11 @@ ColumnLayout {
             [qsTr("游戏版本"), store.versionLabel(item.game_version)],
             [qsTr("区服"), store.regionLabel(item.region)],
             [qsTr("语言"), store.languageLabel(item.language)],
-            [qsTr("来源"), store.remote ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的"))],
+            // Free text of up to 240 characters wraps instead of being cut (audit 2026-11-26 RE-8).
+            [qsTr("标签"), item.tags.join(qsTr("、")), "", true],
+            // The stored text where there is one: it is published with the entry.
+            [qsTr("来源"), store.remote || item.source ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的")),
+             "", true],
             [qsTr("作者"), author ? "@" + author.login : ""],
             [qsTr("状态"), item.status ? store.statusText(item.status) : "",
              item.status === "verified" ? qsTr("维护者核对过内容和适用范围")
@@ -45,7 +49,8 @@ ColumnLayout {
             [qsTr("更新于"), day(item.updated_at)],
             [qsTr("上次使用"), used ? Qt.formatDateTime(new Date(used), "MM-dd HH:mm") : ""]
         ]
-        return pairs.filter(pair => pair[1]).map(pair => ({ key: pair[0], value: String(pair[1]), tip: pair[2] || "" }))
+        return pairs.filter(pair => pair[1]).map(pair => ({ key: pair[0], value: String(pair[1]), tip: pair[2] || "",
+                                                            wrap: pair[3] === true }))
     }
     spacing: 0
 
@@ -143,7 +148,8 @@ ColumnLayout {
                             renderType: Theme.bodyRenderType
                             textFormat: Text.PlainText
                             width: Math.min(implicitWidth, 300)
-                            elide: Text.ElideRight
+                            wrapMode: parent.modelData.wrap ? Text.Wrap : Text.NoWrap
+                            elide: parent.modelData.wrap ? Text.ElideNone : Text.ElideRight
                             text: parent.modelData.value
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(13)
@@ -272,10 +278,7 @@ ColumnLayout {
                         compact: true
                         text: qsTr("关联项") + " · " + (target ? target.content.title : modelData)
                         enabled: !!target
-                        onClicked: {
-                            pane.store.resetFilters()
-                            pane.store.select(modelData)
-                        }
+                        onClicked: pane.store.openLinked(modelData)
                     }
                 }
                 AppButton {

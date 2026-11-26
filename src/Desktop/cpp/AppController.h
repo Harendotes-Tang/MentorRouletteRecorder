@@ -324,8 +324,16 @@ class AppController final : public QObject, public CaptureValidationController::
     /// The $defs/CaptureStatus pipeline counters, copied only where the
     /// Collector sent them. A key that is absent here was not measured.
     Q_PROPERTY(QVariantMap captureCounters READ captureCounters NOTIFY statusChanged)
+    /// The Collector refused, or never acknowledged, the chosen 显示时区
+    /// (DisplayTimeZoneSync::refused): 设置 says it still works in the computer's zone.
+    Q_PROPERTY(bool displayTimeZoneRefused READ displayTimeZoneRefused NOTIFY displayTimeZoneRefusedChanged)
+    /// Every attempt went unanswered (DisplayTimeZoneSync::unconfirmed): the service may
+    /// have applied the zone; it is sent again on reconnection.
+    Q_PROPERTY(bool displayTimeZoneUnconfirmed READ displayTimeZoneUnconfirmed NOTIFY displayTimeZoneRefusedChanged)
 
 public:
+    bool displayTimeZoneRefused() const;
+    bool displayTimeZoneUnconfirmed() const;
     /// \a speechEngine is the engine the announcements go to: the machine's own voice
     /// in the program; a test passes TtsService::EngineMode::Mock, which plays no sound.
     AppController(IBackend *backend, AppSettings *settings, QObject *parent = nullptr,
@@ -835,6 +843,7 @@ Q_SIGNALS:
     /// The 显示时区 changed on this side (DisplayTimeZone::notifier()): pages that
     /// turned picked days into UTC instants compute them again.
     void displayTimeZoneChanged();
+    void displayTimeZoneRefusedChanged();
     /// The Collector acknowledged the 显示时区 (DisplayTimeZoneSync::applied): what it
     /// computed in days - the history calendar, the history_date order - is read again.
     void displayTimeZoneApplied();

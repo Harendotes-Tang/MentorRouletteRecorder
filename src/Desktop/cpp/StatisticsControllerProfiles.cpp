@@ -191,9 +191,16 @@ void StatisticsController::watchProfileRequest(const QString &action, BackendRep
     reply->whenDone(this, [this, action, guard, then = std::move(then), movesRuns, boundIdentityId](
                               bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
         if (movesRuns) {
-            countRunMove(-1, ok);
+            // A request that was sent and then lost (timeout, closed pipe) may have been applied
+            // all the same: like an answered one it owes a read, as HistoryController's batch
+            // does (audit 2026-11-26 I2-1).
+            const bool unsent = !ok && guard && guard->neverSent();
+            const bool uncertain = !ok && !unsent && ((guard && guard->transportFailed())
+                || code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
+                || code == QLatin1String("ERR_DISCONNECTED"));
+            countRunMove(-1, ok || uncertain);
             // The read that follows the move only primes the observation.
-            if (ok)
+            if (ok || uncertain)
                 suspendMilestone(QString());
         }
         if (!ok) {

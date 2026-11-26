@@ -102,6 +102,24 @@ public sealed class OodleSignatureShippedProfileTests
         Assert.Equal(0x01E59780, profile.ResolvedRvas[SignatureType.OodleNetwork1UDP_Train]);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26, A2b-1 / D2-2. CN and Global both report 2026.11.03, so the executable the
+    /// shipped profiles record is what tells the two clients apart: each recorded file answers its
+    /// own region, and a file no profile records (or one of another size) answers nothing.
+    /// </summary>
+    [Fact]
+    public void EachShippedProfileNamesTheRegionOfTheExecutableItRecords()
+    {
+        Assert.Equal(Region.Global, OodleSignatureProfile.RegionOfExecutable(
+            SignatureDirectory, "ceb4260b2574476acf72e7b6105d0a4f8d1bd78b4e7cab5d8115c453f2f39339", 51963136));
+        Assert.Equal(Region.Cn, OodleSignatureProfile.RegionOfExecutable(
+            SignatureDirectory, "E06704E3FA9C3BD43A0C8D238945163D7BE14C5700CC4D350618B8EC1DD4E1A6", 51952384));
+        Assert.Null(OodleSignatureProfile.RegionOfExecutable(
+            SignatureDirectory, "ceb4260b2574476acf72e7b6105d0a4f8d1bd78b4e7cab5d8115c453f2f39339", 51963137));
+        Assert.Null(OodleSignatureProfile.RegionOfExecutable(SignatureDirectory, new string('0', 64), 51963136));
+        Assert.Null(OodleSignatureProfile.RegionOfExecutable(null, new string('0', 64), 1));
+    }
+
     [Fact]
     public void MachinaAssemblyVersionIsTheOnlyOneThisBuildIsWiredFor()
     {

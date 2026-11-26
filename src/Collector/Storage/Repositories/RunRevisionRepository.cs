@@ -138,6 +138,175 @@ public sealed class RunRevisionRepository
         return reader.Read() ? ReadRow(reader) : null;
     }
 
+    /// <summary>Reads the newest revision of one kind of a run, or null when it has none.</summary>
+    /// <param name="runId">Run identifier.</param>
+    /// <param name="kind">Change kind to look for.</param>
+    /// <param name="transaction">Enclosing transaction, or null.</param>
+    internal RunRevision? GetLatestOfKind(string runId, ChangeKind kind, SqliteTransaction? transaction)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(runId);
+
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            $"SELECT {Columns} FROM run_revisions WHERE run_id = $run_id AND change_kind = $kind " +
+            "ORDER BY revision DESC LIMIT 1;";
+        command.Parameters.AddWithValue("$run_id", runId);
+        command.Parameters.AddWithValue("$kind", EnumWire<ChangeKind>.Format(kind));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadRow(reader) : null;
+    }
+
+    /// <summary>
+    /// The runs among <paramref name="runIds"/> whose review the player confirmed
+    /// (<see cref="MentorRun.ReviewConfirmed"/>): one query over their revisions, rule in
+    /// <see cref="IsReviewConfirmed"/>. Every revision is read, not only the user's corrections, because an
+    /// undo is recognised by the revision it reverses, which may be the software's. A revision that cannot be
+    /// read leaves its run unconfirmed: the mark is only ever shown on evidence.
+    /// </summary>
+    /// <param name="runIds">Runs to classify.</param>
+    /// <param name="transaction">Enclosing transaction, or null.</param>
+    internal IReadOnlySet<string> FindReviewConfirmed(IReadOnlyList<string> runIds, SqliteTransaction? transaction)
+    {
+        ArgumentNullException.ThrowIfNull(runIds);
+
+        var revisions = new Dictionary<string, List<(int Revision, bool UserCorrection, IReadOnlyList<RunFieldChange> Changes)>>(
+            StringComparer.Ordinal);
+        var unreadable = new HashSet<string>(StringComparer.Ordinal);
+        if (runIds.Count > 0)
+        {
+            using var command = _database.CreateCommand();
+            command.Transaction = transaction;
+            var names = new string[runIds.Count];
+            for (var i = 0; i < runIds.Count; i++)
+            {
+                names[i] = "$id" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                command.Parameters.AddWithValue(names[i], runIds[i]);
+            }
+
+            command.CommandText =
+                "SELECT run_id, revision, changes_json, (actor = 'USER' AND change_kind = 'CORRECT') " +
+                $"FROM run_revisions WHERE run_id IN ({string.Join(", ", names)}) " +
+                "ORDER BY run_id, revision;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var runId = reader.GetString(0);
+                IReadOnlyList<RunFieldChange> changes;
+                try
+                {
+                    changes = DeserializeChanges(reader.GetString(2));
+                }
+                catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
+                {
+                    unreadable.Add(runId);
+                    continue;
+                }
+
+                if (!revisions.TryGetValue(runId, out var list))
+                    revisions.Add(runId, list = []);
+                list.Add((reader.GetInt32(1), reader.GetInt64(3) != 0, changes));
+            }
+        }
+
+        return revisions
+            .Where(pair => !unreadable.Contains(pair.Key) && IsReviewConfirmed(pair.Value))
+            .Select(pair => pair.Key)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The 已确认 rule over one run's revisions, oldest first (audit 2026-11-26 K3-1, RB-1).
+    /// <para>
+    /// An undo is recognised by structure: a user correction (actor USER, kind CORRECT) that exactly reverses
+    /// the revision right before it, whoever wrote that one (<see cref="IsUndoOf"/>). An undo is never itself a
+    /// confirming revision. It switches the revision it ultimately takes back off, and an undo of that undo
+    /// switches it on again - so undoing a confirmation clears the mark, undoing that undo restores it because
+    /// the confirmation it brings back counts again, and undoing a system revision or the user's blanking of a
+    /// field never sets it.
+    /// </para>
+    /// <para>
+    /// Every other user correction is a confirming revision when it cleared <c>pending_review</c> (true → false)
+    /// or filled a blank job, duty or entry kind or an UNKNOWN result, and overruled nothing the software
+    /// recorded (<see cref="RunMutationRules.OverrulesTheRecord(bool, IReadOnlyList{RunFieldChange})"/>). The
+    /// latest confirming revision decides: the run is confirmed when it is in force (not undone). Character and
+    /// region moves change only <c>profile_id</c> / <c>region</c> and confirm nothing; deletion and restore have
+    /// kinds of their own and system revisions another actor, so neither confirms.
+    /// </para>
+    /// </summary>
+    /// <param name="revisions">The run's revisions, oldest first; <c>UserCorrection</c> marks actor USER, kind CORRECT.</param>
+    internal static bool IsReviewConfirmed(
+        IReadOnlyList<(int Revision, bool UserCorrection, IReadOnlyList<RunFieldChange> Changes)> revisions)
+    {
+        ArgumentNullException.ThrowIfNull(revisions);
+
+        // takesBack[i]: the revision an undo chain through i ends in (i itself for one that is no undo);
+        // inForce[j]: whether revision j currently stands.
+        var takesBack = new int[revisions.Count];
+        var inForce = new bool[revisions.Count];
+        var latestConfirming = -1;
+        for (var i = 0; i < revisions.Count; i++)
+        {
+            var (revision, userCorrection, changes) = revisions[i];
+            if (i > 0 && userCorrection && revisions[i - 1].Revision == revision - 1 &&
+                IsUndoOf(changes, revisions[i - 1].Changes))
+            {
+                takesBack[i] = takesBack[i - 1];
+                inForce[takesBack[i]] = !inForce[takesBack[i]];
+                continue;
+            }
+
+            takesBack[i] = i;
+            inForce[i] = true;
+            if (userCorrection && IsConfirming(changes))
+                latestConfirming = i;
+        }
+
+        return latestConfirming >= 0 && inForce[latestConfirming];
+    }
+
+    private static bool IsConfirming(IReadOnlyList<RunFieldChange> changes)
+    {
+        var wasPending = changes.Any(change =>
+            change.Field == RunFields.PendingReview && Equals(change.OldValue, true));
+        return changes.Any(IsConfirmingChange) && !RunMutationRules.OverrulesTheRecord(wasPending, changes);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="undo"/> exactly reverses <paramref name="target"/>, as
+    /// <c>RunMutationService.UndoRevision</c> writes it: every change of the target put back, and nothing else
+    /// changed - except what undo itself adds or leaves out: <c>manually_corrected</c> is history and never
+    /// reverted, and a character profile removed since is reset to none.
+    /// </summary>
+    private static bool IsUndoOf(IReadOnlyList<RunFieldChange> undo, IReadOnlyList<RunFieldChange> target)
+    {
+        var reversible = target.Where(change => change.Field != RunFields.ManuallyCorrected).ToArray();
+        if (reversible.Length == 0)
+            return false;
+
+        static bool ProfileReset(RunFieldChange change) =>
+            change.Field == RunFields.ProfileId && change.NewValue is null;
+
+        return reversible.All(change => undo.Any(back =>
+                back.Field == change.Field && Equals(back.OldValue, change.NewValue) &&
+                (Equals(back.NewValue, change.OldValue) || ProfileReset(back)))) &&
+            undo.All(back => back.Field == RunFields.ManuallyCorrected || ProfileReset(back) ||
+                reversible.Any(change => change.Field == back.Field));
+    }
+
+    private static bool IsConfirmingChange(RunFieldChange change) => change.Field switch
+    {
+        RunFields.PendingReview => Equals(change.OldValue, true) && Equals(change.NewValue, false),
+        RunFields.Result => Equals(change.OldValue, "UNKNOWN") && change.NewValue is string result && result != "UNKNOWN",
+        RunFields.JobId or RunFields.ContentId or RunFields.DutyName or RunFields.JoinedInProgress =>
+            IsBlank(change.OldValue) && !IsBlank(change.NewValue),
+        _ => false,
+    };
+
+    // The blank values RunMutationRules.OverrulesTheRecord treats as "the software had none".
+    private static bool IsBlank(object? value) =>
+        value is null or "未知" or "UNKNOWN" || (value is string text && text.Length == 0);
+
     private static RunRevision ReadRow(SqliteDataReader reader) => new()
     {
         RevisionId = reader.GetString(0),

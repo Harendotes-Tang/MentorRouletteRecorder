@@ -69,6 +69,16 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(name.encode("ascii"), (self.out / name).read_bytes())
         self.assertIn("def classify(", (self.out / "tools/community_classification.py").read_text(encoding="utf-8"))
 
+    def test_updates_add_the_community_guard_to_the_deployed_pending_listing(self):
+        # Audit 2026-11-26 N1-1: a deployed publish.py from before the guard keeps its own calibration code.
+        guard = '        and classify_community(item, _label_names(item)) == "other"\n'
+        deployed = self.out / "tools/publish.py"
+        source = deployed.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertEqual(1, source.count(guard))
+        deployed.write_bytes(source.replace(guard, "").encode("utf-8"))
+        sync_public_repo.update_existing(self.out)
+        self.assertEqual(1, deployed.read_text(encoding="utf-8").count(guard))
+
     def test_updates_seed_community_only_when_both_data_files_are_absent(self):
         for name in sync_public_repo.COMMUNITY_SEEDS:
             (self.out / name).unlink()

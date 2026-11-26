@@ -662,10 +662,12 @@ QString UpdateController::mirrorNoticeFor(const QString &outcome)
 {
     // Only the not_switched_* outcomes follow a 「切换到 GitCode」 that did not happen;
     // switched, declined, none and any value this build does not know say nothing.
+    // The outcome arrives only with the final READY / FAILED snapshot, so the sentences
+    // speak of a download that is over (audit 2026-11-26 I3-3).
     if (outcome == QLatin1String("not_switched_faster_primary"))
-        return tr("没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。");
+        return tr("没有切换到 GitCode：GitHub 的下载比镜像更快，这次下载继续使用了 GitHub。");
     if (outcome == QLatin1String("not_switched_mirror_unavailable"))
-        return tr("没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。");
+        return tr("没有切换到 GitCode：镜像暂时无法使用，这次下载继续使用了 GitHub。");
     if (outcome == QLatin1String("not_switched_primary_ended"))
         return tr("没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。");
     return {};

@@ -268,9 +268,41 @@ public sealed class DurableMutationIdempotencyTests
         Assert.False(f.Runs.Get(run.RunId)!.SoftDeleted);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26 H1b-2. A character profile request writes no row keyed by its request id, so once its
+    /// response expired nothing proved it had run: a late replay of 设为当前角色 made the old character current
+    /// again and filed newly recorded runs under it. contracts/error-codes.md rule 13 refuses such a replay.
+    /// </summary>
+    [Fact]
+    public void ALateReplayOfACharacterProfileRequestIsRefusedAndChangesNothing()
+    {
+        using var f = new Fixture();
+        var settings = f.Db.Settings();
+        var profiles = new CharacterProfileService(f.Db.Database, settings, f.Db.Clock);
+        var main = settings.Profiles.FindCurrent(Region.Cn)!.ProfileId;
+        var alt = profiles.Create(new CreateCharacterProfileCommand(Id(), Region.Cn, "小号", 2000, 0, false, null)).ProfileId;
+        var switchToAlt = new UpdateCharacterProfileCommand(Id(), alt, null, MakeCurrent: true);
+        profiles.Update(switchToAlt);
+        profiles.Update(new UpdateCharacterProfileCommand(Id(), main, null, MakeCurrent: true));
+
+        f.Db.Clock.UtcNow += IdempotencyRepository.RetentionWindow + TimeSpan.FromHours(1);
+        f.Create(); // Any later write prunes the expired response.
+        Assert.Null(f.Receipts.TryGetResponse(switchToAlt.RequestId));
+        f.Db.Reopen();
+
+        settings = f.Db.Settings();
+        profiles = new CharacterProfileService(f.Db.Database, settings, f.Db.Clock);
+        AssertExpired(() => profiles.Update(switchToAlt));
+        Assert.Equal(main, settings.Profiles.FindCurrent(Region.Cn)!.ProfileId);
+    }
+
     [Theory]
     [InlineData("SetRunReflection")]
     [InlineData("BatchMutateRuns")]
+    [InlineData("CreateCharacterProfile")]
+    [InlineData("UpdateCharacterProfile")]
+    [InlineData("DeleteCharacterProfile")]
+    [InlineData("ResolveCharacterIdentity")]
     public void ExpiredBodiesBecomePersistentOpaqueMarkersAndClockRollbackCannotReplayThem(string messageType)
     {
         using var f = new Fixture();

@@ -21,7 +21,7 @@ internal static class CommunityHandlers
                 "save" or "delete" or "fork" or "install" or "apply" or "import_file" =>
                     host.CommunityWorkspace.Change(action, request.RequestId, payload),
                 "account" or "sign_in" or "poll" or "cancel" or "sign_out" or "submit" or "issue_status" =>
-                    await host.CommunityGithub.RequestAsync(action, payload, token).ConfigureAwait(false),
+                    await GithubAsync(host, action, payload, token).ConfigureAwait(false),
                 "prepare_issue" => new JsonObject
                 {
                     ["status"] = "prepared",
@@ -40,6 +40,21 @@ internal static class CommunityHandlers
         catch (JsonException)
         {
             return CommunityWorkspace.Result("invalid_json");
+        }
+    }
+
+    // The diagnostics report states the most recent community request of either kind; the
+    // library keeps that record, so a GitHub request is handed to it once it has ended.
+    private static async Task<JsonObject> GithubAsync(CollectorHost host, string action, JsonObject payload,
+        CancellationToken token)
+    {
+        try
+        {
+            return await host.CommunityGithub.RequestAsync(action, payload, token).ConfigureAwait(false);
+        }
+        finally
+        {
+            host.CommunityLibrary.RecordRequest(host.CommunityGithub.LastRequest);
         }
     }
 

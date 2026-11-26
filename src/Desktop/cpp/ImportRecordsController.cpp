@@ -218,13 +218,13 @@ ImportRecordsController::ImportRecordsController(QObject *parent)
     : QObject(parent), m_ocr(new OfflineOcrEngine(this)), m_previewClient(new ImportPreviewClient(this))
 {
     initializeImportTemplateResources();
-    // A 显示时区 change moves the source zone only while it is still the default and
-    // no batch was read with it; a zone the player picked, or one rows depend on, stays.
+    // A 显示时区 change moves the source zone only while the player has not picked
+    // one and no batch was read with it; a picked zone, or one rows depend on, stays.
+    // A batch on screen keeps its zone, and the next batch takes the default again
+    // (beginInput; audit 2026-11-26, I3-2).
     connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, [this] {
         const QString next = defaultTimeZone();
-        const bool untouched = m_timeZone == m_defaultTimeZone;
-        m_defaultTimeZone = next;
-        if (!untouched || m_timeZone == next || !m_candidates.isEmpty() || busy()
+        if (m_timeZoneChosen || m_timeZone == next || !m_candidates.isEmpty() || busy()
             || pendingCommitConfirmation())
             return;
         m_timeZone = next;
@@ -444,6 +444,9 @@ void ImportRecordsController::beginInput(const QString &kind, const QString &nam
     m_ownConfirmed = false;
     m_deductChosen = false;
     m_deduct = false;
+    // A new batch starts in the 显示时区's default unless the player picked a zone.
+    if (!m_timeZoneChosen)
+        m_timeZone = defaultTimeZone();
     m_phase = QStringLiteral("editing");
     invalidatePreview(false);
 }
@@ -1278,12 +1281,24 @@ void ImportRecordsController::commit()
                 return;
             m_phase = QStringLiteral("editing");
             if (!ok) {
-                // A retry that never left cannot resolve an earlier unanswered commit.
-                // Keep the original batch frozen until the Collector answers.
-                const bool unanswered = !reply || reply->transportFailed()
+                // A retry that never left cannot resolve an earlier unanswered commit, and
+                // neither can ERR_DB_BUSY for the same request id: the Collector is still
+                // writing that commit (audit 2026-11-26, I5-1). Keep the original batch
+                // frozen until the Collector answers it. Only the Collector's import-busy
+                // answer (import.busy) says that commit is still running; a locked
+                // database rolled the attempt back, so it gets the ordinary busy
+                // sentence while the batch still stays frozen (re-review RD-3).
+                const bool busyRetry = confirmingPreviousCommit && reply
+                    && reply->errorCode() == QLatin1String("ERR_DB_BUSY");
+                const bool stillRunning = busyRetry
+                    && reply->errorRef().toMap().value(QStringLiteral("key")).toString()
+                           == QLatin1String("import.busy");
+                const bool unanswered = !reply || reply->transportFailed() || busyRetry
                     || (reply->neverSent() && confirmingPreviousCommit);
                 m_pendingCommitPayload = unanswered ? request : QJsonObject();
-                fail(LiveText([refusal = collector_text::replyErrorText(reply, message)] {
+                fail(LiveText([stillRunning, refusal = collector_text::replyErrorText(reply, message)] {
+                    if (stillRunning)
+                        return tr("上一次保存仍在进行，这批记录保持不变。请稍后再点「重试确认保存」查看结果。");
                     return refusal.isEmpty() ? tr("尚未确认导入结果。输入已保留，可安全重试同一批次。") : refusal.text();
                 }));
                 return;
@@ -1593,6 +1608,7 @@ void ImportRecordsController::setTimeZone(const QString &zone)
         return;
     }
     m_timeZone = zone;
+    m_timeZoneChosen = true;
     static const QRegularExpression explicitOffset(QStringLiteral(R"((?:Z|[+-]\d{2}:\d{2})$)"));
     for (int i = 0; i < m_candidates.size(); ++i) {
         QJsonObject candidate = m_candidates[i].toObject();

@@ -41,7 +41,7 @@ ColumnLayout {
                                                              : store.licenseOptions
     readonly property string licenseCode: license.currentValue || (licenseChoices.length ? licenseChoices[0].value : "")
     readonly property var plan: {
-        const result = { rows: [], items: [], bases: {}, reviews: {}, outdated: {}, twins: {} }
+        const result = { rows: [], items: [], bases: {}, reviews: {}, outdated: {}, twins: {}, longSource: {} }
         for (const row of selected) {
             const draft = attributedDraft(row)
             const id = draft.id
@@ -67,6 +67,8 @@ ColumnLayout {
                 result.reviews[id] = { revision: current.revision, changes: changes,
                     key: JSON.stringify([id, current.revision, draft, licenseCode, changes]) }
             }
+            // The Collector and the publisher hold 来源 to 240 characters, the attribution included.
+            if (draft.source.length > 240) result.longSource[id] = true
             result.rows.push(row)
             result.items.push(draft)
         }
@@ -78,8 +80,9 @@ ColumnLayout {
                                                             plan.outdated, account ? account.id : null])
     readonly property bool needsReview: Object.keys(plan.reviews).some(id => confirmed[id] !== plan.reviews[id].key)
     readonly property bool hasOutdatedBase: Object.keys(plan.outdated).length > 0
+    readonly property bool hasLongSource: Object.keys(plan.longSource).length > 0
     readonly property bool canSubmit: visible && !copied && !posting && !store.refreshing && consent.checked
-        && !needsReview && !hasOutdatedBase && submittable.length > 0 && submittable.length <= 20
+        && !needsReview && !hasOutdatedBase && !hasLongSource && submittable.length > 0 && submittable.length <= 20
     signal finished()
     spacing: 0
 
@@ -168,9 +171,30 @@ ColumnLayout {
             role: qsTr("职业"), tags: qsTr("标签"), game_version: qsTr("游戏版本"),
             links: qsTr("关联条目"), source: qsTr("来源"), license: qsTr("许可")
         }
-        const value = item => typeof item === "string" ? item || qsTr("（空）") : JSON.stringify(item)
-        return changes.map(change => labels[change.key] + "\n− " + value(change.previous)
-                                                     + "\n+ " + value(change.next)).join("\n\n")
+        // A linked entry by its title where it is known; a list as its items.
+        const title = id => {
+            const row = store.localRows.concat(store.publicRows).find(entry => entry.content.id === id)
+            return row ? "「" + row.content.title + "」" : id
+        }
+        // A stored code as the dialog shows it elsewhere: the duty, server, language, type, jobs,
+        // version range and licence in words (audit 2026-11-26 RE-6).
+        const label = (key, item) => {
+            switch (key) {
+            case "content_id": return store.dutyLabel({ content_id: Number(item) })
+            case "region": return store.regionLabel(item)
+            case "language": return store.languageLabel(item)
+            case "type": return (store.typeOptions.find(option => option.value === item) || { label: String(item) }).label
+            case "role": return store.jobsLabel(item)
+            case "game_version": return store.versionLabel(item)
+            case "license": return store.licenseLabel(item)
+            }
+            return typeof item === "string" ? item : String(item)
+        }
+        const value = (key, item) => Array.isArray(item)
+            ? (item.length ? item.map(entry => key === "links" ? title(entry) : String(entry)).join(qsTr("、")) : qsTr("（空）"))
+            : item === undefined || item === null || item === "" ? qsTr("（空）") : label(key, item) || qsTr("（空）")
+        return changes.map(change => labels[change.key] + "\n− " + value(change.key, change.previous)
+                                                     + "\n+ " + value(change.key, change.next)).join("\n\n")
     }
 
     function submit(direct) {
@@ -267,6 +291,9 @@ ColumnLayout {
                         readonly property var twin: pane.twins[draftId] || null
                         readonly property var review: pane.plan.reviews[draftId] || null
                         readonly property var outdated: pane.plan.outdated[draftId] || null
+                        // 来源 (with the original author's attribution added) and 标签 become public
+                        // too, though the form does not edit them: shown here whenever they hold text.
+                        readonly property var draft: pane.attributedDraft(modelData)
                         property string openReviewKey: ""
                         readonly property bool comparing: !!review && openReviewKey === review.key
                         Layout.fillWidth: true
@@ -317,6 +344,24 @@ ColumnLayout {
                                 }
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
+                            }
+                            Body {
+                                objectName: "dutyCommunitySubmissionSource"
+                                visible: !entry.twin && entry.draft.source.length > 0
+                                textFormat: Text.PlainText
+                                text: qsTr("来源：%1").arg(entry.draft.source)
+                            }
+                            Body {
+                                objectName: "dutyCommunitySubmissionTags"
+                                visible: !entry.twin && entry.draft.tags.length > 0
+                                textFormat: Text.PlainText
+                                text: qsTr("标签：%1").arg(entry.draft.tags.join(qsTr("、")))
+                            }
+                            Body {
+                                objectName: "dutyCommunityLongSource"
+                                visible: !entry.twin && !!pane.plan.longSource[entry.draftId]
+                                color: Theme.red
+                                text: qsTr("来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。")
                             }
                             Body {
                                 objectName: "dutyCommunityOutdatedBase"
@@ -379,7 +424,9 @@ ColumnLayout {
                         qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
                     ] : [
                         qsTr("核对下面会公开的内容，选好许可并勾选确认。"),
-                        qsTr("用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。"),
+                        pane.store.configured
+                            ? qsTr("用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。")
+                            : qsTr("复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。"),
                         qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
                     ]
                     delegate: RowLayout {
@@ -430,7 +477,7 @@ ColumnLayout {
                         text: pane.submittable.length === 0
                               ? qsTr("选中的内容公共共享库里都已经有了，不需要再投稿。")
                               : pane.submittable.length > 20 ? qsTr("一次最多投稿 20 项，请少选几项再投稿。")
-                              : qsTr("会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
+                              : qsTr("会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
                                     .arg(pane.submittable.length)
                     }
                     Body {
@@ -496,9 +543,11 @@ ColumnLayout {
                 }
             }
 
+            // Without a GitHub App (no shipped build has one) the browser route is all there is:
+            // no sign-in, and nothing that suggests one could be set up.
             Body {
-                visible: !pane.copied && (pane.store.refreshing || !pane.store.configured)
-                text: pane.store.statusText(pane.store.refreshing ? "refreshing" : "app_not_configured")
+                visible: !pane.copied && pane.store.refreshing
+                text: pane.store.statusText("refreshing")
             }
             // The clipboard holds one text: copying the macro, or anything else, before pasting
             // replaces the submission.

@@ -637,9 +637,13 @@ class HelperCommandTests(PublishTestCase):
         pages = [
             [rest(1), rest(2, labels=("share-calibration", "published")), rest(3, state="closed")],
             [rest(4, pull_request={}), rest(5, labels=("question",)), rest(6, labels=("share-calibration", "needs-maintainer")), rest(11)],
+            # Audit 2026-11-26 N1-1: the calibration lane steps aside for a community-marked Issue and never answers
+            # it, so the sweep must not list it either, or 50 of them would take every slot for good.
+            [rest(7, body="<!-- mentor-recorder:community-content:v1 -->\n\n```json\n{}\n```"),
+             rest(8, labels=("share-calibration", "community-content"))],
         ]
         path = self.root / "open.json"
-        path.write_text(json.dumps(pages[0], indent=2) + json.dumps(pages[1]), encoding="utf-8")
+        path.write_text(json.dumps(pages[0], indent=2) + json.dumps(pages[1]) + json.dumps(pages[2]), encoding="utf-8")
         self.assertEqual((0, "1\n11\n"), self.call("pending", "--issues", path))
         path.write_text("[{", encoding="utf-8")
         with contextlib.redirect_stderr(io.StringIO()):

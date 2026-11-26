@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Speech;
+using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -63,6 +66,8 @@ public sealed class PipeDeferredResponseBoundsTests
     /// integrity check, an import and 立即检查 - stays under the limit even while none of the answers can be written yet,
     /// and 立即检查 pressed again while that check runs joins it instead of taking slots of its own. Every request is
     /// answered once the writes go through, and the repeated presses send no second request.
+    /// Audit 2026-11-26, RB-2: the daily backup waiting behind two exports for the one whole-file slot takes one slot
+    /// between them, and a batch change over a staged selection is admitted on top of all that.
     /// </summary>
     [Fact]
     public async Task ALegitimatePeerIsNeverCutAndRepeatedUpdateChecksJoinTheOneInFlight()
@@ -85,6 +90,10 @@ public sealed class PipeDeferredResponseBoundsTests
             .Append(("CheckDatabaseIntegrity", new JsonObject()))
             .Append(("PreviewRunImport", new JsonObject { ["unexpected"] = true }))
             .Concat(Enumerable.Repeat(("CheckUpdateNow", new JsonObject()), 4))
+            .Append(("ExportCsv", new JsonObject { ["unexpected"] = true }))
+            .Append(("ExportJson", new JsonObject { ["unexpected"] = true }))
+            .Append(("BackupDatabase", new JsonObject { ["unexpected"] = true }))
+            .Append(("BatchMutateRuns", new JsonObject { ["selection_id"] = Guid.NewGuid().ToString("D"), ["unexpected"] = true }))
             .Select(item => (MessageType: item.Item1, Payload: item.Item2))
             .ToArray();
         using var stream = new ScriptedStream(requests, release.Task);
@@ -106,6 +115,66 @@ public sealed class PipeDeferredResponseBoundsTests
         Assert.All(stream.Responses.Where(reply => reply["message_type"]!.GetValue<string>() == "CheckUpdateNow"),
             reply => Assert.True(reply["ok"]!.GetValue<bool>()));
         Assert.Equal(1, Volatile.Read(ref metadataRequests));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, G-1: a batch change over a staged selection that waits for the database does not hold the
+    /// connection. The release of its selection and a version request sent after it on the same connection are
+    /// answered first, and the batch still applies to the set it was admitted with once the database is free.
+    /// </summary>
+    [Fact]
+    public async Task AStagedBatchWaitingForTheDatabaseDoesNotHoldTheReadLoop()
+    {
+        using var fixture = new TestDatabase();
+        using var host = OpenHost(fixture);
+        var run = host.Mutations.CreateManualRun(new CreateManualRunCommand
+        {
+            RequestId = Guid.NewGuid().ToString("D"), Reason = "补录一次导随", Result = RunResult.Completed, JobId = 19,
+            EnteredAtUtc = fixture.Clock.UtcNow.AddHours(-1), EndedAtUtc = fixture.Clock.UtcNow.AddMinutes(-30),
+        }).Run!;
+        var targets = new[] { new BatchRunTarget(run.RunId, run.Revision) };
+        var selection = HistorySelectionStore.Digest(targets);
+        host.HistorySelections.Stage(selection, 0, targets, last: true);
+        var batch = new IpcRequest(Guid.NewGuid().ToString("D"), "BatchMutateRuns", new JsonObject
+        {
+            ["action"] = "soft_delete", ["selection_id"] = selection, ["reason"] = "批量删除",
+        });
+        var release = new IpcRequest(Guid.NewGuid().ToString("D"), "QueryHistorySelection",
+            new JsonObject { ["selection_id"] = selection, ["release"] = true });
+        var version = new IpcRequest(Guid.NewGuid().ToString("D"), "GetVersion", new JsonObject());
+
+        var blocker = new DatabaseBlocker(host.Database);
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
+        using var stream = new ScriptedPipePeer(batch, release, version);
+        using var lifetime = new CancellationTokenSource();
+        var serving = new PipeConnection(stream, new MessageDispatcher(host)).ServeAsync(lifetime.Token);
+        try
+        {
+            var first = await stream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(90));
+            var second = await stream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(90));
+            Assert.Equal(release.RequestId, first["request_id"]!.GetValue<string>());
+            Assert.Equal(version.RequestId, second["request_id"]!.GetValue<string>());
+            Assert.False(blocker.Finished);
+        }
+        finally
+        {
+            await blocker.DisposeAsync();
+        }
+
+        try
+        {
+            var applied = await stream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(90));
+            Assert.Equal(batch.RequestId, applied["request_id"]!.GetValue<string>());
+            Assert.True(applied["ok"]!.GetValue<bool>());
+            Assert.Equal(1, applied["payload"]!["changed_count"]!.GetValue<int>());
+            Assert.True(host.Runs.Get(run.RunId)!.SoftDeleted);
+        }
+        finally
+        {
+            await lifetime.CancelAsync();
+            try { await serving.WaitAsync(TimeSpan.FromSeconds(30)); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private static CollectorHost OpenHost(TestDatabase fixture, UpdateCheckClient? updates = null) => CollectorHost.Open(

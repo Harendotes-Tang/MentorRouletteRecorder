@@ -863,12 +863,16 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Use this adapter</translation>
     </message>
     <message>
-        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
-        <translation>No network adapters found. Click “Check adapters again” next to Connection status to retry.</translation>
+        <source>没有找到网卡。请点右侧的“重新检测网卡”重试。</source>
+        <translation>No network adapters found. Click “Check adapters again” on the right to retry.</translation>
     </message>
     <message>
-        <source>选择的网卡会一直使用，直到改回自动选择。</source>
-        <translation>The chosen adapter stays in use until you switch back to Automatic.</translation>
+        <source>重新检测网卡</source>
+        <translation>Check adapters again</translation>
+    </message>
+    <message>
+        <source>软件会优先使用这张网卡；游戏连接不在这张网卡上、而在另一张网卡上时，会自动改用那一张。</source>
+        <translation>The app uses this adapter first; if the game&apos;s connection is on another adapter instead, it switches to that one automatically.</translation>
     </message>
     <message>
         <source>改回自动选择</source>
@@ -1384,6 +1388,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <source>。</source>
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>.</translation>
+    </message>
+    <message>
+        <source>尚未安装 Npcap 驱动，暂时不能自动记录。</source>
+        <translation>The Npcap driver isn&apos;t installed, so automatic recording is unavailable for now.</translation>
     </message>
     <message>
         <source>自动寻找网络路径</source>
@@ -3424,11 +3432,6 @@ SHA256: %3</translation>
         <translation>The server region this client&apos;s install path indicates doesn&apos;t match the server region set manually for it in Settings, so the manually set region is used. If this isn&apos;t what you want, clear the manually set region in Settings.</translation>
     </message>
     <message>
-        <source>设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.game.region_override_mismatch</comment>
-        <translation>The server region set manually in Settings isn&apos;t bound to this client yet and doesn&apos;t match the region its install path indicates, so nothing is recorded automatically for now. If this client really belongs to the manually set region, select the server region again in Settings while the client is running; otherwise, clear the manually set region.</translation>
-    </message>
-    <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
         <translation>The server region can&apos;t be determined from the install path (the path is readable but has no recognizable region marker). Set the server region manually in Settings (CN / TC / Global); nothing is recorded automatically until then.</translation>
@@ -3462,11 +3465,6 @@ SHA256: %3</translation>
         <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
         <comment>capture.validation.failed_identity_key_unreadable</comment>
         <translation>The local key that character identification capture needs could not be read just now, so the capture did not start and no file was created. Try again later; see the local diagnostic log for details.</translation>
-    </message>
-    <message>
-        <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
-        <comment>capture.validation.waiting_region_mismatch</comment>
-        <translation>Validation only, no automatic recording. The server region set manually in Settings isn&apos;t bound to this client yet and doesn&apos;t match the region its install path indicates. If this client really belongs to the manually set region, select the server region again in Settings while the client is running; otherwise, clear the manually set region.</translation>
     </message>
     <message>
         <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
@@ -3509,9 +3507,19 @@ SHA256: %3</translation>
         <translation>Couldn&apos;t clear the calibration progress: the file that stores it is in use by another program (for example, security software is checking it). Click “Clear calibration progress” again later.</translation>
     </message>
     <message>
+        <source>设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.game.region_override_mismatch</comment>
+        <translation>The server region set manually in Settings, this client&apos;s install path and its program files don&apos;t agree on the server region, so nothing is recorded automatically for now. When the install path clearly indicates a region, the path takes precedence: if the manually set region is wrong, clear it in Settings; if the install folder&apos;s name made the app pick the wrong region, move the game to a folder whose name doesn&apos;t mention another region, then restart the game.</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
         <comment>capture.validation.waiting_adapter_chosen</comment>
         <translation>Verification only; nothing is recorded. The adapter you chose is not connected or has no IPv4 address, so the capture will not start. Cancel, then choose the adapter you are online with, or use “Automatic”.</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</source>
+        <comment>capture.validation.waiting_region_mismatch</comment>
+        <translation>Validation only, no automatic recording. The server region set manually in Settings, this client&apos;s install path and its program files don&apos;t agree on the server region. When the install path clearly indicates a region, the path takes precedence: if the manually set region is wrong, clear it in Settings; if the install folder&apos;s name made the app pick the wrong region, move the game to a folder whose name doesn&apos;t mention another region, then restart the game.</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4042,6 +4050,11 @@ SHA256: %3</translation>
         <comment>import.time_field.source_recorded</comment>
         <extracomment>The name of a time in an imported record; it opens the import.row.time_* sentences.</extracomment>
         <translation>Original record time</translation>
+    </message>
+    <message>
+        <source>未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。</source>
+        <comment>import.warning.duty_unmatched</comment>
+        <translation>The duty couldn&apos;t be confirmed, so the original name was kept. Check and choose the duty; if unsure, you can leave it unknown.</translation>
     </message>
     <message>
         <source>未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。</source>
@@ -5747,6 +5760,18 @@ SHA256: %3</translation>
         <translation>Game records stay on this PC</translation>
     </message>
     <message>
+        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <translation>After you turn on “Let the public library go online” in “Reminders &amp; macros”, the background service reads what others have submitted from this project&apos;s public repository on GitHub, and only when you open “Public library” or click Refresh (if GitHub doesn&apos;t respond within 3 seconds or reading fails, it also asks the repository&apos;s mirror of the same name on GitCode and uses whichever usable content arrives first). These requests send none of your local content, characters or filters; GitHub and GitCode can see your IP address. Turning the same switch off stops these requests.</translation>
+    </message>
+    <message>
+        <source>在「投稿进度」里点「查看状态」时，后台服务会向 GitHub 查询你填写的 Issue 编号；这一查询不受上面的开关控制。</source>
+        <translation>When you click “Check status” under “Submission progress”, the background service asks GitHub about the Issue number you entered; this lookup isn&apos;t controlled by the switch above.</translation>
+    </message>
+    <message>
+        <source>目前发布的版本只通过浏览器投稿：软件复制投稿正文并在浏览器打开 GitHub 表单，你提交的正文以你自己的 GitHub 账号公开发布。软件不登录 GitHub，也不保存任何 GitHub 凭据。配置了软件内投稿的版本会在你选择直接提交时请你登录，授权令牌由 Windows 加密保存在本机，点「退出 GitHub」即可删除。</source>
+        <translation>Released versions currently submit only through the browser: the app copies the submission and opens the GitHub form in your browser, and the text you submit is published under your own GitHub account. The app doesn&apos;t sign in to GitHub and stores no GitHub credentials. Versions set up for in-app submission ask you to sign in when you choose to submit directly; the access token is encrypted by Windows and stored on this PC, and clicking “Sign out of GitHub” deletes it.</translation>
+    </message>
+    <message>
         <source>会区分登录的角色（国服、国际服，默认开启，可关）</source>
         <translation>Tells logged-in characters apart (CN and Global, on by default, can be turned off)</translation>
     </message>
@@ -5759,12 +5784,12 @@ SHA256: %3</translation>
         <translation>Records are saved in a local database, and the interface talks to the background service only on this PC. There&apos;s no telemetry or cloud sync, and none of the network requests below upload the database.</translation>
     </message>
     <message>
-        <source>后台服务仅为以下三类用途联网</source>
-        <translation>The background service goes online for these three purposes only</translation>
+        <source>后台服务仅为以下四类用途联网</source>
+        <translation>The background service goes online for these four purposes only</translation>
     </message>
     <message>
-        <source>界面本身不直接联网。后台服务只为下面三类用途发送请求，没有遥测。</source>
-        <translation>The interface itself never goes online. The background service sends requests only for the three purposes below, with no telemetry.</translation>
+        <source>界面本身不直接联网。后台服务只为下面四类用途发送请求，没有遥测。</source>
+        <translation>The interface itself never goes online. The background service sends requests only for the four purposes below, with no telemetry.</translation>
     </message>
     <message>
         <source>联网一：游戏更新后获取共享校准（默认开启，可关）</source>
@@ -5789,6 +5814,10 @@ SHA256: %3</translation>
     <message>
         <source>默认在启动软件时及持续运行期间定期检查更新，先从本项目在 GitHub 的公开发布页读取版本信息（GitHub 读取失败时，改从它在 GitCode 上的同名镜像读取），有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包（同样先从 GitHub 下载，失败时改从 GitCode 镜像下载），并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
         <translation>By default, the app checks for updates at startup and periodically while running. It first reads version information from this project’s public release page on GitHub (if reading from GitHub fails, it falls back to the project’s mirror of the same name on GitCode) and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer (again from GitHub first, falling back to the GitCode mirror if that fails) and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. GitHub, GitCode and their download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
+    </message>
+    <message>
+        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
+        <translation>Online use 4: the Reminders &amp; macros public library and submissions (off by default)</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5983,6 +6012,14 @@ SHA256: %3</translation>
     <message>
         <source>游戏版本</source>
         <translation>Game version</translation>
+    </message>
+    <message>
+        <source>标签</source>
+        <translation>Tags</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
     </message>
     <message>
         <source>维护者核对过内容和适用范围</source>
@@ -6324,10 +6361,6 @@ SHA256: %3</translation>
         <translation>The source revision changed. Refresh and compare again.</translation>
     </message>
     <message>
-        <source>来源或关联内容已撤回或不可用。</source>
-        <translation>The source or a linked item was withdrawn or is unavailable.</translation>
-    </message>
-    <message>
         <source>本地有同一条目或更新的修改，请重新加载。</source>
         <translation>A matching or newer local item exists. Reload the library.</translation>
     </message>
@@ -6448,6 +6481,10 @@ SHA256: %3</translation>
         <translation>The result could not be confirmed. Check GitHub before retrying.</translation>
     </message>
     <message>
+        <source>投稿没有发出，什么都没有提交，请稍后再试。</source>
+        <translation>The submission wasn&apos;t sent and nothing was submitted. Try again later.</translation>
+    </message>
+    <message>
         <source>投稿已关闭。</source>
         <translation>The submission was closed.</translation>
     </message>
@@ -6478,6 +6515,22 @@ SHA256: %3</translation>
     <message>
         <source>关闭</source>
         <translation>Close</translation>
+    </message>
+    <message>
+        <source>「%1」没有保存：</source>
+        <translation>“%1” wasn&apos;t saved: </translation>
+    </message>
+    <message>
+        <source>保存或取消当前表单后可以恢复。</source>
+        <translation>You can restore it after you save or cancel the current form.</translation>
+    </message>
+    <message>
+        <source>恢复</source>
+        <translation>Restore</translation>
+    </message>
+    <message>
+        <source>放弃</source>
+        <translation>Discard</translation>
     </message>
     <message>
         <source>还没有提醒或宏</source>
@@ -6644,6 +6697,10 @@ SHA256: %3</translation>
         <translation>Others may copy, change and share it again; they must name you as the author, and a changed version must be shared under the same terms.</translation>
     </message>
     <message>
+        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
+        <translation>This item was withdrawn from the public library or is no longer offered. Refresh the public library and try again.</translation>
+    </message>
+    <message>
         <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
         <translation>Everything in this submission is already in the public library, so nothing was published again.</translation>
     </message>
@@ -6803,6 +6860,22 @@ SHA256: %3</translation>
         <translation>Replaced with your target&apos;s name</translation>
     </message>
     <message>
+        <source>标题里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>The title has invisible special characters; delete them and type it again</translation>
+    </message>
+    <message>
+        <source>正文最多 1600 字，现在有 %1 字</source>
+        <translation>The text can have at most 1,600 characters; it has %1 now</translation>
+    </message>
+    <message>
+        <source>正文里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>The text has invisible special characters; delete them and type it again</translation>
+    </message>
+    <message>
+        <source>第 %1 行太长：游戏里一行宏最多 180 个字节，大约 60 个汉字</source>
+        <translation>Line %1 is too long: a macro line in the game holds at most 180 bytes, about 60 Chinese characters</translation>
+    </message>
+    <message>
         <source>插入</source>
         <translation>Insert</translation>
     </message>
@@ -6817,6 +6890,10 @@ SHA256: %3</translation>
     <message>
         <source>BOSS / 阶段</source>
         <translation>Boss / phase</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段里有看不见的特殊字符，请删掉后重新输入</source>
+        <translation>Boss / phase has invisible special characters; delete them and type it again</translation>
     </message>
     <message>
         <source>职业</source>
@@ -7111,10 +7188,6 @@ SHA256: %3</translation>
         <translation>What you paste is a long block that looks like program code. Do not change any of it; submit it on the GitHub page as it is.</translation>
     </message>
     <message>
-        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
-        <translation>The title, text, duty, boss / phase, region and language of these %1 items become public, with the licence you choose. Submit only text you may share, and leave out personal information.</translation>
-    </message>
-    <message>
         <source>公开作者：@%1</source>
         <translation>Public author: @%1</translation>
     </message>
@@ -7125,6 +7198,14 @@ SHA256: %3</translation>
     <message>
         <source>许可</source>
         <translation>Licence</translation>
+    </message>
+    <message>
+        <source>复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>Copy the submission, then paste it into the GitHub form opened in your browser and submit it.</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>The type, title, text, duty, boss / phase, job, game version, region, language, tags, source and linked items of these %1 items become public, with the licence you choose. Submit only text you may share, and leave out personal information.</translation>
     </message>
     <message>
         <source>收起全文</source>
@@ -7215,117 +7296,110 @@ SHA256: %3</translation>
         <translation>You can submit at most 20 items at a time; select fewer and try again.</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>格式版本</source>
         <translation>Format version</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>条目 ID</source>
         <translation>Entry ID</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="160"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>副本编号</source>
         <translation>Duty ID</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>区服</source>
         <translation>Region</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="161"/>
         <source>语言</source>
         <translation>Language</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>标题</source>
         <translation>Title</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>正文</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>BOSS</source>
         <translation>Boss</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="162"/>
         <source>阶段</source>
         <translation>Phase</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>职业</source>
         <translation>Job</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>标签</source>
         <translation>Tags</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="163"/>
         <source>游戏版本</source>
         <translation>Game version</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>关联条目</source>
         <translation>Linked entries</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="164"/>
         <source>来源</source>
         <translation>Source</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="166"/>
         <source>（空）</source>
         <translation>(empty)</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="297"/>
+        <source>、</source>
+        <translation>, </translation>
+    </message>
+    <message>
         <source>本次投稿的「%1」已有相同正文，此项不再投稿</source>
         <translation>“%1” in this batch has the same text. This entry will be skipped.</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="307"/>
+        <source>来源：%1</source>
+        <translation>Source: %1</translation>
+    </message>
+    <message>
+        <source>标签：%1</source>
+        <translation>Tags: %1</translation>
+    </message>
+    <message>
+        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
+        <translation>With the original author&apos;s credit added, the source is over 240 characters, more than the public library can hold, so this item can&apos;t be submitted.</translation>
+    </message>
+    <message>
         <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>This draft is based on revision %1. The public library now has revision %2. Return to the entry to review and apply the update before submitting.</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="314"/>
         <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
         <translation>This draft has no base revision. Compare it with public revision %1 and confirm before submitting.</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>收起对比</source>
         <translation>Hide comparison</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="321"/>
         <source>对比公共版本与本地稿件</source>
         <translation>Compare public version and draft</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="326"/>
         <source>− 公共版本 / + 本次投稿</source>
         <translation>− Public version / + This submission</translation>
     </message>
     <message>
-        <location filename="../qml/dialogs/DutyCommunitySubmission.qml" line="344"/>
         <source>确认以此公共版本为基线</source>
         <translation>Confirm this public version as the base</translation>
     </message>
@@ -7902,6 +7976,10 @@ SHA256: %3</translation>
         <translation>This round records the content of a small number of message types, to find where the roulette id, the duty and the job sit in them. It is limited to the messages listed in this game version&apos;s candidate profile. A few of those candidates may not be what we think they are and could contain information related to your character. The file stays on this computer and is never uploaded automatically; you decide whether to send it to the maintainer.</translation>
     </message>
     <message>
+        <source>导出的文件只包含这一轮的证据，其中也有软件读到的任务、职业和副本，以及你在这一轮中改过的答案。软件自己也会在本机保留这些报文内容最多 30 天，期间生成的数据库备份同样包含它们，删除那些备份即可清除。</source>
+        <translation>The export contains evidence from this round only, including the roulette, job and duty the app read and any answers you changed in this round. The app itself also keeps these packet contents on this PC for up to 30 days, and database backups made in that time contain them too; deleting those backups removes them.</translation>
+    </message>
+    <message>
         <source>我已了解并同意这一轮记录这些报文的内容</source>
         <translation>I understand and agree that this round records the content of these messages</translation>
     </message>
@@ -7960,10 +8038,6 @@ SHA256: %3</translation>
     <message>
         <source>待处理</source>
         <translation>Pending</translation>
-    </message>
-    <message>
-        <source>导出的文件只包含这一轮的证据。</source>
-        <translation>The export contains evidence from this round only.</translation>
     </message>
     <message>
         <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
@@ -8279,6 +8353,10 @@ SHA256: %3</translation>
     <message>
         <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
         <translation>Hand these to the maintainer privately: trace.jsonl, trace.jsonl.sha256 and this report.</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、日志 collector-*.log（含几小段游戏主程序的指令字节）、截图和这段说明。</source>
+        <translation>Put the capture files, diagnostic JSON, the collector-*.log logs (which hold a few short runs of the game executable&apos;s machine code), screenshots and this note into one ZIP and send it to the maintainer privately.</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -8651,14 +8729,6 @@ SHA256: %3</translation>
         <translation>Disconnected</translation>
     </message>
     <message>
-        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
-        <translation>This round used a reading method the app found on this PC; the maintainer needs the search results in the log to add support for this region; in the data folder&apos;s logs</translation>
-    </message>
-    <message>
-        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
-        <translation>This round the app couldn&apos;t find a way on this PC to read the game data; the maintainer needs the search results in the log to look into it; in the data folder&apos;s logs</translation>
-    </message>
-    <message>
         <source>状态截图</source>
         <translation>Status screenshot</translation>
     </message>
@@ -8819,6 +8889,14 @@ SHA256: %3</translation>
         <translation>Result: %1</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>This round used a reading method the app found on this PC; the maintainer needs the search results in the log to add support for this region; holds a few short runs of the game executable&apos;s machine code; in the data folder&apos;s logs</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；含几小段游戏主程序的指令字节，在数据目录 logs</source>
+        <translation>This round the app couldn&apos;t find a way on this PC to read the game data; the maintainer needs the search results in the log to look into it; holds a few short runs of the game executable&apos;s machine code; in the data folder&apos;s logs</translation>
+    </message>
+    <message>
         <source>缺失：%1</source>
         <translation>Missing: %1</translation>
     </message>
@@ -8966,6 +9044,10 @@ SHA256: %3</translation>
         <translation>Error code: </translation>
     </message>
     <message>
+        <source>第二轮正在进行，先在上方结束这一轮，才能开始采证。</source>
+        <translation>Round 2 is in progress. Finish it above before starting a capture.</translation>
+    </message>
+    <message>
         <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
         <translation>A formal recording is running, so it cannot switch to a capture. To verify a calibration for a known build, use Tools › Calibration evidence.</translation>
     </message>
@@ -9044,10 +9126,6 @@ SHA256: %3</translation>
     <message>
         <source>去「设置 › 数据」备份</source>
         <translation>Back up in Settings › Data</translation>
-    </message>
-    <message>
-        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
-        <translation>Round 2 is in progress. Press “Finish and export” above before starting a capture.</translation>
     </message>
 </context>
 <context>
@@ -10939,6 +11017,10 @@ Recorder</translation>
     <message>
         <source>清空</source>
         <translation>Clear</translation>
+    </message>
+    <message>
+        <source>还有 %1 项，输入名称查找</source>
+        <translation>%1 more; type a name to find them</translation>
     </message>
 </context>
 <context>
@@ -13327,6 +13409,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>通关后提醒记笔记</source>
         <translation>Remind me to add a note after clears</translation>
+    </message>
+    <message>
+        <source>暂时无法确认后台服务是否采用了这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，可能仍按电脑的时区计算。后台服务重新连接后会再发送一次。</source>
+        <translation>Can&apos;t confirm yet whether the background service adopted this time zone: which calendar days have records, and how records with only a date are ordered, may still be worked out in the computer&apos;s time zone. It&apos;s sent again once the background service reconnects.</translation>
+    </message>
+    <message>
+        <source>后台服务没有采用这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，仍按电脑的时区计算。</source>
+        <translation>The background service didn&apos;t adopt this time zone: which calendar days have records, and how records with only a date are ordered, are still worked out in the computer&apos;s time zone.</translation>
     </message>
     <message>
         <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」</source>
@@ -15927,6 +16017,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>After bulk edit the batch would be too large to validate again, so no records were changed.</translation>
     </message>
     <message>
+        <source>上一次保存仍在进行，这批记录保持不变。请稍后再点「重试确认保存」查看结果。</source>
+        <translation>The previous save is still in progress, so this batch stays unchanged. Click “Retry confirming save” a little later to see the result.</translation>
+    </message>
+    <message>
         <source>尚未确认导入结果。输入已保留，可安全重试同一批次。</source>
         <translation>The import result isn&apos;t confirmed yet. Your input is kept and you can safely retry the same batch.</translation>
     </message>
@@ -16023,10 +16117,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
 </context>
 <context>
     <name>mr::MockBackend</name>
-    <message>
-        <source>勾选记录暂不可用，请重试。</source>
-        <translation>The checked records are temporarily unavailable. Try again.</translation>
-    </message>
     <message>
         <source>有选中的记录已不存在，请重新勾选。</source>
         <translation>Some checked records no longer exist. Select them again.</translation>
@@ -17348,14 +17438,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Not yet confirmed whether the download was canceled. Check the download status shortly.</translation>
     </message>
     <message>
-        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
-        <translation>Didn&apos;t switch to GitCode: the GitHub download is now faster than the mirror, so it continues from GitHub.</translation>
-    </message>
-    <message>
-        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
-        <translation>Didn&apos;t switch to GitCode: the mirror is unavailable right now, so the download continues from GitHub.</translation>
-    </message>
-    <message>
         <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
         <translation>Didn&apos;t switch to GitCode: the GitHub download had already ended before the switch took effect.</translation>
     </message>
@@ -17386,6 +17468,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>下载安装包</source>
         <translation>Download installer</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载比镜像更快，这次下载继续使用了 GitHub。</source>
+        <translation>Didn&apos;t switch to GitCode: the GitHub download was faster than the mirror, so this download kept using GitHub.</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，这次下载继续使用了 GitHub。</source>
+        <translation>Didn&apos;t switch to GitCode: the mirror is unavailable right now, so this download kept using GitHub.</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>

@@ -534,6 +534,42 @@ public sealed class CaptureDiagnosticsTests
         Assert.DoesNotContain(UpdateCheckClient.Owner, json, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26, A2b-2. The report names every outbound request class there is - the
+    /// fourth, the duty community, included - and for that one says whether, when and how, never
+    /// where (docs/privacy-boundary.md §8.7).
+    /// </summary>
+    [Fact]
+    public void SanitizedReportStatesEveryOutboundRequestClassIncludingTheDutyCommunity()
+    {
+        var report = Report(Loaded() with
+        {
+            DutyCommunity = new DutyCommunityDiagnostics(true, false, DateTimeOffset.UnixEpoch.AddHours(5), "ready"),
+        });
+        var outbound = report["boundary"]!["outbound"]!.AsObject();
+
+        Assert.Equal(
+            new[]
+            {
+                "duty_community", "kill_switch", "last_fetch_status", "last_fetch_utc", "online_speech",
+                "shared_calibration_enabled", "update_check",
+            },
+            outbound.Select(pair => pair.Key).OrderBy(key => key, StringComparer.Ordinal));
+        var community = outbound["duty_community"]!.AsObject();
+        Assert.Equal(
+            new[] { "enabled", "kill_switch", "last_outcome", "last_request_utc" },
+            community.Select(pair => pair.Key).OrderBy(key => key, StringComparer.Ordinal));
+        Assert.True(community["enabled"]!.GetValue<bool>());
+        Assert.False(community["kill_switch"]!.GetValue<bool>());
+        Assert.Equal("1970-01-01T05:00:00.000Z", community["last_request_utc"]!.GetValue<string>());
+        Assert.Equal("ready", community["last_outcome"]!.GetValue<string>());
+
+        var untouched = Report()["boundary"]!["outbound"]!["duty_community"]!;
+        Assert.False(untouched["enabled"]!.GetValue<bool>());
+        Assert.Null(untouched["last_request_utc"]);
+        Assert.Null(untouched["last_outcome"]);
+    }
+
     [Fact]
     public void AnUncheckedInstallationReportsTheUpdateCheckAsUntouched()
     {

@@ -231,6 +231,60 @@ public sealed class ReferenceCatalogTests
         Assert.Equal("顶级迷宫", catalog.NameOf(5, Region.Cn));
         Assert.Equal("满级迷宫", catalog.NameOf(8, Region.Cn));
         Assert.Equal("讨伐歼灭战", catalog.NameOf(6, Region.Cn));
+        Assert.Equal("团队任务", catalog.NameOf(15, Region.Cn));
+    }
+
+    /// <summary>
+    /// A roulette id means the same roulette in every shipped table. The English and Traditional
+    /// Chinese names of each id in data/i18n/game-names.*.json come from the clients' own
+    /// ContentRoulette text, so the GLOBAL table must carry exactly the <c>en</c> name of each id
+    /// and the TC table must name the same roulette as the <c>zh-TW</c> entry. The GLOBAL table
+    /// once had 15 (Alliance Raids) and 17 (Normal Raids) the other way round, which labelled a
+    /// Global tester's calibration queue line with the roulette they had not queued.
+    /// </summary>
+    [Fact]
+    public void ShippedRouletteTablesAgreeWithTheClientNamesOfEachId()
+    {
+        var names = GameNameRoulettes();
+        var catalog = RouletteCatalog.Default;
+
+        Assert.Equal(
+            names.Keys.Order().ToArray(),
+            catalog.KnownIds(Region.Cn));
+        Assert.Equal(catalog.KnownIds(Region.Cn), catalog.KnownIds(Region.Global));
+        foreach (var id in catalog.KnownIds(Region.Global))
+        {
+            Assert.True(
+                names[id]["en"] == catalog.NameOf(id, Region.Global),
+                $"GLOBAL roulette {id}: table says {catalog.NameOf(id, Region.Global)}, client text is {names[id]["en"]}");
+        }
+
+        foreach (var (id, translations) in names)
+        {
+            var tc = catalog.NameOf(id, Region.Tc);
+            Assert.True(
+                tc is not null && (tc == translations["zh-TW"] || tc.EndsWith("：" + translations["zh-TW"], StringComparison.Ordinal)),
+                $"TC roulette {id}: table says {tc ?? "nothing"}, client text is {translations["zh-TW"]}");
+        }
+
+        Assert.Equal("Alliance Raids", catalog.NameOf(15, Region.Global));
+        Assert.Equal("Normal Raids", catalog.NameOf(17, Region.Global));
+    }
+
+    private static Dictionary<int, Dictionary<string, string>> GameNameRoulettes()
+    {
+        var data = Path.GetDirectoryName(Path.GetDirectoryName(RepositoryFiles.Find("data", "roulettes", "cn.json")))!;
+        var path = Directory
+            .GetFiles(Path.Combine(data, "i18n"), "game-names.*.json")
+            .Order(StringComparer.Ordinal)
+            .Last();
+        var roulettes = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!["roulettes"]!.AsObject();
+        return roulettes.ToDictionary(
+            entry => int.Parse(entry.Key, System.Globalization.CultureInfo.InvariantCulture),
+            entry => entry.Value!.AsObject().ToDictionary(
+                name => name.Key,
+                name => name.Value!.GetValue<string>(),
+                StringComparer.Ordinal));
     }
 
     /// <summary>

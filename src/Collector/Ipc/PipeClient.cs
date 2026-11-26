@@ -192,7 +192,17 @@ public sealed class PipeClient : IAsyncDisposable
                     break;
                 }
 
-                Deliver(body);
+                try
+                {
+                    Deliver(body);
+                }
+                catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or FormatException)
+                {
+                    // The frame arrived whole, so the stream is still in step: a reply with a
+                    // mistyped field fails only the request it names, and later replies are still
+                    // read (audit 2026-11-26, G-7).
+                    FailOne(body, ex.Message);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -242,6 +252,15 @@ public sealed class PipeClient : IAsyncDisposable
             payload,
             error["code"]?.GetValue<string>() ?? ErrorCodes.Internal,
             error["message"]?.GetValue<string>() ?? string.Empty));
+    }
+
+    private void FailOne(byte[] body, string message)
+    {
+        if (IpcEnvelope.TryPeekRequestId(body) is { } requestId && _pending.TryGetValue(requestId, out var completion))
+        {
+            completion.TrySetResult(new IpcResponse(
+                false, IpcEnvelope.ErrorMessageType, new JsonObject(), ErrorCodes.Internal, message));
+        }
     }
 
     private void FailAll(string code, string message)

@@ -97,5 +97,100 @@
       "abc",
       1.0
     ]
+  ],
+  "repeats_comment": "repeats(drafts, library) as {draft id: id of the live item it repeats}. Revisions (drafts whose id is in the library) are settled first in id order, new drafts next in their order.",
+  "repeats": [
+    {
+      "name": "new_draft_repeats_live_text_after_line_rules",
+      "library": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "status": "community", "body": "/p \u8f9b\u82e6\u4e86 <se.2>\n/p \u4e0b\u6b21\u89c1"}
+      ],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "body": "\n/p \u8f9b\u82e6\u4e86 <se.2>  \r\n/p \u4e0b\u6b21\u89c1\n"}
+      ],
+      "expected": {"00000000-0000-4000-8000-000000000002": "00000000-0000-4000-8000-000000000001"}
+    },
+    {
+      "name": "two_new_drafts_with_one_text_keep_the_first",
+      "library": [],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000003", "type": "macro", "body": "/p \u5f00\u573a"},
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "body": "/p \u5f00\u573a "}
+      ],
+      "expected": {"00000000-0000-4000-8000-000000000002": "00000000-0000-4000-8000-000000000003"}
+    },
+    {
+      "name": "withdrawn_text_and_other_type_and_other_sound_cue_are_not_repeats",
+      "library": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "status": "withdrawn", "body": "/p x"},
+        {"id": "00000000-0000-4000-8000-000000000004", "type": "reminder", "status": "community", "body": "/p y"},
+        {"id": "00000000-0000-4000-8000-000000000005", "type": "macro", "status": "community", "body": "/p z <se.1>"}
+      ],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "body": "/p x"},
+        {"id": "00000000-0000-4000-8000-000000000003", "type": "macro", "body": "/p y"},
+        {"id": "00000000-0000-4000-8000-000000000006", "type": "macro", "body": "/p z <se.2>"}
+      ],
+      "expected": {}
+    },
+    {
+      "name": "a_revision_that_keeps_its_text_is_never_a_repeat",
+      "library": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "status": "community", "body": "/p a"},
+        {"id": "00000000-0000-4000-8000-000000000009", "type": "macro", "status": "community", "body": "/p a"}
+      ],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "body": "/p a\n"}
+      ],
+      "expected": {}
+    },
+    {
+      "name": "a_new_draft_takes_the_text_a_revision_gives_up_in_either_order",
+      "library": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "status": "community", "body": "/p a"}
+      ],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "body": "/p a"},
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "body": "/p b"}
+      ],
+      "expected": {}
+    },
+    {
+      "name": "a_refused_revision_keeps_its_old_text_which_another_revision_then_repeats",
+      "library": [
+        {"id": "00000000-0000-4000-8000-000000000001", "type": "macro", "status": "community", "body": "/p \u522b\u4eba\u7684"},
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "status": "community", "body": "/p \u7b2c\u4e00\u6bb5"},
+        {"id": "00000000-0000-4000-8000-000000000003", "type": "macro", "status": "community", "body": "/p \u7b2c\u4e8c\u6bb5"}
+      ],
+      "drafts": [
+        {"id": "00000000-0000-4000-8000-000000000003", "type": "macro", "body": "/p \u7b2c\u4e00\u6bb5"},
+        {"id": "00000000-0000-4000-8000-000000000002", "type": "macro", "body": "/p \u522b\u4eba\u7684"}
+      ],
+      "expected": {
+        "00000000-0000-4000-8000-000000000002": "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000003": "00000000-0000-4000-8000-000000000002"
+      }
+    }
+  ],
+  "field_text_comment": "[text, multiline, accepted] for one text field. Every field refuses bidirectional controls (U+202A-202E, U+2066-2069) and U+2028/2029; single-line fields also refuse U+200B-200D, U+2060 and U+FEFF. The Collector (CommunityContent.cs) and the publisher run these.",
+  "field_text": [
+    ["\u5bfc\u968f\u5b8f", false, true],
+    ["\u5b8f\u202e\u53cd\u5411", false, false],
+    ["\u5b8f\u202a", false, false],
+    ["\u5b8f\u2066x\u2069", false, false],
+    ["\u5b8f\u200b", false, false],
+    ["\u5b8f\u200d", false, false],
+    ["\u5b8f\u2060", false, false],
+    ["\ufeff\u5b8f", false, false],
+    ["\u5b8f\u2028\u7b2c\u4e8c\u884c", false, false],
+    ["\u5b8f\u2029", false, false],
+    ["a\tb", false, false],
+    ["/p a\r\n/p b\t<t>", true, true],
+    ["/p \ud83d\udc69\u200d\ud83c\udf73 \u200b<wait.1>\ufeff", true, true],
+    ["/p a\u202e", true, false],
+    ["/p a\u2069", true, false],
+    ["/p a\u2028/p b", true, false],
+    ["/p a\u2029", true, false],
+    ["/p a\u0007", true, false]
   ]
 }

@@ -87,6 +87,13 @@ Windows 版本资源的 `FILEVERSION` / `PRODUCTVERSION` 是四段数字，放�
 （[release-checklist.md](release-checklist.md) §9.2）。`-AllowUnsuffixedVersion` 显式放行，只用于有意的例外，
 绝不用于测试包；放行时以黄色提示写明原因。
 
+**已发布的版本号**：一个版本号（先行版也一样）只发一份内容。tag `v<完整版本号>` 已经存在而不指向 HEAD 时，
+或 git 无法回答（找不到 git、读不出 HEAD、列不出 tag 或读不出 tag 指向的提交）时，同样在验证与构建之前拒绝
+（`Get-VersionTagState`、`Get-ReusedVersionRefusal`），提示撤回的版本改用下一个号（beta.N 之后用 beta.N+1）。
+没有这个 tag，或 tag 正指向 HEAD（同一个提交重新打包）时照常进行，因此「先打包、后打 tag」的顺序不受影响，
+打过 tag 之后再打包则要求 HEAD 正是打 tag 的那个提交（[release-checklist.md](release-checklist.md) §9.2）。
+`-AllowReusedVersion` 显式放行，只用于有意的例外，放行时同样以黄色提示写明原因。
+
 **发布规则**：已经打过 tag 的 CHANGELOG 段落不得再修改。同一步中的
 `Assert-ReleasedChangelogSectionsUnchanged` 会针对每个 `vX.Y.Z` 或 `vX.Y.Z-beta.N` tag，将工作区
 `CHANGELOG.md` 中的同名段落与 `git show <tag>:CHANGELOG.md` 中的同名段落比较：
@@ -717,7 +724,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 1. 先做「版本预检」：按 §2 的规则核对 `CHANGELOG.md` 最上方的段落与版本号，并执行
    `Assert-ReleasedChangelogSectionsUnchanged`，再按 §2 的「正式版本号」规则判断不带后缀的版本号能否在此打包
-   （`-AllowUnsuffixedVersion` 放行）。这几项不需要任何构建产物，因此在验证与构建之前进行，不符即打包失败，
+   （`-AllowUnsuffixedVersion` 放行），并按 §2 的「已发布的版本号」规则核对这个版本号的 tag（`-AllowReusedVersion` 放行）。
+   这几项不需要任何构建产物，因此在验证与构建之前进行，不符即打包失败，
    不必等正式口味构建完毕；可执行文件中的版本号仍在装配后由 `Assert-StagedVersion` 核对。
    随后读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
    `scripts/verify.ps1 -Configuration <...> -Distribution`，使整条验证链路构建并测试的是正式口味（§3.7）。
@@ -837,7 +845,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 4. **不打包** `oo2net_9_win64.dll` 或任何游戏文件。
 5. **不打包** `deucalion-*.dll`（构建阶段已剔除；打包脚本需再做一次断言）。
 6. 默认先运行 `verify.ps1`，静态边界检查必须通过；只有显式指定 `-SkipVerify` 才允许跳过，此时产物仅适用于本地联调，
-   且版本号必须带先行版后缀（除非显式给出 `-AllowUnsuffixedVersion`，见 §2）。
+   且版本号必须带先行版后缀（除非显式给出 `-AllowUnsuffixedVersion`，见 §2）；已有 tag 指向别的提交的版本号同样拒绝
+   （除非显式给出 `-AllowReusedVersion`，见 §2）。
 
 `PUBLIC_DISTRIBUTION_READY` **不是固定字面量**，而是 `package.ps1` 按一组前提计算并
 写入 `BUILD-METADATA.json` 的实测值。前提不满足时，`public_distribution_blockers` 会逐条
@@ -923,8 +932,11 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   此外正式构建的桌面端内嵌 `:/qt/etc/qt.conf`（§3.7），Qt 读取它先于磁盘上的这两个文件，因此即使在 `[InstallDelete]`
   执行之前，放入 `{app}` 的 `qt.conf` 或 `qt6.conf` 也不能改变桌面端加载插件与 QML 模块的位置；Collector 不读取这两个文件。
   可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
-  `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。开始菜单中本软件文件夹里的快捷方式（`{group}\*.lnk`）
-  也在此时清除，再由 `[Icons]` 按本次安装语言重建：卸载快捷方式以安装语言命名，以另一种语言升级时否则会有两个并存。
+  `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。开始菜单中本软件文件夹里的卸载快捷方式
+  也在此时按名称删除：四种安装语言各自的卸载快捷方式名（`Uninstall <AppName>`、`卸载 <AppName>`、`解除安裝 <AppName>`、
+  `<AppName> をアンインストールする`，`installer/MentorRecorder.iss` 的 `[InstallDelete]`），再由 `[Icons]` 按本次安装语言重建：
+  卸载快捷方式以安装语言命名，以另一种语言升级时否则会有两个并存。只删除这几个名称，不清除整个文件夹的 `*.lnk`，
+  因此名称不在其中的快捷方式（例如更早的译名或更早的 AppName 留下的）不会被删除。
   该文件夹只属于本软件（`DefaultGroupName={#AppName}`，`DisableProgramGroupPage=yes`）。
 - **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
   `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），

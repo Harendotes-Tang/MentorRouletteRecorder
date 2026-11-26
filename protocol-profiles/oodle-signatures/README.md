@@ -11,7 +11,7 @@ Machina 内置的签名表按国际服客户端维护。国服客户端的寄存
 | 文件 | 说明 |
 |---|---|
 | `cn.<game_build>.json`、`global.<game_build>.json` | 签名档案：12 条调用点模式 + 解析出的 RVA + `exe_sha256` / `exe_size` 双绑定 + `profile_sha256` 自校验 + `status` + `reproduction` + `source` |
-| `evidence/<build>.oodle-verification.trace.jsonl` + `.sha256` | 将档案升级为 `VERIFIED` 所依据的脱敏 opcode 级取证文件（`--capture-trace` 产物，不含任何报文内容 / 地址 / 角色名） |
+| `evidence/<build>.oodle-verification.trace.jsonl` + `.sha256` | 将档案升级为 `VERIFIED` 所依据的脱敏 opcode 级取证文件（`--capture-trace` 产物，不含任何报文内容 / 地址 / 角色名）；只有摘要入库的情形见「状态规则」 |
 
 档案由 `tools/oodle-signature-finder/find_signatures.py` 从本机 exe 生成，
 运行时由 `src/Collector/Capture/OodleSignatureRuntime.cs` 加载。
@@ -79,6 +79,7 @@ M 字节止，每段不超过 384 字节，并截在文件范围内。已确定�
 
 升级为 `VERIFIED` 时仅修改 `status` 并重算 `profile_sha256`（canonical JSON，
 与 `CanonicalJson.cs` 同一语法），同时将取证文件与其 `.sha256` 置入 `evidence/`。
+取证文件含测试者本人的游戏时间线时（例如国际服 `2026.11.03`），`evidence/` 只放其 `.sha256`，文件本身由维护者另行保存。
 
 ## `reproduction`：是否与已知正确答案比对过
 
@@ -134,4 +135,5 @@ M 字节止，每段不超过 384 字节，并截在文件范围内。已确定�
 
 `source` 字段只接受两个取值：`tools/oodle-signature-finder`（由查找工具对 exe 生成）与
 `collector/oodle-signature-discovery`（由某台电脑上的本机查找得出、从该轮日志抄录）。后者不声称工具的交叉校验，
-升级为 `VERIFIED` 的门槛相同。本记录同样只证明 Oodle 解压链路正确，不证明任何协议 opcode；国际服目前仍没有协议档案。
+升级为 `VERIFIED` 的门槛相同。本记录同样只证明 Oodle 解压链路正确，不证明任何协议 opcode；
+国际服 `2026.11.03` 的协议档案另行验证，见 [`../global/README.md`](../global/README.md)。

@@ -24,6 +24,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
     private ActiveRequest? _active;
     private DeviceGrant? _grant;
     private JsonObject? _account;
+    private CommunityLibrary.RequestRecord? _lastRequest;
 
     internal bool Configured => _clientId is not null;
 
@@ -44,10 +45,43 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             if (action == "sign_in")
                 _grant = null;
         }
+        string? outcome = null;
+        try
+        {
+            var result = await RunAsync(action, payload, request, cancellationToken).ConfigureAwait(false);
+            outcome = result["status"]?.GetValue<string>();
+            return result;
+        }
+        catch (FormatException error)
+        {
+            outcome = error.Message;
+            throw;
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_active, request))
+                    _active = null;
+            }
+            // Only a request that reached the network is reported (docs/privacy-boundary.md §8.7).
+            if (request.SentAt is { } at)
+                Volatile.Write(ref _lastRequest, new CommunityLibrary.RequestRecord(at,
+                    outcome ?? (cancellationToken.IsCancellationRequested ? "cancelled" : "failed")));
+        }
+    }
+
+    /// <summary>The most recent request of this kind that was sent, for the diagnostics report.</summary>
+    internal CommunityLibrary.RequestRecord? LastRequest => Volatile.Read(ref _lastRequest);
+
+    private async Task<JsonObject> RunAsync(string action, JsonObject payload, ActiveRequest request,
+        CancellationToken cancellationToken)
+    {
         try
         {
             if (action == "issue_status")
-                return await IssueStatusAsync(CommunityContent.Integer(payload, "issue"), cancellationToken).ConfigureAwait(false);
+                return await IssueStatusAsync(request, CommunityContent.Integer(payload, "issue"), cancellationToken)
+                    .ConfigureAwait(false);
             if (_clientId is null)
                 return Result("app_not_configured");
 
@@ -79,15 +113,11 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
                     }
                 }
             }
-            return Result(action == "submit" ? "submit_unconfirmed" : "temporarily_unavailable");
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                if (ReferenceEquals(_active, request))
-                    _active = null;
-            }
+            // A submission that failed before its issue was posted (the token refresh or the
+            // account lookup) created nothing on GitHub; one that failed after may have.
+            if (action == "submit")
+                return Result(request.Posted ? "submit_unconfirmed" : "submit_not_sent");
+            return Result("temporarily_unavailable");
         }
     }
 
@@ -121,7 +151,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
 
     private async Task<JsonObject> StartAsync(ActiveRequest request, CancellationToken token)
     {
-        var response = await FormAsync(DeviceUrl + "/code", token).ConfigureAwait(false);
+        var response = await FormAsync(request, DeviceUrl + "/code", token).ConfigureAwait(false);
         lock (_gate)
         {
             if (request.Superseded)
@@ -163,7 +193,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         var credentials = grant.PendingCredentials;
         if (credentials is null)
         {
-            var response = await FormAsync(TokenUrl, token, ("grant_type", Grant), ("device_code", grant.Code))
+            var response = await FormAsync(request, TokenUrl, token, ("grant_type", Grant), ("device_code", grant.Code))
                 .ConfigureAwait(false);
             lock (_gate)
             {
@@ -190,7 +220,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             }
         }
 
-        var account = await FetchAccountAsync(credentials.Access, token).ConfigureAwait(false);
+        var account = await FetchAccountAsync(request, credentials.Access, token).ConfigureAwait(false);
         lock (_gate)
         {
             if (request.Superseded)
@@ -216,7 +246,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
                 return SignedIn(_account);
         }
 
-        var account = await FetchAccountAsync(access, token).ConfigureAwait(false);
+        var account = await FetchAccountAsync(request, access, token).ConfigureAwait(false);
         lock (_gate)
         {
             if (request.Superseded)
@@ -226,9 +256,9 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         }
     }
 
-    private async Task<JsonObject> FetchAccountAsync(string access, CancellationToken token)
+    private async Task<JsonObject> FetchAccountAsync(ActiveRequest request, string access, CancellationToken token)
     {
-        var user = await _transport(HttpMethod.Get, "https://api.github.com/user", access, null, token)
+        var user = await Send(request, HttpMethod.Get, "https://api.github.com/user", access, null, token)
             .ConfigureAwait(false);
         return new JsonObject
         {
@@ -241,14 +271,27 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
     {
         var body = BuildIssueBody(payload);
         var access = await AccessAsync(request, token).ConfigureAwait(false);
+        bool known;
+        lock (_gate)
+        {
+            if (request.Superseded || access is null)
+                return Result("signed_out");
+            known = _account is not null;
+        }
+        // After a Collector restart the stored token is valid but the account is not yet known.
+        var fetched = known ? null : await FetchAccountAsync(request, access, token).ConfigureAwait(false);
         Task<JsonObject> submission;
         lock (_gate)
         {
-            if (request.Superseded || access is null || _account is null)
+            if (request.Superseded)
+                return Result("signed_out");
+            _account ??= fetched;
+            if (_account is null)
                 return Result("signed_out");
             if (CommunityContent.Integer64(payload, "author_id") != CommunityContent.Integer64(_account, "id"))
                 return Result("account_changed");
-            submission = _transport(HttpMethod.Post, IssueUrl, access, CommunityHttp.Json(new JsonObject
+            request.Posted = true;
+            submission = Send(request, HttpMethod.Post, IssueUrl, access, CommunityHttp.Json(new JsonObject
             {
                 ["title"] = "MentorRecorder community contribution",
                 ["body"] = body,
@@ -294,11 +337,11 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         return body;
     }
 
-    private async Task<JsonObject> IssueStatusAsync(int issue, CancellationToken token)
+    private async Task<JsonObject> IssueStatusAsync(ActiveRequest request, int issue, CancellationToken token)
     {
         if (issue < 1)
             throw new FormatException("invalid_issue");
-        var record = await _transport(HttpMethod.Get,
+        var record = await Send(request, HttpMethod.Get,
             IssueUrl + "/" + issue.ToString(CultureInfo.InvariantCulture), null, null, token).ConfigureAwait(false);
         if (record["body"] is not JsonValue body || !body.TryGetValue<string>(out var issueBody) ||
             !issueBody.Contains(IssueMarker, StringComparison.Ordinal))
@@ -331,7 +374,7 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             return CommunityContent.String(saved, "access", 1024);
         if (saved["refresh"]?.GetValue<string>() is not { Length: > 0 } refresh)
             return null;
-        var response = await FormAsync(TokenUrl, token, ("grant_type", "refresh_token"), ("refresh_token", refresh))
+        var response = await FormAsync(request, TokenUrl, token, ("grant_type", "refresh_token"), ("refresh_token", refresh))
             .ConfigureAwait(false);
         lock (_gate)
         {
@@ -364,10 +407,19 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         ["expires"] = credentials.Expires,
     }.ToJsonString());
 
-    private Task<JsonObject> FormAsync(string url, CancellationToken token, params (string Key, string Value)[] parts)
+    private Task<JsonObject> FormAsync(ActiveRequest request, string url, CancellationToken token,
+        params (string Key, string Value)[] parts)
     {
         var fields = parts.Select(part => KeyValuePair.Create(part.Key, part.Value)).Prepend(KeyValuePair.Create("client_id", _clientId!));
-        return _transport(HttpMethod.Post, url, null, new FormUrlEncodedContent(fields), token);
+        return Send(request, HttpMethod.Post, url, null, new FormUrlEncodedContent(fields), token);
+    }
+
+    // Every GitHub request goes through here, so the request knows that and when it was sent.
+    private Task<JsonObject> Send(ActiveRequest request, HttpMethod method, string url, string? access,
+        HttpContent? content, CancellationToken token)
+    {
+        request.SentAt = _clock.GetUtcNow();
+        return _transport(method, url, access, content, token);
     }
 
     private static string? ConfiguredClientId()
@@ -395,6 +447,9 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
     {
         internal string Action { get; } = action;
         internal bool Superseded { get; set; }
+        // When this request last reached the network, and whether its issue POST has started.
+        internal DateTimeOffset? SentAt { get; set; }
+        internal bool Posted { get; set; }
     }
 
     private sealed record Credentials(string Access, string Refresh, long Expires);

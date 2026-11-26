@@ -477,4 +477,31 @@ public sealed class StatisticsTests
         Assert.Equal(1.0 / 3, dashboard.CompletionRate!.Value, 6);
         Assert.Null(dashboard.AverageDurationMs);
     }
+
+    /// <summary>
+    /// Audit 2026-11-26 H1-2, the edge case docs/statistics-definitions.md §9 names: a bucket's share is its
+    /// attempts over all attempts, while its count is every row of that result. Two hand-entered UNKNOWN
+    /// records with no entry time are counted but are no attempt, so they take no share - the share of all
+    /// buckets never exceeds 1, and UNKNOWN never reads as 200 %.
+    /// </summary>
+    [Fact]
+    public void ResultSharesCountOnlyAttemptsWhileCountsKeepEveryRow()
+    {
+        using var fixture = new TestDatabase();
+        fixture.InsertRuns(
+            TestDatabase.Run(result: RunResult.Completed),
+            RunMutationRuleTests.Timeless(RunResult.Unknown),
+            RunMutationRuleTests.Timeless(RunResult.Unknown));
+        var statistics = new StatisticsRepository(fixture.Database, fixture.Settings());
+
+        foreach (var breakdown in new[] { statistics.GetResultStats(), statistics.GetDashboard().ResultBreakdown })
+        {
+            Assert.Equal(1, breakdown.AttemptCount);
+            var unknown = breakdown.Buckets.Single(bucket => bucket.Result == RunResult.Unknown);
+            Assert.Equal(2, unknown.Count);
+            Assert.Equal(0d, unknown.Share);
+            Assert.Equal(1d, breakdown.Buckets.Single(bucket => bucket.Result == RunResult.Completed).Share);
+            Assert.True(breakdown.Buckets.Sum(bucket => bucket.Share ?? 0) <= 1);
+        }
+    }
 }

@@ -127,6 +127,29 @@ INDEX ix_runs_identity     ON mentor_runs(identity_id) WHERE identity_id IS NOT 
 `CorrectRunRequest.changes` 里的 `note`），逐条记录见
 [`../contracts/CHANGELOG.md`](../contracts/CHANGELOG.md)。
 
+`Run` 载荷另有可选布尔字段 `review_confirmed`（「已确认」）。它**不是数据表列**，没有迁移，由采集服务读取
+该记录的全部 `run_revisions`（§3，系统修订也在内）按从旧到新的顺序推出：
+
+- **撤销按结构识别。**`actor = USER`、`change_kind = CORRECT`、编号紧接上一条修订，且恰好把上一条修订（无论由谁写入）
+  全部改回的修订是撤销：上一条修订除 `manually_corrected` 之外的每一项改动，在撤销中都有同一字段、旧值等于其新值、
+  新值等于其旧值的改动（`profile_id` 的新值也可以是 null，即撤销时重置已删除的档案），上一条修订至少有一项这样的改动，
+  撤销也不改动其他字段（`manually_corrected` 与重置为 null 的 `profile_id` 除外）。撤销本身永远不是确认修订：
+  它切换整条撤销链最终撤回的那条修订是否生效，撤销 B 使 B 失效，撤销这次撤销使 B 重新生效，依此类推；其余修订写入时即生效。
+- **确认修订。**不是撤销、`actor = USER`、`change_kind = CORRECT`，至少把 `pending_review` 由 1 改为 0，
+  或把 `UNKNOWN` 的结果改为其他值，或把空白（null、空串、`未知` 或 `UNKNOWN`）的职业、副本编号、副本名或进入方式
+  （`joined_in_progress`）补上，且没有推翻任何已记录内容（与 `manually_corrected` 同一规则）。
+- 存在最近一次确认修订、且它仍然生效时为 true。因此撤销一次确认后为 false，再撤销这次撤销后恢复为 true
+  （被找回的确认重新生效，而不是撤销本身算数）；撤销系统修订、撤销玩家把某项清空的修订都不会使它为 true。
+  `pending_review = 1` 时恒为 false；该记录有任何一条修订无法读取时同样为 false。
+  改角色、迁移区服、删除、恢复与系统修订都不会使它为 true。
+- 已知局限：系统修订只把 `pending_review` 由 0 改为 1（例如撤下共享档案后标记待复核）之后，紧接着只把它改回 0 的普通确认，
+  与撤销那条系统修订在结构上无法区分，因此不显示「已确认」；同时补上结果的常规复核回答不受影响。
+
+带这个字段的是采集服务为显示而返回的 `Run`：`QueryRuns` 的条目，`CreateManualRun`、`CorrectRun`、`UndoRevision`、
+`SoftDeleteRun`、`RestoreRun` 应答中的 `run`，实时事件中的 `run`，`ReflectionEntry.run`，`SetRunReflection` 应答中的 `run`，
+`GetReflectionSummary.next_pending`，以及 `GetCurrentRun.run`（进行中的记录恒为 false）。导入预览（`PreviewRunImport`）的候选记录
+与导出文件不带；旧版采集服务不发送。
+
 ### 1.3 `run_reflections` —— 导随心得（schema v3，v9 扩展导入心情）
 
 由 `migrations/0003_run_reflections.sql` 追加，与 `mentor_runs` 是 **1 : 0..1**。
@@ -458,7 +481,7 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 | `checksum` | TEXT | NOT NULL | 迁移脚本内容的 SHA-256，检测被篡改的历史迁移 |
 | `applied_at_utc` | TEXT | NOT NULL | |
 
-启动时向前迁移到本程序支持的最高版本（当前为 **17**，`0017_candidate_player_round.sql`；
+启动时向前迁移到本程序支持的最高版本（当前为 **19**，`0019_community_local_edit_order.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
 或历史迁移的名称或 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
 错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。历史中缺少的版本不导致拒绝，而是补执行该脚本。本软件没有只读模式。
@@ -482,7 +505,8 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 密钥可用时归 0，达到 3 时替换密钥文件（§4.3）。
 `capture.region_override` 保存用户手动指定的区服；`capture.region_override_install` 保存这次选择所绑定的那份客户端安装：
 空字符串表示已选择、尚未绑定，64 位十六进制为该客户端程序路径（转为大写）的 SHA-256 指纹，不保存路径本身；
-缺失或为 `null` 表示未绑定（1.8.x 保存的选择即是如此）。绑定规则见 [capture-diagnostics.md](capture-diagnostics.md) §3。
+缺失或为 `null` 表示未绑定（1.8.x 保存的选择即是如此）。这项绑定仍会写入，但判定区服时不再读取：
+手动指定的区服对每一个安装路径不能明确表明区服的客户端都生效。规则见 [capture-diagnostics.md](capture-diagnostics.md) §3。
 先行版 1.5.1-beta.1 与 1.5.1-beta.2 曾在启动时检查一次成就基数的 `baseline_effective_at` 并视情况改动，可能留下键
 `achievement.baseline_effective_at_checked`，以及基数修改历史（§4.2）中请求标识为
 `system:baseline-effective-at-repair` 的一条审计记录。现行版本不再读写前者，后者按普通审计记录对待，两者都不影响进度。
@@ -514,7 +538,7 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 |---|---|---|---|
 | `request_id` | TEXT | PK | 客户端信封里的 `request_id` |
 | `message_type` | TEXT | NOT NULL | 首次应用时的消息类型 |
-| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放；过期的基数、心得与批量变更请求为 JSON 文本 `null`，仅保留已执行标记 |
+| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放；过期的基数、心得、批量变更与角色档案 / 角色识别请求为 JSON 文本 `null`，仅保留已执行标记 |
 | `created_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 
 `INDEX ix_idempotency_created ON ipc_idempotency(created_at_utc)`。
@@ -524,15 +548,16 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 指纹**不同**时（同一个 `request_id` 被复用于另一份内容）返回
 `ERR_IDEMPOTENCY_CONFLICT`。回放旧结果会使客户端误认为其**新**改动已经生效，
 拒绝是唯一安全的处理方式。
-该表存**结果快照**与指纹，以及上述三类请求的轻量已执行标记，不存请求原文。
+该表存**结果快照**与指纹，以及上述这几类请求的轻量已执行标记，不存请求原文。
 
 **结果快照保留期是 24 小时。** 每次写入后按 `created_at_utc` 清理过期响应
 （`IdempotencyRepository.RetentionWindow`）。普通请求删除幂等行；
 `UpdateAchievementBaseline`、`SetRunReflection` 与 `BatchMutateRuns` 将 `response_json` 改为 JSON 文本 `null`，保留
 `request_id`、消息类型及执行时间：基数审计历史有上限、心得没有修订号、批量修订带派生的子编号，三者在快照清理之后
-都无法再证明原请求已经执行。包括成功的同值保存，这些标记都跨进程重启保留，
-防止旧请求把后续修改的基数（或心得、批量变更）写回旧值。展示用的基数修改历史（§4.2）仍只为每个档案保留最近 100 条；
-永久执行标记不保存基数、心得或变更的正文，并随这三类请求的次数增长。
+都无法再证明原请求已经执行。角色档案与角色识别的四种请求（`CreateCharacterProfile`、`UpdateCharacterProfile`、
+`DeleteCharacterProfile`、`ResolveCharacterIdentity`）同样只留标记、不留快照。包括成功的同值保存，这些标记都跨进程重启保留，
+防止旧请求把后续修改的基数（或心得、批量变更、档案）写回旧值，或再次执行。展示用的基数修改历史（§4.2）仍只为每个档案保留最近 100 条；
+永久执行标记不保存基数、心得、变更或档案的正文，并随这几类请求的次数增长。
 
 因此“同一 `request_id` 原样重放”的保证只在 24 小时响应窗口内成立。
 超过保留期后，`run_revisions.request_id` / `candidate_reviews.request_id` /
@@ -569,6 +594,7 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 - 原始报文：默认不落盘，解析后立即释放；仅显式研究模式允许下述候选负载例外（见 [privacy-boundary.md](privacy-boundary.md) §5.1）。
 - `run_events`：随记录长期保留（仅元数据）。
 - 诊断日志：按大小滚动，单文件上限 **2 MiB**、最多 **5** 个文件，另按 **7 天**清理，不含报文正文。
+  当前文件无法滚动时最多增长到 **4 MiB**，之后的日志行不再写入（[capture-diagnostics.md](capture-diagnostics.md) §8）。
 - 幂等结果快照：**24 小时**（§7.1）。
 - 数据库备份：桌面端的"每日自动备份"**默认开启**，每天执行一次：启动后连上 Collector 时，
   以及程序持续运行期间（每小时检查一次日期，跨过零点后的下一次检查即会触发）；当天已有备份
@@ -676,8 +702,13 @@ CSV 的 `date` 列是**UTC 日历日**（取 `entered_at` / `matched_at` / `ende
 不重建记录或向已删除记录写入事件。
 原有备份及用户导出文件不参与永久清理。
 
-## 副本社区内容（schema 18）
+## 副本社区内容（schema 18、19）
 
 `community_local` 以稳定 UUID 保存提醒或宏，内部包含本地修订号、排序、收藏、正文、关联 ID 及导入时的来源快照。内容关联通过 Collector 在同一事务中校验。来源快照是更新对比的基准，合并时保留本地修改过的字段。来源撤回只改变显示状态。
 
-`community_cache` 原子保存已验证的索引与快照字节，以便断网或刷新失败后继续使用。`community_receipts` 保存本地变更的 IPC 请求 ID、请求摘要和结果，用于安全重放。联网开关只存在于 `application_settings`。这些表使用现有数据库迁移和升级前备份机制，与副本识别、历史记录、个人心得和校准表独立。
+schema 19（`0019_community_local_edit_order.sql`）增加 `edit_sequence`（`CHECK (edit_sequence > 0)`），本地列表按
+`edit_sequence DESC, position, id` 排序（索引 `community_local_order` 随之重建），最近编辑的条目排在最前。正文有变化的保存、
+复制、安装、应用更新与导入取当前最大值加一；只改收藏或排序的保存，以及删除条目时从其他条目移除关联，不改变它。
+升级前已有的条目该列为 NULL（满足 CHECK），排在所有编辑过的条目之后，彼此仍按 `position`、`id` 排序，直到下一次编辑。
+
+`community_cache` 原子保存已验证的索引与快照字节，以便断网或刷新失败后继续使用。`community_receipts` 保存本地变更的 IPC 请求 ID、请求摘要和结果，用于安全重放；只保留按写入顺序最新的 500 条。联网开关只存在于 `application_settings`。这些表使用现有数据库迁移和升级前备份机制，与副本识别、历史记录、个人心得和校准表独立。

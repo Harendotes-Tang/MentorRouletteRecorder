@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QUuid>
 #include <algorithm>
@@ -16,6 +18,17 @@
 namespace {
 constexpr int kIndexPageSize = 200;
 constexpr int kMaxObservations = 20000;
+/// The player round last exported and the two files it produced, as compact JSON in the local
+/// Desktop settings, so a restarted card shows that round as exported instead of offering a
+/// second export without the tester's answers (audit 2026-11-26 I4-1).
+const QString kExportedRoundKey = QStringLiteral("candidate_round/exported");
+
+/// A round id as startRound mints it: a UUID without braces; empty for anything else.
+QString canonicalRoundId(const QString &id)
+{
+    const QUuid round(id);
+    return !round.isNull() && round.toString(QUuid::WithoutBraces) == id ? id : QString();
+}
 
 /// A refusal kept for later: the Collector's message, following the language through
 /// the reply's message_ref (contracts/collector-texts.md), or its code when it sent none.
@@ -117,12 +130,36 @@ void CandidateReviewController::setSettings(AppSettings *settings)
 {
     m_settings = settings;
     if (!settings) return;
+    restoreExportedRound();
     const auto draft = settings->candidateRoundFinishDraft();
-    const QString id = draft.value(QStringLiteral("round_id")).toString();
-    const QUuid round(id);
-    if (round.isNull() || round.toString(QUuid::WithoutBraces) != id) return;
+    const QString id = canonicalRoundId(draft.value(QStringLiteral("round_id")).toString());
+    if (id.isEmpty()) return;
     m_finishRoundId = id;
     m_roundAnswers = IBackend::candidateRoundAnswersPayload(draft.value(QStringLiteral("answers")).toMap()).toVariantMap();
+}
+
+void CandidateReviewController::restoreExportedRound()
+{
+    const QJsonObject saved = QJsonDocument::fromJson(
+        m_settings->value(kExportedRoundKey, QString()).toUtf8()).object();
+    const QString id = canonicalRoundId(saved.value(QStringLiteral("round_id")).toString());
+    const QString target = saved.value(QStringLiteral("target_path")).toString();
+    if (id.isEmpty() || target.isEmpty()) return;
+    m_exportedRoundId = id;
+    m_roundExportResult = {{QStringLiteral("target_path"), target},
+                           {QStringLiteral("sha256_path"), saved.value(QStringLiteral("sha256_path")).toString()}};
+    Q_EMIT changed();
+}
+
+void CandidateReviewController::rememberExportedRound(const QString &roundId, const QVariantMap &result)
+{
+    if (!m_settings) return;
+    const QString saved = roundId.isEmpty() ? QString() : QString::fromUtf8(QJsonDocument(QJsonObject{
+        {QStringLiteral("round_id"), roundId},
+        {QStringLiteral("target_path"), result.value(QStringLiteral("target_path")).toString()},
+        {QStringLiteral("sha256_path"), result.value(QStringLiteral("sha256_path")).toString()},
+    }).toJson(QJsonDocument::Compact));
+    m_settings->setValue(kExportedRoundKey, saved);
 }
 
 void CandidateReviewController::clearRoundFinishDraft()
@@ -167,6 +204,8 @@ void CandidateReviewController::adoptCaptureSettings(const QVariantMap &settings
             m_roundAnswers.clear();
             m_roundExportResult.clear();
             m_roundExportError.clear();
+            if (!m_exportedRoundId.isEmpty())
+                rememberExportedRound({}, {});
             m_exportedRoundId.clear();
         }
         m_seen.clear();
@@ -774,6 +813,7 @@ void CandidateReviewController::exportEvidence(const QString &roundId)
                 }
                 if (ok) {
                     m_exportedRoundId = roundId;
+                    rememberExportedRound(roundId, payload);
                     clearRoundFinishDraft();
                 }
             }

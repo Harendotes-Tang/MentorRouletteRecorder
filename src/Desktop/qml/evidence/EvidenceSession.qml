@@ -498,10 +498,13 @@ QtObject {
     }
     readonly property var captureNow: Runtime.app.captureStatus
     onCaptureNowChanged: session.noteOodleSearch(session.captureNow)
+    // Both required cases are the ones in which the Collector writes excerpts of the
+    // game program's instruction bytes into the log (docs/privacy-boundary.md §8), so
+    // both say so (audit 2026-11-26 K4-1).
     readonly property string logFileDesc: session.oodleSearch === "found"
-        ? qsTr("这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs")
+        ? qsTr("这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；含几小段游戏主程序的指令字节，在数据目录 logs")
         : session.oodleSearch === "failed"
-          ? qsTr("这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs")
+          ? qsTr("这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；含几小段游戏主程序的指令字节，在数据目录 logs")
           : qsTr("启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节")
     // The real products of a round (docs/ui-design.md §4.4); the required ones
     // first, then those a maintainer asks for only when needed.

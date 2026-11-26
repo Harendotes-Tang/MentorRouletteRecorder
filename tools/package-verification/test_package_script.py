@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -453,6 +454,81 @@ for ($i = 0; $i -lt $statements.Count; $i++) {{
         self.assertFalse(self.unsuffixed_guard("9.9.9", subject="chore(release): 9.9.9")["refused"])
         self.assertFalse(self.unsuffixed_guard("9.9.9-beta.1", skip_verify=True, subject="wip")["refused"])
         self.assertFalse(self.unsuffixed_guard("9.9.9", skip_verify=True, allow=True)["refused"])
+
+    # ------------------------- a published number is never reissued (M-2, audit 2026-11-26)
+
+    def reused_version_guard(self, version, *, tag=None, commit_after_tag=False, allow=False, failing_git=False):
+        if tag is not None:
+            git("tag", tag, cwd=self.repository)
+        if commit_after_tag:
+            git("commit", "-q", "--allow-empty", "-m", "rebuilt under the same version", cwd=self.repository)
+        return self.run_package_statements(f"""
+$RepoRoot = {ps_literal(self.repository)}
+$Version = {ps_literal(version)}
+$AllowReusedVersion = [switch]${'true' if allow else 'false'}
+$refusal = $null
+try {{
+    . ([scriptblock]::Create((Get-StatementRange '^\\$versionTag\\s*=' '^if \\(\\$reusedVersionRefusal\\)' -Inclusive))) 6>$null
+}}
+catch {{ $refusal = $_.Exception.Message }}
+$order = @{{}}
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    if ($statements[$i].Extent.Text -match '^\\$versionTag\\s*=') {{ $order['guard'] = $i }}
+    if ($statements[$i] -is [Management.Automation.Language.TryStatementAst] -and
+        $statements[$i].Body.Extent.Text.Contains('$VerifyScript')) {{ $order['verify'] = $i }}
+}}
+[ordered]@{{ refused = [bool]$refusal; message = [string]$refusal;
+             guard = $order['guard']; verify = $order['verify'] }} | ConvertTo-Json -Compress
+""", failing_git=failing_git)
+
+    def test_a_version_tagged_on_another_commit_is_refused_before_verify(self):
+        outcome = self.reused_version_guard("9.9.9-beta.2", tag="v9.9.9-beta.2", commit_after_tag=True)
+        self.assertTrue(outcome["refused"])
+        self.assertIn("v9.9.9-beta.2", outcome["message"])
+        self.assertIn("-AllowReusedVersion", outcome["message"])
+        self.assertIsNotNone(outcome["guard"])
+        self.assertIsNotNone(outcome["verify"])
+        self.assertLess(outcome["guard"], outcome["verify"])
+
+    def test_a_version_whose_tag_git_cannot_read_is_refused(self):
+        self.assertTrue(self.reused_version_guard("9.9.9-beta.2", failing_git=True)["refused"])
+
+    def test_an_untagged_version_its_own_tag_or_the_override_passes(self):
+        self.assertFalse(self.reused_version_guard("9.9.9-beta.2")["refused"])
+        self.assertFalse(self.reused_version_guard("9.9.9-beta.2", tag="v9.9.9-beta.2")["refused"])
+        self.assertFalse(self.reused_version_guard("9.9.9-beta.2", commit_after_tag=True, allow=True)["refused"])
+
+    # ------------------------- every process the scripts start carries every kill switch (M-6, audit 2026-11-26)
+
+    KILL_SWITCHES = {"MR_DISABLE_SHARED_FETCH", "MR_DISABLE_ONLINE_SPEECH",
+                     "MR_DISABLE_UPDATE_CHECK", "MR_DISABLE_DUTY_COMMUNITY"}
+
+    def test_verify_test_and_the_package_probes_set_every_network_kill_switch(self):
+        scripts = REPO / "scripts"
+        verify = (scripts / "verify.ps1").read_text(encoding="utf-8-sig")
+        self.assertEqual(self.KILL_SWITCHES,
+                         set(re.findall(r"^\$env:(MR_DISABLE_\w+)\s*=\s*'1'", verify, re.M)))
+
+        test = (scripts / "test.ps1").read_text(encoding="utf-8-sig")
+        self.assertEqual(self.KILL_SWITCHES,
+                         set(re.findall(r"^\$env:(MR_DISABLE_\w+)\s*=\s*'1'", test, re.M)))
+        # test.ps1 gives the caller's value back before it exits.
+        self.assertEqual(self.KILL_SWITCHES,
+                         set(re.findall(r"Remove-Item Env:\\(MR_DISABLE_\w+)", test)))
+
+        probes = self.run_package_statements("""
+$found = [ordered]@{}
+foreach ($node in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                                 $n.Name -in @('Invoke-StagedCollectorJson', 'Invoke-Unpacked') }, $true)) {
+    $found[$node.Name] = $node.Extent.Text
+}
+$found | ConvertTo-Json -Compress
+""")
+        self.assertEqual({"Invoke-StagedCollectorJson", "Invoke-Unpacked"}, set(probes))
+        for name, text in probes.items():
+            with self.subTest(probe=name):
+                self.assertEqual(self.KILL_SWITCHES,
+                                 set(re.findall(r"\['(MR_DISABLE_\w+)'\]\s*=\s*'1'", text)))
 
     # ------------------------- the Qt runtime deployment order (N2-1, audits 2026-11-10 to 2026-11-20)
 

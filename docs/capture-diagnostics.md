@@ -66,7 +66,7 @@
 取 `OBSERVING` / `READY` / `BLOCKED`，`warnings` 中给出正在重新校准的提示。
 用户确认后，采集服务写出本机档案、重新读取目录，并在当前会话内绑定解析器；
 `calibration_bound_at_utc` 记录该时刻，解析计数从零开始。绑定时，卡片等待确认期间本会话见到的、
-该档案所声明的报文，以及与国服通关结算、副本开始宣布或剩余时间完全相符的报文
+该档案所声明的报文，以及与通关结算、副本开始宣布或剩余时间完全相符的报文（只在国服与国际服档案下比较，繁中服不比较）
 （[protocol-profile-format.md](protocol-profile-format.md) §12、§13；紧跟在另一条已保留的开始宣布或剩余时间之后的剩余时间不保留），
 按原顺序先交给新的解析器（[state-machine.md](state-machine.md) §0），
 因此绑定后的解析计数包含这些补交的报文；其间的队列溢出、游戏连接全部中断与连接方向被放弃
@@ -164,13 +164,17 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
   `USERJOY GAMES` / `FINAL FANTASY XIV TC` 判为 `TC`（来自玩家公开报告的繁中服启动器默认目录
   `C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC`，尚未在本项目的真机验收中核对），
   无法识别时为 `UNKNOWN`；多个区服的关键字同时出现时同样为 `UNKNOWN`，并提示在设置中手动指定区服。
-  手动指定的区服（`capture.region_override`）绑定到做出选择之后第一个运行的客户端的安装目录
-  （设置中只保存该路径的 SHA-256 指纹 `capture.region_override_install`，不保存路径本身）。
-  它只在以下情形生效：路径无法识别或同时带有多个区服的关键字、路径表明的区服与之相同，或客户端正是绑定的那个安装。
-  路径明确表明另一个区服、且并非绑定的安装时，区服为 `UNKNOWN`（fail-closed），并提示「设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，……」
+  路径恰好表明一个区服时，以路径为准。手动指定的区服（`capture.region_override`）只对路径无法识别或同时带有多个区服关键字的
+  客户端生效，且对每一个这类客户端都生效，不限于某一份安装。采集服务仍把第一个按它处理的这类客户端记作绑定对象
+  （设置中只保存该路径的 SHA-256 指纹 `capture.region_override_install`，不保存路径本身），但判定区服时不再读取这项绑定；
+  能阻止这一选择把另一份未标明区服、实属其他区服的安装认作所选区服的，只有下文按随包签名档案核对程序文件的那道检查。
+  路径明确表明另一个区服时，不论该安装是否曾被早先版本绑定，
+  手动指定都不生效也不绑定，区服为 `UNKNOWN`（fail-closed），并提示「设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，……」
   （`capture.game.region_override_mismatch`），此时验证以 `WAITING_REGION` 等待，说明改用
-  `capture.validation.waiting_region_mismatch`；绑定的安装其路径表明另一个区服时仍按手动指定的区服处理，
-  并附一条说明（`capture.game.region_override_applied`）。1.8.x 保存的手动区服尚未绑定，按同一规则处理。
+  `capture.validation.waiting_region_mismatch`。早先版本的 `capture.game.region_override_applied`（绑定的安装按手动区服处理）不再出现。
+  另有一道核对：采集服务计算客户端主程序文件的 SHA-256 与大小（同一文件版本只计算一次，只读磁盘文件），
+  随包的某份 Oodle 签名档案（`protocol-profiles/oodle-signatures/`）把这个文件登记为另一个区服时，区服同样为 `UNKNOWN`，
+  并给出同一条提示；没有任何档案登记的文件不受影响，这道核对也从不据此给出区服。
 - **客户端版本**：读取 exe 同目录下启动器的 **`ffxivgame.ver` 文本文件**。
   只接受长度不超过 64、且仅含 `0-9 A-Z a-z . _ -` 的短串，否则视为读取失败。
   游戏未运行时改从记住的安装目录读取同一个文件，见本节末。
@@ -282,7 +286,13 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 （身份、回环角色与地址均不变），与游戏无关的接口出现、消失或反复变化都不影响；读取器已关闭的承载接口不算在内，
 只有承载游戏连接的接口全部关闭了读取器时，才视为游戏流量已无人读取、不受这条保护（例如本机回环读不了而游戏另有一条回环连接时，
 只要承载游戏的物理网卡仍在读取，会话就保留）；或正有一条记录在进行中
-（已匹配、已进本，或有一条暂存的导随排本申请）。找不到承载游戏的接口时，先区分系统连接表读不出与游戏确实没有连接
+（已匹配、已进本，或有一条暂存的导随排本申请）。第一条保护另有一个例外：读取器已关闭的接口若在本会话较早的一次检查之后
+才开始承载游戏连接，而此后至少一个存活宽限期（60 秒）内没有解出任何 IPC，且判定时的那次检查中仍有已关闭的接口承载游戏，
+也视为游戏流量已无人读取，不受这条保护，按同样的间隔与次数限制重建（例如重新登录前打开了加速器，游戏流量转到读不了的网卡，
+而游戏另有连接留在原网卡上）。“开始承载”以本会话第一次可读检查以来出现过的全部承载接口为准，而不是只与上一次检查比较；
+连接表读不出的检查不计入，既不更新这份记录，也不作判定。因此会话第一次可读检查时就已承载游戏的已关闭接口，
+即使其上的游戏连接时有时无，在整个会话中都不适用这一例外。开始观察之后，某次检查中该接口暂时没有游戏连接并不结束观察，
+只有解出 IPC 才结束（其间解出 IPC 即不重建）。找不到承载游戏的接口时，先区分系统连接表读不出与游戏确实没有连接
 （`GameHoldsConnections`，只在这种情况下多读一次连接表）：连接表读不出时，当前计划中的每一张接口都在新计划中原样保留
 （身份、回环角色与地址均不变）即视为完整，新增接口不触发重建，正在使用的接口地址变化仍会触发；游戏确实没有连接
 （标题画面）时不受这条保护。仍须重建时，旧会话按错误停止结束（`end_reason = ERROR`，
@@ -379,7 +389,7 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 | `messages_decoded` | 分帧读取成功的报文数 |
 | `decode_errors` | 分帧读取失败的报文数（短包、截断、乱码；**只计数，绝不抛异常**） |
 | `parse_ok` / `parse_fail` / `ignored` / `duplicates` | 来自 `IParserStats`。无可用档案时由 `CountingSink` 暴露为 0，存在 `VERIFIED` 档案时来自实时解析器。`ignored` 表示档案未声明的 opcode，不计为失败（contracts/CHANGELOG.md 第 18 条） |
-| `duty_clear_signals` / `duty_clear_completions` | 本次抓包会话中识别出的国服通关结算次数（[protocol-profile-format.md](protocol-profile-format.md) §12；同一次观察的重复只计一次），以及其中使副本内的导随记录收尾为通关的次数。结算到达时没有导随记录处于副本中（例如非导随的副本）只计前者，因此前者大于后者属于正常。与 `parse_ok` 不同，两者按抓包会话计，只在会话开始时归零：会话内的重新绑定（包括「核对并启用」之后的绑定）、换用共享档案与撤下档案都不清零；会话结束后保留该会话的总数，直到下一次会话开始。尚未开始过会话、或会话中从未绑定比较通关结算的档案时为 0。只见于脱敏报告（§9）与诊断日志（§8），不在 `CaptureStatus` 中 |
+| `duty_clear_signals` / `duty_clear_completions` | 本次抓包会话中识别出的国服或国际服通关结算次数（[protocol-profile-format.md](protocol-profile-format.md) §12；同一次观察的重复只计一次），以及其中使副本内的导随记录收尾为通关的次数。结算到达时没有导随记录处于副本中（例如非导随的副本）只计前者，因此前者大于后者属于正常。与 `parse_ok` 不同，两者按抓包会话计，只在会话开始时归零：会话内的重新绑定（包括「核对并启用」之后的绑定）、换用共享档案与撤下档案都不清零；会话结束后保留该会话的总数，直到下一次会话开始。尚未开始过会话、或会话中从未绑定比较通关结算的档案时为 0。只见于脱敏报告（§9）与诊断日志（§8），不在 `CaptureStatus` 中 |
 | `dropped` | 有界队列溢出丢弃数 |
 | `queue_depth` / `queue_capacity` | 同上 |
 | `profile.status` / `profile_id` | 来自针对当前游戏区服与版本的档案选择，无精确匹配时 fail-closed |
@@ -568,7 +578,9 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 五类规则全部由 `tests/Collector.UnitTests/Diagnostics/DiagnosticsLogHygieneTests.cs` 强制，
   **不存在 Skip 用例**。其中一个用例专门反向断言 12 位指纹与 UUID 不会被误删。
 - 滚动策略：**按大小**滚动，单文件上限 2 MiB，最多保留 5 个文件，总量上限约 10 MiB，
-  另按 7 天清理。
+  另按 7 天清理。当前文件无法滚动时（例如被其他程序打开且不允许删除），该行仍追加到文件末尾，
+  失败的滚动每分钟最多重试一次；文件达到 4 MiB（上限的两倍）后不再写入新行，丢弃的行计入「未能写入」的提示，
+  当天的文件中留一条 `log_lines_dropped` 说明；过期文件暂时删不掉时，在之后的某一天再删除，触发清理的那一行照常写入。
 - 日志写入失败（磁盘已满、权限不足）**绝不**导致进程崩溃。诊断信息可以放弃，用户数据不可以。
 - 采集服务无法启动的原因同样写入日志。数据库无法打开（文件损坏、不是数据库，或被其他程序占用）时记一条
   `startup/open_failed`，含错误码与原因说明。本机通信管道已被占用时记一条 `startup/already_running`，
@@ -576,7 +588,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   以及属于另一个 Windows 账户或以管理员身份运行的占用者（`OTHER_ACCOUNT`，此时采集服务以退出码 3 停止启动，
   见 [architecture.md](architecture.md) §2.4）。
 - 进程列表持续读取失败时的 `capture/process_listing_failed` / `capture/process_listing_recovered` 见 §3。
-- 国服通关结算（[protocol-profile-format.md](protocol-profile-format.md) §12）每被当前生效的解析器识别一次，
+- 国服与国际服的通关结算（[protocol-profile-format.md](protocol-profile-format.md) §12；繁中服不比较）每被当前生效的解析器识别一次，
   记一条 `protocol/duty_clear_signal`（Info）：`run_id`（结算到达时进行中的记录，没有时为 null）、
   `state_before`（结算遇到的状态：`IDLE` / `MENTOR_MATCHED` / `ENTERED_DUTY`，已收尾的记录按 `IDLE` 计）、
   `completed`（这次结算是否使该记录收尾为通关），以及本次抓包会话至此的累计数 `signals` 与 `completions`
@@ -586,7 +598,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   抓包停止，或解析器被替换（重新绑定、换用或撤下档案）。两条都不含负载、哈希、opcode 或副本编号。
   抓包会话结束时的 `capture/session_closed` 另带 `duty_clear_signals` 与 `duty_clear_completions`，
   即整个会话的总数。
-- 国服副本的开始宣布与剩余时间（[protocol-profile-format.md](protocol-profile-format.md) §13）在副本内遇到导随记录、
+- 国服与国际服副本的开始宣布与剩余时间（[protocol-profile-format.md](protocol-profile-format.md) §13）在副本内遇到导随记录、
   并决定了这一场是中途加入还是开局进入时，记一条 `protocol/duty_start_signal`（Info）：`kind`（`commenced` / `time_remaining`）、
   `run_id`、`seconds`（时限或剩余秒数）、`decided = true` 与 `joined_in_progress`（判定结果）。已判定之后再收到开始宣布时
   同样记一条（`decided = false`，`joined_in_progress` 为已有判定）——这是与「中途加入的玩家收不到开始宣布」相反的形状，
@@ -864,7 +876,7 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 | `job_shapes` | 职业报文形状（模板声明的方向与长度）上每个 opcode 的表现，格式为 `0x报文=佐证的换区簇数/总簇数!与之矛盾的簇数 v读到的职业编号`（最多列 4 个取值）。判据要求进本簇与出本簇都佐证、至少半数簇佐证、没有任何簇矛盾，且满足条件的 opcode **恰好一个**。`progress.job_seen` 为 false 时，本行说明原因：没有一行满足条件、两行并列，或唯一的一行被某个簇否决（取值越界，或同一簇内取值不一致）。取值为 ClassJob 编号，与记录中保存的职业编号相同。回执同时是职业报文的模板（国际服，[protocol-profile-format.md](protocol-profile-format.md) §11.3.1）不按换区簇判断职业，本行改为每个回执 opcode 一行：`0x报文=reply 读出职业的回执数/配对数!越界次数 v读到的职业编号` |
 | `timed_candidates` | 按**出现时机**判断的候选，每个未出局的形状一行，格式为 `0x报文:长度=排本期间出现次数+进本之前出现次数/总次数!离群次数 e先于几次进本/进本总数 lead最小提前量秒`。国服 2026.09.15 客户端的匹配通知在任何字节位置都不带轮盘编号，`markers` 与 `match_echoes` 都指不出它，只能看它何时出现：真正的匹配通知只在排本期间出现（离群为 0），先于每一次自己排本后的进本，提前量是玩家确认与读条的那几秒到十几秒；伴随加载的报文提前量接近 0。判据要求至少 2 次进本、至少 2 个不同轮盘，并列时取最小提前量最大者（见 [protocol-profile-format.md](protocol-profile-format.md) §11.5） |
 | `timing_overflow` | 上述表格溢出过多少次。与 `marker_overflow` 不同，该值不为 0 时**不会给出任何按时机认定的候选**：判据的说法是「每次进本之前它都出现过」，而没能入表的形状既不能佐证也不能否定这句话 |
-| `pop_tallies` | 只在回执与匹配通知是两条报文的模板（国际服，[protocol-profile-format.md](protocol-profile-format.md) §11.3.1）下非空，其他模板为空数组：排本有效期间每个弹窗形状 opcode 的 `0x报文=带所排编号的次数/出现次数`，按前者从多到少列出最多 8 行。真正的匹配通知两者相等；出现两次以上带其他取值的 opcode 不会被认作匹配通知。回执 opcode 也在其中，通常为 `0/n` |
+| `pop_tallies` | 只在回执与匹配通知是两条报文的模板（国际服，[protocol-profile-format.md](protocol-profile-format.md) §11.3.1）下非空，其他模板为空数组：排本有效期间每个弹窗形状 opcode 的 `0x报文=带所排编号的次数/出现次数`，按前者从多到少列出最多 8 行。真正的匹配通知通常两者相等；带其他取值达到 2 次、且不少于带所排编号次数的 opcode 不会被认作匹配通知，匹配时限内随后有已知副本加载的单次其他取值不计入（规则见 [protocol-profile-format.md](protocol-profile-format.md) §11.3.1）。回执 opcode 也在其中，通常为 `0/n` |
 | `zone_outside` | 换区报文所在长度上，**既出现在换区簇内、又在簇外出现过**的形状数量。`zone_candidates` 为 0 时应先查看本项。该值不为 0 表示形状仍然存在，只是本次抓包遗漏了报文：某次换区未被识别为簇，簇内的标记即被记为在簇外出现；簇外出现超过 2 次、且簇外次数乘以 3 超过它恰好出现一次的簇数（含已舍弃的簇）时，该形状失去候选资格（[protocol-profile-format.md](protocol-profile-format.md) §11.3）。此时应重新登录游戏并点击「清空校准进度」，无需等待新版本软件。两项同时为 0 才表示长度确实发生了变化 |
 | `outside_keys` / `overflow` | 前者为在换区簇之外出现过的形状数；后者非零表示有界表曾经溢出，证据已不完整，只能点击「清空校准进度」重新观察。换区簇（最多 64 个）与排本配对（最多 256 条）达到上限时舍弃最早的条目，不计入该值；舍弃的换区簇仍留下按形状累计的计数（证据文件中的 `retired_once`）：长度等于换区标记或区域报文的服务器报文，各有多少个舍弃的簇恰好含它一次，簇外次数的比较把这些簇一并计入 |
 
@@ -934,7 +946,7 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 ### 9.6 共享校准：`calibration.shared` 与 `boundary.outbound` 的解读
 
 共享校准是本软件默认会主动发起的网络请求之一
-（[privacy-boundary.md](privacy-boundary.md) §8.2）。另两类是默认关闭的在线语音与默认开启的更新检查，
+（[privacy-boundary.md](privacy-boundary.md) §8.2）。另三类是默认关闭的在线语音、默认开启的更新检查与副本社区，
 均见本节后半部分。
 报告中与共享校准相关的只有下列两部分，二者均为白名单，不含地址、主机名、IP、校准码正文、
 opcode 与负载字节。
@@ -977,7 +989,19 @@ opcode 与负载字节。
 
 该对象不含主机名，也不含地址：检查读取的是固定地址（GitHub 发布页，以及其不可用时的 GitCode 镜像，见 [privacy-boundary.md](privacy-boundary.md) §8.4），没有可变部分可供记录。
 
-监听端口仍恒为 0。除共享校准、用户开启的在线语音与更新检查之外，不存在任何出站连接。
+`boundary.outbound.duty_community` 由 2026-11-26 审查的修复加入，同样属于只增不删的变更，报告版本仍为 2。
+它说明第四类出站请求，即「提醒与宏」的副本社区（[privacy-boundary.md](privacy-boundary.md) §8.7）：
+
+| 字段 | 含义 |
+|---|---|
+| `enabled` | 设置「允许公共库联网」是否开启（默认关闭）。该开关只管公共库下载 |
+| `kill_switch` | 进程环境变量 `MR_DISABLE_DUTY_COMMUNITY` 是否为 `1`，为 `1` 时本进程不发出任何副本社区请求 |
+| `last_request_utc` | 本进程最近**实际发出**的一次副本社区请求（公共库下载、投稿进度查询、GitHub 登录或投稿）的发出时间，从未发出时为 null；几次请求先后完成时，取发出时间最晚的一次。距上次检查不足 30 秒、或上次成功后不足 2 分钟而直接使用本机缓存的情形不计入；取消登录、退出 GitHub、离线时的拒绝与未到轮询间隔的登录轮询没有发出请求，同样不计入 |
+| `last_outcome` | 该次请求的结果令牌。公共库下载为 `ready`、`empty`、`not_deployed`、`invalid_index`、`stale_mirror` 或 `temporarily_unavailable`；GitHub 请求为该次 `DutyCommunity` 应答的 `status`（例如 `temporarily_unavailable`、`invalid_issue`、`submit_unconfirmed`、`submit_not_sent`）；请求被取消或意外失败时为 `cancelled` 或 `failed`。`last_request_utc` 为 null 时同为 null |
+
+该对象不含主机名、Issue 编号、条目文字或 GitHub 账号信息。
+
+监听端口仍恒为 0。除共享校准、用户开启的在线语音、更新检查与副本社区之外，不存在任何出站连接。
 
 **`calibration.shared`** 与 `CaptureStatus.calibration.shared` 为同一个对象，由同一个函数产出。
 
@@ -1014,7 +1038,7 @@ opcode 与负载字节。
 | `state = FAILED` 且 `last_error_code` 非空 | 监视器致命错误（见 §7），或适配器被拔出、禁用 | 查看日志中的 `monitor_trace`，随后重新调用 `StartCapture` |
 | 开始监听时返回 `ERR_INTERNAL`（`details.monitor = START_FAILED`） | 与 Npcap 无关的启动失败：网卡的数据链路类型不受支持、读取线程未能启动、Oodle 初始化失败等 | 查看本机诊断日志；不需要重装 Npcap。游戏仍在运行时，自动跟随依次等待 30、60、120、240 秒后重试，此后每 5 分钟重试一次；游戏退出后间隔复位，手动开始监听不受此等待限制 |
 | 记录全部为 `INTERRUPTED` | 采集服务频繁重启，或抓包被反复中断 | 查看日志中的 `PROCESS_RESTART` 事件 |
-| 通关后仍停在待确认：国服导随通关了，记录却以 `UNKNOWN` 收尾并标记待复核 | 副本内没有收到通关结算，或结算到达时这一场没有处于副本中的记录 | 在开始下一次监听之前导出脱敏诊断报告（两个计数只在下一次监听开始时归零），查看 `counters`：`duty_clear_signals = 0` 表示这一类副本没有发来结算，或游戏更新改变了它的形状（[protocol-profile-format.md](protocol-profile-format.md) §12.3）；`duty_clear_signals` 大于 `duty_clear_completions` 表示结算来了，但到达时没有导随记录处于副本中，例如这一场的进本没有被记录，或该次结算来自非导随的副本。日志中这一场附近的 `protocol/duty_clear_signal` 的 `state_before` 与 `run_id` 可确认是哪一种（§8）。两种情况都可按 [live-validation-guide.md](live-validation-guide.md) §4.1 取证后提交 |
+| 通关后仍停在待确认：国服或国际服导随通关了，记录却以 `UNKNOWN` 收尾并标记待复核 | 副本内没有收到通关结算，或结算到达时这一场没有处于副本中的记录 | 在开始下一次监听之前导出脱敏诊断报告（两个计数只在下一次监听开始时归零），查看 `counters`：`duty_clear_signals = 0` 表示这一类副本没有发来结算，或游戏更新改变了它的形状（[protocol-profile-format.md](protocol-profile-format.md) §12.3）；`duty_clear_signals` 大于 `duty_clear_completions` 表示结算来了，但到达时没有导随记录处于副本中，例如这一场的进本没有被记录，或该次结算来自非导随的副本。日志中这一场附近的 `protocol/duty_clear_signal` 的 `state_before` 与 `run_id` 可确认是哪一种（§8）。两种情况都可按 [live-validation-guide.md](live-validation-guide.md) §4.1 取证后提交 |
 | 游戏在运行但 `ffxiv_running = false` | 正在等待选择记录对象（`game_selection_required = true`，候选见 `game_processes`，§3）；或游戏以 `ffxiv_dx11` / `ffxiv` 之外的进程名运行；或游戏运行在另一个 Windows 会话中（另一个账户，或同一用户的另一个会话，§3） | 在总览或捕获诊断页的「记录对象」卡片中选择游戏窗口。`StartCapture.process_id` 只接受已锁定的客户端，不能用来指定其他进程；进程名不同的客户端不受支持；其他 Windows 会话中的客户端不会被记录，须在运行游戏的同一会话中使用本软件 |
 
 ## 11. 用户可自行做的边界核对
@@ -1024,8 +1048,10 @@ opcode 与负载字节。
 `reads_game_executable`。出站连接不再标注为恒为 0。本软件默认会发出的请求是获取共享校准与更新检查，
 脱敏报告的 `boundary.outbound` 如实给出二者的开关状态（设置项与 `MR_DISABLE_SHARED_FETCH` /
 `MR_DISABLE_UPDATE_CHECK`），以及本进程最近一次实际发出请求的时间与结果（§9.6）。用户自行启用在线语音后，另有
-`boundary.outbound.online_speech` 记录的语音合成请求（[privacy-boundary.md](privacy-boundary.md) §8.3）。
-除这三类之外没有任何出站连接。
+`boundary.outbound.online_speech` 记录的语音合成请求（[privacy-boundary.md](privacy-boundary.md) §8.3）；
+用户打开「允许公共库联网」后，另有 `boundary.outbound.duty_community` 记录的公共库请求（§9.6）。用户点击查询「投稿进度」时
+发往 GitHub 的请求同属副本社区一类，但不计入该对象（[privacy-boundary.md](privacy-boundary.md) §8.7）。
+除这四类之外没有任何出站连接。
 
 ## 12. 无游戏环境下的自检
 

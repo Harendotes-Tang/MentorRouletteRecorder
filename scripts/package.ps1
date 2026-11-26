@@ -44,7 +44,12 @@ param(
     # Package a version without a prerelease label although -SkipVerify is given or HEAD is not
     # its "chore(release): X.Y.Z" commit (Get-UnsuffixedVersionRefusal). Such a build spends the
     # release number; it is for a deliberate exception only, never for a test build.
-    [switch]$AllowUnsuffixedVersion
+    [switch]$AllowUnsuffixedVersion,
+
+    # Package a version whose tag v<Version> already exists and points at another commit
+    # (Get-ReusedVersionRefusal), or whose tag git cannot read. A published number - beta
+    # included - is never issued again with other content; for a deliberate exception only.
+    [switch]$AllowReusedVersion
 )
 
 Set-StrictMode -Version Latest
@@ -360,6 +365,8 @@ function Invoke-StagedCollectorJson {
         $childEnvironment['MR_DISABLE_ONLINE_SPEECH'] = '1'
         # Update-check kill switch (docs/privacy-boundary.md section 8.4): a packaging probe never checks for updates.
         $childEnvironment['MR_DISABLE_UPDATE_CHECK'] = '1'
+        # Duty-community kill switch (docs/privacy-boundary.md section 8.7): a packaging probe never fetches or submits.
+        $childEnvironment['MR_DISABLE_DUTY_COMMUNITY'] = '1'
 
         $process = [System.Diagnostics.Process]::Start($startInfo)
         try {
@@ -785,6 +792,18 @@ if ($unsuffixedRefusal) {
     }
     Write-Host ("  按 -AllowUnsuffixedVersion 继续：{0}" -f $unsuffixedRefusal) -ForegroundColor Yellow
 }
+# A published number, beta included, is never issued again with other content: an installed
+# copy compares equal to the reissue and is never offered it (audit 2026-11-26 M-2). The tag
+# v<Version> may exist only on HEAD itself.
+$versionTag = Get-VersionTagState -RepoRoot $RepoRoot -Version $Version
+$reusedVersionRefusal = Get-ReusedVersionRefusal -Version $Version -TagCommit $versionTag.TagCommit `
+    -HeadCommit $versionTag.HeadCommit -Problem $versionTag.Problem
+if ($reusedVersionRefusal) {
+    if (-not $AllowReusedVersion) {
+        throw $reusedVersionRefusal
+    }
+    Write-Host ("  按 -AllowReusedVersion 继续：{0}" -f $reusedVersionRefusal) -ForegroundColor Yellow
+}
 
 # The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
 # unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
@@ -1126,10 +1145,11 @@ if ($Verify) {
             $err = Join-Path $verifyRoot ("{0}.err" -f $Label)
             $startInfo = New-IsolatedPackageStartInfo -Executable $Exe -Arguments $PackageArgs `
                 -WorkingDirectory $unpacked -Offscreen:$Offscreen
-            # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3, 8.4).
+            # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3, 8.4, 8.7).
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_SHARED_FETCH'] = '1'
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_ONLINE_SPEECH'] = '1'
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_UPDATE_CHECK'] = '1'
+            $startInfo.get_EnvironmentVariables()['MR_DISABLE_DUTY_COMMUNITY'] = '1'
             $result = Invoke-PackageVerificationProcess -StartInfo $startInfo -TimeoutSeconds 60
             $processExit = $result.ExitCode
             $stdout = $result.Stdout

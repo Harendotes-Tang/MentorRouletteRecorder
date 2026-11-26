@@ -13,6 +13,10 @@ The same text is published once. An item whose body matches a live item of the s
 
 The stable ID stays unchanged when the author edits a title. For an update from a new Issue, refresh the public library before previewing the submission. For an adaptation, start from a separate ID and keep the original source and license. Closing an unprocessed Issue prevents its publication. For a published item, request a withdrawal or status correction from a maintainer. Imported notes remain with their users.
 
+One account can have at most 40 live (not withdrawn) entries in the library, and it can publish something at most 5 times on one day (by the Issue's update date, UTC): every Issue or edit of an Issue that publishes counts, and the count stays when that Issue is later edited into a body that fails. A submission over either limit fails with a receipt that says so. Withdrawn entries do not count against the library's capacity. A maintainer can remove an entry with the workflow's `removed` status: the entry is deleted from the snapshot, links to it are dropped and the entries that had them get a new revision. A removed ID is recorded and cannot be published again, from the same Issue or a new one.
+
+Text fields refuse bidirectional controls (U+202A–U+202E, U+2066–U+2069) and the line and paragraph separators (U+2028, U+2029); single-line fields (title, tags, boss, phase, role, game version, source) also refuse zero-width characters (U+200B–U+200D, U+2060, U+FEFF). The rule applies to items an Issue adds or changes; entries published before it stay in the library as published, but current versions of MentorRecorder do not show or import them.
+
 ## Publication
 
 `v1/index.json` points to an immutable commit and a SHA-256 for `v1/snapshot.json`. The snapshot bundles items for anonymous downloads, and `v1/reminders/` and `v1/macros/` mirror the entries for review. Hashes validate the downloaded bytes. Verification of gameplay advice requires maintainer review. Formats are defined in [the schema](../schemas/community-content-v1.schema.json).

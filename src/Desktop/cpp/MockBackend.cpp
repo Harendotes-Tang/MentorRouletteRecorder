@@ -27,6 +27,10 @@ using namespace mr::mock;
 
 namespace {
 
+// The Global client the shipped protocol-profiles/global/global.2026.11.03.json records.
+constexpr const char *kRecordedGlobalBuild = "2026.11.03.0000.0000";
+constexpr const char *kRecordedGlobalProfile = "global.2026.11.03";
+
 // ---------------------------------------------------------------------------
 // The prototype's linear congruential generator, reproduced bit for bit so the
 // dataset matches DOC/mentor-recorder-v2.dc.html.
@@ -274,6 +278,14 @@ bool isReplayableMutation(const QString &messageType)
     return types.contains(messageType);
 }
 
+/// A value the software left blank: null, absent, empty, or the 未知 / UNKNOWN placeholder.
+bool blankRecordedValue(const QJsonValue &value)
+{
+    return value.isUndefined() || value.isNull() || value.toString() == QString::fromUtf8("未知")
+           || value.toString() == QLatin1String("UNKNOWN")
+           || (value.isString() && value.toString().isEmpty());
+}
+
 /// RunMutationRules.OverrulesTheRecord: whether a correction overrules what the software
 /// recorded, and so marks the run 已修正. Saying how a run pending review went, filling a
 /// duty or job the software left blank (null, or the 未知 / UNKNOWN placeholder), and the
@@ -290,11 +302,6 @@ bool overrulesTheRecord(bool wasPendingReview, const QJsonArray &changes)
     static const QSet<QString> neverACorrection{QStringLiteral("manually_corrected"),
                                                 QStringLiteral("note"),
                                                 QStringLiteral("territory_id")};
-    const auto blank = [](const QJsonValue &value) {
-        return value.isUndefined() || value.isNull() || value.toString() == QString::fromUtf8("未知")
-               || value.toString() == QLatin1String("UNKNOWN")
-               || (value.isString() && value.toString().isEmpty());
-    };
     return std::ranges::any_of(changes, [&](const auto &value) {
         const QJsonObject change = value.toObject();
         const QString field = change.value(QStringLiteral("field")).toString();
@@ -302,8 +309,113 @@ bool overrulesTheRecord(bool wasPendingReview, const QJsonArray &changes)
             return false;
         if (outcome.contains(field))
             return !wasPendingReview;
-        return !fillable.contains(field) || !blank(change.value(QStringLiteral("old_value")));
+        return !fillable.contains(field) || !blankRecordedValue(change.value(QStringLiteral("old_value")));
     });
+}
+
+/// RunRevisionRepository.IsConfirmingChange: 待复核 answered (true -> false), an UNKNOWN
+/// result settled, or a job, duty or 中途加入 the software left blank filled in.
+bool confirmingChange(const QJsonObject &change)
+{
+    const QString field = change.value(QStringLiteral("field")).toString();
+    const QJsonValue oldValue = change.value(QStringLiteral("old_value"));
+    const QJsonValue newValue = change.value(QStringLiteral("new_value"));
+    if (field == QLatin1String("pending_review"))
+        return oldValue == QJsonValue(true) && newValue == QJsonValue(false);
+    if (field == QLatin1String("result"))
+        return oldValue.toString() == QLatin1String("UNKNOWN") && newValue.isString()
+               && newValue.toString() != QLatin1String("UNKNOWN");
+    static const QSet<QString> fillable{QStringLiteral("job_id"), QStringLiteral("content_id"),
+                                        QStringLiteral("duty_name"), QStringLiteral("joined_in_progress")};
+    return fillable.contains(field) && blankRecordedValue(oldValue) && !blankRecordedValue(newValue);
+}
+
+/// RunRevisionRepository.IsConfirming: a confirming change, and nothing the software
+/// recorded overruled.
+bool confirmingRevision(const QJsonArray &changes)
+{
+    const bool wasPending = std::ranges::any_of(changes, [](const auto &value) {
+        const QJsonObject change = value.toObject();
+        return change.value(QStringLiteral("field")).toString() == QLatin1String("pending_review")
+               && change.value(QStringLiteral("old_value")) == QJsonValue(true);
+    });
+    return std::ranges::any_of(changes, [](const auto &value) { return confirmingChange(value.toObject()); })
+           && !overrulesTheRecord(wasPending, changes);
+}
+
+/// RunRevisionRepository.IsUndoOf: \a undo puts back every change of \a target and changes
+/// nothing else, apart from what an undo itself adds or leaves out - manually_corrected is
+/// history and never reverted, and a character profile removed since goes to nobody.
+bool undoesRevision(const QJsonArray &undo, const QJsonArray &target)
+{
+    const auto fieldOf = [](const QJsonObject &change) { return change.value(QStringLiteral("field")).toString(); };
+    const auto profileReset = [&fieldOf](const QJsonObject &change) {
+        const QJsonValue value = change.value(QStringLiteral("new_value"));
+        return fieldOf(change) == QLatin1String("profile_id") && (value.isNull() || value.isUndefined());
+    };
+    QList<QJsonObject> reversible;
+    for (const auto &value : target) {
+        const QJsonObject change = value.toObject();
+        if (fieldOf(change) != QLatin1String("manually_corrected"))
+            reversible.append(change);
+    }
+    if (reversible.isEmpty())
+        return false;
+    const bool everyChangeBack = std::ranges::all_of(reversible, [&](const QJsonObject &change) {
+        return std::ranges::any_of(undo, [&](const auto &value) {
+            const QJsonObject back = value.toObject();
+            return fieldOf(back) == fieldOf(change)
+                   && back.value(QStringLiteral("old_value")) == change.value(QStringLiteral("new_value"))
+                   && (back.value(QStringLiteral("new_value")) == change.value(QStringLiteral("old_value"))
+                       || profileReset(back));
+        });
+    });
+    const bool nothingElse = std::ranges::all_of(undo, [&](const auto &value) {
+        const QJsonObject back = value.toObject();
+        return fieldOf(back) == QLatin1String("manually_corrected") || profileReset(back)
+               || std::ranges::any_of(reversible, [&](const QJsonObject &change) {
+                      return fieldOf(change) == fieldOf(back);
+                  });
+    });
+    return everyChangeBack && nothingElse;
+}
+
+/// RunRevisionRepository.IsReviewConfirmed over one run's revisions (audit 2026-11-26 K3-1,
+/// re-review RB-1). An undo is recognised by structure - a user correction that exactly
+/// reverses the revision right before it - and never confirms anything itself: it switches
+/// the revision it ultimately takes back off, and an undo of that undo switches it on again.
+/// So undoing a confirmation clears the mark, undoing that undo restores it (the
+/// confirmation counts again), and undoing a system revision or a user's blanking of a
+/// field never sets it. The latest confirming revision decides, while it is in force.
+/// 改角色 and 迁移区服 change nothing a confirmation looks at; deletion and restore have
+/// kinds of their own and system revisions another actor.
+bool reviewConfirmedBy(QList<QJsonObject> revisions)
+{
+    std::ranges::sort(revisions, {}, [](const QJsonObject &revision) {
+        return revision.value(QStringLiteral("revision")).toInt();
+    });
+    QList<qsizetype> takesBack(revisions.size(), 0);
+    QList<bool> inForce(revisions.size(), false);
+    qsizetype latestConfirming = -1;
+    for (qsizetype i = 0; i < revisions.size(); ++i) {
+        const QJsonObject &revision = revisions.at(i);
+        const bool userCorrection = revision.value(QStringLiteral("actor")).toString() == QLatin1String("USER")
+                                    && revision.value(QStringLiteral("change_kind")).toString() == QLatin1String("CORRECT");
+        const QJsonArray changes = revision.value(QStringLiteral("changes")).toArray();
+        if (i > 0 && userCorrection
+            && revisions.at(i - 1).value(QStringLiteral("revision")).toInt()
+                   == revision.value(QStringLiteral("revision")).toInt() - 1
+            && undoesRevision(changes, revisions.at(i - 1).value(QStringLiteral("changes")).toArray())) {
+            takesBack[i] = takesBack.at(i - 1);
+            inForce[takesBack.at(i)] = !inForce.at(takesBack.at(i));
+            continue;
+        }
+        takesBack[i] = i;
+        inForce[i] = true;
+        if (userCorrection && confirmingRevision(changes))
+            latestConfirming = i;
+    }
+    return latestConfirming >= 0 && inForce.at(latestConfirming);
 }
 
 /// RunMutationService.IsUnsettledShape: the two shapes a closed run must never be put back
@@ -367,6 +479,7 @@ MockBackend::MockBackend(QObject *parent)
             run.insert(QStringLiteral("profile_id"), ensureCurrentProfile(runRegion(run)));
         m_runs[index] = run;
     }
+    stampAllReviewConfirmed();
 }
 
 QString MockBackend::connectionDetail() const
@@ -551,6 +664,8 @@ void MockBackend::resetRuns(const QJsonArray &runs)
     // every region with runs has one, as after the schema-14 migration.
     for (const auto &run : runs)
         ensureCurrentProfile(runRegion(run.toObject()));
+    // No revision confirms anything yet: review_confirmed false on every run, as sent.
+    stampAllReviewConfirmed();
 }
 
 void MockBackend::resetRuns(const QJsonArray &runs, const QHash<QString, QString> &importFingerprints)
@@ -591,9 +706,10 @@ QString MockBackend::captureRegion() const
 
 bool MockBackend::unsupportedCaptureRegion() const
 {
-    // All existing live/calibration fixtures describe CN builds; the mock's TC and GLOBAL stand for
-    // builds no shipped profile covers (GLOBAL 2026.11.03 records in the real Collector).
-    return captureRegion() != QLatin1String("CN");
+    // ProfileSelector: only TC has no profile that records (protocol-profiles/tc holds just
+    // tc-unsupported.json). GLOBAL 2026.11.03 records with a verified profile and Global is
+    // offered self-calibration like CN, so the mock's GLOBAL records too (audit 2026-11-26 J-1).
+    return captureRegion() == QLatin1String("TC");
 }
 
 // ---------------------------------------------------------------------------
@@ -1327,6 +1443,24 @@ QJsonObject MockBackend::captureStatus() const
             status["profile_matches_build"] = false;
         }
     }
+    if (captureRegion() == QLatin1String("GLOBAL")
+        && status.value(QStringLiteral("region")).toString() == QLatin1String("CN")) {
+        // The same fixtures on a Global client: a client whose build was read is the one the
+        // shipped profile global.2026.11.03 records. A calibration fixture keeps its own build,
+        // one no profile covers, as the Collector offers self-calibration on Global too.
+        status.insert(QStringLiteral("region"), QStringLiteral("GLOBAL"));
+        // Candidate validation reads a build no profile records, and the candidate it
+        // describes is Global's, not the CN one (re-review RD-6).
+        if (candidateEnabled && calibration.isEmpty())
+            applyGlobalCandidateValidation(status);
+        else if (calibration.isEmpty() && status.value(QStringLiteral("game_build")).isString()) {
+            status.insert(QStringLiteral("game_build"), QString::fromLatin1(kRecordedGlobalBuild));
+            if (status.value(QStringLiteral("profile_id")).isString())
+                status.insert(QStringLiteral("profile_id"), QString::fromLatin1(kRecordedGlobalProfile));
+            if (status.value(QStringLiteral("oodle_profile_id")).isString())
+                status.insert(QStringLiteral("oodle_profile_id"), QString::fromLatin1(kRecordedGlobalProfile));
+        }
+    }
     if (unsupportedCaptureRegion()) {
         // The client's build is still read from its install directory, so the profile
         // decides: LiveProtocolPipeline.ToCaptureStatus keeps it with UNSUPPORTED_BUILD.
@@ -1730,8 +1864,11 @@ QJsonObject MockBackend::currentRun() const
     run.insert(QStringLiteral("content_id"), entered ? QJsonValue(17) : QJsonValue(QJsonValue::Null));
     const auto duty = entered ? DutyCatalog::shared()->lookup(17, captureRegion()) : QVariantMap{};
     run.insert(QStringLiteral("territory_id"), QJsonValue::fromVariant(duty.value(QStringLiteral("territory_id"))));
+    // A Global client records the name its own (English) catalogue gives the duty.
+    const QString globalName = captureRegion() == QLatin1String("GLOBAL")
+        ? duty.value(QStringLiteral("duty_name")).toString() : QString();
     run.insert(QStringLiteral("duty_name"),
-               entered ? QJsonValue(QString::fromUtf8("天狼星灯塔"))
+               entered ? QJsonValue(globalName.isEmpty() ? QString::fromUtf8("天狼星灯塔") : globalName)
                        : QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("duty_category"),
                entered ? QJsonValue(QString::fromUtf8("四人迷宫"))
@@ -1771,6 +1908,36 @@ int MockBackend::indexOfRun(const QString &runId) const
             return i;
     }
     return -1;
+}
+
+void MockBackend::stampReviewConfirmed(QJsonObject &run) const
+{
+    const QString runId = run.value(QStringLiteral("run_id")).toString();
+    QList<QJsonObject> revisions;
+    for (const auto &value : std::as_const(m_revisions)) {
+        const QJsonObject revision = value.toObject();
+        if (revision.value(QStringLiteral("run_id")).toString() == runId)
+            revisions.append(revision);
+    }
+    // Wire.cs: sent on every Run, never true while the run is pending review.
+    run.insert(QStringLiteral("review_confirmed"),
+               !run.value(QStringLiteral("pending_review")).toBool(false) && reviewConfirmedBy(std::move(revisions)));
+}
+
+void MockBackend::stampAllReviewConfirmed()
+{
+    QHash<QString, QList<QJsonObject>> byRun;
+    for (const auto &value : std::as_const(m_revisions)) {
+        const QJsonObject revision = value.toObject();
+        byRun[revision.value(QStringLiteral("run_id")).toString()].append(revision);
+    }
+    for (qsizetype index = 0; index < m_runs.size(); ++index) {
+        QJsonObject run = m_runs.at(index).toObject();
+        run.insert(QStringLiteral("review_confirmed"),
+                   !run.value(QStringLiteral("pending_review")).toBool(false)
+                       && reviewConfirmedBy(byRun.value(run.value(QStringLiteral("run_id")).toString())));
+        m_runs[index] = run;
+    }
 }
 
 void MockBackend::touchRun(QJsonObject &run, const QString &changeKind,
@@ -1940,6 +2107,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         }
         if (!acceptableFinalValue(run, errorCode, errorMessage))
             return {};
+        run.insert(QStringLiteral("review_confirmed"), false); // a creation confirms nothing
         m_runs.append(run);
 
         QJsonObject revision;
@@ -2003,8 +2171,26 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         }
         run.insert(QStringLiteral("soft_deleted"), false);
         run.insert(QStringLiteral("deleted_at_utc"), QJsonValue(QJsonValue::Null));
-        touchRun(run, QStringLiteral("RESTORE"), reason,
-                 QJsonArray{changeEntry(QStringLiteral("soft_deleted"), true, false)});
+        QJsonArray changes{changeEntry(QStringLiteral("soft_deleted"), true, false)};
+        // A restore puts back the 待复核 the deletion cleared, taken from the deletion's own
+        // revision: nobody answered it (audit 2026-11-26 K3-1).
+        QJsonArray deletionChanges;
+        for (const auto &value : std::as_const(m_revisions)) {
+            const QJsonObject entry = value.toObject();
+            if (entry.value(QStringLiteral("run_id")).toString() == runId
+                && entry.value(QStringLiteral("change_kind")).toString() == QLatin1String("SOFT_DELETE"))
+                deletionChanges = entry.value(QStringLiteral("changes")).toArray();
+        }
+        const bool deletionClearedReview = std::ranges::any_of(deletionChanges, [](const auto &value) {
+            const QJsonObject change = value.toObject();
+            return change.value(QStringLiteral("field")).toString() == QLatin1String("pending_review")
+                   && change.value(QStringLiteral("old_value")).toBool(false);
+        });
+        if (deletionClearedReview && !run.value(QStringLiteral("pending_review")).toBool(false)) {
+            run.insert(QStringLiteral("pending_review"), true);
+            changes.append(changeEntry(QStringLiteral("pending_review"), false, true));
+        }
+        touchRun(run, QStringLiteral("RESTORE"), reason, changes);
     } else if (messageType == QLatin1String("CorrectRun")) {
         const QJsonObject changes = payload.value(QStringLiteral("changes")).toObject();
         // $defs/CorrectRunRequest.changes is additionalProperties: false, and the
@@ -2208,7 +2394,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             return {};
         }
         // RunMutationService.UndoRevision commits an ordinary correction: the
-        // contract's change_kind has no UNDO (review OJ-6).
+        // contract's change_kind has no UNDO (review OJ-6). 已确认 tells it by its shape.
         touchRun(run, QStringLiteral("CORRECT"), reason, applied);
     } else {
         *errorCode = QStringLiteral("ERR_BAD_REQUEST");
@@ -2216,6 +2402,8 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         return {};
     }
 
+    // 已确认 from the revisions, the new one included (re-review RB-1 / RD-5).
+    stampReviewConfirmed(run);
     m_runs.replace(index, run);
 
     QJsonObject result;
@@ -3300,11 +3488,14 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
             stored.insert(QStringLiteral("profile_id"), runRegion(stored) == chosenRegion
                                                          ? chosenProfile
                                                          : ensureCurrentProfile(runRegion(stored)));
+            stored.insert(QStringLiteral("review_confirmed"), false); // an import confirms nothing
             m_runs.append(stored);
             m_importFingerprints.insert(fingerprint, stored.value(QStringLiteral("run_id")).toString());
             QJsonArray changes;
-            for (auto it = stored.constBegin(); it != stored.constEnd(); ++it)
-                changes.append(changeEntry(it.key(), QJsonValue(QJsonValue::Null), it.value()));
+            for (auto it = stored.constBegin(); it != stored.constEnd(); ++it) {
+                if (it.key() != QLatin1String("review_confirmed")) // derived, never a recorded field
+                    changes.append(changeEntry(it.key(), QJsonValue(QJsonValue::Null), it.value()));
+            }
             m_revisions.append(QJsonObject{
                 {QStringLiteral("revision_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
                 {QStringLiteral("run_id"), stored.value(QStringLiteral("run_id"))},
@@ -3584,8 +3775,12 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     QJsonObject result;
     bool handled = true;
     QJsonObject payload = wirePayload;
-    if (!resolveHistorySelection(messageType, payload, &errorCode)) {
-        deliver(reply, {}, errorCode, tr("勾选记录暂不可用，请重试。"), {}, {});
+    if (!resolveHistorySelection(messageType, payload, &errorCode, &errorMessage)) {
+        // The Collector's own sentence and its reference (audit 2026-11-26 J-3).
+        const QJsonObject errorRef = m_errorRef;
+        m_errorRef = {};
+        m_errorRefMessage.clear();
+        deliver(reply, {}, errorCode, errorMessage, {}, errorRef);
         return reply;
     }
     const QJsonValue requestedRegion = payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("region"));
@@ -3638,6 +3833,13 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                       QString::fromUtf8("模拟数据：仅离线合成事件，"
                                         "从未针对真实流量校验。"));
         result.insert(QStringLiteral("message"), QJsonValue(QJsonValue::Null));
+        if (captureRegion() == QLatin1String("GLOBAL")) {
+            // The Global client of captureStatus(): the shipped global.2026.11.03 records it.
+            result.insert(QStringLiteral("region"), QStringLiteral("GLOBAL"));
+            result.insert(QStringLiteral("game_build"), captureStatus().value(QStringLiteral("game_build")));
+            if (!candidate)
+                result.insert(QStringLiteral("profile_id"), QString::fromLatin1(kRecordedGlobalProfile));
+        }
         if (unsupportedCaptureRegion()) {
             result.insert(QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD"));
             result.insert(QStringLiteral("region"), captureRegion());
@@ -3836,9 +4038,9 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         } else { result = queryRunCalendarDaysPayload(payload);
 }
     } else if (messageType == QLatin1String("QueryHistorySelection")) {
-        result = queryHistorySelection(payload, &errorCode);
+        result = queryHistorySelection(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("StageHistorySelection")) {
-        result = stageHistorySelection(payload, &errorCode);
+        result = stageHistorySelection(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("QueryRuns")) {
         // RequestParsers.Paging (PayloadReader.Int): omitted or null is the default, anything
         // else must be an integer in range - page from 1, page_size 1 to 200 - and is refused,
@@ -3883,10 +4085,14 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         const QJsonValue requested = payload.value(QStringLiteral("time_zone"));
         const QString id = requested.toString().trimmed();
         const QTimeZone zone = id.isEmpty() ? QTimeZone(QTimeZone::LocalTime) : QTimeZone(id.toUtf8());
-        if (!payload.contains(QStringLiteral("time_zone")) || !(requested.isNull() || requested.isString())
-            || !zone.isValid()) {
-            errorCode = QStringLiteral("ERR_BAD_REQUEST");
-            errorMessage = QString::fromUtf8("time_zone 不是这台电脑认识的时区标识。");
+        // DisplayTimeZoneHandlers' refusals, with the catalogue sentences (audit 2026-11-26 J-3).
+        const QVariantMap field{{QStringLiteral("field"), QStringLiteral("time_zone")}};
+        if (!payload.contains(QStringLiteral("time_zone"))) {
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.missing", field);
+        } else if (!(requested.isNull() || requested.isString())) {
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.not_string", field);
+        } else if (!zone.isValid()) {
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.request.time_zone_unknown");
         } else {
             m_displayZone = zone;
             result.insert(QStringLiteral("time_zone"),

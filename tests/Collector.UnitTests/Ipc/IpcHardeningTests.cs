@@ -69,10 +69,29 @@ public sealed class IpcHardeningTests
     public void TheMessageTypesAnsweredLaterMatchTheDesktopExtendedDeadlines()
     {
         Assert.Equal(
-            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "DutyCommunity", "ExportCsv", "ExportJson",
-                "PreviewRunImport", "QueryHistorySelection", "SynthesizeSpeech" },
+            new[] { "BackupDatabase", "BatchMutateRuns", "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport",
+                "DutyCommunity", "ExportCandidateEvidence", "ExportCsv", "ExportDiagnosticsReport", "ExportJson",
+                "PreviewRunImport", "PreviewRunRegionMigration", "QueryHistorySelection", "SynthesizeSpeech" },
             MessageDispatcher.AsynchronousMessageTypes.OrderBy(type => type, StringComparer.Ordinal));
     }
+
+    /// <summary>
+    /// Audit 2026-11-26, G-1 / Gb-1: the requests that read or write whole files, and a batch change or region-move
+    /// preview over a staged selection, are answered off the read loop; the same two requests with an inline,
+    /// bounded target list keep receive order, and so does the small profile write of ConfirmCalibration.
+    /// </summary>
+    [Theory]
+    [InlineData("BackupDatabase", "{}", true)]
+    [InlineData("ExportDiagnosticsReport", "{}", true)]
+    [InlineData("ExportCandidateEvidence", "{}", true)]
+    [InlineData("BatchMutateRuns", "{\"selection_id\":\"x\"}", true)]
+    [InlineData("PreviewRunRegionMigration", "{\"selection_id\":\"x\"}", true)]
+    [InlineData("BatchMutateRuns", "{\"runs\":[]}", false)]
+    [InlineData("PreviewRunRegionMigration", "{\"runs\":[]}", false)]
+    [InlineData("ConfirmCalibration", "{}", false)]
+    public void LongDatabaseAndFileRequestsLeaveTheReadLoop(string messageType, string payload, bool deferred) =>
+        Assert.Equal(deferred, MessageDispatcher.ShouldDefer(
+            new IpcRequest(Guid.NewGuid().ToString("D"), messageType, JsonNode.Parse(payload)!.AsObject())));
 
     [Theory]
     [InlineData("{}", true)]

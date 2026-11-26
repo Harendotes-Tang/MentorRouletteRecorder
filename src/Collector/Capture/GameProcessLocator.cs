@@ -165,6 +165,15 @@ public sealed class GameProcessLocator
     private readonly Func<CaptureRegionOverride?>? _regionOverride;
     private readonly IGameInstallMemory _installMemory;
     private readonly Action<bool>? _listingObserved;
+    private readonly Func<string, Region?> _executableRegion;
+
+    /// <summary>The shipped Oodle signature directory, looked up once.</summary>
+    private static readonly Lazy<string?> ShippedSignatureDirectory = new(() =>
+        OodleSignatureProfile.DirectoryUnder(Protocol.Profiles.ProfileCatalog.FindDefaultRoot()));
+
+    /// <summary>What <see cref="ShippedExecutableRegion"/> answered per executable hash and size.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Region?> ExecutableRegions =
+        new(StringComparer.Ordinal);
 
     /// <summary>Creates a locator.</summary>
     /// <param name="processes">Process listing source; the real machine when null.</param>
@@ -186,7 +195,7 @@ public sealed class GameProcessLocator
         IGameFileReader? files = null,
         Func<Region?>? regionOverride = null,
         IGameInstallMemory? installMemory = null)
-        : this(processes, files, Unbound(regionOverride), installMemory, listingObserved: null)
+        : this(processes, files, Unbound(regionOverride), installMemory, listingObserved: null, executableRegion: null)
     {
     }
 
@@ -195,13 +204,15 @@ public sealed class GameProcessLocator
         IGameFileReader? files,
         Func<CaptureRegionOverride?>? regionOverride,
         IGameInstallMemory? installMemory,
-        Action<bool>? listingObserved)
+        Action<bool>? listingObserved,
+        Func<string, Region?>? executableRegion)
     {
         _processes = processes ?? WindowsGameProcessProvider.Instance;
         _files = files ?? WindowsGameFileReader.Instance;
         _regionOverride = regionOverride;
         _installMemory = installMemory ?? NullGameInstallMemory.Instance;
         _listingObserved = listingObserved;
+        _executableRegion = executableRegion ?? ShippedExecutableRegion;
     }
 
     /// <summary>
@@ -213,7 +224,8 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithRegionOverride(Func<Region?> regionOverride)
     {
         ArgumentNullException.ThrowIfNull(regionOverride);
-        return new GameProcessLocator(_processes, _files, Unbound(regionOverride), _installMemory, _listingObserved);
+        return new GameProcessLocator(
+            _processes, _files, Unbound(regionOverride), _installMemory, _listingObserved, _executableRegion);
     }
 
     /// <summary>
@@ -224,7 +236,8 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithRegionOverride(Func<CaptureRegionOverride?> regionOverride)
     {
         ArgumentNullException.ThrowIfNull(regionOverride);
-        return new GameProcessLocator(_processes, _files, regionOverride, _installMemory, _listingObserved);
+        return new GameProcessLocator(
+            _processes, _files, regionOverride, _installMemory, _listingObserved, _executableRegion);
     }
 
     private static Func<CaptureRegionOverride?>? Unbound(Func<Region?>? regionOverride) =>
@@ -239,7 +252,8 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithListingObserver(Action<bool> listingObserved)
     {
         ArgumentNullException.ThrowIfNull(listingObserved);
-        return new GameProcessLocator(_processes, _files, _regionOverride, _installMemory, listingObserved);
+        return new GameProcessLocator(
+            _processes, _files, _regionOverride, _installMemory, listingObserved, _executableRegion);
     }
 
     /// <summary>True when this locator has somewhere to remember the install path.</summary>
@@ -250,7 +264,20 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithInstallMemory(IGameInstallMemory installMemory)
     {
         ArgumentNullException.ThrowIfNull(installMemory);
-        return new GameProcessLocator(_processes, _files, _regionOverride, installMemory, _listingObserved);
+        return new GameProcessLocator(
+            _processes, _files, _regionOverride, installMemory, _listingObserved, _executableRegion);
+    }
+
+    /// <summary>
+    /// Returns a copy of this locator that asks <paramref name="executableRegion"/> which region a
+    /// shipped Oodle signature profile records for an executable, instead of the shipped directory.
+    /// </summary>
+    /// <param name="executableRegion">Executable path to that region, or null when no profile knows it.</param>
+    internal GameProcessLocator WithExecutableRegion(Func<string, Region?> executableRegion)
+    {
+        ArgumentNullException.ThrowIfNull(executableRegion);
+        return new GameProcessLocator(
+            _processes, _files, _regionOverride, _installMemory, _listingObserved, executableRegion);
     }
 
     /// <summary>
@@ -325,30 +352,26 @@ public sealed class GameProcessLocator
         }
 
         var detected = GuessRegion(chosen.ExecutablePath);
-        var region = detected;
-        if (SafeRegionOverride() is { } forced)
+        var forced = SafeRegionOverride();
+        var region = RegionOf(forced, detected, chosen.ExecutablePath, out var contradicted);
+        if (contradicted)
         {
-            // A choice not yet bound belongs to the client running when it is first seen: the one
-            // the user was looking at when choosing (audit 2026-11-03, A2-1).
-            if (forced.Bind is { } bind && !string.IsNullOrWhiteSpace(chosen.ExecutablePath))
+            // The path names one region and the choice another, or the executable is the one a
+            // shipped profile records for another region: nothing is applied and nothing is bound.
+            // Recording waits until the user clears or changes the choice (audit 2026-11-26, A2b-1).
+            warnings.Add(CollectorTexts.CaptureGameRegionOverrideMismatch());
+        }
+        else if (forced is not null)
+        {
+            // A choice applies only to a path that names no region, or several, and then to every
+            // such client, not only the first. The binding to the first such client is still written
+            // (audit 2026-11-03, A2-1) but no longer consulted: RegionOf never reads it
+            // (re-review 2026-11-26, RA-3). Only the executable check above stops a choice from
+            // labelling another unmarked installation of a different region.
+            if (detected == Region.Unknown && forced.Bind is { } bind &&
+                !string.IsNullOrWhiteSpace(chosen.ExecutablePath))
             {
                 SafeBind(bind, chosen.ExecutablePath);
-                forced = forced with { InstallFingerprint = CaptureRegionOverride.Fingerprint(chosen.ExecutablePath), Bind = null };
-            }
-
-            region = RegionUnder(forced, detected, chosen.ExecutablePath);
-            if (region == Region.Unknown)
-            {
-                // Chosen for another installation, and this path names another region: neither
-                // is applied. Recording waits for the user to choose again or to clear the choice.
-                warnings.Add(CollectorTexts.CaptureGameRegionOverrideMismatch());
-            }
-            else if (detected != Region.Unknown && detected != region)
-            {
-                // Chosen for this installation against what its path names: applied, and said so,
-                // since a choice made with the game closed binds to whichever client runs next
-                // (re-review 2026-11-03, RV1-5).
-                warnings.Add(CollectorTexts.CaptureGameRegionOverrideApplied());
             }
         }
         else if (detected == Region.Unknown && chosen.ExecutablePath is not null)
@@ -435,23 +458,94 @@ public sealed class GameProcessLocator
         var detected = GuessRegion(remembered);
         return new GameProcessDetection(
             false, null, null, null,
-            SafeRegionOverride() is { } forced ? RegionUnder(forced, detected, remembered) : detected,
+            RegionOf(SafeRegionOverride(), detected, remembered, out _),
             build, 0, null, Array.Empty<UserText>());
     }
 
     /// <summary>
-    /// The region of a client under a chosen region: the choice where the path names no region
-    /// (or several), or where the choice was made for this very installation, whatever its path
-    /// says; the path's own region where both agree; and Unknown -- fail closed -- where a choice
-    /// made for another installation meets a path that names another region (audit 2026-11-03, A2-1).
+    /// The region of a client (audit 2026-11-26, A2b-1, owner decision). A path that names exactly
+    /// one region decides: a choice that agrees changes nothing, a choice that disagrees is not
+    /// applied and the client is Unknown -- fail closed -- whatever installation the choice was
+    /// once bound to. A choice fills in wherever the path names no region, or several -- for every
+    /// such client; the installation it is bound to is not consulted (re-review 2026-11-26, RA-3). As a
+    /// second check, a region the executable itself contradicts - a shipped Oodle signature
+    /// profile records this exact file for another region - is Unknown as well; an executable no
+    /// profile knows changes nothing.
     /// </summary>
-    /// <param name="forced">The user's choice.</param>
+    /// <param name="forced">The user's choice, or null.</param>
     /// <param name="detected">The region the path names.</param>
     /// <param name="executablePath">The client's executable path.</param>
-    private static Region RegionUnder(CaptureRegionOverride forced, Region detected, string? executablePath) =>
-        detected == Region.Unknown || detected == forced.Region || forced.IsBoundTo(executablePath)
-            ? forced.Region
-            : Region.Unknown;
+    /// <param name="contradicted">True when the answer is Unknown because of a contradiction.</param>
+    private Region RegionOf(
+        CaptureRegionOverride? forced, Region detected, string? executablePath, out bool contradicted)
+    {
+        contradicted = false;
+        if (forced is not null && detected != Region.Unknown && detected != forced.Region)
+        {
+            contradicted = true;
+            return Region.Unknown;
+        }
+
+        var region = detected == Region.Unknown && forced is not null ? forced.Region : detected;
+        if (region != Region.Unknown && ContradictsExecutable(region, executablePath))
+        {
+            contradicted = true;
+            return Region.Unknown;
+        }
+
+        return region;
+    }
+
+    /// <summary>
+    /// True when a shipped Oodle signature profile records this exact executable for a region other
+    /// than <paramref name="region"/>. Only the file on disk is read; nothing that fails here can
+    /// break process discovery.
+    /// </summary>
+    private bool ContradictsExecutable(Region region, string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            return _executableRegion(executablePath) is { } known && known != region;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The region whose shipped Oodle signature profile records this executable's SHA-256 and size,
+    /// or null. The digest is cached per file version (<see cref="GameExecutableHash"/>) and the
+    /// answer per digest, so a status poll reads neither the executable nor the profiles again.
+    /// </summary>
+    /// <param name="executablePath">Executable path of a client.</param>
+    private static Region? ShippedExecutableRegion(string executablePath)
+    {
+        if (GameExecutableHash.Compute(executablePath) is not { } hash)
+        {
+            return null;
+        }
+
+        long size;
+        try
+        {
+            var file = new FileInfo(executablePath);
+            size = file.Exists ? file.Length : 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
+
+        return ExecutableRegions.GetOrAdd(
+            hash + ":" + size.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => OodleSignatureProfile.RegionOfExecutable(ShippedSignatureDirectory.Value, hash, size));
+    }
 
     /// <summary>Binds a choice; a settings table that cannot be written leaves it unbound for the next look.</summary>
     private static void SafeBind(Action<string> bind, string executablePath)

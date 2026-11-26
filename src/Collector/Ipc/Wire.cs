@@ -150,6 +150,9 @@ public static class Wire
         var rendered = Run(run);
         rendered["duty_category"] = DutyCatalog.Default.Categories.Resolve(
             run.DutyCategory, run.ContentId, run.TerritoryId, run.Region);
+        // Presentation only, so audit, fingerprints and exports (Run) never carry it. A run waiting for
+        // review again is not confirmed, whatever an earlier answer said.
+        rendered["review_confirmed"] = run.ReviewConfirmed && !run.PendingReview;
         return rendered;
     }
 

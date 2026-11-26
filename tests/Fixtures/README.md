@@ -13,7 +13,7 @@ tests/Fixtures/
 本目录另有三个子目录，同样纳入版本库，由各自的测试直接读取，本文不再展开：
 `calibration-evidence/` 是早期版本写出的本机校准证据文件，用于确认新版本仍能读取（`CalibrationObserverSharedStateTests`）；
 `calibration-golden/` 是本机校准写出的档案应当逐字节一致的期望结果（`LocalProfileWriterTests`）；
-`shared-calibration/` 存放共享校准码的测试向量 `vectors.json`、副本提醒与导随宏的正文比较用例 `community-text-vectors.json`（`tools/shared-calibration/community_publish.py` 与桌面端 `DutyCommunityMatch.js` 都运行这组用例），以及由 `tools/shared-calibration/generate_index_sample.py`
+`shared-calibration/` 存放共享校准码的测试向量 `vectors.json`、副本提醒与导随宏的文字用例 `community-text-vectors.json`：正文比较（`exact_text`、`loose_text`、`similarity`）、投稿中与已发布正文重复的条目（`repeats`）和文字字段允许的字符（`field_text`）；发布工具的测试（`tools/shared-calibration/test_community_publish.py`）与桌面端测试（`DutyCommunityTests`，经 `DutyCommunityMatch.js`）运行全部用例，采集服务的 `CommunityWorkspaceTests` 运行其中的 `field_text`，以及由 `tools/shared-calibration/generate_index_sample.py`
 生成、不得手改的公开仓库索引样本 `index-sample*`。
 
 前两类是 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与

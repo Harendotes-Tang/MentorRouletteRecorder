@@ -281,14 +281,18 @@ QtObject {
     // never reaches a player's page.
     function blockedText() {
         let text = String(Runtime.app.recording.message || "")
+        // Without a capture status the page hides the install steps a kept Npcap incident
+        // points at, so its instruction goes and its verdict stays (audit 2026-11-20, K2-1).
+        // The incident is recognised as the recording controller's own catalogue entry in
+        // whatever language is on screen - the same lookup that produced the message - not by
+        // a pattern over its wording, which missed zh-TW, en and ja (audit 2026-11-26, K2-4).
+        if (!copy.statusKnown && text === qsTranslate("mr::AutomaticRecordingController",
+                "尚未安装 Npcap 驱动，暂时不能自动记录。请按「捕获诊断」中的说明安装。"))
+            return qsTr("尚未安装 Npcap 驱动，暂时不能自动记录。")
         text = text.replace(/（代码 [^）]*）/g, "")
         // The same bracket in another interface language, e.g. "(code ERR_…)".
         text = text.replace(/\s*[（(][^（）()]*\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+[）)]/g, "")
         text = copy.withoutPagePointer(text)
-        // Without a capture status the page hides the install steps a kept Npcap incident
-        // points at, so its instruction goes and its verdict stays (audit 2026-11-20, K2-1).
-        if (!copy.statusKnown)
-            text = text.replace(/\s*(?:请|請)按(?:「捕获诊断」|「擷取診斷」)中的(?:说明|說明)[^。.]*[。.]?/g, "").trim()
         if (text.length > 0 && !/[。！？.!?]$/.test(text))
             //: The full stop that closes a sentence.
             text += qsTr("。")

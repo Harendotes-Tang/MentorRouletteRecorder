@@ -21,7 +21,7 @@
 代码中**不允许**出现任何硬编码的 opcode 或结构偏移。
 `src/Collector/Protocol/Parsing/ProfileMessageParser.cs` 中不存在任何此类常量：
 解析器读取哪个位置、读取多长、按何种字节序读取、允许何种取值，全部来自档案。
-例外是国服副本导演报文中的三种内容：§12 的通关结算与 §13 的副本开始宣布、剩余时间。它们与 opcode 无关，
+例外是国服与国际服副本导演报文中的三种内容：§12 的通关结算与 §13 的副本开始宣布、剩余时间。它们与 opcode 无关，
 按固定内容识别，常量集中在 `src/Collector/Protocol/Parsing/DutyClearSignal.cs` 与 `DutyStartSignal.cs`，
 每一个都可追溯到 §12.2、§13.2 的证据。此外，区分登录角色所用的登录报文按形状识别（§14），同样不属于档案。
 

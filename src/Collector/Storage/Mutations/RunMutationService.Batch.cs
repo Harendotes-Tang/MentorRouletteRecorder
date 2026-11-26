@@ -92,7 +92,8 @@ public sealed partial class RunMutationService
                 var deleted = command.Action == "soft_delete";
                 foreach (var before in runs)
                 {
-                    Commit(before, before with { SoftDeleted = deleted }, deleted ? ChangeKind.SoftDelete : ChangeKind.Restore,
+                    Commit(before, deleted ? before with { SoftDeleted = true } : Restored(before, tx),
+                        deleted ? ChangeKind.SoftDelete : ChangeKind.Restore,
                         reason, AuditRequestId(command.RequestId, before), fingerprint, tx, markCorrected: false, clearPendingReview: deleted);
                 }
             }

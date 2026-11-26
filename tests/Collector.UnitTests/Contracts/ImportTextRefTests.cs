@@ -32,7 +32,7 @@ public sealed class ImportTextRefTests : IDisposable
         var refs = row["warning_refs"]!.AsArray();
         AssertParallelRow(row);
         Assert.Equal(
-            new[] { "import.warning.job_unmatched", "import.warning.result_defaulted", "import.warning.time_missing", "import.warning.mood_missing" },
+            new[] { "import.warning.job_unmatched", "import.warning.duty_unmatched", "import.warning.result_defaulted", "import.warning.time_missing", "import.warning.mood_missing" },
             refs.Take(refs.Count - 1).Select(CollectorTextCatalogue.Key));
         // The screenshot reader's warning is passed through as it is: no key, so the Desktop shows the Chinese.
         Assert.Equal("需要核对职业", warnings[^1]!.GetValue<string>());

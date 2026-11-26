@@ -23,7 +23,8 @@ public sealed class MessageDispatcher
     private readonly CollectorHost _host;
     private readonly RunExporter _exporter;
     // Whole-history exports materialise their results. Keep one active per host; the
-    // connection's existing deferred-response bound also limits callers waiting here.
+    // connection's existing deferred-response bound also limits callers waiting here. The
+    // deferred backup, diagnostics report and candidate evidence export take the same slot.
     private readonly SemaphoreSlim _exportGate = new(1, 1);
 
     /// <summary>
@@ -89,20 +90,45 @@ public sealed class MessageDispatcher
     /// <c>CancelUpdateDownload</c> are not among them: they wait on nothing - the download runs on a
     /// background task of its own - and answer at once like a status poll.
     /// CSV/JSON exports also run off this loop, with one active snapshot/encoding job at a time;
-    /// waiting requests remain covered by the connection's deferred-response limit.
+    /// waiting requests remain covered by the connection's deferred-response limit. The other
+    /// requests that read or write whole files - the database backup with its integrity check of
+    /// the copy, the diagnostics report and the candidate evidence export - share that one slot.
+    /// A batch change or region-move preview over a staged selection (<c>selection_id</c>) is
+    /// not bounded by the 2000-row inline limit, so it runs off this loop as well (audit
+    /// 2026-11-26, G-1 / Gb-1).
     /// </summary>
     public static IReadOnlySet<string> AsynchronousMessageTypes { get; } =
         new HashSet<string>(StringComparer.Ordinal)
         {
             "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport",
             "ExportCsv", "ExportJson", "QueryHistorySelection", "DutyCommunity",
+            "BackupDatabase", "ExportDiagnosticsReport", "ExportCandidateEvidence",
+            "BatchMutateRuns", "PreviewRunRegionMigration",
         };
 
-    /// <summary>Defers history snapshot creation only; paging and release keep pipe receive order.</summary>
+    /// <summary>
+    /// The deferred requests that wait for the one whole-file slot (<see cref="RunFileJobAsync"/>): a
+    /// connection's unanswered ones count as one deferred reply toward its limit (audit 2026-11-26, RB-2).
+    /// </summary>
+    internal static IReadOnlySet<string> FileJobMessageTypes { get; } =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ExportCsv", "ExportJson", "BackupDatabase", "ExportDiagnosticsReport", "ExportCandidateEvidence",
+        };
+
+    /// <summary>
+    /// Defers history snapshot creation only (paging and release keep pipe receive order), and a
+    /// batch change or region-move preview only when it names a staged selection: an inline target
+    /// list is bounded and stays in receive order.
+    /// </summary>
     internal static bool ShouldDefer(IpcRequest request) =>
-        AsynchronousMessageTypes.Contains(request.MessageType) &&
-        (request.MessageType != "QueryHistorySelection" ||
-            (!request.Payload.ContainsKey("selection_id") && !request.Payload.ContainsKey("release")));
+        AsynchronousMessageTypes.Contains(request.MessageType) && request.MessageType switch
+        {
+            "QueryHistorySelection" =>
+                !request.Payload.ContainsKey("selection_id") && !request.Payload.ContainsKey("release"),
+            "BatchMutateRuns" or "PreviewRunRegionMigration" => request.Payload.ContainsKey("selection_id"),
+            _ => true,
+        };
 
     /// <summary>Host this dispatcher serves.</summary>
     public CollectorHost Host => _host;
@@ -212,23 +238,31 @@ public sealed class MessageDispatcher
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, cancellationToken),
             "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
-            "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
+            "ExportCsv" or "ExportJson" => RunFileJobAsync(() => InvokeExport(
+                new PayloadReader(request.Payload), request.MessageType == "ExportCsv", cancellationToken), cancellationToken),
+            "BackupDatabase" or "ExportDiagnosticsReport" or "ExportCandidateEvidence" =>
+                RunFileJobAsync(() => Dispatch(request), cancellationToken),
+            "BatchMutateRuns" when request.Payload.ContainsKey("selection_id") =>
+                DispatchStagedBatchAsync(request, cancellationToken),
+            "PreviewRunRegionMigration" when request.Payload.ContainsKey("selection_id") =>
+                RunOffLoop(PrepareRegionMigrationPreview(new PayloadReader(request.Payload)), cancellationToken),
             "QueryHistorySelection" => Task.Run(() =>
                 HistorySelectionHandlers.Query(_host, new PayloadReader(request.Payload), cancellationToken), cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
     }
 
-    private async Task<JsonObject> DispatchExportAsync(IpcRequest request, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs one whole-file job - an export, the backup, the diagnostics report or the candidate
+    /// evidence - off the connection's read loop, one at a time across the host. SQLite and file
+    /// writing are synchronous; the connection keeps its cancellation and deferred-response admission.
+    /// </summary>
+    private async Task<JsonObject> RunFileJobAsync(Func<JsonObject> work, CancellationToken cancellationToken)
     {
         await _exportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // SQLite and file encoding are synchronous. Keep them off the connection's
-            // read loop while retaining its cancellation and deferred-response admission.
-            return await Task.Run(() => InvokeExport(
-                new PayloadReader(request.Payload), request.MessageType == "ExportCsv", cancellationToken))
-                .ConfigureAwait(false);
+            return await Task.Run(work).ConfigureAwait(false);
         }
         finally
         {
@@ -236,9 +270,40 @@ public sealed class MessageDispatcher
         }
     }
 
+    /// <summary>
+    /// Runs prepared work on the thread pool. The token is checked inside the work: a staged batch
+    /// that the client left before it started is not applied, one already started commits or rolls
+    /// back as a whole, and its receipt answers the retry.
+    /// </summary>
+    private static Task<JsonObject> RunOffLoop(Func<JsonObject> work, CancellationToken cancellationToken) =>
+        Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return work();
+        });
+
+    /// <summary>
+    /// A <c>BatchMutateRuns</c> naming a staged selection. The request is parsed and the sealed
+    /// set is taken here, on the read loop and in receive order, so a release that the client sends
+    /// after this request cannot revoke an admitted batch (HistorySelectionStore.RequireStaged). A
+    /// selection that is already gone is not refused here: the batch looks for its receipt first,
+    /// so a retry of a batch that was applied still replays after its selection expired, and only
+    /// a batch with no receipt asks for the selection again and gets <c>ERR_NOT_FOUND</c>.
+    /// </summary>
+    private Task<JsonObject> DispatchStagedBatchAsync(IpcRequest request, CancellationToken cancellationToken)
+    {
+        var command = RequestParsers.BatchMutateRuns(request.RequestId, new PayloadReader(request.Payload));
+        IReadOnlyList<BatchRunTarget>? admitted = null;
+        try { admitted = _host.HistorySelections.RequireStaged(command.SelectionId!); }
+        catch (CollectorException ex) when (ex.Code == ErrorCodes.NotFound) { /* decided inside the batch, see above */ }
+        return RunOffLoop(() => BatchMutateRuns(command,
+            selectionId => admitted ?? _host.HistorySelections.RequireStaged(selectionId)), cancellationToken);
+    }
+
     private JsonObject DispatchImport(IpcRequest request)
     {
-        BeginImport();
+        if (!TryBeginImport())
+            return ReplayFinishedCommit(request, CancellationToken.None);
         try { return InvokeImport(request, CancellationToken.None); }
         finally { Volatile.Write(ref _importInFlight, 0); }
     }
@@ -246,7 +311,14 @@ public sealed class MessageDispatcher
     private Task<JsonObject> DispatchImportAsync(IpcRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        BeginImport();
+        if (!TryBeginImport())
+        {
+            if (request.MessageType != "CommitRunImport")
+                throw ImportBusy();
+            // The lookup opens a read connection of its own: keep it off the read loop too.
+            return RunOffLoop(() => ReplayFinishedCommit(request, cancellationToken), cancellationToken);
+        }
+
         // Always run the finally, including cancellation before the delegate starts.
         return Task.Run(() =>
         {
@@ -259,11 +331,31 @@ public sealed class MessageDispatcher
         });
     }
 
-    private void BeginImport()
+    private bool TryBeginImport() => Interlocked.CompareExchange(ref _importInFlight, 1, 0) == 0;
+
+    private static CollectorException ImportBusy() =>
+        new(ErrorCodes.DbBusy, CollectorTexts.ImportBusy(), retryable: true);
+
+    /// <summary>
+    /// Answers a <c>CommitRunImport</c> that arrives while the import slot is taken (audit
+    /// 2026-11-26, Gb-2). Its <c>request_id</c> is looked up first, on a read-only snapshot that
+    /// waits for no writer: a commit that already finished - its response still stored, or its
+    /// permanent import receipt kept after that response was pruned (RB-3) - replays its stored result
+    /// (the commit path finds the receipt before it writes anything), so a retry after a lost answer is not
+    /// refused just because another import is running. A request whose id has no stored response -
+    /// the commit still running under that id, or a new one - gets the retryable
+    /// <c>ERR_DB_BUSY</c> the contract names, and the client asks again with the same id.
+    /// </summary>
+    private JsonObject ReplayFinishedCommit(IpcRequest request, CancellationToken cancellationToken)
     {
-        if (Interlocked.CompareExchange(ref _importInFlight, 1, 0) != 0)
-            throw new CollectorException(ErrorCodes.DbBusy,
-                CollectorTexts.ImportBusy(), retryable: true);
+        if (request.MessageType != "CommitRunImport" || !Guid.TryParseExact(request.RequestId, "D", out _))
+            throw ImportBusy();
+        var finished = _host.Database.ReadSnapshot((snapshot, transaction) =>
+            new Storage.Repositories.IdempotencyRepository(snapshot, _host.Clock).IsFinishedImportCommit(request.RequestId, transaction),
+            cancellationToken);
+        if (!finished)
+            throw ImportBusy();
+        return InvokeImport(request, cancellationToken);
     }
 
     private JsonObject InvokeImport(IpcRequest request, CancellationToken cancellationToken) =>
@@ -644,10 +736,13 @@ public sealed class MessageDispatcher
         return PublishAndRender(outcome, LiveEventKind.RunUpdated);
     }
 
-    private JsonObject BatchMutateRuns(string requestId, PayloadReader reader)
+    private JsonObject BatchMutateRuns(string requestId, PayloadReader reader) =>
+        BatchMutateRuns(RequestParsers.BatchMutateRuns(requestId, reader), _host.HistorySelections.RequireStaged);
+
+    private JsonObject BatchMutateRuns(BatchMutateRunsCommand command,
+        Func<string, IReadOnlyList<BatchRunTarget>> loadSelection)
     {
-        var command = RequestParsers.BatchMutateRuns(requestId, reader);
-        var outcome = _host.Mutations.BatchMutateRuns(command, _host.HistorySelections.RequireStaged);
+        var outcome = _host.Mutations.BatchMutateRuns(command, loadSelection);
         if (!outcome.IdempotentReplay)
             _host.LiveEvents.PublishStatsInvalidated("历史记录已批量更新，请重新查询。");
         var response = new JsonObject
@@ -664,20 +759,30 @@ public sealed class MessageDispatcher
     private JsonObject GetHistoryRetentionSettings(PayloadReader reader)
     { reader.RequireEmpty(); return new JsonObject { ["retention_days"] = _host.HistoryRetention.GetRetentionDays() }; }
 
-    private JsonObject PreviewRunRegionMigration(PayloadReader reader)
+    private JsonObject PreviewRunRegionMigration(PayloadReader reader) => PrepareRegionMigrationPreview(reader)();
+
+    /// <summary>
+    /// Parses a region-move preview and takes its targets (a staged set is taken now, in receive
+    /// order); the returned work reads the database. Deferred for a staged set (G-1).
+    /// </summary>
+    private Func<JsonObject> PrepareRegionMigrationPreview(PayloadReader reader)
     {
         reader.RejectUnknown("runs", "selection_id", "region", "profile_id");
         var (region, profileId) = RequestParsers.RegionDestination(reader);
         var selectionId = HistorySelectionHandlers.ReadTargetId(reader);
-        var preview = selectionId is null
-            ? _host.Mutations.PreviewRunRegionMigration(RequestParsers.BatchRunTargets(reader), region, profileId)
-            : _host.Mutations.PreviewStagedRunRegionMigration(_host.HistorySelections.RequireStaged(selectionId), region, profileId);
-        return new JsonObject
+        var targets = selectionId is null ? RequestParsers.BatchRunTargets(reader) : _host.HistorySelections.RequireStaged(selectionId);
+        return () =>
         {
-            ["source_region"] = EnumWire<Region>.Format(preview.SourceRegion),
-            ["contributing_count"] = preview.ContributingCount,
-            ["target_baseline"] = preview.TargetBaseline,
-            ["target_completed_count"] = preview.TargetCompletedCount,
+            var preview = selectionId is null
+                ? _host.Mutations.PreviewRunRegionMigration(targets, region, profileId)
+                : _host.Mutations.PreviewStagedRunRegionMigration(targets, region, profileId);
+            return new JsonObject
+            {
+                ["source_region"] = EnumWire<Region>.Format(preview.SourceRegion),
+                ["contributing_count"] = preview.ContributingCount,
+                ["target_baseline"] = preview.TargetBaseline,
+                ["target_completed_count"] = preview.TargetCompletedCount,
+            };
         };
     }
 
@@ -800,6 +905,7 @@ public sealed class MessageDispatcher
                 OnlineSpeech = _host.Speech.Diagnostics(),
                 UpdateCheck = _host.Updates.Diagnostics(),
                 LastValidationFailure = _host.Validation.LastFailure,
+                DutyCommunity = _host.CommunityLibrary.Diagnostics(),
             },
             Program.Version,
             request.TargetPath,

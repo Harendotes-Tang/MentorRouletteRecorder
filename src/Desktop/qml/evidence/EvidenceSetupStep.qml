@@ -110,7 +110,9 @@ EvidenceStep {
         Layout.fillWidth: true
         visible: step.session.idle && step.session.candidateRoundRunning
         textFormat: Text.PlainText
-        text: qsTr("第二轮正在进行，点上方的「结束并导出」后才能开始采证。")
+        // Phase-neutral: the card above offers 结束并导出, 重试结束并导出 or 结束采证
+        // depending on its phase (audit 2026-11-26 K4-4).
+        text: qsTr("第二轮正在进行，先在上方结束这一轮，才能开始采证。")
         color: Theme.orangeText
         font.pixelSize: Theme.fs(12)
         wrapMode: Text.Wrap

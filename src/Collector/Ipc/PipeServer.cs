@@ -101,6 +101,9 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly CancellationTokenSource _stopping = new();
     private readonly List<Task> _workers = new();
     private NamedPipeServerStream? _preparedStream;
+
+    /// <summary><see cref="Environment.TickCount64"/> at which every drain stops waiting; 0 before the first drain.</summary>
+    private long _drainDeadline;
     private int _accepted;
     private int _active;
     private bool _disposed;
@@ -313,9 +316,22 @@ public sealed class PipeServer : IAsyncDisposable
             return;
         }
 
+        // One deadline for every drain of this server. The accept loop drains on its way out
+        // and StopAsync (called again by DisposeAsync) drains the same workers: a connection
+        // stuck inside a synchronous request that did not finish within the first wait will not
+        // finish within a second one, which would only push the host's own shutdown steps past
+        // the watchdog's hard exit (audit 2026-11-26, Gb-3).
+        var now = Environment.TickCount64;
+        var deadline = Interlocked.CompareExchange(ref _drainDeadline, now + (long)timeout.TotalMilliseconds, 0);
+        if (deadline == 0)
+        {
+            deadline = now + (long)timeout.TotalMilliseconds;
+        }
+
         try
         {
-            await Task.WhenAll(pending).WaitAsync(timeout).ConfigureAwait(false);
+            await Task.WhenAll(pending).WaitAsync(TimeSpan.FromMilliseconds(Math.Max(0, deadline - now)))
+                .ConfigureAwait(false);
         }
         catch (TimeoutException)
         {

@@ -268,11 +268,10 @@ public sealed class GameInstallMemoryTests : IDisposable
     [Fact]
     public void Locator_CarriesTheMemoryAndTheOverrideAcrossEachOther()
     {
-        var memory = new RecordingInstallMemory { Stored = CnExecutable };
-        var files = VersionFile();
-        // Chosen for this very installation, so it applies although the path names CN
-        // (audit 2026-11-03, A2-1); an override chosen elsewhere would not.
-        var chosen = new CaptureRegionOverride(Region.Global, CaptureRegionOverride.Fingerprint(CnExecutable));
+        const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
+        var files = new FakeGameFileReader().With(@"D:\Games\FF14\game\ffxivgame.ver", Build).With(CnVersionFile, Build);
+        var memory = new RecordingInstallMemory { Stored = unmarked };
+        var chosen = new CaptureRegionOverride(Region.Global, CaptureRegionOverride.Fingerprint(unmarked));
 
         var overrideFirst = new GameProcessLocator(new FakeGameProcessProvider(), files)
             .WithRegionOverride(() => chosen)
@@ -287,10 +286,17 @@ public sealed class GameInstallMemoryTests : IDisposable
             Assert.Equal(Region.Global, detection.Region);
         }
 
-        var unbound = new GameProcessLocator(new FakeGameProcessProvider(), files)
-            .WithInstallMemory(memory)
-            .WithRegionOverride(() => Region.Global);
-        Assert.Equal(Region.Unknown, unbound.Locate().Region);
+        // A path that names CN decides, even against a choice bound to that very installation
+        // (audit 2026-11-26, A2b-1): the remembered install fails closed instead of being relabelled.
+        var cnMemory = new RecordingInstallMemory { Stored = CnExecutable };
+        var boundToCn = new CaptureRegionOverride(Region.Global, CaptureRegionOverride.Fingerprint(CnExecutable));
+        foreach (var forced in new[] { boundToCn, new CaptureRegionOverride(Region.Global, null) })
+        {
+            var contradicted = new GameProcessLocator(new FakeGameProcessProvider(), files)
+                .WithInstallMemory(cnMemory)
+                .WithRegionOverride(() => forced);
+            Assert.Equal(Region.Unknown, contradicted.Locate().Region);
+        }
     }
 
     [Fact]

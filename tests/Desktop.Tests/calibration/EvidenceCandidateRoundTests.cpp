@@ -156,6 +156,13 @@ private Q_SLOTS:
         QVERIFY(!scene.app->maintainerToolsVisible());
         QTRY_VERIFY(roundVisible(scene));
         QVERIFY(scene.item(QStringLiteral("candidateRoundDisclosure"))->isVisible());
+        // Audit 2026-11-26 K4-2: before consent, the 30-day local retention (backups
+        // included) and that the read values and the tester's answers go into the file.
+        const QString detail = scene.text(QStringLiteral("candidateRoundDisclosureDetail"));
+        QVERIFY2(detail.contains(QString::fromUtf8("最多 30 天")), qPrintable(detail));
+        QVERIFY2(detail.contains(QString::fromUtf8("数据库备份")), qPrintable(detail));
+        QVERIFY2(detail.contains(QString::fromUtf8("软件读到的")), qPrintable(detail));
+        QVERIFY2(detail.contains(QString::fromUtf8("改过的答案")), qPrintable(detail));
         auto *start = scene.item(QStringLiteral("candidateRoundStartButton"));
         QVERIFY(start && start->isVisible());
         QVERIFY(!start->isEnabled());
@@ -184,7 +191,7 @@ private Q_SLOTS:
         QVERIFY(request.value(QStringLiteral("candidate_validation_enabled")).toBool());
         QVERIFY(!QUuid(request.value(QStringLiteral("candidate_round_id")).toString()).isNull());
         QCOMPARE(request.value(QStringLiteral("candidate_round_profile_id")).toString(),
-                 QStringLiteral("global.2026.11.03.candidate"));
+                 QStringLiteral("global.2026.12.02.candidate"));
         QSet<QString> groups;
         const QStringList expected = eligibleOpcodes(&groups);
         QCOMPARE(strings(request.value(QStringLiteral("research_payload_opcodes")).toArray()), expected);
@@ -208,6 +215,11 @@ private Q_SLOTS:
         QVERIFY(!scene.sessionValue("canStart").toBool());
         QVERIFY(!scene.item(QStringLiteral("templateObservationActionButton"))->isEnabled());
         QVERIFY(scene.item(QStringLiteral("evidenceCandidateRoundBlocks"))->isVisible());
+        // Audit 2026-11-26 K4-4: the card's ending button is 结束并导出, 重试结束并导出 or
+        // 结束采证 depending on its phase; the line names none of them.
+        const QString blocks = scene.text(QStringLiteral("evidenceCandidateRoundBlocks"));
+        QVERIFY2(blocks.contains(QString::fromUtf8("先在上方结束这一轮")), qPrintable(blocks));
+        QVERIFY2(!blocks.contains(QString::fromUtf8("结束并导出")), qPrintable(blocks));
         QCOMPARE(scene.warnings->size(), 0);
     }
 
@@ -282,7 +294,7 @@ private Q_SLOTS:
 
     // 软件识别到的情况: each field shows the software's guess by name (the job by the bundled table
     // when the Collector gave none, the number when nothing names it) and follows the guess until
-    // the tester edits it; 结束并导出 sends the four texts, 重新导出 sends them again, 开始 clears them.
+    // the tester edits it; 结束并导出 sends the edited texts only, 开始 clears them.
     void theGuessesAreShownFollowedUntilEditedAndSent()
     {
         QTemporaryDir target;
@@ -332,9 +344,10 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundFinishButton"))->isEnabled());
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
         QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
-        const QJsonObject sent{{QStringLiteral("first_roulette"), QString::fromUtf8("编号 999")},
-                               {QStringLiteral("job_before"), QString::fromUtf8("战士")},
-                               {QStringLiteral("job_after"), QString::fromUtf8("学者")},
+        // Audit 2026-11-26 K4-3: only the fields the tester changed are answers. The two left
+        // as guessed are sent blank (absent), as CandidateRoundAnswers says: the guess already
+        // travels as `guessed`, and its shown name depends on the interface language.
+        const QJsonObject sent{{QStringLiteral("job_after"), QString::fromUtf8("学者")},
                                {QStringLiteral("duty"), QString::fromUtf8("天然要害沙斯塔夏溶洞")}};
         QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("round_answers")).toObject(), sent);
 
@@ -478,15 +491,32 @@ private Q_SLOTS:
                      .value(QStringLiteral("job_after")).toString(), QStringLiteral("keep after restart"));
         QVERIFY(scene.settings->candidateRoundFinishDraft().isEmpty());
 
+        const QString exportedFile = scene.text(QStringLiteral("candidateRoundFile_0"));
+        QVERIFY(!exportedFile.isEmpty());
+        const int exports = scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence"));
+
+        // Audit 2026-11-26 I4-1: after another restart the exported round stays exported - the
+        // same two files and 打开所在文件夹 - and is not offered for a second export, which
+        // would carry none of the tester's answers.
         scene.close();
         QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
-        QTRY_COMPARE(phase(scene), QStringLiteral("recover"));
-        QVERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
-        QVERIFY(scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
-        QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
         QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
-        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), roundId);
-        QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("round_answers")));
+        QCOMPARE(scene.app->candidates()->roundId(), roundId);
+        QVERIFY(!scene.app->candidates()->roundRecoverable());
+        QVERIFY(!scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isVisible());
+        QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());
+        QCOMPARE(scene.text(QStringLiteral("candidateRoundFile_0")), exportedFile);
+        QCOMPARE(scene.text(QStringLiteral("candidateRoundFile_1")), exportedFile + QStringLiteral(".sha256"));
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), exports);
+
+        // A new round still needs consent and forgets the exported one.
+        QVERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
+        QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
+        QTRY_VERIFY(roundCard(scene)->property("canStart").toBool());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundStartButton")));
+        QTRY_COMPARE(phase(scene), QStringLiteral("running"));
+        QVERIFY(scene.app->candidates()->roundId() != roundId);
+        QVERIFY(scene.settings->value(QStringLiteral("candidate_round/exported"), QString()).isEmpty());
         QCOMPARE(scene.warnings->size(), 0);
     }
 

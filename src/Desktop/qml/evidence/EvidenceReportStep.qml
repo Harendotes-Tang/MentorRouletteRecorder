@@ -176,11 +176,16 @@ EvidenceStep {
             anchors.margins: 10
             spacing: 6
             EvidenceHint {
+                objectName: "evidenceZipHint"
                 iconName: "file-input"
                 color: Theme.textPrimary
+                // A round whose log is required (EvidenceSession.oodleSearch) sends the log
+                // too, and it says what is in it (audit 2026-11-26 K4-1).
                 text: step.session.identity
                       ? qsTr("私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。")
-                      : qsTr("打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。")
+                      : step.session.oodleSearch.length > 0
+                        ? qsTr("打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、日志 collector-*.log（含几小段游戏主程序的指令字节）、截图和这段说明。")
+                        : qsTr("打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。")
             }
             EvidenceHint {
                 iconName: "x"

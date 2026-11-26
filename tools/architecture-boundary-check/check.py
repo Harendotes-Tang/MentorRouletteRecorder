@@ -830,6 +830,15 @@ class Checker:
                     self.error(f"required controller source is missing: {_relative(path, self.root)}")
                 else:
                     queue.append(path.resolve())
+        # Every source in workflows/ is a root as well, so a workflow added there later is checked
+        # without anyone remembering to name it above (audit 2026-11-26 N2-3: DisplayTimeZoneSync
+        # was included by no root and never read).
+        workflows = cpp_root / "workflows"
+        if not workflows.is_dir():
+            self.error("required scope is missing: src/Desktop/cpp/workflows")
+        else:
+            queue.extend(sorted(path.resolve() for path in workflows.rglob("*")
+                                if path.is_file() and path.suffix.lower() in {".h", ".cpp"}))
         visited: set[Path] = set()
         forbidden_identifiers = FORBIDDEN_WORKFLOW_TYPES | page_types
         include_pattern = re.compile(

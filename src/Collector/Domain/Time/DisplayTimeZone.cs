@@ -45,6 +45,10 @@ public static class DisplayTimeZone
     /// </exception>
     public static TimeZoneInfo Set(string? ianaId)
     {
+        // The runtime caches the computer's zone for the life of the process, so a Windows zone
+        // changed since start would otherwise never be seen. Every SetDisplayTimeZone - the
+        // Desktop sends one after each connection and on each 显示时区 change - drops that cache.
+        TimeZoneInfo.ClearCachedData();
         var next = Resolve(ianaId);
         Volatile.Write(ref _state, next);
         return next.Zone;
@@ -190,7 +194,8 @@ public static class DisplayTimeZone
         public string? Id { get; }
 
         // Read on every use: the runtime refreshes its view of the computer's zone when
-        // TimeZoneInfo.ClearCachedData() runs, and a chosen zone never changes.
+        // TimeZoneInfo.ClearCachedData() runs, which Set does on every call, and a chosen zone
+        // never changes.
         public TimeZoneInfo Zone => _zone ?? TimeZoneInfo.Local;
     }
 

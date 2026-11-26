@@ -3,6 +3,7 @@
 #include "ReflectionShareController.h"
 #include "BundledFonts.h"
 #include "AppSettings.h"
+#include "DisplayTimeZone.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "GameNames.h"
@@ -10,6 +11,8 @@
 
 #include <QDir>
 #include <QDate>
+#include <QDateTime>
+#include <QTimeZone>
 #include <QFileInfo>
 #include <QFile>
 #include <QGuiApplication>
@@ -296,7 +299,22 @@ private:
             mode->setProperty("currentIndex", 1);
             QQuickItem *combined = findVisualItem(window->contentItem(), QStringLiteral("reflectionShareCombinedCard"));
             QTRY_VERIFY(combined->isVisible());
-            QCOMPARE(controller.suggestedFileName(combined), QStringLiteral("导随心得合集_%1_2条.png").arg(QDate::currentDate().toString(Qt::ISODate)));
+            {
+                // The file is named by the day the image prints, the 显示时区's, not the
+                // computer's (audit 2026-11-26, I4-2): one of these two zones 26 h apart is
+                // on another date than the computer.
+                QByteArray zone("Pacific/Kiritimati");
+                if (QDateTime::currentDateTimeUtc().toTimeZone(QTimeZone(zone)).date() == QDate::currentDate())
+                    zone = "Etc/GMT+12";
+                QVERIFY2(QTimeZone(zone).isValid(), zone.constData());
+                const QString previous = mr::DisplayTimeZone::id();
+                mr::DisplayTimeZone::set(QString::fromLatin1(zone));
+                const QString named = controller.suggestedFileName(combined);
+                const QString zoneToday = mr::DisplayTimeZone::today().toString(Qt::ISODate);
+                mr::DisplayTimeZone::set(previous);
+                QVERIFY(zoneToday != QDate::currentDate().toString(Qt::ISODate));
+                QCOMPARE(named, QStringLiteral("导随心得合集_%1_2条.png").arg(zoneToday));
+            }
             const auto entries = visibleEntries(combined);
             QCOMPARE(entries.size(), 2);
             auto *title = findVisualItem(entries.first(), QStringLiteral("reflectionShareDutyTitle"));

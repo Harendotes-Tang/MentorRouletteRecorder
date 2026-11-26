@@ -57,6 +57,8 @@ private Q_SLOTS:
     void aPendingRecordWithAKnownResultCanBeReviewed();
     void floatingModeOpensThePopupBesideAVisibleFloat();
     void aNoteEditorLeftInTheHiddenWindowDoesNotHoldPopupsBack();
+    void aNoteEditorParkedOnTheRecordPageDoesNotHoldPopupsBack();
+    void theInboxOpensBesideAParkedForm();
     void aLostConnectionPutsThePopupAwayWithANotice();
     void bringingTheWindowForwardKeepsItMaximised();
     void openingAnotherRecordBringsTheOpenEditorForward();
@@ -839,6 +841,54 @@ void RecoveryUiTests::aNoteEditorLeftInTheHiddenWindowDoesNotHoldPopupsBack()
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
     QTRY_VERIFY(!scene.host()->isVisible());
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void RecoveryUiTests::aNoteEditorParkedOnTheRecordPageDoesNotHoldPopupsBack()
+{
+    // Audit 2026-11-26 L2-2: a note editor left on the record page with 返回 held every
+    // automatic popup, and 本次更新, until it was found again. It is put away like the one
+    // left in a hidden window, its draft kept, and the popup opens.
+    ShippingWindowScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    const auto old = finishedRun(true, 120);
+    scene.store(old);
+    QVERIFY(scene.openReflection(old));
+    QTRY_VERIFY(scene.workspaceActive());
+    scene.note()->setProperty("text", QStringLiteral("half a parked note"));
+    QVERIFY(scene.click(QStringLiteral("recordWorkspaceBackButton")));
+    QTRY_VERIFY(scene.app->currentPage() != 8);
+    QVERIFY(scene.editor()->property("editingActive").toBool());
+    QVERIFY(!scene.root->property("recordEditorOnScreen").toBool());
+    const auto run = finishedRun(true, 121);
+    scene.publish(run);
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QCOMPARE(scene.editor()->property("runId").toString(), run.value(QStringLiteral("run_id")).toString());
+    QCOMPARE(scene.app->recovery()->draft(old).value(QStringLiteral("text")).toString(),
+             QStringLiteral("half a parked note"));
+    QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
+    QTRY_VERIFY(!scene.host()->isVisible());
+    QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void RecoveryUiTests::theInboxOpensBesideAParkedForm()
+{
+    // Audit 2026-11-26 K1-2: with a 新增记录 form parked by 「返回」, 待处理 showed the form
+    // and never opened the inbox, which is only a list and needs no editor.
+    ShippingWindowScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+    QTRY_VERIFY(scene.inlineSession(scene.manual()));
+    QVERIFY(scene.click(QStringLiteral("recordWorkspaceBackButton")));
+    QTRY_VERIFY(scene.app->currentPage() != 8);
+    QVERIFY(scene.manual()->property("inlineActive").toBool());
+    scene.app->recovery()->requestInbox();
+    QTRY_VERIFY(scene.inbox()->property("opened").toBool());
+    QVERIFY(scene.app->currentPage() != 8);
+    QVERIFY(scene.manual()->property("inlineActive").toBool());
+    QVERIFY(QMetaObject::invokeMethod(scene.inbox(), "close"));
+    QTRY_VERIFY(!scene.inbox()->property("visible").toBool());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

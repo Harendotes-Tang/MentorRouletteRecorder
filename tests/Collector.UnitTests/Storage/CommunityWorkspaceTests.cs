@@ -211,30 +211,27 @@ public sealed class CommunityWorkspaceTests
         var calls = new List<(string Revision, string File)>();
         var clock = new TestTime();
         var failing = false;
-        var library = new CommunityLibrary(repository, settings, (revision, file, _, _) =>
+        var library = new CommunityLibrary(repository, settings, (revision, file, _, _, _) =>
         {
             calls.Add((revision, file));
             if (failing)
                 throw new HttpRequestException();
             return Task.FromResult<byte[]?>(file == "index.json" ? index : bytes);
-        }, clock);
+        }, clock, killSwitch: () => false);
         Assert.Equal("offline", Status(library.Browse()));
         Assert.Empty(calls);
         library.SetOnline(true);
-        if (Environment.GetEnvironmentVariable("MR_DISABLE_DUTY_COMMUNITY") == "1")
-        {
-            Assert.Equal("offline", Status(await library.RefreshAsync(CancellationToken.None)));
-            Assert.Empty(calls);
-            return;
-        }
         var result = await library.RefreshAsync(CancellationToken.None);
         Assert.Equal("ready", Status(result));
+        // The diagnostics report states the request just sent and how it ended (A2b-2).
+        Assert.Equal<(DateTimeOffset?, string?)>((clock.Now, "ready"), LastRequest(library));
         Assert.Equal(new[] { ("main", "index.json"), (new string('a', 40), "snapshot.json") }, calls);
         Assert.Single(result["entries"]!.AsArray());
         failing = true;
         clock.Now = clock.Now.AddMinutes(5);
         result = await library.RefreshAsync(CancellationToken.None);
         Assert.Equal("temporarily_unavailable", Status(result));
+        Assert.Equal<(DateTimeOffset?, string?)>((clock.Now, "temporarily_unavailable"), LastRequest(library));
         Assert.True(result["cached"]!.GetValue<bool>());
         Assert.Single(result["entries"]!.AsArray());
         fixture.Reopen();
@@ -563,6 +560,341 @@ public sealed class CommunityWorkspaceTests
         Assert.Equal(expected, Status(result));
     }
 
+    // The publisher runs the same vectors (test_community_publish.py, CommunityRepeatTests).
+    [Fact]
+    public void TextFieldsFollowTheSharedVectors()
+    {
+        var vectors = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures",
+            "shared-calibration", "community-text-vectors.json")))!;
+        var cases = vectors["field_text"]!.AsArray();
+        Assert.NotEmpty(cases);
+        foreach (var vector in cases)
+        {
+            var text = vector![0]!.GetValue<string>();
+            var multiline = vector[1]!.GetValue<bool>();
+            var accepted = true;
+            try
+            {
+                CommunityContent.String(new JsonObject { ["text"] = text }, "text", 1600, multiline);
+            }
+            catch (FormatException)
+            {
+                accepted = false;
+            }
+            var codes = string.Join(' ', text.Select(c => ((int)c).ToString("X4", System.Globalization.CultureInfo.InvariantCulture)));
+            Assert.True(vector[2]!.GetValue<bool>() == accepted, $"multiline={multiline}: {codes}");
+        }
+        var title = Draft(MacroId, "macro", "/p x");
+        title["title"] = "Example\u202e";
+        Assert.Equal("invalid_title", Assert.Throws<FormatException>(() => CommunityContent.Validate(title)).Message);
+    }
+
+    [Fact]
+    public async Task RefreshNeverRollsBackToAnOlderGenerationAndTellsTheSourceWhichRepliesAreUsable()
+    {
+        using var fixture = new TestDatabase();
+        var repository = new CommunityRepository(fixture.Database);
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        var clock = new TestTime();
+        var newer = Publication(2, Published(Draft(NoteId, "reminder", "Newer text"), 2));
+        var older = Publication(1, Published(Draft(NoteId, "reminder", "Older text"), 1));
+        var served = newer;
+        var refused = new List<string>();
+        var library = new CommunityLibrary(repository, settings, (_, file, _, accept, _) =>
+        {
+            var bytes = file == "index.json" ? served.Index : served.Bytes;
+            Assert.True(accept(bytes));
+            if (accept("<html>not yet mirrored</html>"u8.ToArray()))
+                refused.Add(file);
+            return Task.FromResult<byte[]?>(bytes);
+        }, clock, killSwitch: () => false);
+        library.SetOnline(true);
+        Assert.Equal("ready", Status(await library.RefreshAsync(CancellationToken.None)));
+        served = older;
+        clock.Now = clock.Now.AddMinutes(5);
+        var result = await library.RefreshAsync(CancellationToken.None);
+        Assert.Equal("stale_mirror", Status(result));
+        Assert.Equal(2, result["generation"]!.GetValue<int>());
+        Assert.Equal("Newer text", result["entries"]![0]!["body"]!.GetValue<string>());
+        Assert.Empty(refused);
+    }
+
+    // GitCode can answer before it has synchronised a new commit; its reply must not hide GitHub's.
+    [Theory]
+    [InlineData("unusable")]
+    [InlineData("oversize")]
+    public async Task PublicationWaitsForSlowGithubWhenTheMirrorReplyIsUnusable(string mirror)
+    {
+        var github = new TaskCompletionSource<byte[]?>();
+        var calls = 0;
+        var result = await CommunityHttp.GetPublicationAsync(new string('a', 40), "snapshot.json", (_, _) =>
+        {
+            if (++calls == 1)
+                return github.Task;
+            // GitHub delivers only after the mirror has answered, so the mirror's reply comes first.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(50);
+                github.SetResult("good"u8.ToArray());
+            });
+            return mirror == "oversize"
+                ? Task.FromException<byte[]?>(new FormatException("download_limit"))
+                : Task.FromResult<byte[]?>("placeholder"u8.ToArray());
+        }, TimeSpan.FromMilliseconds(1), CancellationToken.None, bytes => bytes.SequenceEqual("good"u8.ToArray()));
+        Assert.Equal("good"u8.ToArray(), result);
+        Assert.Equal(2, calls);
+
+        // When neither source has a usable file, the refused reply reaches the caller's own check.
+        var both = await CommunityHttp.GetPublicationAsync("main", "index.json",
+            (_, _) => Task.FromResult<byte[]?>("placeholder"u8.ToArray()), TimeSpan.FromMinutes(1),
+            CancellationToken.None, _ => false);
+        Assert.Equal("placeholder"u8.ToArray(), both);
+    }
+
+    [Fact]
+    public void InstallTakesOnlyAvailableDirectLinksAndAnUpdateAppliesPastAWithdrawnLink()
+    {
+        using var fixture = new TestDatabase();
+        var repository = new CommunityRepository(fixture.Database);
+        const string WithdrawnId = "00000000-0000-4000-8000-000000000001";
+        const string FurtherId = "00000000-0000-4000-8000-000000000002";
+        var note = Draft(NoteId, "reminder", "Follow the macro");
+        note["links"] = new JsonArray(WithdrawnId, MacroId);
+        var macro = Draft(MacroId, "macro", "/p <t>");
+        macro["links"] = new JsonArray(FurtherId);
+        var withdrawn = Published(Draft(WithdrawnId, "macro", "/p old"), 1);
+        withdrawn["status"] = "withdrawn";
+        var further = Published(Draft(FurtherId, "reminder", "Not selected"), 1);
+        Cache(repository, 1, Published(note, 1), Published(macro, 1), withdrawn, further);
+        var workspace = Open(fixture);
+        Assert.Equal("installed", Status(workspace.Change("install", Guid.NewGuid().ToString(), new JsonObject { ["id"] = NoteId })));
+        var rows = workspace.List(0)["items"]!.AsArray();
+        Assert.Equal(new[] { NoteId, MacroId }, rows.Select(LocalRowId));
+        Assert.Equal(new[] { MacroId }, rows[0]!["content"]!["links"]!.AsArray().Select(link => link!.GetValue<string>()));
+        Assert.Empty(rows[1]!["content"]!["links"]!.AsArray());
+
+        var next = note.DeepClone().AsObject();
+        next["body"] = "Follow the new macro";
+        Cache(repository, 2, Published(next, 2), Published(macro, 1), withdrawn, further);
+        workspace = Open(fixture);
+        Assert.Equal("updated", Status(workspace.Change("apply", Guid.NewGuid().ToString(), new JsonObject
+        {
+            ["id"] = NoteId, ["revision"] = 1, ["source_revision"] = 2, ["mode"] = "replace",
+        })));
+        var updated = workspace.List(0)["items"]!.AsArray().Single(row => LocalRowId(row) == NoteId)!;
+        Assert.Equal("Follow the new macro", updated["content"]!["body"]!.GetValue<string>());
+        Assert.Equal(new[] { MacroId }, updated["content"]!["links"]!.AsArray().Select(link => link!.GetValue<string>()));
+        // The edited entry can be saved again: none of its links points at something missing.
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(),
+            Save(updated["content"]!.AsObject(), 2))));
+    }
+
+    [Fact]
+    public void DeleteDropsLinksToTheEntryWithoutMovingTheLinkingEntry()
+    {
+        using var fixture = new TestDatabase();
+        var workspace = Open(fixture);
+        const string OtherId = "00000000-0000-4000-8000-000000000003";
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), Save(Draft(MacroId, "macro", "/p x"), 0))));
+        var note = Draft(NoteId, "reminder", "Linked");
+        note["links"] = new JsonArray(MacroId);
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), Save(note, 0))));
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), Save(Draft(OtherId, "reminder", "Newest"), 0))));
+
+        var delete = new JsonObject { ["id"] = MacroId, ["revision"] = 2 };
+        Assert.Equal("local_conflict", Status(workspace.Change("delete", Guid.NewGuid().ToString(), delete)));
+        delete["revision"] = 1;
+        Assert.Equal("deleted", Status(workspace.Change("delete", Guid.NewGuid().ToString(), delete)));
+        var rows = workspace.List(0)["items"]!.AsArray();
+        Assert.Equal(new[] { OtherId, NoteId }, rows.Select(LocalRowId));
+        Assert.Empty(rows[1]!["content"]!["links"]!.AsArray());
+        Assert.Equal(2, rows[1]!["revision"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ForkCopiesAnInstalledEntryUnderANewIdAndKeepsItsSource()
+    {
+        using var fixture = new TestDatabase();
+        var repository = new CommunityRepository(fixture.Database);
+        const string ForkId = "00000000-0000-4000-8000-000000000004";
+        Cache(repository, 1, Published(Draft(MacroId, "macro", "/p <t>"), 1));
+        var workspace = Open(fixture);
+        Assert.Equal("installed", Status(workspace.Change("install", Guid.NewGuid().ToString(), new JsonObject { ["id"] = MacroId })));
+        Assert.Equal("local_conflict", Status(workspace.Change("fork", Guid.NewGuid().ToString(),
+            new JsonObject { ["id"] = MacroId, ["local_id"] = ForkId, ["revision"] = 2 })));
+        Assert.Equal("saved", Status(workspace.Change("fork", Guid.NewGuid().ToString(),
+            new JsonObject { ["id"] = MacroId, ["local_id"] = ForkId, ["revision"] = 1 })));
+        var fork = workspace.List(0)["items"]!.AsArray().Single(row => LocalRowId(row) == ForkId)!;
+        Assert.Equal(1, fork["revision"]!.GetValue<int>());
+        Assert.Equal(MacroId, fork["upstream"]!["id"]!.GetValue<string>());
+        Assert.Equal("/p <t>", fork["content"]!["body"]!.GetValue<string>());
+        Assert.Equal("local_conflict", Status(workspace.Change("fork", Guid.NewGuid().ToString(),
+            new JsonObject { ["id"] = MacroId, ["local_id"] = ForkId, ["revision"] = 1 })));
+
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), Save(Draft(NoteId, "reminder", "Mine"), 0))));
+        Assert.Equal("local_conflict", Status(workspace.Change("fork", Guid.NewGuid().ToString(),
+            new JsonObject { ["id"] = NoteId, ["local_id"] = "00000000-0000-4000-8000-000000000005", ["revision"] = 1 })));
+    }
+
+    [Fact]
+    public void ARequestIdIsAnsweredOnlyForItsOwnPayloadAndOnlyTheNewestReceiptsAreKept()
+    {
+        using var fixture = new TestDatabase();
+        var workspace = Open(fixture);
+        var request = Guid.NewGuid().ToString();
+        Assert.Equal("saved", Status(workspace.Change("save", request, Save(Draft(MacroId, "macro", "/p a"), 0))));
+        Assert.Equal("request_conflict", Status(workspace.Change("save", request, Save(Draft(MacroId, "macro", "/p b"), 0))));
+
+        var repository = new CommunityRepository(fixture.Database);
+        var ids = Enumerable.Range(0, CommunityRepository.KeptReceipts + 5).Select(_ => Guid.NewGuid().ToString()).ToArray();
+        foreach (var id in ids)
+            repository.Change(id, "first", _ => CommunityWorkspace.Result("done"));
+        using (var count = fixture.Database.CreateCommand())
+        {
+            count.CommandText = "SELECT count(*) FROM community_receipts";
+            Assert.Equal(CommunityRepository.KeptReceipts, (long)count.ExecuteScalar()!);
+        }
+        Assert.Equal("request_conflict", Status(repository.Change(ids[^1], "second", _ => CommunityWorkspace.Result("again"))));
+        Assert.Equal("again", Status(repository.Change(ids[0], "second", _ => CommunityWorkspace.Result("again"))));
+    }
+
+    [Fact]
+    public async Task SubmitAfterARestartReadsTheAccountOfTheStoredToken()
+    {
+        using var fixture = new TestDatabase();
+        var directory = Path.GetDirectoryName(fixture.Path)!;
+        var protector = new TestProtector();
+        const string clientId = "publicClientId";
+        new SpeechKeyStore(directory, protector, "community-github.bin")
+            .Write(clientId, """{"access":"saved-token","refresh":"","expires":4102444800}""");
+        var github = new CommunityGithub(directory, clientId, (method, url, token, content, _) =>
+        {
+            content?.Dispose();
+            Assert.Equal("saved-token", token);
+            return Task.FromResult(url.EndsWith("/user", StringComparison.Ordinal)
+                ? new JsonObject { ["login"] = "player", ["id"] = 75 }
+                : new JsonObject { ["number"] = 21 });
+        }, new TestTime(), protector);
+        JsonObject Submission(long author) => new()
+        {
+            ["license"] = "CC-BY-4.0", ["consent"] = true, ["author_id"] = author,
+            ["base_revisions"] = new JsonObject(), ["items"] = new JsonArray(Draft(NoteId, "reminder", "Test")),
+        };
+        Assert.Equal("account_changed", Status(await github.RequestAsync("submit", Submission(76), CancellationToken.None)));
+        var submitted = await github.RequestAsync("submit", Submission(75), CancellationToken.None);
+        Assert.Equal("submitted", Status(submitted));
+        Assert.Equal(21, submitted["issue"]!.GetValue<int>());
+    }
+
+    // Nothing reached GitHub when the token or account lookup failed; after the POST it may have.
+    [Theory]
+    [InlineData("/user", "submit_not_sent")]
+    [InlineData("/issues", "submit_unconfirmed")]
+    public async Task ASubmitThatFailsBeforeItsIssueIsPostedSaysNothingWasSent(string failing, string expected)
+    {
+        using var fixture = new TestDatabase();
+        var directory = Path.GetDirectoryName(fixture.Path)!;
+        var protector = new TestProtector();
+        var clock = new TestTime();
+        new SpeechKeyStore(directory, protector, "community-github.bin")
+            .Write("publicClientId", """{"access":"saved-token","refresh":"","expires":4102444800}""");
+        var github = new CommunityGithub(directory, "publicClientId", (_, url, _, content, _) =>
+        {
+            content?.Dispose();
+            if (url.EndsWith(failing, StringComparison.Ordinal))
+                return Task.FromException<JsonObject>(new HttpRequestException());
+            return Task.FromResult(new JsonObject { ["login"] = "player", ["id"] = 75 });
+        }, clock, protector);
+        var submission = new JsonObject
+        {
+            ["license"] = "CC-BY-4.0", ["consent"] = true, ["author_id"] = 75,
+            ["base_revisions"] = new JsonObject(), ["items"] = new JsonArray(Draft(NoteId, "reminder", "Test")),
+        };
+        Assert.Equal(expected, Status(await github.RequestAsync("submit", submission, CancellationToken.None)));
+        Assert.Equal(new CommunityLibrary.RequestRecord(clock.Now, expected), github.LastRequest);
+    }
+
+    // The report names the community request sent last, the library fetch or a GitHub request.
+    [Fact]
+    public async Task TheReportKeepsTheMostRecentlySentCommunityRequest()
+    {
+        using var fixture = new TestDatabase();
+        var clock = new TestTime();
+        var github = new CommunityGithub(Path.GetDirectoryName(fixture.Path)!, "publicClientId", (_, _, _, content, _) =>
+        {
+            content?.Dispose();
+            return Task.FromResult(JsonNode.Parse(
+                $$"""{"state":"open","body":"{{CommunityGithub.IssueMarker}}","labels":[{"name":"community-published"}]}""")!.AsObject());
+        }, clock, new TestProtector());
+        Assert.Equal("cancelled", Status(await github.RequestAsync("cancel", new JsonObject(), CancellationToken.None)));
+        Assert.Null(github.LastRequest);
+        var library = new CommunityLibrary(new CommunityRepository(fixture.Database),
+            new SettingsRepository(fixture.Database, fixture.Clock), killSwitch: () => false);
+        library.RecordRequest(new(clock.Now, "ready"));
+        clock.Now = clock.Now.AddMinutes(1);
+        await github.RequestAsync("issue_status", new JsonObject { ["issue"] = 18 }, CancellationToken.None);
+        library.RecordRequest(github.LastRequest);
+        Assert.Equal<(DateTimeOffset?, string?)>((clock.Now, "published"), LastRequest(library));
+        library.RecordRequest(new(clock.Now.AddMinutes(-5), "ready"));
+        Assert.Equal<(DateTimeOffset?, string?)>((clock.Now, "published"), LastRequest(library));
+    }
+
+    // Entries published before the character rule are not judged again by it: the client leaves
+    // such an entry out (and the links to it), and a local entry holding one stays editable.
+    [Fact]
+    public void ContentOlderThanTheCharacterRuleIsLeftOutOrStaysEditable()
+    {
+        using var fixture = new TestDatabase();
+        var repository = new CommunityRepository(fixture.Database);
+        var legacy = Draft(MacroId, "macro", "/p <t>");
+        legacy["title"] = "Example \u200d";
+        var note = Draft(NoteId, "reminder", "Follow the macro");
+        note["links"] = new JsonArray(MacroId);
+        Cache(repository, 1, Published(note, 1), Published(legacy, 1));
+        var workspace = Open(fixture);
+        Assert.Equal("source_unavailable", Status(workspace.Change("install", Guid.NewGuid().ToString(), new JsonObject { ["id"] = MacroId })));
+        Assert.Equal("installed", Status(workspace.Change("install", Guid.NewGuid().ToString(), new JsonObject { ["id"] = NoteId })));
+        var installed = Assert.Single(workspace.List(0)["items"]!.AsArray())!;
+        Assert.Empty(installed["content"]!["links"]!.AsArray());
+
+        // Any other failure still rejects the whole snapshot: a control character, or a link
+        // from a left-out entry to one of its own type.
+        var control = Published(Draft(MacroId, "macro", "/p <t>"), 1);
+        control["title"] = "Example \u0001";
+        var sameType = Published(Draft("00000000-0000-4000-8000-000000000006", "reminder", "x"), 1);
+        sameType["title"] = "Example \u200b";
+        sameType["links"] = new JsonArray(NoteId);
+        var plain = Published(Draft(NoteId, "reminder", "Plain"), 1);
+        foreach (var items in new[] { new[] { plain, control }, new[] { plain, sameType } })
+        {
+            var (index, bytes) = Publication(1, items);
+            Assert.Throws<FormatException>(() => CommunityLibrary.ReadPublication(CommunityLibrary.ReadPointer(index), bytes));
+        }
+
+        var old = Draft(MacroId, "macro", "/p <t>");
+        old["tags"] = new JsonArray("标\u200b签");
+        repository.Change(Guid.NewGuid().ToString(), "seed", tx =>
+        {
+            repository.Save(new JsonObject
+            {
+                ["revision"] = 1, ["position"] = 0, ["favorite"] = false, ["content"] = old.DeepClone(), ["upstream"] = null,
+            }, tx);
+            return CommunityWorkspace.Result("done");
+        });
+        var edited = old.DeepClone().AsObject();
+        edited["body"] = "/p <me>";
+        Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), Save(edited, 1))));
+        edited["title"] = "Example \u202e";
+        Assert.Equal("invalid_title", Assert.Throws<FormatException>(() =>
+            workspace.Change("save", Guid.NewGuid().ToString(), Save(edited, 2))).Message);
+    }
+
+    private static (DateTimeOffset?, string?) LastRequest(CommunityLibrary library)
+    {
+        var diagnostics = library.Diagnostics();
+        return (diagnostics.LastRequestAtUtc, diagnostics.LastOutcome);
+    }
+
     private sealed class TestProtector : ISecretProtector
     {
         public byte[] Protect(byte[] plaintext) => plaintext.Select(value => (byte)(value ^ 0x42)).ToArray();
@@ -630,7 +962,7 @@ public sealed class CommunityWorkspaceTests
     {
         var bytes = Encoding.UTF8.GetBytes(new JsonObject
         {
-            ["schema_version"] = 1, ["generation"] = generation, ["entries"] = new JsonArray(items),
+            ["schema_version"] = 1, ["generation"] = generation, ["entries"] = new JsonArray(items.Select(item => item.DeepClone()).ToArray()),
         }.ToJsonString());
         var index = new JsonObject
         {

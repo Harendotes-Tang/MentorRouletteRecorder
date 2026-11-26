@@ -147,6 +147,111 @@ public sealed class NetworkRecoveryTests
     }
 
     /// <summary>
+    /// Audit 2026-11-26, A1-1. The game's traffic moves onto an interface whose reader is closed (an
+    /// accelerator switched on before a relog) while another connection of the game process stays
+    /// on the interface that is read. The table alone cannot tell which carrier holds the game, so
+    /// IPC decides: none decoded for a discovery interval after the closed interface began to carry
+    /// the game, and the session is replaced; IPC decoded after the change keeps it. The quiet period
+    /// is the liveness grace, not one discovery interval (re-review 2026-11-26, RA-1).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AGameThatMovesOntoAClosedCarrierWhileAnotherConnectionStaysIsReplacedUnlessIpcStillArrives(bool ipcAfterMove)
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+        fixture.Start();
+        var original = fixture.Source;
+        Assert.Contains(fixture.Plan.Bindings, binding => binding.AdapterId == "virtual");
+        original.Inner.PushOpcode(0x142);
+        original.OpenFailures = 1;
+        original.ClosedInterfaces = new[] { CapturePathPlan.NormalizeIdentity("virtual") };
+
+        fixture.Notify(100);
+        fixture.Tick(2_100);
+        fixture.Tick(40_000);
+        Assert.Single(fixture.Sources);
+
+        // The zone connection now runs over the closed interface; a plugin's connection stays on wifi.
+        fixture.Tcp.With(Fixture.FirstPid, "192.0.2.10", "10.24.0.2");
+        fixture.Notify(41_000);
+        fixture.Tick(43_000);
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+        if (ipcAfterMove) original.Inner.PushOpcode(0x143);
+
+        // The gain is seen at 43 s; one discovery interval of silence is not enough.
+        fixture.Tick(58_000);
+        fixture.Tick(73_000);
+        fixture.Tick(88_000);
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+
+        fixture.Tick(103_000);
+        fixture.Tick(103_000);
+
+        if (ipcAfterMove)
+        {
+            fixture.Tick(130_000);
+            Assert.Single(fixture.Sources);
+            Assert.Equal(0, original.Inner.StopCount);
+            Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
+        }
+        else
+        {
+            Assert.Equal(2, fixture.Sources.Count);
+            Assert.Equal(1, original.Inner.StopCount);
+            Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+        }
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-26, RA-1. A closed interface that carried the game from this session's first
+    /// inspection keeps the protection of audit 2026-11-20, A1-1, for the whole session: neither an
+    /// inspection in which the game's connection to it is gone nor one whose connection table cannot
+    /// be read makes its return count as the game moving onto it, however long no IPC arrives.
+    /// </summary>
+    [Fact]
+    public void AClosedCarrierPresentFromTheFirstInspectionStaysProtectedWhenItsConnectionComesAndGoes()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+        fixture.Tcp.With(Fixture.FirstPid, "192.0.2.10", "10.24.0.2");
+        fixture.Start();
+        var original = fixture.Source;
+        Assert.Contains(fixture.Plan.Bindings, binding => binding.AdapterId == "virtual");
+        original.Inner.PushOpcode(0x142);
+        original.OpenFailures = 1;
+        original.ClosedInterfaces = new[] { CapturePathPlan.NormalizeIdentity("virtual") };
+
+        fixture.Notify(100);
+        fixture.Tick(2_100);
+
+        // The game's connection to the closed interface goes away for one inspection.
+        fixture.Tcp.With(Fixture.FirstPid, "192.0.2.10");
+        fixture.Tick(17_100);
+        // The connection table cannot be read at the next.
+        fixture.Tcp.Failure = new InvalidOperationException("synthetic unavailable TCP table");
+        fixture.Tick(32_100);
+        // The connection returns, and no IPC arrives for well over the liveness grace.
+        fixture.Tcp.Failure = null;
+        fixture.Tcp.With(Fixture.FirstPid, "192.0.2.10", "10.24.0.2");
+        fixture.Tick(47_100);
+        fixture.Tick(62_100);
+        fixture.Tick(77_100);
+        fixture.Tick(92_100);
+        fixture.Tick(107_100);
+        fixture.Tick(122_100);
+        fixture.Tick(137_100);
+
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+        Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
+    }
+
+    /// <summary>
     /// Re-review 2026-11-03, RV1-4. With the connection table unreadable nobody can tell which
     /// interface carries the game; a reader whose every path is still there, unchanged, is kept,
     /// since an interface that appears cannot hold a connection the game already had. A path of the

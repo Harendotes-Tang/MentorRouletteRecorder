@@ -1,5 +1,69 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-26 · 「已确认」由采集服务判定；结果占比只算进本次数
+
+- `$defs/Run` 新增可选布尔字段 `review_confirmed`（只增不删）：玩家回答过软件留待确认的问题时为 `true`。由修订链推出，
+  不是数据表列、不需要迁移。撤销按结构识别：`actor = USER`、`change_kind = CORRECT` 且恰好把紧邻的上一条修订（无论由谁写入）
+  全部改回的修订（不计撤销从不改回的 `manually_corrected`，以及被重置为 `null` 的 `profile_id`）；撤销本身永远不算确认。
+  其余 `actor = USER`、`change_kind = CORRECT` 的修订，若把 `pending_review` 从 `true` 改为 `false`，或把空白的 `job_id`、
+  `content_id`、`duty_name`、`joined_in_progress`（旧值为 `null`、空串、`未知` 或 `UNKNOWN`）或 `UNKNOWN` 的 `result` 补上，
+  且没有推翻任何已记录内容（与 `manually_corrected` 同一规则），就是确认修订；以最近一次确认修订为准，它仍然生效时为 `true`。
+  撤销这次确认后为 `false`；再撤销这次撤销后恢复为 `true`，因为被找回的确认重新生效，而不是撤销本身算数。撤销系统修订、
+  撤销玩家把某个字段清空的修订，都不会使它为 `true`。`pending_review` 为 `true` 时恒为 `false`。改角色（`assign_profile`）、
+  迁移区服（`move_region`）、删除、恢复与系统修订都不会使它为 `true`。带这个字段的是采集服务为显示而返回的 Run：
+  `QueryRuns` 的条目、改动类应答（`CreateManualRun`、`CorrectRun`、`UndoRevision`、`SoftDeleteRun`、`RestoreRun`）中的 `run`、
+  实时事件中的 `run`、`ReflectionEntry.run`、`SetRunReflection` 应答中的 `run`、`GetReflectionSummary.next_pending`，以及
+  `GetCurrentRun.run`（进行中的记录恒为 `false`）；`PreviewRunImport` 的候选记录与导出文件不带；旧 Collector 不发送。
+  桌面端只在值为 `true` 时显示「已确认」，不再用 `revision > 1` 推断。
+- 恢复（`RestoreRun`、`BatchMutateRuns` 的 `restore`）把 `pending_review` 还原为删除前的值（取自最近一次删除修订的改动），
+  恢复修订的 `changes` 因此可能含 `pending_review` 从 `false` 到 `true`。此前恢复保持删除时清掉的 `false`。
+- 结果分布 `ResultStats.buckets[].share` 的含义写进契约：该结果的进本次数除以 `attempt_count`，`count` 仍是该结果的全部记录数；
+  没有进本时间的 `UNKNOWN` 记录计入 `count` 但不计入进本次数，所以 `share` 不等于 `count / attempt_count`，各桶之和不超过 1。
+  1.10.0-beta.3 及以前的 Collector 用 `count` 作分子。
+- 角色档案与角色识别请求（`CreateCharacterProfile`、`UpdateCharacterProfile`、`DeleteCharacterProfile`、`ResolveCharacterIdentity`）
+  的应答过期后也保留执行标记，晚到的重放按 `contracts/error-codes.md` 第 13 条以 `ERR_IDEMPOTENCY_CONFLICT`
+  （`RESPONSE_EXPIRED`）拒绝，不再重新执行。契约形状不变。
+
+## 2026-11-26 · 延后应答、勾选集错误、请求编号与「提醒与宏」的取值
+
+- 契约形状不变（`community-content-v1.schema.json` 除外，见最后一条），只有应答时机、错误情形与取值变化。
+- 延后应答（`MessageDispatcher.AsynchronousMessageTypes`，[docs/architecture.md](../docs/architecture.md) §3.3）新增
+  `BackupDatabase`、`ExportDiagnosticsReport`、`ExportCandidateEvidence`，它们与 `ExportCsv` / `ExportJson` 共用一个串行名额；
+  以及带 `selection_id` 的 `BatchMutateRuns` 与 `PreviewRunRegionMigration`（直接列出 `runs` 的形态仍在读循环上应答）。
+  原已延后的还有 `DutyCommunity` 与建立选择集的 `QueryHistorySelection`。这些应答按完成先后写回，可能与请求顺序不同，
+  并计入每个连接的延后应答上限（见本节「延后应答上限」一条）。带 `selection_id` 的批量变更在受理时即取下暂存的集合，之后的 `release` 不能撤回它。
+- 历史勾选集的错误情形写进 [error-codes.md](error-codes.md)：`selection_id` 已过期、已释放或已被替换为 `ERR_NOT_FOUND`
+  （`field = "selection_id"`，重新勾选即可）；另一次建立选择集仍在进行为 `ERR_DB_BUSY`；`StageHistorySelection` 的分块与选择集不符为
+  `ERR_BAD_REQUEST`（`field = "runs"`）。这些情形自 2026-11-22 的历史勾选快照起即如此，此前只是没有记录。
+- `CommitRunImport` 在导入名额被占用时先按 `request_id` 查找：已经完成的提交照常重放原结果，只有仍在执行的同一提交或新的提交才答
+  `ERR_DB_BUSY`。
+- 请求编号：同一 `request_id` 的请求尚未得到应答时，客户端不得再用它发送另一条请求。桌面端（`IpcClient`）与采集服务自带的
+  `PipeClient` 都在发送前拒绝这种重复（`df12f1e` 起）；连接失败后，桌面端把未应答的请求报告为传输失败（结果不确定），
+  不再报告为拒绝。
+- `DutyCommunity` 的 `list` 按最近编辑排序：正文有变化的保存、复制、安装、应用更新与导入使条目排到最前，只改收藏或排序不改变顺序；
+  升级前已有、从未编辑的条目排在最后（schema 19，[docs/data-model.md](../docs/data-model.md)「副本社区内容」，`df12f1e` 起）。
+- `DutyCommunity` 的 `install` 与应用更新只带上所选条目及其**直接**关联、仍可用的条目，关联不再继续展开；已撤回的关联条目被略过，
+  安装下来的副本也去掉指向未带上条目的关联。`source_unavailable` 因此只表示所选条目本身已不存在或已撤回。
+  幂等回执（`community_receipts`）只保留最新的 500 条，更早的请求编号不再重放。
+- `DutyCommunity` 的各个动作以成功信封（`ok: true`）加 `payload.status` 字符串报告领域结果（如 `saved`、`invalid_links`、
+  `source_unavailable`、`request_conflict`），不使用错误信封，因此不在 [error-codes.md](error-codes.md) 中列出。这一点自该消息加入起即如此
+  （见「2026-11-18 · DutyCommunity（IPC v1 增量）」一节），此处补记。
+- `community-content-v1.schema.json`：标题、BOSS、阶段、职业、标签、游戏版本与来源不得含零宽字符（U+200B–U+200D、U+2060、U+FEFF）、
+  双向控制符（U+202A–U+202E、U+2066–U+2069）与行、段分隔符（U+2028、U+2029）；正文只排除后两类。Collector、桌面编辑器与发布工具按同一规则拒绝。
+- 手动区服（文本目录，[collector-texts.md](collector-texts.md)）：安装路径只表明一个区服时以路径为准，手动选择只用于路径不表明或表明多个区服的客户端；
+  选择与路径相反，或随包 Oodle 签名档案按程序文件的 SHA-256 与大小认出另一区服时，区服为 `UNKNOWN` 并发
+  `capture.game.region_override_mismatch`（措辞随之改写），`capture.game.region_override_applied` 不再发出（键仍在目录中）。
+  `capture.validation.waiting_region_mismatch` 同步改写。导入新增警告 `import.warning.duty_unmatched`：副本名无法唯一对应目录时保留原名称并提示核对。
+- 延后应答上限：每个连接的上限由 8 条改为 10 条（`PipeConnection.MaxDeferredResponses`）。
+  尚未应答的整文件任务（`ExportCsv`、`ExportJson`、`BackupDatabase`、`ExportDiagnosticsReport`、`ExportCandidateEvidence`）
+  与 `CheckUpdateNow` 一样合计只计一条，两组各自另以 10 条为限（[docs/architecture.md](../docs/architecture.md) §3.3）。
+- `DutyCommunity` 的 `submit` 新增状态 `submit_not_sent`：在发出 Issue 请求之前（查询 GitHub 账号或刷新登录时）就已失败，
+  什么都没有提交，可以重试；Issue 请求已经发出而结果无法确认时仍为 `submit_unconfirmed`。
+- 上述字符规则只用于新保存或新发布的改动：读取公共库时，只因这条规则不合格的已发布条目被略去（不显示、不能安装，
+  指向它的关联随之去掉），其他校验失败仍使整份快照作废；`save` 只在与已保存内容不同的字段中拒收这些字符；
+  `import_file` 中已发布的 `upstream` 副本按此前的规则判断。脱敏诊断报告的 `boundary.outbound.duty_community.last_request_utc` /
+  `last_outcome` 改为本进程最近发出的一次副本社区请求（公共库下载、投稿进度查询、GitHub 登录或投稿）。
+
 ## 2026-11-22 · 国际服本机校准
 
 - 契约形状不变，只有取值变化。国际服档案 `global.2026.11.03` 带本机校准模板后，国际服客户端出现没有档案的新版本时与国服相同：
@@ -103,6 +167,12 @@
 
 - `UpdateDownload.mirror_offer_id` 可在下载中出现，标记一次尚未决定的 GitCode 切换询问。
 - `ResolveUpdateMirrorOffer { offer_id, use_gitcode }` → `{ update: UpdateStatus }`。立即答复，过期或已处理的询问不会影响当前下载。
+
+## 2026-11-18 · DutyCommunity（IPC v1 增量）
+
+- 新增 `DutyCommunity` 的动作类型和响应，覆盖 SQLite 本地条目管理、社区公开缓存、主动投稿与复制校验。
+- `list` / `browse` 使用分页，与 `refresh` 相同的公共分页带有发布代号。成功的包级响应包含领域 `status`。授权令牌、设备密钥和刷新令牌不经 IPC。
+- 社区内容数据形状见 [community-content-v1.schema.json](community-content-v1.schema.json)，项目运行时还校验叠加的内容字节、宏行数、链接闭包和稳定 ID。
 
 ## 2026-11-16 · 角色识别：按登录的角色自动归入档案
 
@@ -962,9 +1032,3 @@ C++ 端 `src/Desktop/cpp/{IpcFraming.h,IpcClient.cpp,IBackend.cpp}`。
 结论：四条中只有 `6d26de2`
 改动了 `contracts/`，即上表第四行的四条 capture-validation 消息，其余三条对契约没有改动。后续提交恢复 `docs/git-workflow` 要求的 conventional commits
 （`feat:` / `fix:` / …），并保证提交信息描述的是实际改动。
-
-## DutyCommunity（IPC v1 增量）
-
-- 新增 `DutyCommunity` 的动作类型和响应，覆盖 SQLite 本地条目管理、社区公开缓存、主动投稿与复制校验。
-- `list` / `browse` 使用分页，与 `refresh` 相同的公共分页带有发布代号。成功的包级响应包含领域 `status`。授权令牌、设备密钥和刷新令牌不经 IPC。
-- 社区内容数据形状见 [community-content-v1.schema.json](community-content-v1.schema.json)，项目运行时还校验叠加的内容字节、宏行数、链接闭包和稳定 ID。

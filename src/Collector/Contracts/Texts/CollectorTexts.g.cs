@@ -393,9 +393,9 @@ public static partial class CollectorTexts
     public static UserText CaptureGameRegionOverrideApplied() =>
         new("capture.game.region_override_applied", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。");
 
-    /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</summary>
+    /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</summary>
     public static UserText CaptureGameRegionOverrideMismatch() =>
-        new("capture.game.region_override_mismatch", "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
+        new("capture.game.region_override_mismatch", "设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。");
 
     /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionUnmarked() =>
@@ -689,9 +689,9 @@ public static partial class CollectorTexts
     public static UserText CaptureValidationWaitingRegion() =>
         new("capture.validation.waiting_region", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。");
 
-    /// <summary><c>capture.validation.waiting_region_mismatch</c>: 仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</summary>
+    /// <summary><c>capture.validation.waiting_region_mismatch</c>: 仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</summary>
     public static UserText CaptureValidationWaitingRegionMismatch() =>
-        new("capture.validation.waiting_region_mismatch", "仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
+        new("capture.validation.waiting_region_mismatch", "仅验证，不自动记录。设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。");
 
     /// <summary><c>capture.validation.waiting_restart_connected</c>: 仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。</summary>
     public static UserText CaptureValidationWaitingRestartConnected() =>
@@ -1320,6 +1320,10 @@ public static partial class CollectorTexts
     /// <summary><c>import.time_field.source_recorded</c>: 原记录时间</summary>
     public static UserText ImportTimeFieldSourceRecorded() =>
         new("import.time_field.source_recorded", "原记录时间");
+
+    /// <summary><c>import.warning.duty_unmatched</c>: 未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。</summary>
+    public static UserText ImportWarningDutyUnmatched() =>
+        new("import.warning.duty_unmatched", "未能确认副本，已保留原名称。请核对并选择副本；不确定可保留未知。");
 
     /// <summary><c>import.warning.job_unmatched</c>: 未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。</summary>
     public static UserText ImportWarningJobUnmatched() =>

@@ -50,6 +50,13 @@ public sealed partial class RotatingFileLogger : IDisposable
     /// <summary>Bytes a single log file may reach before it is rotated.</summary>
     public const long MaxFileBytes = 2 * 1024 * 1024;
 
+    /// <summary>
+    /// Bytes a log file that cannot be rotated may reach: twice <see cref="MaxFileBytes"/>. Past it, lines are
+    /// dropped and counted in <see cref="SuppressedWrites"/>, with one notice per day in the file, instead of
+    /// growing a file a viewer holds open without bound (audit 2026-11-26, RB-5).
+    /// </summary>
+    public const long MaxUnrotatedFileBytes = 2 * MaxFileBytes;
+
     /// <summary>Number of rotated files kept per day, including the active one.</summary>
     public const int MaxFiles = 5;
 
@@ -119,6 +126,9 @@ public sealed partial class RotatingFileLogger : IDisposable
     /// </summary>
     private static readonly TimeSpan AppendLockTimeout = TimeSpan.FromSeconds(2);
 
+    /// <summary>After a failed rotation, how long the full file is written to (or dropped past) before the next try.</summary>
+    private static readonly TimeSpan RotationRetryInterval = TimeSpan.FromMinutes(1);
+
     private readonly string _directory;
     private readonly IClock _clock;
     private readonly object _gate = new();
@@ -126,6 +136,8 @@ public sealed partial class RotatingFileLogger : IDisposable
     private Mutex? _appendLock;
     private int _retentionDays = DefaultRetentionDays;
     private long _suppressedWrites;
+    private DateTimeOffset _nextRotationAttemptUtc = DateTimeOffset.MinValue;
+    private string? _droppingNoticeWrittenTo;
     private bool _disposed;
 
     /// <summary>Creates a logger writing into a directory.</summary>
@@ -444,9 +456,11 @@ public sealed partial class RotatingFileLogger : IDisposable
                 // files, so this is where days that have aged out get removed.
                 PruneOldDays();
             }
-            else if (new FileInfo(path).Length >= MaxFileBytes)
+            else if (new FileInfo(path).Length is var length && length >= MaxFileBytes &&
+                !TryRotate(path) && length >= MaxUnrotatedFileBytes)
             {
-                Rotate(path);
+                DropLine(path);
+                return;
             }
 
             AppendShared(path, line);
@@ -540,8 +554,79 @@ public sealed partial class RotatingFileLogger : IDisposable
                     out var day) &&
                 day < cutoff)
             {
-                File.Delete(file);
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // An expired file held open elsewhere is removed on a later day; the line
+                    // that triggered the prune is still written (audit 2026-11-26, Gb-5).
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// Rotates the full active file, or returns false when it cannot be moved - typically because a viewer holds
+    /// it open without delete sharing (audit 2026-11-26, Gb-5). That state outlasts any retry, so a failed move is
+    /// tried again at most once per <see cref="RotationRetryInterval"/>: every line in between would otherwise pay
+    /// a failed move of its own (RB-5). Meanwhile lines go on the end of the full file up to
+    /// <see cref="MaxUnrotatedFileBytes"/>.
+    /// </summary>
+    /// <param name="path">Active log file, at or past <see cref="MaxFileBytes"/>.</param>
+    private bool TryRotate(string path)
+    {
+        var now = _clock.UtcNow;
+        if (now < _nextRotationAttemptUtc)
+        {
+            return false;
+        }
+
+        try
+        {
+            Rotate(path);
+            _nextRotationAttemptUtc = DateTimeOffset.MinValue;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _nextRotationAttemptUtc = now + RotationRetryInterval;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gives up one line because the active file could not be rotated and has reached
+    /// <see cref="MaxUnrotatedFileBytes"/>: it is counted in <see cref="SuppressedWrites"/>, and the first line
+    /// dropped from a day's file leaves one notice in that file saying that lines are being dropped (RB-5).
+    /// </summary>
+    /// <param name="path">Active log file.</param>
+    private void DropLine(string path)
+    {
+        Interlocked.Increment(ref _suppressedWrites);
+        if (string.Equals(_droppingNoticeWrittenTo, path, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var notice = new JsonObject
+        {
+            ["ts"] = UtcTimestamp.ToText(UtcTimestamp.Truncate(_clock.UtcNow)),
+            ["level"] = LogLevel.Warn.ToString().ToUpperInvariant(),
+            ["component"] = "diagnostics",
+            ["event"] = "log_lines_dropped",
+            ["reason"] = "rotation_blocked",
+            ["max_bytes"] = MaxUnrotatedFileBytes,
+        };
+        try
+        {
+            AppendShared(path, notice.ToJsonString(Ipc.Wire.JsonOptions));
+            _droppingNoticeWrittenTo = path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The line is already counted; the notice is tried again with the next dropped line.
         }
     }
 

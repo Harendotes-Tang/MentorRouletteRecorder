@@ -176,6 +176,92 @@ public sealed class IpcImportAdmissionTests
         AssertImportTables(host.Database, rows: 1, receipts: 1);
     }
 
+    /// <summary>
+    /// Audit 2026-11-26, Gb-2: the request id is looked up before the import slot refuses. A retry of a
+    /// commit that already finished replays its answer while another import holds the slot; a retry of the
+    /// commit still running under its id is refused as busy and retryable, and that commit goes on.
+    /// </summary>
+    [Fact]
+    public async Task ARetryOfAFinishedCommitReplaysWhileAnotherImportHoldsTheSlot()
+    {
+        using var fixture = new TestDatabase();
+        using var host = OpenHost(fixture, fixture.Clock);
+        var dispatcher = new MessageDispatcher(host);
+        var finished = CommitRequest(host.Imports.PreviewSource("ROWS", rows: Rows("finished-commit")));
+        Assert.Equal(1, (await dispatcher.DispatchAsync(finished, CancellationToken.None))["imported_count"]!.GetValue<int>());
+        var running = CommitRequest(host.Imports.PreviewSource("ROWS", rows: Rows("running-commit")));
+        var blocker = new DatabaseBlocker(host.Database);
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
+        Task<JsonObject>? first = null;
+        Task<JsonObject>? replay = null;
+        try
+        {
+            // Takes the one import slot, then waits for the database.
+            first = dispatcher.DispatchAsync(running, CancellationToken.None);
+            var busy = await Assert.ThrowsAsync<CollectorException>(
+                () => dispatcher.DispatchAsync(running, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(90)));
+            Assert.Equal(ErrorCodes.DbBusy, busy.Code);
+            Assert.True(busy.Retryable);
+            replay = dispatcher.DispatchAsync(finished, CancellationToken.None);
+            Assert.False(first.IsCompleted);
+        }
+        finally
+        {
+            await blocker.DisposeAsync();
+        }
+
+        var replayed = await replay!.WaitAsync(TimeSpan.FromSeconds(90));
+        Assert.True(replayed["replayed"]!.GetValue<bool>());
+        Assert.Equal(1, replayed["imported_count"]!.GetValue<int>());
+        var committed = await first!.WaitAsync(TimeSpan.FromSeconds(90));
+        Assert.False(committed["replayed"]!.GetValue<bool>());
+        Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
+        AssertImportTables(host.Database, rows: 2, receipts: 2);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, RB-3: the lookup also finds a finished commit by its permanent import receipt. A retry
+    /// arriving after the 24-hour response body was pruned, while another import holds the slot, still replays.
+    /// </summary>
+    [Fact]
+    public async Task ARetryOfACommitWhoseResponseWasPrunedReplaysFromItsImportReceipt()
+    {
+        using var fixture = new TestDatabase();
+        using var host = OpenHost(fixture, fixture.Clock);
+        var dispatcher = new MessageDispatcher(host);
+        var finished = CommitRequest(host.Imports.PreviewSource("ROWS", rows: Rows("pruned-commit")));
+        Assert.Equal(1, (await dispatcher.DispatchAsync(finished, CancellationToken.None))["imported_count"]!.GetValue<int>());
+        // What IdempotencyRepository.Prune does to a CommitRunImport response once it is a day old.
+        host.Database.Read(connection =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM ipc_idempotency WHERE request_id = $id;";
+            command.Parameters.AddWithValue("$id", finished.RequestId);
+            Assert.Equal(1, command.ExecuteNonQuery());
+            return 0;
+        });
+        var running = CommitRequest(host.Imports.PreviewSource("ROWS", rows: Rows("running-commit")));
+        var blocker = new DatabaseBlocker(host.Database);
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
+        Task<JsonObject>? first = null;
+        Task<JsonObject>? replay = null;
+        try
+        {
+            first = dispatcher.DispatchAsync(running, CancellationToken.None);
+            replay = dispatcher.DispatchAsync(finished, CancellationToken.None);
+            Assert.False(first.IsCompleted);
+        }
+        finally
+        {
+            await blocker.DisposeAsync();
+        }
+
+        var replayed = await replay!.WaitAsync(TimeSpan.FromSeconds(90));
+        Assert.True(replayed["replayed"]!.GetValue<bool>());
+        Assert.Equal(1, replayed["imported_count"]!.GetValue<int>());
+        Assert.False((await first!.WaitAsync(TimeSpan.FromSeconds(90)))["replayed"]!.GetValue<bool>());
+    }
+
     [Fact]
     public async Task PreCancellationAndMalformedRequestsDoNotKeepTheImportSlot()
     {
@@ -247,28 +333,5 @@ public sealed class IpcImportAdmissionTests
             }
         }
         public TimeSpan Elapsed => TimeSpan.Zero;
-    }
-
-    private sealed class DatabaseBlocker : IAsyncDisposable
-    {
-        private readonly ManualResetEventSlim _release = new();
-        private readonly Task _holding;
-        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public DatabaseBlocker(SqliteDatabase database) => _holding = Task.Factory.StartNew(() => database.Read(_ =>
-        {
-            _entered.TrySetResult();
-            // Must outlive every bounded wait above (90 s): under the full gate the thread pool is
-            // shared with the Soak suites and a reply can take tens of seconds to be scheduled.
-            if (!_release.Wait(TimeSpan.FromSeconds(300))) throw new TimeoutException("Test database holder was not released.");
-            return 0;
-        }), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        public Task Entered => _entered.Task;
-        public bool Finished => _holding.IsCompleted;
-        public async ValueTask DisposeAsync()
-        {
-            _release.Set();
-            await _holding;
-            _release.Dispose();
-        }
     }
 }

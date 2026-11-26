@@ -1423,13 +1423,217 @@ private Q_SLOTS:
         QCOMPARE(changes.value(QStringLiteral("pending_review")).value(QStringLiteral("old_value")), QJsonValue(true));
         QCOMPARE(changes.value(QStringLiteral("pending_review")).value(QStringLiteral("new_value")), QJsonValue(false));
 
+        // A restore puts back the 待复核 the deletion cleared: nobody answered it, and it is
+        // no 已确认 (owner's decision on audit 2026-11-26 K3-1).
         const Answer restored = ask(backend, QStringLiteral("RestoreRun"),
                                     {{QStringLiteral("run_id"), runId},
                                      {QStringLiteral("expected_revision"), revision + 1},
                                      {QStringLiteral("reason"), QString::fromUtf8("删错了")}});
         QVERIFY(restored.ok);
-        QVERIFY(!restored.payload.value(QStringLiteral("run")).toObject()
-                     .value(QStringLiteral("pending_review")).toBool(true));
+        const QJsonObject back = restored.payload.value(QStringLiteral("run")).toObject();
+        QVERIFY(back.value(QStringLiteral("pending_review")).toBool(false));
+        QVERIFY(!back.value(QStringLiteral("review_confirmed")).toBool(false));
+        const QHash<QString, QJsonObject> restoredChanges = changesByField(lastRevision(backend, runId));
+        QCOMPARE(restoredChanges.value(QStringLiteral("pending_review")).value(QStringLiteral("old_value")), QJsonValue(false));
+        QCOMPARE(restoredChanges.value(QStringLiteral("pending_review")).value(QStringLiteral("new_value")), QJsonValue(true));
+    }
+
+    // Audit 2026-11-26 K3-1: Run.review_confirmed (已确认) only for a user correction that
+    // answered 待复核 or filled a blank the software left, and not after that revision was
+    // undone. A correction that overrules the record, a note, 改角色 and a deletion restored
+    // never set it.
+    void reviewConfirmedFollowsTheCollectorsRule()
+    {
+        QJsonObject pending = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                      QStringLiteral("INTERRUPTED"), true);
+        pending.insert(QStringLiteral("pending_review"), true);
+        QJsonObject blank = autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"),
+                                    QStringLiteral("COMPLETED"), true);
+        blank.insert(QStringLiteral("job_id"), QJsonValue(QJsonValue::Null));
+        blank.insert(QStringLiteral("job_name"), QString::fromUtf8("未知"));
+        blank.insert(QStringLiteral("role"), QStringLiteral("UNKNOWN"));
+        const QJsonObject settled = autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"),
+                                            QStringLiteral("COMPLETED"), true);
+        QJsonObject joined = autoRun(QStringLiteral("44444444-4444-4444-8444-444444444444"),
+                                     QStringLiteral("COMPLETED"), true);
+        joined.insert(QStringLiteral("joined_in_progress"), true);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{pending, blank, settled, joined});
+        const QString joinedId = joined.value(QStringLiteral("run_id")).toString();
+        const auto confirmed = [](const Answer &answer) {
+            return answer.payload.value(QStringLiteral("run")).toObject()
+                .value(QStringLiteral("review_confirmed")).toBool(false);
+        };
+        const QString pendingId = pending.value(QStringLiteral("run_id")).toString();
+        const QString blankId = blank.value(QStringLiteral("run_id")).toString();
+        const QString settledId = settled.value(QStringLiteral("run_id")).toString();
+
+        // 待复核 answered: confirmed. Undoing that answer takes the mark away again.
+        Answer answer = correct(backend, pendingId, {{QStringLiteral("result"), QStringLiteral("COMPLETED")}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(confirmed(answer));
+        const Answer undone = ask(backend, QStringLiteral("UndoRevision"),
+                                  {{QStringLiteral("run_id"), pendingId},
+                                   {QStringLiteral("expected_revision"), answer.payload.value(QStringLiteral("revision")).toInt()},
+                                   {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        QVERIFY2(undone.ok, qPrintable(undone.code + QLatin1Char(' ') + undone.message));
+        QVERIFY(!confirmed(undone));
+        QVERIFY(undone.payload.value(QStringLiteral("run")).toObject().value(QStringLiteral("pending_review")).toBool());
+        // Sent as false, not left out (re-review RD-5).
+        QVERIFY(undone.payload.value(QStringLiteral("run")).toObject().value(QStringLiteral("review_confirmed")).isBool());
+
+        // Undoing that undo brings the answer back, and the mark with it: the answer counts
+        // again, the undo itself confirms nothing (re-review RB-1).
+        const Answer redone = ask(backend, QStringLiteral("UndoRevision"),
+                                  {{QStringLiteral("run_id"), pendingId},
+                                   {QStringLiteral("expected_revision"), undone.payload.value(QStringLiteral("revision")).toInt()},
+                                   {QStringLiteral("reason"), QString::fromUtf8("撤销撤销")}});
+        QVERIFY2(redone.ok, qPrintable(redone.code + QLatin1Char(' ') + redone.message));
+        QVERIFY(!redone.payload.value(QStringLiteral("run")).toObject().value(QStringLiteral("pending_review")).toBool(true));
+        QVERIFY(confirmed(redone));
+
+        // A blank job filled in: confirmed; a later note keeps it.
+        answer = correct(backend, blankId, {{QStringLiteral("job_id"), 24}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(confirmed(answer));
+        answer = correct(backend, blankId, {{QStringLiteral("note"), QString::fromUtf8("补上职业")}});
+        QVERIFY(answer.ok);
+        QVERIFY(confirmed(answer));
+
+        // A note alone, and a settled outcome overruled, confirm nothing.
+        answer = correct(backend, settledId, {{QStringLiteral("note"), QString::fromUtf8("顺利")}});
+        QVERIFY(answer.ok);
+        QVERIFY(!confirmed(answer));
+        answer = correct(backend, settledId, {{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")}});
+        QVERIFY(answer.ok);
+        QVERIFY(markedCorrected(answer));
+        QVERIFY(!confirmed(answer));
+
+        // Undoing the player's blanking of a recorded value puts it back; that reads like a
+        // blank filled, but an undo is never a confirmation (re-review RB-1).
+        answer = correct(backend, joinedId, {{QStringLiteral("joined_in_progress"), QJsonValue(QJsonValue::Null)}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(!confirmed(answer));
+        const Answer unblanked = ask(backend, QStringLiteral("UndoRevision"),
+                                     {{QStringLiteral("run_id"), joinedId},
+                                      {QStringLiteral("expected_revision"), answer.payload.value(QStringLiteral("revision")).toInt()},
+                                      {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        QVERIFY2(unblanked.ok, qPrintable(unblanked.code + QLatin1Char(' ') + unblanked.message));
+        QCOMPARE(unblanked.payload.value(QStringLiteral("run")).toObject().value(QStringLiteral("joined_in_progress")),
+                 QJsonValue(true));
+        QVERIFY(!confirmed(unblanked));
+
+        // Every Run carries the field, false where nothing confirmed it (re-review RD-5).
+        const QJsonArray items = queryRuns(backend, {{QStringLiteral("text"), QString()}})
+                                     .payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(items.size(), 4);
+        for (const auto &item : items) {
+            const QJsonObject run = item.toObject();
+            QVERIFY2(run.value(QStringLiteral("review_confirmed")).isBool(),
+                     qPrintable(run.value(QStringLiteral("run_id")).toString()));
+            const QString id = run.value(QStringLiteral("run_id")).toString();
+            const bool expected = id == pendingId || id == blankId;
+            QCOMPARE(run.value(QStringLiteral("review_confirmed")).toBool(), expected);
+        }
+    }
+
+    // Audit 2026-11-26 J-2: CollectorHost.PlanPlayerRound protects the scope the tester
+    // consented to. A round starts only with its whitelist named, a generic whitelist write
+    // during it is refused, and a round id is used once - each with the Collector's sentence.
+    void aPlayerRoundKeepsTheScopeTheTesterConsentedTo()
+    {
+        mr::MockBackend backend;
+        backend.setCandidateRoundFixture(false);
+        const QString settings = QStringLiteral("UpdateCaptureSettings");
+        const QString roundId = QStringLiteral("6f1c2a10-3b4d-4e5f-8a9b-0c1d2e3f4a5b");
+        const QJsonObject start{{QStringLiteral("candidate_validation_enabled"), true},
+                                {QStringLiteral("candidate_round_id"), roundId},
+                                {QStringLiteral("candidate_round_profile_id"), QStringLiteral("global.2026.12.02.candidate")}};
+        Answer refused = ask(backend, settings, start);
+        QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(refused.message, collectorChinese("ipc.field.missing",
+                                                   {{QStringLiteral("field"), QStringLiteral("research_payload_opcodes")}}));
+        QJsonObject scoped = start;
+        scoped.insert(QStringLiteral("research_payload_opcodes"), QJsonArray{QStringLiteral("0x0215")});
+        const Answer started = ask(backend, settings, scoped);
+        QVERIFY2(started.ok, qPrintable(started.code + QLatin1Char(' ') + started.message));
+
+        refused = ask(backend, settings, {{QStringLiteral("research_payload_opcodes"), QJsonArray{QStringLiteral("0x016f")}}});
+        QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(refused.message, collectorChinese("candidate.round_finish_first"));
+        QCOMPARE(ask(backend, QStringLiteral("GetCaptureSettings")).payload
+                     .value(QStringLiteral("research_payload_opcodes")).toArray(),
+                 QJsonArray{QStringLiteral("0x0215")});
+
+        QVERIFY(ask(backend, settings, {{QStringLiteral("candidate_validation_enabled"), false},
+                                        {QStringLiteral("candidate_round_id"), roundId}}).ok);
+        refused = ask(backend, settings, scoped);
+        QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(refused.message, collectorChinese("candidate.round_unavailable"));
+    }
+
+    // Audit 2026-11-26 J-3: HistorySelectionStore and DisplayTimeZoneHandlers refuse with the
+    // catalogue's sentences; chunks must name strictly ascending runs; a later chunk of a set
+    // the Collector does not hold is not found; at most four handles of a kind are kept.
+    void historySelectionsAndTheZoneAreRefusedWithTheCollectorsSentences()
+    {
+        mr::MockBackend backend;
+        const QString query = QStringLiteral("QueryHistorySelection");
+        const QString stage = QStringLiteral("StageHistorySelection");
+        Answer answer = ask(backend, query, {{QStringLiteral("selection_id"), QStringLiteral("ce7e2992-6de5-4efc-8c15-60bdda7bcb84")},
+                                             {QStringLiteral("page"), 2}});
+        QCOMPARE(answer.code, QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.unavailable"));
+        answer = ask(backend, query, {{QStringLiteral("page"), 2}});
+        QCOMPARE(answer.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.first_page_required"));
+
+        const QJsonObject first{{QStringLiteral("run_id"), QStringLiteral("11111111-1111-4111-8111-111111111111")},
+                                {QStringLiteral("expected_revision"), 1}};
+        const QJsonObject second{{QStringLiteral("run_id"), QStringLiteral("22222222-2222-4222-8222-222222222222")},
+                                 {QStringLiteral("expected_revision"), 1}};
+        const QString digest = mr::IBackend::historySelectionKey(QJsonArray{first, second});
+        const auto chunk = [&](int index, const QJsonArray &runs) {
+            return QJsonObject{{QStringLiteral("selection_id"), digest}, {QStringLiteral("chunk_index"), index},
+                               {QStringLiteral("runs"), runs}, {QStringLiteral("last"), true}};
+        };
+        answer = ask(backend, stage, chunk(0, QJsonArray{second, first}));
+        QCOMPARE(answer.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.chunk_mismatch"));
+        answer = ask(backend, stage, chunk(1, QJsonArray{first, second}));
+        QCOMPARE(answer.code, QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.unavailable"));
+        answer = ask(backend, stage, chunk(0, QJsonArray{first, second}));
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(answer.payload.value(QStringLiteral("sealed")).toBool());
+
+        const QJsonObject batch{{QStringLiteral("action"), QStringLiteral("soft_delete")},
+                                {QStringLiteral("reason"), QString::fromUtf8("清理")}};
+        QJsonObject both = batch;
+        both.insert(QStringLiteral("selection_id"), digest);
+        both.insert(QStringLiteral("runs"), QJsonArray{first, second});
+        answer = ask(backend, QStringLiteral("BatchMutateRuns"), both);
+        QCOMPARE(answer.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.exclusive_target"));
+        QJsonObject unheld = batch;
+        unheld.insert(QStringLiteral("selection_id"), QString(64, QLatin1Char('a')));
+        answer = ask(backend, QStringLiteral("BatchMutateRuns"), unheld);
+        QCOMPARE(answer.code, QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(answer.message, collectorChinese("history.selection.unavailable"));
+
+        QString oldest;
+        for (int read = 0; read < 5; ++read) {
+            const Answer frozen = ask(backend, query, {{QStringLiteral("filter"), QJsonObject{}}});
+            QVERIFY(frozen.ok);
+            if (read == 0)
+                oldest = frozen.payload.value(QStringLiteral("selection_id")).toString();
+        }
+        answer = ask(backend, query, {{QStringLiteral("selection_id"), oldest}, {QStringLiteral("page"), 1}});
+        QCOMPARE(answer.code, QStringLiteral("ERR_NOT_FOUND"));
+
+        answer = ask(backend, QStringLiteral("SetDisplayTimeZone"), {{QStringLiteral("time_zone"), QStringLiteral("Mars/Olympus_Mons")}});
+        QCOMPARE(answer.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(answer.message, collectorChinese("ipc.request.time_zone_unknown"));
     }
 
     // DT-10: RunMutationService.CorrectRun marks a run 已修正 only when the correction overrules

@@ -12,7 +12,9 @@ roots: `HistoryController`, `StatisticsController`, `workflows/RunCompletionCoor
 `ImportPreviewClient` and `ScreenshotImportStaging` (each its `.h` and `.cpp` under
 `src/Desktop/cpp/`). A root whose `.h` or `.cpp` is missing is reported as "required
 controller source is missing" and ends the run with exit code `2`, so a renamed or moved root
-cannot silently drop out of the check. Local includes are followed through the source directory and the Desktop's `cpp/`,
+cannot silently drop out of the check. Every other `.h` and `.cpp` under `src/Desktop/cpp/workflows/`
+(subdirectories included) is a root as well, so a workflow added there is checked without being
+named here; a missing `workflows/` directory also ends the run with exit code `2`. Local includes are followed through the source directory and the Desktop's `cpp/`,
 `cpp/transport/` and `cpp/workflows/` include directories. These workflows cannot depend on
 `AppController`, `CollectorProcess`, `TtsService` or QML pages, including through helper headers.
 

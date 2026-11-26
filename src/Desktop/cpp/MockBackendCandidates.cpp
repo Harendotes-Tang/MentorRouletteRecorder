@@ -12,7 +12,10 @@ using namespace mr::mock;
 
 namespace {
 
-constexpr QLatin1String kPlayerCandidateProfile("global.2026.11.03.candidate");
+// A later Global client than the one global.2026.11.03 records: a candidate round needs a build
+// no profile records (audit 2026-11-26 J-1). Its hypotheses are the 2026.11.03 candidate's.
+constexpr QLatin1String kPlayerCandidateProfile("global.2026.12.02.candidate");
+constexpr QLatin1String kPlayerCandidateBuild("2026.12.02.0000.0000");
 
 QJsonObject badRequest(QString *code, QString *message, const QString &detail)
 {
@@ -337,9 +340,21 @@ QJsonArray MockBackend::candidateRoundHypotheses()
     return hypotheses;
 }
 
+void MockBackend::applyGlobalCandidateValidation(QJsonObject &status) const
+{
+    // The candidate a Global maintainer validates is the one a player round uses: a build
+    // no profile records, so the formal profile fails closed (re-review RD-6).
+    status.insert(QStringLiteral("game_build"), QString(kPlayerCandidateBuild));
+    status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
+    status.insert(QStringLiteral("profile_matches_build"), false);
+    status.insert(QStringLiteral("profile_id"), QJsonValue(QJsonValue::Null));
+    status.insert(QStringLiteral("candidate_profile_id"), QString(kPlayerCandidateProfile));
+    status.insert(QStringLiteral("candidate_hypotheses"), candidateRoundHypotheses());
+}
+
 void MockBackend::applyCandidateRoundFixture(QJsonObject &status) const
 {
-    // LiveProtocolPipeline.ToCaptureStatus for a region nothing records: the build is read,
+    // LiveProtocolPipeline.ToCaptureStatus for a build nothing records: the build is read,
     // the formal profile fails closed, and the exact-build candidate is described whether or
     // not validation is on. Its id is reported only while validation is on.
     const bool enabled = captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool();
@@ -347,7 +362,7 @@ void MockBackend::applyCandidateRoundFixture(QJsonObject &status) const
     const bool capturing = running && enabled && !m_npcapMissing;
     const QJsonValue null(QJsonValue::Null);
     status.insert(QStringLiteral("region"), QStringLiteral("GLOBAL"));
-    status.insert(QStringLiteral("game_build"), QStringLiteral("2026.11.03.0000.0000"));
+    status.insert(QStringLiteral("game_build"), QString(kPlayerCandidateBuild));
     status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
     status.insert(QStringLiteral("profile_matches_build"), false);
     status.insert(QStringLiteral("candidate_validation_enabled"), enabled);
@@ -614,35 +629,47 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
     const auto enabledKey = QStringLiteral("candidate_validation_enabled");
     const auto roundKey = QStringLiteral("candidate_round_id");
     const auto profileKey = QStringLiteral("candidate_round_profile_id");
+    const auto researchKey = QStringLiteral("research_payload_opcodes");
     const auto currentRound = m_captureSettings.value(roundKey).toString();
     const bool wasEnabled = next.value(enabledKey).toBool();
+    const QString badRequestCode = QStringLiteral("ERR_BAD_REQUEST");
     if (!currentRound.isEmpty()) {
         next.insert(roundKey, currentRound);
         next.insert(profileKey, m_captureSettings.value(profileKey));
     }
+    // CollectorHost.PlanPlayerRound, with the Collector's own sentences (audit 2026-11-26 J-2).
     if (payload.contains(roundKey)) {
         const auto round = payload.value(roundKey).toString().toLower();
         const auto enabled = payload.value(enabledKey);
         const auto profile = payload.value(profileKey).toString();
         if (!isUuid(payload.value(roundKey)) || !enabled.isBool()
             || (!enabled.toBool() && (round != currentRound || payload.contains(profileKey)))) {
-            return badRequest(errorCode, errorMessage,
-                              QString::fromUtf8("该轮候选采证已无法确认。请返回页面检查采证状态。"));
+            return refuseWith(errorCode, errorMessage, badRequestCode, "candidate.round_unavailable");
         }
         if (!enabled.toBool() && !m_candidatePlayerRoundActive) {
             m_lastCaptureSettingsUpdate = payload;
             return captureSettings();
         }
         if (enabled.toBool()) {
-            if (!m_candidateRound || profile != kPlayerCandidateProfile)
-                return badRequest(errorCode, errorMessage,
-                                  QString::fromUtf8("当前候选档案与开始时选择的档案不一致，请刷新采证页面。"));
+            // A round starts with the scope the tester consented to, named in full.
+            if (!payload.contains(researchKey))
+                return refuseWith(errorCode, errorMessage, badRequestCode, "ipc.field.missing",
+                                  {{QStringLiteral("field"), researchKey}});
             if (wasEnabled && (!m_candidatePlayerRoundActive || round != currentRound))
-                return badRequest(errorCode, errorMessage, QString::fromUtf8("请先结束正在进行的候选采证。"));
+                return refuseWith(errorCode, errorMessage, badRequestCode, "candidate.round_finish_first");
+            // A round id is used once: the round that ended under it is not started again.
+            if (!wasEnabled && round == currentRound)
+                return refuseWith(errorCode, errorMessage, badRequestCode, "candidate.round_unavailable");
+            if (!m_candidateRound || profile != kPlayerCandidateProfile)
+                return refuseWith(errorCode, errorMessage, badRequestCode, "candidate.round_profile_changed");
         }
-    } else if (payload.contains(profileKey) || (m_candidatePlayerRoundActive
-        && (payload.value(enabledKey).toBool(true) && payload.contains(enabledKey)))) {
-        return badRequest(errorCode, errorMessage, QString::fromUtf8("请先结束正在进行的候选采证。"));
+    } else if (payload.contains(profileKey)
+               || (m_candidatePlayerRoundActive && (payload.contains(enabledKey) || payload.contains(researchKey))
+                   && !(payload.contains(enabledKey) && !payload.value(enabledKey).toBool(true)
+                        && payload.value(researchKey).toArray().isEmpty()))) {
+        // A generic whitelist write must not replace the consented scope of a player round;
+        // only switching validation off (with no whitelist, or an empty one) ends it.
+        return refuseWith(errorCode, errorMessage, badRequestCode, "candidate.round_finish_first");
     }
     for (auto it = payload.begin(); it != payload.end(); ++it) {
         const QString key = it.key();
@@ -687,7 +714,8 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
         // declared, bounded, non-obfuscated hypotheses of at most 512 bytes.
         // No unknown or unbounded opcode can be enabled through manual input.
         QSet<QString> eligible;
-        const auto hypotheses = m_candidateRound ? candidateRoundHypotheses()
+        // A Global client's candidate is the round's (applyGlobalCandidateValidation).
+        const auto hypotheses = m_candidateRound || nextRegion == QLatin1String("GLOBAL") ? candidateRoundHypotheses()
             : nextRegion == QLatin1String("CN") ? declaredCandidateHypotheses() : QJsonArray();
         for (const auto &value : hypotheses) {
             const auto hypothesis = value.toObject();

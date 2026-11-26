@@ -43,6 +43,8 @@ public:
     Q_INVOKABLE void retryFailed();
     /// 实际 PNG 写入路径，也供测试核验失败和取消；不建立目标父目录。
     static bool writePng(const QImage &image, const QString &path, QString *error);
+    /// Test seam: the capture wait (15 s) in \a milliseconds, so a test can outlast it.
+    void setCaptureTimeoutForTesting(int milliseconds) { m_captureTimeoutMs = milliseconds; }
 Q_SIGNALS:
     void changed();
     void saved(const QString &path);
@@ -64,6 +66,7 @@ private:
     void startBatch(const QList<int> &indices);
     void finish(const QString &feedback, const QString &savedPath = {});
     bool m_busy = false;
+    int m_captureTimeoutMs = 15000;
     QString m_feedback;
     QString m_savedPath;
     QSharedPointer<QQuickItemGrabResult> m_grab;

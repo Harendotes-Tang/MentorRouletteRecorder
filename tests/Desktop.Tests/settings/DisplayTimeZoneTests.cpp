@@ -16,7 +16,9 @@
 //   * the Collector is told the zone (SetDisplayTimeZone) on every connection
 //     and on every change, a Collector older than the message is ignored, and
 //     once it acknowledges a change the history list and its calendar of days
-//     are read again;
+//     are read again; a refusal is told apart from attempts nobody answered, and
+//     while following the computer a changed computer zone is sent again when the
+//     app becomes active;
 //   * a date range already applied on the history page keeps its picked days
 //     and takes the new zone's bounds for them.
 // The machine's zone is never changed; every test leaves DisplayTimeZone on
@@ -24,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
+#include "EditRunDialogFixture.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
@@ -33,6 +36,7 @@
 #include "IBackend.h"
 #include "JobCatalog.h"
 #include "MockBackend.h"
+#include "ReflectionLibraryController.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "RunListModel.h"
@@ -149,6 +153,10 @@ class ZoneBackend final : public mr::IBackend
 public:
     bool connected = false;
     bool olderCollector = false;
+    /// The next this many requests fail: ERR_INTERNAL as the client's own deadline
+    /// (a transport failure), any other code as the Collector's refusal.
+    int failuresLeft = 0;
+    QString failureCode = QStringLiteral("ERR_INTERNAL");
     QList<QJsonValue> sent;
 
     QString backendName() const override { return QStringLiteral("zone-backend"); }
@@ -166,10 +174,18 @@ public:
         sent.append(payload.value(QStringLiteral("time_zone")));
         const QJsonValue zone = payload.value(QStringLiteral("time_zone"));
         const bool refuse = olderCollector;
-        QTimer::singleShot(0, reply, [reply, zone, refuse] {
+        const bool failing = !refuse && failuresLeft > 0;
+        if (failing)
+            --failuresLeft;
+        const QString code = failureCode;
+        QTimer::singleShot(0, reply, [reply, zone, refuse, failing, code] {
             if (refuse) {
                 reply->fail(QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("unknown"), {},
                             QJsonObject{{QStringLiteral("key"), QStringLiteral("ipc.unknown_message_type")}});
+            } else if (failing && code == QLatin1String("ERR_INTERNAL")) {
+                reply->failTransport(code, QStringLiteral("timed out"));
+            } else if (failing) {
+                reply->fail(code, QStringLiteral("refused"));
             } else {
                 reply->succeed({{QStringLiteral("time_zone"), zone},
                                 {QStringLiteral("utc_offset_minutes"), 0}});
@@ -402,6 +418,96 @@ private Q_SLOTS:
         QTest::qWait(50);
         QCOMPARE(applied.count(), 2);
         QVERIFY(!sync.acknowledged());
+        QVERIFY(!sync.refused());
+    }
+
+    void aFailedZoneIsTriedAgainAndARefusalIsKept()
+    {
+        ZoneBackend backend;
+        mr::DisplayTimeZoneSync sync(&backend);
+        QSignalSpy applied(&sync, &mr::DisplayTimeZoneSync::applied);
+        backend.setConnected(true);
+        QTRY_VERIFY(sync.acknowledged());
+
+        // Timed out behind a long request: sent again, and once acknowledged what was
+        // read in the old zone is read again (audit 2026-11-26, I1-1).
+        backend.failuresLeft = 1;
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(backend.sent.size(), 2);
+        QTRY_COMPARE_WITH_TIMEOUT(backend.sent.size(), 3, mr::DisplayTimeZoneSync::kRetryMs * 3);
+        QCOMPARE(backend.sent.constLast().toString(), QStringLiteral("Asia/Tokyo"));
+        QTRY_COMPARE(applied.count(), 1);
+        QCOMPARE(sync.acknowledgedZone(), QStringLiteral("Asia/Tokyo"));
+        QVERIFY(!sync.refused());
+
+        // Refused outright: not tried again, and said, until another zone is taken.
+        QSignalSpy refusedChanged(&sync, &mr::DisplayTimeZoneSync::refusedChanged);
+        backend.failuresLeft = 1;
+        backend.failureCode = QStringLiteral("ERR_BAD_REQUEST");
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QTRY_VERIFY(sync.refused());
+        QCOMPARE(refusedChanged.count(), 1);
+        // A refusal is known, not merely unanswered (re-review RD-2).
+        QVERIFY(!sync.unconfirmed());
+        QTest::qWait(50);
+        QCOMPARE(backend.sent.size(), 4);
+        QCOMPARE(applied.count(), 1);
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Taipei"));
+        QTRY_VERIFY(!sync.refused());
+        QTRY_COMPARE(applied.count(), 2);
+
+        // Never answered after every attempt: said as well, as not confirmed - the
+        // zone may have been applied - and sent again on the next connection.
+        backend.failuresLeft = mr::DisplayTimeZoneSync::kAttempts;
+        backend.failureCode = QStringLiteral("ERR_INTERNAL");
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QTRY_VERIFY_WITH_TIMEOUT(sync.refused(), mr::DisplayTimeZoneSync::kRetryMs * (mr::DisplayTimeZoneSync::kAttempts + 1));
+        QVERIFY(sync.unconfirmed());
+        QCOMPARE(backend.sent.size(), 5 + mr::DisplayTimeZoneSync::kAttempts);
+        backend.setConnected(false);
+        backend.setConnected(true);
+        QCOMPARE(backend.sent.size(), 6 + mr::DisplayTimeZoneSync::kAttempts);
+        QCOMPARE(backend.sent.constLast().toString(), QStringLiteral("Asia/Tokyo"));
+        QTRY_VERIFY(!sync.refused());
+        QVERIFY(!sync.unconfirmed());
+    }
+
+    void aComputerZoneChangeIsSentWhenTheAppIsActivated()
+    {
+        ZoneBackend backend;
+        mr::DisplayTimeZoneSync sync(&backend);
+        QByteArray computerZone("Asia/Shanghai");
+        sync.setSystemZoneIdSource([&computerZone] { return computerZone; });
+        QSignalSpy applied(&sync, &mr::DisplayTimeZoneSync::applied);
+        backend.setConnected(true);
+        QCOMPARE(backend.sent.size(), 1);
+        QTRY_VERIFY(sync.acknowledged());
+        auto *application = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+        QVERIFY(application);
+
+        // Back in front with the computer's zone as it was: nothing to send.
+        Q_EMIT application->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(backend.sent.size(), 1);
+
+        // Windows moved to another zone while both ran, 显示时区 following it: the
+        // next activation tells the Collector again, and what it computed is read
+        // again once acknowledged (re-review RA-5).
+        computerZone = QByteArrayLiteral("Asia/Tokyo");
+        Q_EMIT application->applicationStateChanged(Qt::ApplicationInactive);
+        QCOMPARE(backend.sent.size(), 1);
+        Q_EMIT application->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(backend.sent.size(), 2);
+        QVERIFY(backend.sent.constLast().isNull());
+        QTRY_COMPARE(applied.count(), 1);
+        Q_EMIT application->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(backend.sent.size(), 2);
+
+        // A zone of the player's own does not depend on the computer's.
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Taipei"));
+        QCOMPARE(backend.sent.size(), 3);
+        computerZone = QByteArrayLiteral("Europe/London");
+        Q_EMIT application->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(backend.sent.size(), 3);
     }
 
     void theHistoryAndItsCalendarAreReadAgainInTheNewZone()
@@ -482,6 +588,13 @@ ApplicationWindow {
                      QStringLiteral("2026-09-14T15:00:00.000Z"));
         QCOMPARE(app.historyFilter().value(QStringLiteral("to_utc")).toString(),
                  QStringLiteral("2026-09-15T14:59:59.999Z"));
+        // A ticked record: the zone change is no filter change the player made, so it
+        // neither asks to clear the ticks nor waits for an answer (audit 2026-11-26, K3-2).
+        app.setHistoryRunChecked({{QStringLiteral("run_id"), QStringLiteral("10000000-0000-4000-8000-000000000001")},
+                                  {QStringLiteral("revision"), 1}}, true);
+        QCOMPARE(app.checkedHistoryRunCount(), 1);
+        auto *confirmation = root->findChild<QObject *>(QStringLiteral("historyFilterConfirmation"));
+        QVERIFY(confirmation);
 
         // The same days in New York: the fields keep them, the bounds move.
         mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
@@ -491,6 +604,93 @@ ApplicationWindow {
                  QStringLiteral("2026-09-16T03:59:59.999Z"));
         QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-15"));
         QCOMPARE(to->property("text").toString(), QStringLiteral("2026-09-15"));
+        QTest::qWait(50);
+        QVERIFY(!app.historyFilterConfirmationPending());
+        QVERIFY(!confirmation->property("visible").toBool());
+        QCOMPARE(app.checkedHistoryRunCount(), 1);
+        // The fields and the bounds in force still agree after the next edit.
+        QVERIFY(QMetaObject::invokeMethod(page, "applyFilter"));
+        QCOMPARE(app.historyFilter().value(QStringLiteral("from_utc")).toString(),
+                 QStringLiteral("2026-09-15T04:00:00.000Z"));
+        QVERIFY(!app.historyFilterConfirmationPending());
+    }
+
+    void aNewRecordFormKeepsTheInstantsTypedInIt()
+    {
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        EditRunDialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QObject *dialog = fixture.dialog();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        const auto matchedUtc = [dialog] {
+            QVariant times;
+            QMetaObject::invokeMethod(dialog, "resolvedTimestamps", Q_RETURN_ARG(QVariant, times));
+            return mrtest::qmlMap(times).value(QStringLiteral("matched")).toString();
+        };
+        // 22:10 typed in Tokyo.
+        dialog->setProperty("matchedDate", QStringLiteral("2026-11-20"));
+        dialog->setProperty("matchedTime", QStringLiteral("22:10"));
+        QCOMPARE(matchedUtc(), QStringLiteral("2026-11-20T13:10:00.000Z"));
+
+        // The form stays open while 显示时区 becomes Shanghai: the same instant, now
+        // written as Shanghai's 21:10, not 22:10 read again an hour later (audit 2026-11-26, L1-2).
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Shanghai"));
+        QTRY_COMPARE(dialog->property("matchedTime").toString(), QStringLiteral("21:10:00"));
+        QCOMPARE(dialog->property("matchedDate").toString(), QStringLiteral("2026-11-20"));
+        QCOMPARE(matchedUtc(), QStringLiteral("2026-11-20T13:10:00.000Z"));
+    }
+
+    void aNewRecordFormForgetsTheLastFormsInstants()
+    {
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        EditRunDialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QObject *dialog = fixture.dialog();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        const QString today = dialog->property("matchedDate").toString();
+        QVERIFY(!today.isEmpty());
+        QCOMPARE(dialog->property("matchedTime").toString(), QString());
+
+        // What an earlier form left behind, remembered in a zone no longer in force.
+        // The next form's prefilled texts are the same as this one's, so no field
+        // change signal replaces it: opening the form must (re-review RD-4).
+        dialog->setProperty("typedInstants",
+                            QVariantMap{{QStringLiteral("matched"), QStringLiteral("2026-11-20T13:10:00.000Z")},
+                                        {QStringLiteral("today"), QStringLiteral("2000-01-01")}});
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        QCOMPARE(dialog->property("matchedDate").toString(), today);
+
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Shanghai"));
+        QTest::qWait(50);
+        QCOMPARE(dialog->property("matchedTime").toString(), QString());
+        QVERIFY(!dialog->property("matchedDate").toString().isEmpty());
+    }
+
+    void aZoneChangeKeepsTheReflectionSelection()
+    {
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        mr::MockBackend backend;
+        mr::ReflectionLibraryController library(&backend);
+        QSignalSpy confirmation(&library, &mr::ReflectionLibraryController::filterChangeNeedsConfirmation);
+        library.setFilter({{QStringLiteral("from_utc"), mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), false)},
+                           {QStringLiteral("to_utc"), mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), true)},
+                           {QStringLiteral("history_from_day"), QStringLiteral("2026-11-20")},
+                           {QStringLiteral("history_to_day"), QStringLiteral("2026-11-20")}});
+        QCOMPARE(library.filter().value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-11-19T15:00:00.000Z"));
+        library.toggleSelected({{QStringLiteral("run_id"), QStringLiteral("10000000-0000-4000-8000-000000000002")},
+                                {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("心得")}}}});
+        QCOMPARE(library.selectedCount(), 1);
+
+        // Another zone: the same day, its bounds in the new zone, no question asked and
+        // the selection kept (audit 2026-11-26, K1-1).
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(confirmation.count(), 0);
+        QCOMPARE(library.selectedCount(), 1);
+        QCOMPARE(library.filter().value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-11-20"));
+        QCOMPARE(library.filter().value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-11-20T05:00:00.000Z"));
+        QCOMPARE(library.filter().value(QStringLiteral("to_utc")).toString(), QStringLiteral("2026-11-21T04:59:59.999Z"));
     }
 };
 

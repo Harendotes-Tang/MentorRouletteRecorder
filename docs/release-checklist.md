@@ -437,6 +437,12 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 （「版本预检」）拒绝打出不带先行版后缀的版本，除非 HEAD 正是它的发布提交（标题为 `chore(release): X.Y.Z`）且没有使用
 `-SkipVerify`。`-AllowUnsuffixedVersion` 可以显式放行，只用于有意的例外，绝不用于测试包。
 
+**已发布的版本号绝不复用，先行版也一样。** 已安装旧包的机器比较版本号时认为两份同号的包相同，永远不会被引到重打的那一份上
+（1.10.0-beta.2、1.9.1-beta.3、1.9.1-beta.4 与 1.9.1 都曾以同一版本号重打）。撤回的 `beta.N` 之后用 `beta.N+1`，不在原号上重新打包、
+重新发布或移动 tag。打包脚本在版本预检中核对：tag `v<完整版本号>` 已存在且不指向 HEAD，或 git 无法回答时拒绝；没有这个 tag、
+或 tag 正指向 HEAD（同一提交重新打包）时照常进行。`-AllowReusedVersion` 可以显式放行，只用于有意的例外
+（[build-and-package.md](build-and-package.md) §2）。
+
 更新检查的判定规则：`X.Y.Z-beta.N` 比 `X.Y.Z` 旧，比任何更低的发布号新；
 `beta.10` 比 `beta.9` 新（按数字比较，不按文本）。因此运行 `1.4.0-beta.2` 的机器会被告知
 `1.4.0` 可用，而不会被 `1.3.9` 打扰；运行正式版的机器在任何情况下都不会被引向先行版。
@@ -446,6 +452,10 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 发布提交统一使用 `chore(release): <完整版本号>`，tag 使用 `v<完整版本号>`；
 GitHub Release 标题统一使用「导随记录器 <完整版本号>」，不随意拼接临时说明。
 测试包必须是预发布，并保留正式版 latest。
+
+发布提交（测试包与正式版都一样）**只包含**版本号的改动、`CHANGELOG.md` 中 `[Unreleased]` 条目的移动，以及下文要求的「本次更新」展示文件；
+代码、迁移、契约、测试与文档的改动一律先以各自的提交进入 `dev`，经验证后再切发布提交。
+tag **打在发布提交本身上**：打包与打 tag 之间不再有任何提交；打过 tag 之后需要重新打包时，HEAD 必须仍是这个提交，否则版本预检拒绝（第 9.2 节）。
 
 ```powershell
 git switch dev                                    # 测试包只从 dev 切出
@@ -483,6 +493,9 @@ git switch main
 git merge --ff-only dev                           # 快进合并
 git tag v1.4.0
 ```
+
+正式版不得带入任何测试包都没有带过的迁移或功能：新的数据库迁移、新的 IPC 消息或新的功能，须先随一个测试包交给测试者，
+之后才能进入正式版（1.9.1 曾由标题为 `chore(release): 1.9.1` 的提交带入迁移 0017 与两种新消息，没有经过任何测试包）。发布提交本身遵循第 9.3 节的规定，只改版本号与变更记录。
 
 `package.ps1` 必须带 `-Verify`：未带时 `public_distribution_ready` 为 `false`（第 7 节第 7 条），GitCode 镜像
 也不会复制该正式版（见第 9.5 节）。打包须在发布提交本身上运行，不得带 `-SkipVerify`，否则版本预检拒绝（第 9.2 节）。打包期间工作区不得变动，包括其他会话的提交、切换分支或暂存改动；

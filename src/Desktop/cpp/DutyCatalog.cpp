@@ -51,6 +51,22 @@ bool numericIdentity(const QVariant &value, qint64 &identity)
     return true;
 }
 
+/// The unreal trial in the Global catalogue's English: extreme difficulty, but a normal duty.
+bool isGlobalUnrealName(const QString &name)
+{
+    return name.trimmed().endsWith(QLatin1String("(Unreal)"), Qt::CaseInsensitive);
+}
+
+/// 极 in the Global catalogue's English names: "(Extreme)", the Minstrel's Ballad finales
+/// and the unreal trial.
+bool isGlobalExtremeName(const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    return trimmed.endsWith(QLatin1String("(Extreme)"), Qt::CaseInsensitive)
+        || trimmed.startsWith(QLatin1String("the Minstrel's Ballad"), Qt::CaseInsensitive)
+        || isGlobalUnrealName(trimmed);
+}
+
 } // namespace
 
 namespace mr {
@@ -247,8 +263,14 @@ int DutyCatalog::partySizeGroup(const QString &category, const QVariant &partySi
 
 QString DutyCatalog::difficultyForName(const QString &name)
 {
-    if (name.contains(QString::fromUtf8("零式")))
+    // data/duties/global.*.json names its duties in English and carries no difficulty field:
+    // "(Savage)" is 零式, "(Extreme)" and "the Minstrel's Ballad: …" are 极 and "(Unreal)" is
+    // 极 like 幻巧战. The same rows as the Chinese markers below; "(Ultimate)" stays 普通 like
+    // CN's 绝境战 (audit 2026-11-26 I2-3).
+    if (name.contains(QString::fromUtf8("零式")) || name.contains(QLatin1String("(Savage)"), Qt::CaseInsensitive))
         return QString::fromUtf8("零式");
+    if (isGlobalExtremeName(name))
+        return QString::fromUtf8("极");
     // The Chinese client names most primal extremes …歼殛战, but the Minstrel's
     // Ballad finales and several other extremes carry a name of their own
     // (…幻想歼灭战, …忆想歼灭战, …诗魂战, 终极之战 …). The list below is what
@@ -308,7 +330,7 @@ bool DutyCatalog::isExtremeTrial(const QVariant &contentId, const QString &regio
         return false;
     const QString name = duty.value(QStringLiteral("duty_name")).toString().trimmed();
     return !name.startsWith(QString::fromUtf8("幻 ")) && !name.endsWith(QString::fromUtf8("幻巧戰"))
-           && !name.endsWith(QString::fromUtf8("幻巧战"))
+           && !name.endsWith(QString::fromUtf8("幻巧战")) && !isGlobalUnrealName(name)
            && difficultyForName(name) == QString::fromUtf8("极");
 }
 

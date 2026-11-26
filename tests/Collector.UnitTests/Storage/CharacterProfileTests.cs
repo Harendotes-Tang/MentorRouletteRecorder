@@ -311,4 +311,24 @@ public sealed class CharacterProfileTests
         var reused = Assert.Throws<CollectorException>(() => fixture.Profiles.Create(command with { DisplayName = "另一个" }));
         Assert.Equal((ErrorCodes.IdempotencyConflict, "profile.request_reused"), (reused.Code, reused.Text?.Key));
     }
+
+    /// <summary>
+    /// Audit 2026-11-26 K3-1. Filing records under another character changes who they belong to and
+    /// answers nothing the software left open: the moved runs carry a new revision, but are not 已确认.
+    /// </summary>
+    [Fact]
+    public void FilingRunsUnderAnotherCharacterDoesNotConfirmThem()
+    {
+        using var fixture = new Fixture();
+        var run = fixture.Completed();
+        var alt = fixture.Add("小号");
+
+        fixture.Assign(alt, run);
+
+        var moved = fixture.Runs.Get(run.RunId)!;
+        Assert.Equal(alt, moved.ProfileId);
+        Assert.Equal(2, moved.Revision);
+        Assert.False(moved.ReviewConfirmed);
+        Assert.False(moved.ManuallyCorrected);
+    }
 }

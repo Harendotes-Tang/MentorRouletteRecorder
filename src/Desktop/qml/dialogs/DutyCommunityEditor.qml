@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "DutyCommunityMatch.js" as Match
 
 // The form of 副本提醒与导随宏 (Design artifact, 新建宏): it takes the whole dialog. On the left the
 // type, the title and the body; on the right one column, 适用范围, where nothing is required and
@@ -20,6 +21,12 @@ ColumnLayout {
     property bool titleMissing: false
     property bool bodyMissing: false
     property bool stageTooLong: false
+    property bool stageInvalid: false
+    /// What the form found wrong with the title or the body before sending (the Collector's
+    /// limits), and why the Collector refused the last save; "" when nothing.
+    property string titleProblem: ""
+    property string bodyProblem: ""
+    property string refusal: ""
     /// The version range as chosen: "" is 不限.
     property string versionFrom: ""
     property string versionTo: ""
@@ -123,6 +130,10 @@ ColumnLayout {
         titleMissing = false
         bodyMissing = false
         stageTooLong = false
+        stageInvalid = false
+        titleProblem = ""
+        bodyProblem = ""
+        refusal = ""
         titleField.text = item.title
         body.text = item.body
         body.used = false
@@ -151,20 +162,28 @@ ColumnLayout {
     // Only the title and the body are required (Design: 必填只有两项); a problem puts the cursor
     // where it is.
     function save() {
+        refusal = ""
         titleMissing = titleField.text.trim().length === 0
         bodyMissing = body.text.trim().length === 0
+        // The Collector holds a field to the character rule only when its value changes, so an
+        // entry saved or published before the rule can still be edited (audit 2026-11-26 RC-6).
+        const titleChanged = titleField.text !== row.content.title
+        titleProblem = !titleChanged || Match.validText(titleField.text, false)
+            ? "" : qsTr("标题里有看不见的特殊字符，请删掉后重新输入")
+        bodyProblem = bodyLimitProblem(body.text, body.text !== row.content.body.replace(/\r\n/g, "\n"))
         // An edited BOSS / 阶段 becomes the boss, which the Collector holds to 80 characters.
         const stageChanged = stage.text !== loadedStage
         stageTooLong = stageChanged && stage.text.trim().length > 80
-        if (titleMissing)
+        stageInvalid = stageChanged && !Match.validText(stage.text.trim(), false)
+        if (titleMissing || titleProblem)
             titleField.forceActiveFocus()
-        else if (bodyMissing)
+        else if (bodyMissing || bodyProblem)
             body.area.forceActiveFocus()
         else if (versionBackwards)
             fromBox.forceActiveFocus()
-        else if (stageTooLong)
+        else if (stageTooLong || stageInvalid)
             stage.forceActiveFocus()
-        if (titleMissing || bodyMissing || versionBackwards || stageTooLong)
+        if (titleMissing || titleProblem || bodyMissing || bodyProblem || versionBackwards || stageTooLong || stageInvalid)
             return
         const item = row.content
         // Only a macro chooses jobs; a reminder keeps whatever the entry had.
@@ -178,6 +197,21 @@ ColumnLayout {
             role: jobsChanged ? jobs.join(",") : keptRole
         })
         saved({ content: updated, revision: row.revision, position: row.position, favorite: row.favorite })
+    }
+    /// What the Collector would refuse in a body (CommunityContent): over 1600 characters, a
+    /// character no field may hold (in a changed body), or a macro line over 180 UTF-8 bytes;
+    /// "" when it fits.
+    function bodyLimitProblem(text, changed) {
+        if (text.length > 1600)
+            return qsTr("正文最多 1600 字，现在有 %1 字").arg(text.length)
+        if (changed && !Match.validText(text, true))
+            return qsTr("正文里有看不见的特殊字符，请删掉后重新输入")
+        if (!macro)
+            return ""
+        const lines = text.replace(/\r\n/g, "\n").split("\n")
+        const index = lines.findIndex(line => Match.utf8Bytes(line) > 180)
+        return index < 0 ? ""
+            : qsTr("第 %1 行太长：游戏里一行宏最多 180 个字节，大约 60 个汉字").arg(index + 1)
     }
 
     component Caption: Text {
@@ -263,12 +297,12 @@ ColumnLayout {
                         maximumLength: 120
                         placeholderText: qsTr("起个一眼能认出来的名字")
                         Accessible.name: qsTr("标题")
-                        onTextEdited: editor.titleMissing = false
+                        onTextEdited: { editor.titleMissing = false; editor.titleProblem = "" }
                     }
                     Problem {
                         objectName: "dutyCommunityEditorTitleProblem"
-                        visible: editor.titleMissing
-                        text: qsTr("请填写标题")
+                        visible: editor.titleMissing || editor.titleProblem !== ""
+                        text: editor.titleMissing ? qsTr("请填写标题") : editor.titleProblem
                     }
                 }
             }
@@ -306,7 +340,7 @@ ColumnLayout {
                 placeholderText: editor.macro ? qsTr("一行一条指令，例如：/p 大家好 <se.1>") : qsTr("写下这个副本要注意的事")
                 Connections {
                     target: body.area
-                    function onTextChanged() { editor.bodyMissing = false }
+                    function onTextChanged() { editor.bodyMissing = false; editor.bodyProblem = "" }
                 }
             }
             RowLayout {
@@ -315,11 +349,11 @@ ColumnLayout {
                 spacing: 12
                 Problem {
                     objectName: "dutyCommunityEditorBodyProblem"
-                    visible: editor.bodyMissing
-                    text: qsTr("请填写正文")
+                    visible: editor.bodyMissing || editor.bodyProblem !== ""
+                    text: editor.bodyMissing ? qsTr("请填写正文") : editor.bodyProblem
                 }
                 Caption {
-                    visible: !editor.bodyMissing && editor.macro
+                    visible: !editor.bodyMissing && editor.bodyProblem === "" && editor.macro
                     Layout.fillWidth: true
                     text: body.lineCount > 15 ? qsTr("超过 15 行了，游戏里要拆成两个宏。") : qsTr("游戏里一个宏最多 15 行。")
                 }
@@ -505,6 +539,7 @@ ColumnLayout {
                         Accessible.name: qsTr("BOSS / 阶段")
                         onTextEdited: {
                             editor.stageTooLong = false
+                            editor.stageInvalid = false
                             if (hints.length > 0) stageHints.open()
                             else stageHints.close()
                         }
@@ -551,6 +586,7 @@ ColumnLayout {
                                         onClicked: {
                                             stage.text = hint.modelData
                                             editor.stageTooLong = false
+                                            editor.stageInvalid = false
                                             stageHints.close()
                                         }
                                     }
@@ -560,8 +596,9 @@ ColumnLayout {
                     }
                     Problem {
                         objectName: "dutyCommunityEditorStageProblem"
-                        visible: editor.stageTooLong
-                        text: qsTr("BOSS / 阶段最多 80 个字")
+                        visible: editor.stageTooLong || editor.stageInvalid
+                        text: editor.stageTooLong ? qsTr("BOSS / 阶段最多 80 个字")
+                                                  : qsTr("BOSS / 阶段里有看不见的特殊字符，请删掉后重新输入")
                     }
                 }
 
@@ -676,8 +713,19 @@ ColumnLayout {
             onClicked: editor.save()
         }
         AppButton { objectName: "dutyCommunityEditorCancel"; text: qsTr("取消"); onClicked: editor.cancelled() }
+        // A save the Collector refused comes back to the form with the reason here.
+        Problem {
+            objectName: "dutyCommunityEditorRefusal"
+            visible: editor.refusal !== ""
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignRight
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
+            text: editor.refusal
+        }
         Text {
             renderType: Theme.bodyRenderType
+            visible: editor.refusal === ""
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignRight
             elide: Text.ElideRight

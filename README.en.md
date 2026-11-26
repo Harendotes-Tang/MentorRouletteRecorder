@@ -36,6 +36,7 @@ The Traditional Chinese server currently supports manually managed records only.
 - [System requirements and installation](#system-requirements-and-installation)
 - [Quick start](#quick-start)
 - [Importing history and notes](#importing-history-and-notes)
+- [Duty reminders and Mentor macros](#duty-reminders-and-mentor-macros)
 - [Offline screenshot OCR](#offline-screenshot-ocr)
 - [How it works](#how-it-works)
 - [Privacy and network boundaries](#privacy-and-network-boundaries)
@@ -57,6 +58,7 @@ The Traditional Chinese server currently supports manually managed records only.
 - **All notes and share images**. Search note text, filter by date and switch the sort order. When sharing, sort by date or reorder by dragging, and save one long image or one PNG per entry.
 - **Languages, speech and tray**. Supports 简体中文, 繁體中文, English and 日本語. You can switch the interface language and the system voice, and turn on optional online speech.
   With "Launch at startup" enabled, the app starts in the system tray; open the main window to read the update notes.
+- **Duty reminders and Mentor macros**. Keep local reminders and frequently used macros for the current duty, and optionally browse the public library of entries other players submitted (offline by default); see [Duty reminders and Mentor macros](#duty-reminders-and-mentor-macros).
 - **Capture diagnostics and evidence collection**. Automatically finds the network adapter that carries game traffic; you can run detection again or view the diagnostic report. Evidence collection for new regions and for character identification each have their own wizard.
   After a Chinese or Global client update, recording can be restored through local or shared calibration. Local calibration on the Global server has not yet been through a real game update.
 
@@ -84,7 +86,7 @@ See the [Traditional Chinese server testing guide](docs/traditional-chinese-serv
 | Item | Requirement |
 |---|---|
 | Operating system | Windows 10 64-bit version 1809 (build 17763) or later, or Windows 11. Windows 11 on ARM can run it under x64 emulation; packet capture there has not been verified |
-| Automatic recording | The Chinese client and [Npcap](https://npcap.com/) with *WinPcap API-compatible Mode* enabled |
+| Automatic recording | The Chinese or Global client and [Npcap](https://npcap.com/) with *WinPcap API-compatible Mode* enabled |
 | Speech | Windows N editions need the Media Feature Pack |
 | Runtimes | The installer and the ZIP include the .NET, Qt and offline OCR runtimes |
 
@@ -97,7 +99,7 @@ See the [Traditional Chinese server testing guide](docs/traditional-chinese-serv
    The installed files are managed by administrators; the note image directory `note-images` is writable by standard users.
 4. The free edition of Npcap is distributed through the Npcap website. If the driver is missing, the installer downloads and verifies the official Npcap installer. Keep its default options, especially *WinPcap API-compatible Mode*.
 
-**Upgrading from an older version.** 1.9.0 upgrades the database to schema 15, and 1.9.1 upgrades it to schema 17. Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
+**Upgrading from an older version.** 1.9.0 upgrades the database to schema 15, 1.9.1 upgrades it to schema 17, and the 1.10.0 test builds upgrade it to schema 18 (the current source uses schema 19). Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
 Manual entries and imported records without a region from 1.8.0 and earlier are assigned to the Chinese server. Goals, starting counts and records that already have a region move into that region's existing profile.
 Database backups and record exports do not include note images; save `note-images` separately.
 
@@ -106,7 +108,7 @@ Database backups and record exports do not include note images; save `note-image
 1. **Enter the starting count.** On first use, enter the number of completions from before installation, as shown in the in-game achievement panel. If the app already has records that count toward progress, first subtract those clears from the panel's count.
    Progress equals the character's starting count plus the recorded clears that count toward progress.
 2. **Start the recorder first, then log in to the game.** If you are already logged in, return to the title screen and log in again. On the Chinese server the connection has to be tracked from the moment it is established, and teleporting in the game does not re-establish it.
-3. **Manage which character a run belongs to.** When there is only one profile and no character has been registered yet, the first character identified on the Chinese server is bound automatically.
+3. **Manage which character a run belongs to.** When there is only one profile and no character has been registered yet, the first character identified on the Chinese or Global server is bound automatically.
    When "A character that isn't registered yet" appears, you can link it to an existing profile, register a new character, or choose "Don't track this character". Pending records move to the chosen profile once the character is bound.
    To manage characters manually, first add them in "Settings → Achievement", and select the current character on the Overview before you log in with a different character.
 4. **Take part in Duty Roulette: Mentor.** When the clear result arrives, the app counts the clear automatically. If no result arrives before you leave, you can confirm the outcome in the separate pop-up, the overlay prompt or "To do" on the Overview.
@@ -134,6 +136,13 @@ In "History → Import records", choose or drag in files, or paste spreadsheets 
 
 Note sharing saves PNG files in the chosen order and reports the result for each file. The generated files stay on this PC, and sharing them is up to you.
 
+## Duty reminders and Mentor macros
+
+Open local reminders, frequently used macros or the public library from the current-duty area on the home page. Reminders and macros can be edited offline, reordered, starred, copied and exchanged.
+The public library is offline by default and is read only after you turn on "Let the public library go online" in "Reminders & macros"; browsing needs no account. To submit, the app copies the selected entries and opens the public repository's submission page,
+and you submit them in your browser with your own GitHub account. Guide links open in the browser: the Chinese interfaces use 新大陆见闻录 (ff14.org), and the English and Japanese interfaces use the Console Games Wiki,
+with a guide directory and the duty pages already matched. See the [usage and maintenance notes](docs/duty-community.md) (Chinese).
+
 ## Offline screenshot OCR
 
 The package ships CPU text recognition and a small job icon classifier. You do not need to install Python or configure a GPU. The app uses RapidOCR 3.10.0 and ONNX Runtime 1.32.0
@@ -156,17 +165,17 @@ Model versions, sources and licenses are listed in the [OCR dependency manifest]
 | `MentorRecorder.Desktop.exe` | C++20 / Qt Quick. Provides the main window and the overlay, starts and monitors the Collector, and reads state or submits edits over the local named pipe |
 | `local-ai-ocr.exe` | Starts only when screenshots are imported; outputs text coordinates on this PC and exits |
 
-Protocol profiles describe the match, zone change, area and job messages for each client version. On the Chinese server, the clear result and the start and remaining-time signals are recognized by message content.
+Protocol profiles describe the match, zone change, area and job messages for each client version. On the Chinese and Global servers, the clear result and the start and remaining-time signals are recognized by message content.
 When no profile matches, automatic recording pauses until a suitable calibration has been obtained and confirmed. Real-machine evidence covers the Chinese server's recording chain from the match to leaving the duty;
 the clear result was tested on one duty under client version `2026.09.15`. Real-machine evidence is still needed for clear results in other duties and for joining in progress.
 See [architecture](docs/architecture.md) (Chinese), [state machine](docs/state-machine.md) (Chinese) and [protocol profile format](docs/protocol-profile-format.md) (Chinese).
 
 ## Privacy and network boundaries
 
-- Capture is passive, through Npcap: no injection, no reading of game process memory, no telemetry and no account. The capture path sends no packets to the game and does not keep raw packets long term.
+- Capture is passive, through Npcap: no injection, no reading of game process memory and no telemetry, and the app has no account system of its own. The capture path sends no packets to the game and does not keep raw packets long term.
   To decompress traffic, the Collector loads a temporary copy of the game executable into its own process and cleans it up when listening stops. A copy that is still in use is registered and handled at the next start.
 - During a new-region evidence round, if the current game version has no ready decompression support, the Collector reads the game executable file on this PC to look for the relevant locations, and writes what it found and the file's checksum to the local log; if the search is incomplete, or nothing can be decoded with what it found, the log also records a few short excerpts of the game executable's instruction bytes. The log contains no packets and no personal information, stays on this PC, and the tester decides whether to send it to the maintainer; see sections 4 and 5 of the [privacy and network boundary document](docs/privacy-boundary.md) (Chinese).
-- Chinese server character identification computes a digest of the character identifier in the login message with a key kept on this PC. Character names are entered by the user; the app never reads character names from the game. Neither record exports nor diagnostic reports contain identity digests.
+- Character identification on the Chinese and Global servers computes a digest of the character identifier in the login message with a key kept on this PC. Character names are entered by the user; the app never reads character names from the game. Neither record exports nor diagnostic reports contain identity digests.
 - Records, source files, OCR text, notes and images are processed on this PC; the desktop app and the Collector communicate over a local named pipe.
 
 | Network feature | Default and behavior |
@@ -174,9 +183,10 @@ See [architecture](docs/architecture.md) (Chinese), [state machine](docs/state-m
 | Shared calibration | On by default. Reads public calibrations on demand from a fixed GitHub repository, falling back to a fixed GitCode mirror. A calibration is used for recording only after it passes verification on this PC |
 | Online speech | Off by default. Available only after you enter a key for Azure or an OpenAI-compatible service. Only the text currently being announced is sent; the key is stored on this PC, encrypted by Windows |
 | Update check and download | Checking is on by default. GitHub is queried first, then GitCode if that fails. The matching installer is downloaded and its SHA-256 checked only after you click "Download installer" (if the GitHub download is too slow, you are asked whether to switch to GitCode), and it is started only after you click "Install now" |
+| Public library of reminders and macros | Off by default. After you turn on "Let the public library go online" in "Reminders & macros", public content is read from a fixed GitHub repository only when you open the public library or refresh it, falling back to a fixed GitCode mirror; no local content is sent. Clicking the "Submission progress" query sends only the issue number you entered to GitHub. Submitting happens in your browser, and the app keeps no GitHub sign-in |
 | Installing Npcap | The installer downloads and verifies the official Npcap installer only if it finds the driver missing while this app is being installed |
 
-You can turn off the first three in Settings, or set `MR_DISABLE_SHARED_FETCH`, `MR_DISABLE_ONLINE_SPEECH` and `MR_DISABLE_UPDATE_CHECK` to `1` and restart.
+You can turn off the first four in Settings (the submission progress query happens only when you click it), or set `MR_DISABLE_SHARED_FETCH`, `MR_DISABLE_ONLINE_SPEECH`, `MR_DISABLE_UPDATE_CHECK` and `MR_DISABLE_DUTY_COMMUNITY` to `1` and restart.
 For the scope of outbound requests, the contents of diagnostic exports and how to check for yourself, see the [privacy and network boundary document](docs/privacy-boundary.md) (Chinese).
 
 ## FAQ

@@ -453,9 +453,17 @@ ApplicationWindow {
             };
             QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("IMPORT")}, {QStringLiteral("result"), QStringLiteral("UNKNOWN")}}),
                      QStringList{QString::fromUtf8("待补充")});
-            // Edited without overruling anything: 已确认. Overruled: 已修正, never both.
-            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 2}}),
+            // Answered or filled in without overruling anything: 已确认, only when the
+            // Collector says so (review_confirmed). Overruled: 已修正, never both.
+            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 2},
+                              {QStringLiteral("review_confirmed"), true}}),
                      QStringList{QString::fromUtf8("已确认")});
+            // A later revision that confirmed nothing - moved to another character or
+            // region, deleted and restored - and a Collector that does not send the
+            // field show no mark (audit 2026-11-26, K3-1).
+            QVERIFY(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 3},
+                             {QStringLiteral("review_confirmed"), false}}).isEmpty());
+            QVERIFY(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 2}}).isEmpty());
             QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 3},
                               {QStringLiteral("manually_corrected"), true}, {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("x")}}}}),
                      (QStringList{QString::fromUtf8("已修正"), QString::fromUtf8("有笔记")}));

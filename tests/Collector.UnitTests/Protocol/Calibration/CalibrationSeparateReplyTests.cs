@@ -41,7 +41,7 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     private const int Clyteum = 1345;      // the Clyteum
     private const byte Mentor = 9;
     private const byte Expert = 5;
-    private const byte NormalRaids = 15;
+    private const byte AllianceRaids = 15;
 
     private readonly TempDirectory _root = TempDirectory.Reserve(strict: true);
 
@@ -279,8 +279,8 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     [Fact]
     public void ReplyCarryingTheQueuedRouletteAtThePopOffsetIsStillNotThePop()
     {
-        // The second reply carries 15 at offset 2; queued for Normal Raids (15) it agrees with the queue there.
-        var (snapshot, draft) = Run(Evening(roulette: NormalRaids));
+        // The second reply carries 15 at offset 2; queued for Alliance Raids (15) it agrees with the queue there.
+        var (snapshot, draft) = Run(Evening(roulette: AllianceRaids));
 
         Assert.Contains(snapshot.Pops, pop => pop.Opcode == Reply);
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);

@@ -1,5 +1,7 @@
 #include "DesktopTestRunner.h"
+#include "DisplayTimeZone.h"
 #include "ExportController.h"
+#include "Formatters.h"
 #include "HistoryBatchTestSupport.h"
 #include "HistoryController.h"
 #include "IpcFraming.h"
@@ -144,6 +146,47 @@ private Q_SLOTS:
         QVERIFY(backend.last(message).payload.value(QStringLiteral("release")).toBool());
     }
 
+    void cleanup()
+    {
+        mr::DisplayTimeZone::set(QString());
+    }
+
+    void aZoneChangeRestartsACheckAllOnTheRebasedDays()
+    {
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.setHistoryFilter(
+            {{QStringLiteral("from_utc"), mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-09-15"), false)},
+             {QStringLiteral("to_utc"), mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-09-15"), true)}});
+        QSignalSpy feedback(&history, &mr::HistoryController::toastRequested);
+        const QString message = QStringLiteral("QueryHistorySelection");
+        const auto sentCount = [&backend, &message] {
+            return std::ranges::count_if(backend.calls, [&message](const ControlledBackend::Call &call) {
+                return call.type == message;
+            });
+        };
+        history.checkAllMatchingRuns();
+        QCOMPARE(sentCount(), 1);
+        const auto first = backend.last(message);
+        QCOMPARE(first.payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("from_utc")).toString(),
+                 QStringLiteral("2026-09-14T15:00:00.000Z"));
+
+        // 显示时区 changes while the first page is still being read: the frozen
+        // snapshot is dropped and 勾选全部 starts again on the same day's new bounds,
+        // rather than stopping without a word (re-review RD-1).
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QVERIFY(history.checkAllLoading());
+        QCOMPARE(sentCount(), 2);
+        const auto restarted = backend.last(message);
+        QCOMPARE(restarted.payload.value(QStringLiteral("page")).toInt(), 1);
+        QVERIFY(!restarted.payload.contains(QStringLiteral("selection_id")));
+        const QJsonObject filter = restarted.payload.value(QStringLiteral("filter")).toObject();
+        QCOMPARE(filter.value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-09-15T04:00:00.000Z"));
+        QCOMPARE(filter.value(QStringLiteral("to_utc")).toString(), QStringLiteral("2026-09-16T03:59:59.999Z"));
+        QCOMPARE(feedback.count(), 0);
+    }
+
     void anOlderCollectorKeepsTheSelectionAndPromptsForAnUpdate()
     {
         ControlledBackend backend;
@@ -152,8 +195,11 @@ private Q_SLOTS:
         QSignalSpy feedback(&history, &mr::HistoryController::toastRequested);
 
         history.checkAllMatchingRuns();
+        // What the Collector really answers for a type it does not know
+        // (MessageDispatcher: ERR_BAD_REQUEST, ipc.unknown_message_type; audit 2026-11-26, I2-4).
         backend.last(QStringLiteral("QueryHistorySelection")).reply->fail(
-            QStringLiteral("ERR_UNKNOWN_MESSAGE"), QStringLiteral("未知请求"));
+            QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("收到本版本不支持的消息类型，请确认两端版本一致。"), {},
+            QJsonObject{{QStringLiteral("key"), QStringLiteral("ipc.unknown_message_type")}});
 
         QVERIFY(!history.checkAllLoading());
         QCOMPARE(history.checkedRunIds(), QStringList{firstId()});

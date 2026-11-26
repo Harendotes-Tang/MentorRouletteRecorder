@@ -439,6 +439,24 @@ private Q_SLOTS:
         QCOMPARE(catalogue->lookup(1118).value("difficulty").toString(), QString::fromUtf8("极"));
     }
 
+    void globalExtremesAndSavageRaidsAreKnownByTheirEnglishNames()
+    {
+        // Audit 2026-11-26 I2-3: the Global catalogue names its duties in English, so 极神 was
+        // always 0 there and the wizard's 极 / 零式 filters listed no Global duty.
+        const auto *catalogue = mr::DutyCatalog::shared();
+        const QString global = QStringLiteral("GLOBAL");
+        QVERIFY(!catalogue->isExtremeTrial(56, global)); // the Bowl of Embers
+        QVERIFY(catalogue->isExtremeTrial(63, global)); // the Bowl of Embers (Extreme)
+        QVERIFY(catalogue->isExtremeTrial(846, global)); // the Minstrel's Ballad: Endsinger's Aria
+        QVERIFY(!catalogue->isExtremeTrial(1118, global)); // Shinryu's Domain (Unreal)
+        QCOMPARE(catalogue->lookup(63, global).value("difficulty").toString(), QString::fromUtf8("极"));
+        QCOMPARE(catalogue->lookup(1118, global).value("difficulty").toString(), QString::fromUtf8("极"));
+        QCOMPARE(catalogue->lookup(256, global).value("difficulty").toString(), QString::fromUtf8("零式"));
+        QCOMPARE(catalogue->lookup(56, global).value("difficulty").toString(), QString::fromUtf8("普通"));
+        QCOMPARE(mr::DutyCatalog::difficultyForName(QStringLiteral("the Unending Coil of Bahamut (Ultimate)")),
+                 QString::fromUtf8("普通"));
+    }
+
     void extremeCompositionCarvesOnlyTrialRowsAndPreservesRecordedCategories()
     {
         StatisticsBackend backend;

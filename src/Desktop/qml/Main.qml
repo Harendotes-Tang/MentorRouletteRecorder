@@ -10,6 +10,11 @@ ApplicationWindow {
     id: window
     readonly property bool recordEditorOccupied: editDialog.editingActive
         || reflectionDialog.editingActive || reflectionDialog.busy
+    // An editor the player can see. One parked on the record page with 「返回」 or another page
+    // is not, and holds no 本次更新 back (audit 2026-11-26 L2-2).
+    readonly property bool recordEditorOnScreen: (editDialog.editingActive
+        && (editDialog.visible || Runtime.app.currentPage === 8))
+        || reflectionDialog.editorOnScreen || reflectionDialog.busy
     // A 新增记录 form can be left behind: 「返回」, another page, minimising or the tray keep its
     // draft. Only one the player is looking at holds an automatic popup back; a parked one must
     // not swallow every 本次导随结果 / 心得 popup until it is found again (audit 2026-11-10 K1-1).
@@ -173,8 +178,8 @@ ApplicationWindow {
         if (!releaseNotesWaiting || !window.visible || window.visibility === Window.Minimized)
             return
         // An inline editor on the record page is no overlay child, but is still being written
-        // in (audit 2026-11-10 L2-1).
-        if (baselineDialog.visible || recordingAlert.visible || window.recordEditorOccupied)
+        // in (audit 2026-11-10 L2-1); one parked there is not (audit 2026-11-26 L2-2).
+        if (baselineDialog.visible || recordingAlert.visible || window.recordEditorOnScreen)
             return
         const children = Overlay.overlay.children
         for (let i = 0; i < children.length; ++i) {
@@ -327,6 +332,12 @@ ApplicationWindow {
             else Runtime.app.reflectionPromptDeferred(run.run_id)
             return
         }
+        // A note editor parked on the record page (补录笔记 → 返回) is put away like 稍后补录,
+        // its draft kept, as when the window goes to the tray: it must not hold every popup
+        // back until it is found again (audit 2026-11-26 L2-2). The popup is the same editor.
+        if (reflectionDialog.editingActive && !reflectionDialog.editorOnScreen
+            && !reflectionDialog.standalone && !reflectionDialog.busy)
+            reflectionDialog.defer()
         if (reflectionDialog.editingActive || reflectionDialog.busy) return
         if (window.manualFormOnScreen) {
             window.popupHeldByManualForm = true
@@ -370,7 +381,12 @@ ApplicationWindow {
         target: Runtime.app.recovery
         function onScopeChanging() { recoveryInbox.close(); recoveryNotice.hide() }
         function onInboxRequested() {
-            if (window.recordEditorOccupied) {
+            // The inbox is only a list and needs no editor: an editor left open, even a form
+            // parked with 「返回」, does not turn 待处理 into "show the editor". Only an editor
+            // open as a dialog in this window is shown instead of a second modal over it, and
+            // opening an item still brings the open editor forward (onOpenRequested; audit
+            // 2026-11-26 K1-2).
+            if (editDialog.visible || (reflectionDialog.visible && !reflectionDialog.standalone)) {
                 window.raiseEditorHost()
                 return
             }

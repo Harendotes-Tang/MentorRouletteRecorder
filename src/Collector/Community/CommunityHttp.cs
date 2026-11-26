@@ -25,13 +25,20 @@ internal sealed class CommunityHttp
     private static readonly TimeSpan SlowAfter = TimeSpan.FromSeconds(3);
 
     internal static Task<byte[]?> GetPublicationAsync(string revision, string file, int maxBytes,
-        CancellationToken cancellationToken) =>
+        Func<byte[], bool> accept, CancellationToken cancellationToken) =>
         GetPublicationAsync(revision, file,
-            (url, token) => SendAsync(HttpMethod.Get, url, null, null, maxBytes, token), SlowAfter, cancellationToken);
+            (url, token) => SendAsync(HttpMethod.Get, url, null, null, maxBytes, token), SlowAfter, cancellationToken,
+            accept);
 
-    /// <summary>Returns the file, or null only when both GitHub and the mirror report it missing.</summary>
+    /// <summary>
+    /// Returns the file, or null only when both GitHub and the mirror report it missing. A reply
+    /// that <paramref name="accept"/> refuses, or that is over the size limit, does not decide: the
+    /// other source is awaited, and only when neither delivers a usable file is the refused reply
+    /// returned (or the size error thrown) so that the caller reports it.
+    /// </summary>
     internal static async Task<byte[]?> GetPublicationAsync(string revision, string file,
-        Func<string, CancellationToken, Task<byte[]?>> send, TimeSpan slowAfter, CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task<byte[]?>> send, TimeSpan slowAfter, CancellationToken cancellationToken,
+        Func<byte[], bool>? accept = null)
     {
         // Raw GitHub and GitCode receive only a fixed path and a ref. The same download path
         // never accepts an authorization token even if user authentication is active.
@@ -49,13 +56,19 @@ internal sealed class CommunityHttp
                 cancellationToken.ThrowIfCancellationRequested();
                 first = await Task.WhenAny(github, Mirror()).ConfigureAwait(false);
             }
-            var (content, missing) = await Outcome(first, cancellationToken).ConfigureAwait(false);
-            if (content is not null)
-                return content;
-            // The mirror when GitHub had nothing, GitHub when the mirror answered first without the file.
-            var (other, otherMissing) = await Outcome(first == github ? Mirror() : github, cancellationToken)
+            var reply = await Outcome(first, accept, cancellationToken).ConfigureAwait(false);
+            if (reply.Content is not null)
+                return reply.Content;
+            // The mirror when GitHub had nothing usable, GitHub when the mirror answered first without it.
+            var other = await Outcome(first == github ? Mirror() : github, accept, cancellationToken)
                 .ConfigureAwait(false);
-            return other ?? (missing && otherMissing ? null : throw new HttpRequestException());
+            if (other.Content is not null)
+                return other.Content;
+            if ((reply.Rejected ?? other.Rejected) is { } rejected)
+                return rejected;
+            if ((reply.Oversize ?? other.Oversize) is { } oversize)
+                throw oversize;
+            return reply.Missing && other.Missing ? null : throw new HttpRequestException();
         }
         finally
         {
@@ -64,20 +77,28 @@ internal sealed class CommunityHttp
         }
     }
 
-    private static async Task<(byte[]? Content, bool Missing)> Outcome(Task<byte[]?> request,
+    private static async Task<Reply> Outcome(Task<byte[]?> request, Func<byte[], bool>? accept,
         CancellationToken cancellationToken)
     {
         try
         {
             var content = await request.ConfigureAwait(false);
-            return (content, content is null);
+            if (content is not null && accept is not null && !accept(content))
+                return new(null, false, content, null);
+            return new(content, content is null, null, null);
+        }
+        catch (FormatException error)
+        {
+            return new(null, false, null, error);
         }
         catch (Exception error) when (error is HttpRequestException or IOException ||
                                       error is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return (null, false);
+            return new(null, false, null, null);
         }
     }
+
+    private sealed record Reply(byte[]? Content, bool Missing, byte[]? Rejected, FormatException? Oversize);
 
     internal static async Task<JsonObject> GithubAsync(HttpMethod method, string url, string? token,
         HttpContent? content, CancellationToken cancellationToken)

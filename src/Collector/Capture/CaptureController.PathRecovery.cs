@@ -15,6 +15,10 @@ public sealed partial class CaptureController
     private bool _knownPathsUnavailable;
     private bool _pathReopenPending;
     private long _recoveryCancellation;
+    private CaptureRun? _carrierWatchRun;
+    private string[] _carriersSeen = Array.Empty<string>();
+    private long _closedCarrierSince = -1;
+    private long _closedCarrierIpcBaseline;
 
     private void SubscribeToNetworkChanges()
     {
@@ -44,6 +48,61 @@ public sealed partial class CaptureController
         _knownPathsUnavailable = false;
         _pathReopenPending = false;
         _recoveryCancellation++;
+        _carrierWatchRun = null;
+    }
+
+    /// <summary>
+    /// Audit 2026-11-26, A1-1. True when an interface whose reader is closed began to carry the game
+    /// at an earlier inspection, while this session was running, and no IPC has been decoded since,
+    /// for at least the liveness grace: the game's own traffic then runs over that interface,
+    /// whatever other connection of the game process stayed on an interface that is read. IPC
+    /// decoded after the change proves a read interface still carries it, and the case is closed.
+    /// "Began to carry" is measured against every carrier seen in this session (a union that only
+    /// grows), not against the previous inspection, and an inspection whose connection table could
+    /// not be read changes nothing: a closed interface that carried the game when this session was
+    /// first inspected keeps the protection of audit 2026-11-20, A1-1, for the whole session however
+    /// often the game's connection to it comes and goes (re-review 2026-11-26, RA-1). Once a gain is
+    /// being watched, an inspection in which the interface carries nothing does not end the watch;
+    /// only decoded IPC does. Called with the state gate held.
+    /// </summary>
+    /// <param name="run">The running session.</param>
+    /// <param name="carriers">
+    /// Normalised identities of the interfaces carrying the game; null when discovery failed or the
+    /// connection table could not be read.
+    /// </param>
+    /// <param name="closedCarriers">Those of them whose reader is closed.</param>
+    /// <param name="now">Process uptime, in milliseconds.</param>
+    private bool GameMovedOntoClosedCarrier(
+        CaptureRun run, string[]? carriers, IReadOnlyCollection<string> closedCarriers, long now)
+    {
+        if (carriers is null) return false;
+        if (!ReferenceEquals(_carrierWatchRun, run))
+        {
+            _carrierWatchRun = run;
+            _carriersSeen = carriers;
+            _closedCarrierSince = -1;
+            return false;
+        }
+
+        var gained = closedCarriers.Any(identity =>
+            !_carriersSeen.Contains(identity, StringComparer.OrdinalIgnoreCase));
+        _carriersSeen = _carriersSeen.Union(carriers, StringComparer.OrdinalIgnoreCase).ToArray();
+        if (gained)
+        {
+            _closedCarrierSince = now;
+            _closedCarrierIpcBaseline = run.IpcMessagesDecoded;
+            return false;
+        }
+
+        if (_closedCarrierSince < 0) return false;
+        if (run.IpcMessagesDecoded > _closedCarrierIpcBaseline)
+        {
+            _closedCarrierSince = -1;
+            return false;
+        }
+
+        return closedCarriers.Count != 0 &&
+            now - _closedCarrierSince >= (long)LivenessGrace.TotalMilliseconds;
     }
 
     private void BindPathRecovery(CaptureRun run)
@@ -112,6 +171,12 @@ public sealed partial class CaptureController
         // is still read, and a replacement could never read its open connections again
         // (audit 2026-11-20, A1-1).
         var carrierUnread = false;
+        // The interfaces carrying the game now, and those of them whose reader is closed; null when
+        // discovery failed or the connection table could not be read (re-review 2026-11-26, RA-1).
+        // The table cannot say which carrier holds the game's own traffic, so whether a closed one
+        // does is decided from decoded IPC (audit 2026-11-26, A1-1).
+        string[]? carrierIds = null;
+        var closedCarrierIds = Array.Empty<string>();
         var pathStatus = ReadPathStatus(source);
         try
         {
@@ -134,6 +199,10 @@ public sealed partial class CaptureController
                 closed.Contains(CapturePathPlan.NormalizeIdentity(adapter.Id), StringComparer.OrdinalIgnoreCase));
             gamePathsIntact = next is not null && !carrierUnread &&
                 GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown, closed);
+            carrierIds = carriersUnknown ? null
+                : carriers.Select(adapter => CapturePathPlan.NormalizeIdentity(adapter.Id)).ToArray();
+            closedCarrierIds = (carrierIds ?? Array.Empty<string>())
+                .Where(identity => closed.Contains(identity, StringComparer.OrdinalIgnoreCase)).ToArray();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -151,6 +220,12 @@ public sealed partial class CaptureController
                 if (_state != CaptureControllerState.Running || generation != _generation ||
                     !ReferenceEquals(run, _run) || !FollowGameEnabled) return;
                 now = ProcessUptimeMs;
+                if (GameMovedOntoClosedCarrier(run, carrierIds, closedCarrierIds, now))
+                {
+                    carrierUnread = true;
+                    gamePathsIntact = false;
+                }
+
                 var changed = next is not null && !SamePaths(run.PathPlan, next);
                 var newlyDiscovered = next is not null && !SamePaths(_lastDiscoveredPlan, next);
                 var pathsLost = inventoryKnown && pathsUnavailable && !_knownPathsUnavailable;

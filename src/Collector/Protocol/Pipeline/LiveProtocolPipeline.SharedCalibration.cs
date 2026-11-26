@@ -340,14 +340,14 @@ public sealed partial class LiveProtocolPipeline
             return new SharedBindResult(SharedBindOutcome.NotSelected, "NOT_SELECTED: " + selection.Reason);
         }
 
-        _select = select;
-
         var bindNow = _active && _parser is null && _processor is null;
         if (bindNow && (request.Stage is not { Overflowed: false } stage || !SessionMatches(stage.CaptureSessionId)))
         {
             // Binding on staging from another session, or on part of this one, would record a partial evening.
             return new SharedBindResult(SharedBindOutcome.SessionChanged, "STAGING_NOT_FOR_THIS_SESSION");
         }
+
+        _select = select;
 
         // A profile the reloaded catalogue outranks is already recording, and the machine is between runs:
         // the parser is rebuilt over the better profile at once, the way a confirmed local calibration that

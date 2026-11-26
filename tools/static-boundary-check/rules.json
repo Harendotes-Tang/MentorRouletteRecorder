@@ -150,7 +150,7 @@
     "repository-relative, forward-slash FILE paths matched exactly (not by file",
     "or directory name); 'allow_path_prefixes' lists directory prefixes that must",
     "end in '/'. Each allowance lifts only its own rule, and every one must be",
-    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3, 8.4 and 8.6; NET-010:",
+    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3, 8.4, 8.6 and 8.7; NET-010:",
     "the development-time downloads named under section 8).",
     "",
     "A rule id may be declared more than once when every entry names a distinct",
@@ -158,7 +158,11 @@
     "entry has its own pattern and its own allowances, so the shared-calibration",
     "client may name its CDN hosts but not the speech host, the online-speech",
     "client the speech host but not the CDN hosts, and the update-check client the",
-    "content host but neither the CDN hosts nor the speech host.",
+    "content host but neither the CDN hosts nor the speech host. The fourth outbound client,",
+    "the duty community client (CommunityHttp.cs with CommunityGithub.cs, section 8.7), is the",
+    "only Collector code that may name the GitHub API and device-login endpoints",
+    "(NET-007/github-api-hosts, audit 2026-11-26 N2-2): it is the one client that sends the",
+    "user's own content outward, with a bearer token.",
     "",
     "Audit 2026-11-03. N2-1: PowerShell, batch, workflow scripts and Inno Setup Pascal resolve type,",
     "member and COM names in any letter case, so INJ-007, INJ-008, INJ-009, NET-001, NET-002, NET-003,",
@@ -676,7 +680,7 @@
       "variant": "github-content-hosts",
       "category": "outbound-network",
       "pattern": "(?i:githubusercontent)",
-      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录、开发期数据生成器与专用发布同步脚本（docs/privacy-boundary.md §8.2、§8.4、§8.6） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ the dev-time duty-data generator and tools/release-mirror/sync_release.py (docs/privacy-boundary.md sections 8.2, 8.4 and 8.6)",
+      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、副本社区客户端、公开仓库脚本目录、开发期数据生成器与专用发布同步脚本（docs/privacy-boundary.md §8.2、§8.4、§8.6、§8.7） / the content host name may only appear in the shared-calibration fetch client, the update-check client, the duty community client, tools/shared-calibration/, the dev-time duty-data generator and tools/release-mirror/sync_release.py (docs/privacy-boundary.md sections 8.2, 8.4, 8.6 and 8.7)",
       "allow_paths": [
         "src/Collector/Community/CommunityHttp.cs",
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
@@ -693,7 +697,7 @@
       "variant": "gitcode-api-host",
       "category": "outbound-network",
       "pattern": "(?i:api\\.gitcode\\.com)",
-      "message": "GitCode API 主机仅允许出现在专用读取客户端和发布同步脚本 / GitCode API host is confined to the dedicated readers and release mirror tool",
+      "message": "GitCode API 主机仅允许出现在专用读取客户端（共享校准、更新检查、副本社区）和发布同步脚本 / GitCode API host is confined to the dedicated readers (shared calibration, update check, duty community) and release mirror tool",
       "allow_paths": [
         "src/Collector/Community/CommunityHttp.cs",
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
@@ -724,6 +728,25 @@
     },
     {
       "id": "NET-007",
+      "variant": "github-api-hosts",
+      "category": "outbound-network",
+      "pattern": "(?i:api\\.github\\.com|github\\.com/login|/login/(?:device|oauth))",
+      "message": "GitHub API 与设备登录端点只允许出现在副本社区客户端（docs/privacy-boundary.md §8.7）、只为用户打开浏览器登录页的副本社区控制器、开发期数据生成器、发布同步脚本、安全质量门禁与公开仓库脚本目录 / the GitHub API and device-login endpoints may only appear in the duty community client (docs/privacy-boundary.md section 8.7), the duty community controller that only opens the login page in the user's browser, the dev-time duty-data generator, the release mirror, the security-quality gate and tools/shared-calibration/",
+      "allow_paths": [
+        "src/Collector/Community/CommunityGithub.cs",
+        "src/Collector/Community/CommunityHttp.cs",
+        "src/Desktop/cpp/DutyCommunityController.cpp",
+        "tools/duty-data-generator/generate.py",
+        "tools/release-mirror/sync_release.py",
+        "tools/security-quality/check.py",
+        "tools/security-quality/test_check.py"
+      ],
+      "allow_path_prefixes": [
+        "tools/shared-calibration/"
+      ]
+    },
+    {
+      "id": "NET-007",
       "variant": "speech-host",
       "category": "outbound-network",
       "pattern": "(?i:tts\\.speech\\.microsoft\\.com)",
@@ -736,7 +759,7 @@
       "id": "NET-008",
       "category": "network-socket",
       "pattern": "\\bTcpClient\\b|\\bUdpClient\\b|\\bSocket\\b|\\bQTcpSocket\\b|\\bQUdpSocket\\b|\\bQSslSocket\\b|\\bQAbstractSocket\\b|\\bQSctpSocket\\b|\\bQDnsLookup\\b|\\bQHostInfo\\s*::\\s*(?:lookupHost|fromName)\\b|\\bDns\\s*(?:\\]\\s*::|\\.)\\s*\\w+|\\bnew\\s+(?:[\\w.]*\\.)?Ping\\s*\\(|\\bPing\\s+\\w+\\s*=\\s*new\\b|\\bSendPingAsync\\b|\\bSmtpClient\\b|\\bQuic(?:Connection|Listener|Stream)\\b|\\bWSA(?:Startup|Socket[AW]?|Connect\\w*)\\b|\\bsocket\\s*\\(\\s*(?:socket\\.)?(?:AF|PF)_|\\b(?:getaddrinfo|gethostbyname|GetAddrInfo(?:Ex)?[AW]?)\\b|\\b(?:Test-NetConnection|Test-Connection|Resolve-DnsName|Send-MailMessage)\\b",
-      "message": "禁止直接使用网络：TCP / UDP / QUIC 套接字（TcpClient、UdpClient、Socket、Winsock、Qt 套接字类）、域名解析（Dns、QHostInfo、getaddrinfo）、Ping 与 SmtpClient，以及 PowerShell 中做同样事情的 Test-NetConnection、Test-Connection、Resolve-DnsName、Send-MailMessage；既不得外连也不得监听；进程间通信只用命名管道，三个出站客户端也只经由 HTTP 客户端 / no direct network use: TCP, UDP or QUIC sockets (TcpClient, UdpClient, Socket, Winsock, the Qt socket classes), name resolution (Dns, QHostInfo, getaddrinfo), Ping and SmtpClient, and the PowerShell cmdlets that do the same (Test-NetConnection, Test-Connection, Resolve-DnsName, Send-MailMessage), neither connecting nor listening; IPC is Named Pipe only and the three outbound clients go through the HTTP client only",
+      "message": "禁止直接使用网络：TCP / UDP / QUIC 套接字（TcpClient、UdpClient、Socket、Winsock、Qt 套接字类）、域名解析（Dns、QHostInfo、getaddrinfo）、Ping 与 SmtpClient，以及 PowerShell 中做同样事情的 Test-NetConnection、Test-Connection、Resolve-DnsName、Send-MailMessage；既不得外连也不得监听；进程间通信只用命名管道，四个出站客户端也只经由 HTTP 客户端 /no direct network use: TCP, UDP or QUIC sockets (TcpClient, UdpClient, Socket, Winsock, the Qt socket classes), name resolution (Dns, QHostInfo, getaddrinfo), Ping and SmtpClient, and the PowerShell cmdlets that do the same (Test-NetConnection, Test-Connection, Resolve-DnsName, Send-MailMessage), neither connecting nor listening; IPC is Named Pipe only and the four outbound clients go through the HTTP client only",
       "ignore_case_extensions": [
         ".bat",
         ".cmd",

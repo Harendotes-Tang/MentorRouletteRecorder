@@ -29,6 +29,7 @@ public sealed class RunRepository
     private readonly SqliteDatabase _database;
     private readonly RunReflectionRepository _reflections;
     private readonly RunImportRepository _imports;
+    private readonly RunRevisionRepository _revisions;
 
     /// <summary>Creates a repository over an open database.</summary>
     /// <param name="database">Open database.</param>
@@ -38,6 +39,7 @@ public sealed class RunRepository
         _database = database;
         _reflections = new RunReflectionRepository(database);
         _imports = new RunImportRepository(database);
+        _revisions = new RunRevisionRepository(database);
     }
 
     /// <summary>仓库使用的数据库；导出据此打开独立快照，不复用该连接读取全量数据。</summary>
@@ -539,11 +541,12 @@ public sealed class RunRepository
     }
 
     /// <summary>
-    /// Hydrates <c>MentorRun.Reflection</c> from <c>run_reflections</c>.
+    /// Hydrates <c>MentorRun.Reflection</c> from <c>run_reflections</c>, and
+    /// <c>MentorRun.ReviewConfirmed</c> from the run's revisions.
     ///
     /// Done here, at the single place runs are materialised, rather than at each site that
     /// serialises a Run; this is what lets the contract promise that every Run on the wire
-    /// carries <c>reflection</c>.
+    /// carries <c>reflection</c> and <c>review_confirmed</c>.
     /// </summary>
     /// <param name="run">Run just read from the row.</param>
     /// <param name="transaction">Enclosing transaction, or null.</param>
@@ -551,6 +554,7 @@ public sealed class RunRepository
     {
         Reflection = _reflections.Get(run.RunId, transaction),
         ImportMetadata = _imports.Get(run.RunId, transaction),
+        ReviewConfirmed = _revisions.FindReviewConfirmed([run.RunId], transaction).Contains(run.RunId),
     };
 
     /// <summary>Hydrates a whole page in one extra query rather than one per row.</summary>
@@ -566,9 +570,14 @@ public sealed class RunRepository
         var ids = runs.Select(run => run.RunId).ToArray();
         var reflections = _reflections.GetMany(ids, transaction);
         var imports = _imports.GetMany(ids, transaction);
+        var confirmed = _revisions.FindReviewConfirmed(ids, transaction);
 
         for (var i = 0; i < runs.Count; i++)
         {
+            if (confirmed.Contains(runs[i].RunId))
+            {
+                runs[i] = runs[i] with { ReviewConfirmed = true };
+            }
             if (reflections.TryGetValue(runs[i].RunId, out var reflection))
             {
                 runs[i] = runs[i] with { Reflection = reflection };

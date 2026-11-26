@@ -84,12 +84,12 @@ public:
     /// several connections and anchors across query pages. Never changes runs.
     void setCandidateFixture();
 
-    /// A GLOBAL client on 2026.11.03 with no profile that records it and the shipped
-    /// global.2026.11.03.candidate (the player's 第二轮 on the 新区服采证 page). The Collector
-    /// follows the game, so capture runs while the game does and candidate validation is on.
-    /// Test only.
+    /// A GLOBAL client on a later build (2026.12.02) than the one global.2026.11.03 records,
+    /// with no profile that records it and a candidate for it, global.2026.12.02.candidate
+    /// (the player's 第二轮 on the 新区服采证 page). The Collector follows the game, so capture
+    /// runs while the game does and candidate validation is on. Test only.
     void setCandidateRoundFixture(bool gameRunning);
-    /// $defs/CandidateHypothesis rows of protocol-profiles/global/global.2026.11.03.candidate.json.
+    /// $defs/CandidateHypothesis rows, those of protocol-profiles/global/global.2026.11.03.candidate.json.
     static QJsonArray candidateRoundHypotheses();
     /// $defs/CandidateRoundGuesses the round fixture reports while its validation is on: by
     /// default a roulette and the first job named, the second job by id alone and no duty yet.
@@ -401,9 +401,17 @@ private:
     bool refusedSort(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
     QJsonObject queryRunCalendarDaysPayload(const QJsonObject &payload) const;
     QJsonObject queryRunsPayload(const QJsonObject &payload) const;
-    QJsonObject queryHistorySelection(const QJsonObject &payload, QString *errorCode);
-    QJsonObject stageHistorySelection(const QJsonObject &payload, QString *errorCode);
-    bool resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode) const;
+    /// QueryHistorySelection / StageHistorySelection, refused with the Collector's sentences.
+    QJsonObject queryHistorySelection(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
+    QJsonObject stageHistorySelection(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
+    /// A staged selection_id in place of the runs (or the export filter); false after a refusal.
+    bool resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode,
+                                 QString *errorMessage);
+    /// Marks a selection handle as just used.
+    void touchHistorySelection(const QString &id);
+    /// The handle among \a ids to drop before a new one of that kind is kept, or "" while
+    /// fewer than kRetainedHistorySelections are held.
+    QString historySelectionToEvict(const QList<QString> &ids) const;
     QJsonObject queryCandidatePayload(const QJsonObject &payload, QString *errorCode,
                                        QString *errorMessage) const;
     QJsonObject reviewCandidatePayload(const QJsonObject &payload, QString *errorCode,
@@ -428,6 +436,12 @@ private:
     int indexOfRun(const QString &runId) const;
     void touchRun(QJsonObject &run, const QString &changeKind, const QString &reason,
                   const QJsonArray &changes);
+    /// Sets Run.review_confirmed (已确认) on \a run from its stored revisions, as the
+    /// Collector sends it on every Run (RunRevisionRepository.IsReviewConfirmed, and
+    /// false while the run is pending review).
+    void stampReviewConfirmed(QJsonObject &run) const;
+    /// stampReviewConfirmed for every stored run, reading the revisions once.
+    void stampAllReviewConfirmed();
 
     struct StagedHistorySelection {
         QList<QJsonArray> chunks;
@@ -436,6 +450,11 @@ private:
     };
     QHash<QString, QList<QJsonObject>> m_historySelectionSnapshots;
     QHash<QString, StagedHistorySelection> m_stagedHistorySelections;
+    /// HistorySelectionStore.MaxRetainedHandlesPerKind.
+    static constexpr qsizetype kRetainedHistorySelections = 4;
+    /// Handle id -> when it was last used, on m_historySelectionClock.
+    QHash<QString, quint64> m_historySelectionTouched;
+    quint64 m_historySelectionClock = 0;
     QJsonArray m_runs;
     QJsonArray m_revisions;
     QJsonArray m_candidateObservations;
@@ -547,6 +566,9 @@ private:
     static QJsonArray declaredCandidateHypotheses();
     /// What setCandidateRoundFixture() makes GetStatus.capture say.
     void applyCandidateRoundFixture(QJsonObject &status) const;
+    /// Maintainer candidate validation on a Global client (no round fixture): the Global
+    /// candidate's build, id and hypotheses, the build no profile records (re-review RD-6).
+    void applyGlobalCandidateValidation(QJsonObject &status) const;
     bool m_candidateRound = false;
     bool m_candidatePlayerRoundActive = false;
     bool m_candidateRoundGameRunning = false;

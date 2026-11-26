@@ -253,7 +253,8 @@ public sealed class OodleSignatureProfile
 
     /// <summary>
     /// Checks a donor's patterns against the bytes of an executable file: every signature
-    /// must hit exactly once and resolve to a target inside the file. A file offset is not a
+    /// must hit exactly once, at a call site <see cref="OodleSignatureDiscovery.IsCallSite"/>
+    /// accepts, on a call no other signature uses, and resolve to a target inside the file. A file offset is not a
     /// mapped RVA, so this is a plausibility gate before the real scan at install time, not
     /// the scan itself.
     /// </summary>
@@ -272,6 +273,10 @@ public sealed class OodleSignatureProfile
             return false;
         }
 
+        // Audit 2026-11-26, A2-1: the donor runs in ordinary recording, so it passes the same
+        // gate as a set this machine found - a call inside code, and no two signatures on one call.
+        var sections = OodleSignatureRuntime.PeSections(image);
+        var operands = new HashSet<long>();
         foreach (var type in Enum.GetValues<SignatureType>())
         {
             if (!Signatures.TryGetValue(type, out var pattern))
@@ -291,6 +296,18 @@ public sealed class OodleSignatureProfile
             if (target is not > 0 || target >= image.Length)
             {
                 problem = $"signature {type} resolves outside the image";
+                return false;
+            }
+
+            if (!OodleSignatureDiscovery.IsCallSite(image, sections, hits[0], pattern))
+            {
+                problem = $"signature {type} is not a call inside code";
+                return false;
+            }
+
+            if (!operands.Add((long)hits[0] + pattern.Length))
+            {
+                problem = $"signature {type} settles on a call another signature already uses";
                 return false;
             }
         }
@@ -362,6 +379,39 @@ public sealed class OodleSignatureProfile
         }
 
         return matches.Count == 1 ? matches[0] : null;
+    }
+
+    /// <summary>
+    /// The region whose signature profile records this exact executable (SHA-256 and size), or
+    /// null when no profile in the directory does, or profiles of more than one region do. The
+    /// game locator uses it only to refuse a region that contradicts it, never to name one
+    /// (audit 2026-11-26, A2b-1 / D2-2): an executable no profile knows changes nothing.
+    /// </summary>
+    /// <param name="directory">Signature profile directory.</param>
+    /// <param name="exeSha256">SHA-256 of the executable, lowercase hex.</param>
+    /// <param name="exeSize">Size of that executable in bytes.</param>
+    public static Region? RegionOfExecutable(string? directory, string? exeSha256, long exeSize)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory) ||
+            string.IsNullOrWhiteSpace(exeSha256) || exeSize <= 0)
+        {
+            return null;
+        }
+
+        var regions = new HashSet<Region>();
+        foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            if (TryLoad(file, out _) is { } profile &&
+                profile.ExeSize == exeSize &&
+                string.Equals(profile.ExeSha256, exeSha256, StringComparison.OrdinalIgnoreCase) &&
+                EnumWire<Region>.TryParse(profile.Region, out var region) &&
+                region != Domain.Region.Unknown)
+            {
+                regions.Add(region);
+            }
+        }
+
+        return regions.Count == 1 ? regions.Single() : null;
     }
 
     /// <summary>Reads and validates one signature profile file.</summary>

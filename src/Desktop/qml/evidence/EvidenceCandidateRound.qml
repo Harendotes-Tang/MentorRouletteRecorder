@@ -111,11 +111,17 @@ Card {
         return name || qsTr("编号 %1").arg(guess.id)
     }
     function answerText(key) { return card.isEdited(key) ? card.edits[key] : card.guessText(key) }
+    // Only what the tester typed is an answer. A field left as guessed is sent blank, as
+    // CandidateRoundAnswers says ("Blank or absent means left as guessed"): the guess already
+    // travels as `guessed`, and its display name is in the interface language (audit
+    // 2026-11-26 K4-3).
     function roundAnswers() {
         const answers = {}
         for (let index = 0; index < card.answerDefs.length; ++index) {
             const key = card.answerDefs[index].key
-            const text = String(card.answerText(key)).trim()
+            if (!card.isEdited(key))
+                continue
+            const text = String(card.edits[key]).trim()
             if (text.length > 0)
                 answers[key] = text
         }
@@ -218,10 +224,16 @@ Card {
                 lineHeight: 1.35
                 wrapMode: Text.Wrap
             }
+            // Everything docs/privacy-boundary.md §5.1.1 says is shown before consent: what the
+            // export holds - the values the software read and the answers the tester changed -
+            // and that the software keeps the content for up to 30 days, backups included
+            // (audit 2026-11-26 K4-2).
             Text {
+                objectName: "candidateRoundDisclosureDetail"
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
-                text: qsTr("导出的文件只包含这一轮的证据。")
+                text: qsTr("导出的文件只包含这一轮的证据，其中也有软件读到的任务、职业和副本，以及你在这一轮中改过的答案。"
+                           + "软件自己也会在本机保留这些报文内容最多 30 天，期间生成的数据库备份同样包含它们，删除那些备份即可清除。")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(13)
                 wrapMode: Text.Wrap

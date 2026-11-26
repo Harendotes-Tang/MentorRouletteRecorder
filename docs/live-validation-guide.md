@@ -24,6 +24,8 @@
 > （[protocol-profile-format.md](protocol-profile-format.md) §12）。国服副本内收到它时，记录直接收尾为通关；
 > 离开副本前没有收到时，仍以“未知 · 待复核”收尾。该观测只覆盖一种副本类型中的一局通关，
 > 其他副本类型、中途退出、灭团与超时尚未观测（§4.1），`LIVE_CAPTURE_STATUS` 因此仍为 `VERIFIED_POP_TO_EXIT`。
+> 这一按内容的识别（连同副本开始宣布与剩余时间）后来也用于国际服档案：国际服 `2026.11.03` 档案不声明 `DUTY_RESULT`，
+> 通关同样由它给出；繁中服没有观测，不比较。
 >
 > ### 先前状态：`LIVE_CAPTURE_STATUS = UNVERIFIED`（2026-09-05 及之前）
 >
@@ -80,9 +82,11 @@ pwsh -File scripts/bootstrap.ps1
    采集服务进程启动后检查一次（距上次检查不足 1 小时则跳过），之后每 24 小时外加 0–2 小时随机抖动最多一次，
    连向 `github.com` 及其重定向的 `*.githubusercontent.com` 的 443 端口；GitHub 不可用时改连 GitCode 镜像
    （`api.gitcode.com`，以及固定项目下载重定向的 `gitcode.com`、`file-cdn.gitcode.com`）。
-   用户点击「下载安装包」后的下载（§8.6）使用同样的主机。以上主机均属允许范围。要验证完全不联网，应先在设置中关闭
-   「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」，并把语音引擎改回本机语音，
-   或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 后重启本软件。
+   用户点击「下载安装包」后的下载（§8.6）使用同样的主机。在「提醒与宏」中打开「允许公共库联网」后，打开公共共享库或刷新时
+   还会连向 `raw.githubusercontent.com` 或 `api.gitcode.com`，点击查询「投稿进度」时连向 `api.github.com`（§8.7）。
+   以上主机均属允许范围。要验证完全不联网，应先在设置中关闭「游戏更新后获取其他玩家的共享校准」「检查新版本并提示」
+   与「允许公共库联网」，并把语音引擎改回本机语音、不查询投稿进度，或设置 `MR_DISABLE_SHARED_FETCH=1`、
+   `MR_DISABLE_ONLINE_SPEECH=1`、`MR_DISABLE_UPDATE_CHECK=1` 与 `MR_DISABLE_DUTY_COMMUNITY=1` 后重启本软件。
 4. 用 Process Explorer 确认 Collector **没有打开游戏进程的句柄**（具体做法见
    [privacy-boundary.md](privacy-boundary.md) §9 第 2 条）。
 5. 确认安装目录中**没有** `deucalion-*.dll`。

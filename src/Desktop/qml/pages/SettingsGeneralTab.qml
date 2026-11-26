@@ -167,6 +167,23 @@ ColumnLayout {
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap
         }
+
+        // The background service refused the zone, or never answered it
+        // (DisplayTimeZoneSync::refused / unconfirmed): the days it works out itself
+        // stay - or may stay - the computer's. Choosing the same zone again sends
+        // nothing, so no such retry is promised (re-review RD-2).
+        Text {
+            objectName: "displayTimeZoneRefusedHint"
+            Layout.fillWidth: true
+            Layout.bottomMargin: 4
+            visible: tab.displayTimeZoneAvailable && Runtime.app.displayTimeZoneRefused === true
+            text: Runtime.app.displayTimeZoneUnconfirmed === true
+                  ? qsTr("暂时无法确认后台服务是否采用了这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，可能仍按电脑的时区计算。后台服务重新连接后会再发送一次。")
+                  : qsTr("后台服务没有采用这个时区：日历里哪些日子有记录、只知道日期的记录怎样排序，仍按电脑的时区计算。")
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(11)
+            wrapMode: Text.WordWrap
+        }
     }
 
     // ------------------------------------------------------ 启动与托盘 --

@@ -26,12 +26,50 @@ internal static partial class CommunityContent
     internal static JsonObject Draft(JsonObject data) =>
         new(Fields.Select(key => KeyValuePair.Create(key, data[key]?.DeepClone())));
 
-    internal static void Validate(JsonObject item, bool published = false) =>
+    internal static void Validate(JsonObject item, bool published = false)
+    {
         Validate(item, published, MaxMacroLines);
+        RefuseNewCharacters(item, unchanged: null);
+    }
 
-    internal static void ValidateLocalDraft(JsonObject item) =>
+    /// <summary>
+    /// Checks a published entry with the rule it was published under: the characters
+    /// <see cref="Refused"/> names were accepted until the publisher began refusing them, and an
+    /// entry already published is not judged again by that later rule.
+    /// </summary>
+    internal static void ValidateAsPublished(JsonObject item) => Validate(item, published: true, MaxMacroLines);
+
+    /// <summary>
+    /// A local draft. The characters <see cref="Refused"/> names are refused only in fields whose
+    /// value differs from <paramref name="stored"/> (the saved content of the same entry), so an
+    /// entry saved or installed before they were refused can still be edited.
+    /// </summary>
+    internal static void ValidateLocalDraft(JsonObject item, JsonObject? stored = null)
+    {
         Validate(item, published: false, maxMacroLines: int.MaxValue);
+        RefuseNewCharacters(item, stored);
+    }
 
+    /// <summary>The first field holding a character <see cref="Refused"/> names, or null.</summary>
+    internal static string? NewlyRefused(JsonObject item, JsonObject? unchanged = null) =>
+        Fields.FirstOrDefault(key => !JsonNode.DeepEquals(unchanged?[key], item[key]) &&
+            HasRefused(item[key], multiline: key == "body"));
+
+    private static void RefuseNewCharacters(JsonObject item, JsonObject? unchanged)
+    {
+        if (NewlyRefused(item, unchanged) is { } key)
+            throw new FormatException("invalid_" + key);
+    }
+
+    private static bool HasRefused(JsonNode? value, bool multiline) => value switch
+    {
+        JsonArray values => values.Any(node => HasRefused(node, multiline: false)),
+        JsonValue text when text.TryGetValue<string>(out var str) => str.Any(c => Refused(c, multiline)),
+        _ => false,
+    };
+
+    // Applies every rule except the characters Refused names in the free-text fields (title,
+    // body, boss, phase, role, game_version, source, tags); the callers above add that rule.
     private static void Validate(JsonObject item, bool published, int maxMacroLines)
     {
         var keys = published ? Fields.Concat(PublishedFields) : Fields;
@@ -43,16 +81,16 @@ internal static partial class CommunityContent
             Integer(item, "content_id") is < 0 or > 65535)
             throw new FormatException("invalid_content");
 
-        if (string.IsNullOrWhiteSpace(String(item, "title", 120)))
+        if (string.IsNullOrWhiteSpace(String(item, "title", 120, legacy: true)))
             throw new FormatException("invalid_title");
         foreach (var field in new[] { "boss", "phase", "role", "game_version" })
-            String(item, field, 80);
-        String(item, "source", 240);
+            String(item, field, 80, legacy: true);
+        String(item, "source", 240, legacy: true);
         var id = item["id"]!.GetValue<string>();
         Values(item, "tags", 10, value => value.Length is > 0 and <= 40);
         Values(item, "links", 10, value => IsId(value) && value != id);
 
-        var body = String(item, "body", 1600, multiline: true);
+        var body = String(item, "body", 1600, multiline: true, legacy: true);
         if (string.IsNullOrWhiteSpace(body))
             throw new FormatException("empty_body");
         if (item["type"]!.GetValue<string>() == "macro" && MacroError(body, "macro", maxMacroLines) is { } error)
@@ -116,10 +154,11 @@ internal static partial class CommunityContent
         }
     }
 
-    internal static string String(JsonObject data, string key, int limit, bool multiline = false)
+    // legacy: the text rule before the characters Refused names were refused (published content).
+    internal static string String(JsonObject data, string key, int limit, bool multiline = false, bool legacy = false)
     {
         if (data[key] is not JsonValue value || !value.TryGetValue<string>(out var result) ||
-            result.Length > limit || !ValidText(result, multiline))
+            result.Length > limit || !ValidText(result, multiline, legacy))
             throw new FormatException("invalid_" + key);
         return result;
     }
@@ -144,11 +183,20 @@ internal static partial class CommunityContent
         data[key] is JsonValue value && value.TryGetValue<bool>(out var result)
             ? result : throw new FormatException("invalid_" + key);
 
-    private static bool ValidText(string text, bool multiline)
+    private static bool ValidText(string text, bool multiline, bool legacy = false)
     {
         var normalized = multiline ? text.Replace("\r\n", "\n", StringComparison.Ordinal) : text;
-        return !normalized.Any(c => char.IsControl(c) && !(multiline && c is '\n' or '\t'));
+        return !normalized.Any(c => (char.IsControl(c) && !(multiline && c is '\n' or '\t')) ||
+            (!legacy && Refused(c, multiline)));
     }
+
+    // Bidirectional controls reorder what a reader sees and the line and paragraph separators
+    // break a line the line rules do not count; single-line fields also refuse invisible
+    // characters. The publisher refuses the same (tools/shared-calibration/community_publish.py,
+    // tests/Fixtures/shared-calibration/community-text-vectors.json).
+    private static bool Refused(char c, bool multiline) =>
+        c is (>= '\u202a' and <= '\u202e') or (>= '\u2066' and <= '\u2069') or '\u2028' or '\u2029' ||
+        (!multiline && c is (>= '\u200b' and <= '\u200d') or '\u2060' or '\ufeff');
 
     private static void Values(JsonObject data, string key, int max, Func<string, bool> validate)
     {
@@ -157,8 +205,9 @@ internal static partial class CommunityContent
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in values)
         {
+            // The characters Refused names are checked by the callers of Validate (HasRefused).
             if (node is not JsonValue value || !value.TryGetValue<string>(out var str) ||
-                !ValidText(str, false) || !validate(str) || !seen.Add(str))
+                !ValidText(str, false, legacy: true) || !validate(str) || !seen.Add(str))
                 throw new FormatException("invalid_" + key);
         }
     }

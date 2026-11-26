@@ -79,7 +79,9 @@ public:
 
     /// 零式 when the name contains 零式; 极 for the extreme trials (…歼殛战,
     /// and the later extremes the Chinese client names differently, such as
-    /// …忆想歼灭战 or 终极之战); 普通 otherwise.
+    /// …忆想歼灭战 or 终极之战); 普通 otherwise. The Global catalogue's English names
+    /// count too: "(Savage)" is 零式, "(Extreme)", "the Minstrel's Ballad: …" and
+    /// "(Unreal)" are 极.
     static QString difficultyForName(const QString &name);
 
     /// 通关占比的极神身份：仅接受目录中已知的整数 content_id，并使用目录

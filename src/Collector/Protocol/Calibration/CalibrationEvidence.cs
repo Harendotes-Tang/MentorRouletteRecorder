@@ -782,7 +782,9 @@ public sealed record CalibrationEvidenceSummary(
     /// <summary>
     /// Pop-shaped sightings while a queue stood, per opcode, as "0xop=agreed/total", on a template whose reply
     /// and pop are two messages; empty on any other. The pop agrees on every sighting; a shape that also
-    /// carried other values two or more times is refused (docs/protocol-profile-format.md section 11.3).
+    /// carried other values two or more times, and at least as often as the queued one, is refused, and a single
+    /// other value that a known-duty load follows within the match window is taken back by that load
+    /// (docs/protocol-profile-format.md section 11.3.1).
     /// </summary>
     public IReadOnlyList<string> PopTallies { get; init; } = Array.Empty<string>();
 }

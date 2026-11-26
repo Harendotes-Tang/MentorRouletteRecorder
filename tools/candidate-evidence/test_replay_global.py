@@ -1,8 +1,8 @@
 from dataclasses import replace
 import unittest
 
-from derive_fields import Evidence, Observation
-from replay_global import NOTICE, PROFILE_ID, QUEUE, ZONE, candidate_shapes, replay
+from derive_fields import Evidence, EvidenceError, Observation
+from replay_global import NOTICE, PROFILE_ID, QUEUE, ZONE, candidate_shapes, replay, shape_notes
 
 
 class GlobalReplayTests(unittest.TestCase):
@@ -19,16 +19,37 @@ class GlobalReplayTests(unittest.TestCase):
     def entries(self, *events):
         return replay(Evidence(events, 0, ""), {430})["session"]
 
-    def test_exported_packet_shapes_and_times_are_independent_of_profile_edits(self):
-        def observed(kind, direction, opcode, t, payload):
-            return Observation(str(t), PROFILE_ID, kind, opcode, direction, len(payload), "session",
-                               "connection", t, None, payload)
+    @staticmethod
+    def observed(kind, direction, opcode, t, payload):
+        return Observation(str(t), PROFILE_ID, kind, opcode, direction, len(payload), "session",
+                           "connection", t, None, payload)
 
-        queue = observed(QUEUE, "C2S", 0x0215, 84_761, bytes([9]) + bytes(23))
-        notice = observed(NOTICE, "S2C", 0x03bf, 169_800, bytes([3, 0, 9, 0]) + bytes(36))
-        zone = observed(ZONE, "S2C", 0x00ab, 195_454, bytes([0, 0, 0xae, 1]) + bytes(132))
+    def test_the_beta4_export_shapes_replay_to_the_observed_entry(self):
+        queue = self.observed(QUEUE, "C2S", 0x0215, 84_761, bytes([9]) + bytes(23))
+        notice = self.observed(NOTICE, "S2C", 0x03bf, 169_800, bytes([3, 0, 9, 0]) + bytes(36))
+        zone = self.observed(ZONE, "S2C", 0x00ab, 195_454, bytes([0, 0, 0xae, 1]) + bytes(132))
         self.assertEqual([{"matched_ms": 169_800, "entered_ms": 195_454, "territory_id": 430}],
                          self.entries(queue, notice, zone))
+
+    def test_an_export_taken_before_a_profile_edit_replays_by_its_own_shapes(self):
+        # Shapes no current candidate profile declares: an older export keeps what it recorded.
+        current = candidate_shapes()
+        queue = self.observed(QUEUE, "C2S", 0x0216, 84_761, bytes([9]) + bytes(27))
+        notice = self.observed(NOTICE, "S2C", 0x03c0, 169_800, bytes([3, 0, 9, 0]) + bytes(40))
+        zone = self.observed(ZONE, "S2C", 0x00ac, 195_454, bytes([0, 0, 0xae, 1]) + bytes(140))
+        for row in (queue, notice, zone):
+            self.assertNotEqual(current[row.hypothesis_name], (row.direction, row.opcode, row.length))
+
+        self.assertEqual([{"matched_ms": 169_800, "entered_ms": 195_454, "territory_id": 430}],
+                         self.entries(queue, notice, zone))
+        self.assertEqual(3, len(shape_notes((queue, notice, zone))))
+        self.assertEqual([], shape_notes((self.event(QUEUE, 1, 9), self.event(NOTICE, 2, 9), self.event(ZONE, 3, 430))))
+
+    def test_one_hypothesis_with_two_shapes_in_one_export_is_refused(self):
+        zone = self.event(ZONE, 3_000, 430)
+        other = replace(zone, t_ms=4_000, length=zone.length + 4)
+        with self.assertRaises(EvidenceError):
+            replay(Evidence((self.event(QUEUE, 1, 9), zone, other), 0, ""), {430})
 
     def test_long_queue_then_match_and_entry_records_once_at_the_two_observed_times(self):
         queue = self.event(QUEUE, 1, 9)

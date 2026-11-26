@@ -212,6 +212,41 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-11-26, A2-1. A donor runs in ordinary recording, so a pattern of it that still
+    /// matches exactly once - but in a section the header does not mark executable - is refused
+    /// like a discovered one, and the built-in table is used instead.
+    /// </summary>
+    [Fact]
+    public void ADonorPatternThatMatchesOnlyOutsideCodeIsRejected()
+    {
+        var (image, executable) = NativeFixtureAsExecutable();
+        var data = OodleSignatureRuntime.PeSections(image).First(section => !section.Executable && section.RawSize > 0x200);
+        const string planted = "de ad be ef 01 02 03 04 e8";
+        var at = data.RawOffset + 0x100;
+        var bytes = planted.Split(' ').Select(part => Convert.ToByte(part, 16)).ToArray();
+        bytes.CopyTo(image, at);
+        BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(at + bytes.Length, 4), 0x10);
+        File.WriteAllBytes(executable, image);
+        WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus,
+            replace: (SignatureType.OodleNetwork1TCP_Train, planted));
+
+        // The plain gate would take it: one match, a target inside the file.
+        Assert.True(OodleSignaturePattern.TryParse(planted, out var pattern, out _));
+        Assert.Equal(new[] { at }, OodleSignaturePattern.FindAll(pattern, image, limit: 2));
+        Assert.False(OodleSignatureDiscovery.IsCallSite(image, OodleSignatureRuntime.PeSections(image), at, pattern));
+        var options = new CaptureStartOptions(
+            "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, "2026.09.01.0000.0000");
+        using var logger = NewLogger();
+
+        Assert.Null(OodleSignatureRuntime.TryCreate(options, _root.Path, logger));
+
+        var lines = File.ReadAllLines(logger.CurrentPath);
+        Assert.Contains(lines, line => line.Contains("oodle_signature_donor_rejected", StringComparison.Ordinal) &&
+            line.Contains("OodleNetwork1TCP_Train is not a call inside code", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains(OodleSignatureRuntime.PatternFallbackSource, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// 2026-11-20. A region with no profile of its own has no donor either. A round the player
     /// started (the only place a CANDIDATE may be used) searches the executable with every
     /// pattern this installation knows, another region's included; ordinary recording does not.
@@ -513,7 +548,9 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     /// Writes a VERIFIED/CANDIDATE profile bound to *another* executable whose patterns are
     /// unique byte runs taken from <paramref name="image"/> (or runs that do not occur in it).
     /// </summary>
-    private void WriteDonorProfile(byte[] image, string build, string status, bool fit = true)
+    private void WriteDonorProfile(
+        byte[] image, string build, string status, bool fit = true,
+        (SignatureType Type, string Pattern)? replace = null)
     {
         var directory = _root.Combine(OodleSignatureProfile.DirectoryName);
         Directory.CreateDirectory(directory);
@@ -526,7 +563,11 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
             // pair, `e8` for everything else.
             var indirect = type is SignatureType.OodleMalloc or SignatureType.OodleFree;
             string text;
-            if (fit)
+            if (replace is { } given && given.Type == type)
+            {
+                text = given.Pattern;
+            }
+            else if (fit)
             {
                 while (true)
                 {

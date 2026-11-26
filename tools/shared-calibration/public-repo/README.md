@@ -5,6 +5,7 @@
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 本仓库存放「导随记录器」（MentorRecorder）玩家分享的**共享校准码**。
+`community/` 目录另存玩家投稿的**副本提醒与导随宏**，按投稿时选择的 CC BY 4.0 或 CC BY-SA 4.0 公开，规则见 [community/README.md](community/README.md)。
 
 游戏每次更新都可能重排报文编号（opcode）。同一区服、同一客户端版本的编号编译在客户端内，对所有玩家一致。
 因此一名玩家在软件中校准成功后，可以将结果分享出来，其他玩家的软件无需逐一重新校准。
@@ -45,6 +46,7 @@ Mac mini 可以作为另行配置的本地研究或模型辅助设备，但本�
   一份错误的校准码在被识别出来之前，可能使记录缺失或有误；软件判出它与本机流量矛盾后会停用它，并把它生成的记录标记为待复核。
 - **可以关闭。** 获取共享校准是软件默认开启的两类出站请求之一；另一类是检查新版本，读取主项目发布页上的版本号文件，与本仓库无关。
   两者都可以在设置中关闭。此外还有玩家自行开启的在线语音，默认关闭，同样与本仓库无关。
+  玩家在「提醒与宏」中开启公共共享库后，软件还会从本仓库的 `community/` 目录只读下载副本提醒与导随宏，不需要登录；默认关闭。
   请求的发出时机、携带内容与关闭方式，均写在软件的隐私边界说明中。
 
 ## 校准码包含与不包含的内容
@@ -305,7 +307,9 @@ python tools/publish.py evidence compact --repo . [--apply]
 | `.github/workflows/evidence-calibration.yml` | 自动证据受理、隔离恢复、候选归档与定时补处理 |
 | `.github/workflows/mirror-repository.yml` | 把分支与标签同步到 GitCode 镜像：推送时、每 30 分钟，以及发布、证据、报告工作流每次运行结束后 |
 | `evidence-ledger.json`、`evidence-sweep.json` | 有界证据防重放、最新账号立场、epoch 原因与补处理游标；客户端不下载 |
-| `schemas/`、`candidates/` | 唯一证据格式副本与未获支持的候选草案 |
+| `schemas/`、`candidates/` | 唯一证据格式副本、副本提醒与导随宏的格式副本，以及未获支持的候选草案 |
+| `community/` | 玩家投稿的副本提醒与导随宏：`v1/index.json`、`v1/snapshot.json`（软件下载）、`v1/submissions.json`（投稿台账），说明见 [community/README.md](community/README.md) |
+| `.github/ISSUE_TEMPLATE/share-community-content.yml`、`.github/workflows/publish-community-content.yml` | 副本提醒与导随宏的投稿表单与发布工作流 |
 | `LICENSE.md`、`LICENSES/` | 许可 |
 
 ## 数据与隐私
@@ -321,5 +325,6 @@ python tools/publish.py evidence compact --repo . [--apply]
 - **脚本、工作流、表单与 `templates/`**：GPL-3.0-or-later，与 MentorRecorder 主项目一致。
 - **玩家提交的数据**（`index.json`、`submissions.json` 与各版本目录下的校准码）：
   [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode)，提交即表示同意按此公开。
+- **`community/` 下的副本提醒与导随宏**：每一条按作者投稿时选择的 CC BY 4.0 或 CC BY-SA 4.0 公开，许可写在该条目的 `license` 字段中；不是 CC0。
 
 详见 [LICENSE.md](LICENSE.md)。

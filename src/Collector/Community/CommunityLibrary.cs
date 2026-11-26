@@ -6,22 +6,27 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.Community;
 
 internal sealed class CommunityLibrary(CommunityRepository repository, SettingsRepository settings,
-    Func<string, string, int, CancellationToken, Task<byte[]?>>? fetch = null,
-    TimeProvider? timeProvider = null)
+    Func<string, string, int, Func<byte[], bool>, CancellationToken, Task<byte[]?>>? fetch = null,
+    TimeProvider? timeProvider = null, Func<bool>? killSwitch = null)
 {
     private const string Enabled = "community.online_enabled";
-    private readonly Func<string, string, int, CancellationToken, Task<byte[]?>> _fetch =
+    private readonly Func<string, string, int, Func<byte[], bool>, CancellationToken, Task<byte[]?>> _fetch =
         fetch ?? CommunityHttp.GetPublicationAsync;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    // MR_DISABLE_DUTY_COMMUNITY by default; tests that fake the fetch pass their own.
+    private readonly Func<bool> _killSwitch = killSwitch ??
+        (() => Environment.GetEnvironmentVariable("MR_DISABLE_DUTY_COMMUNITY") == "1");
     private readonly SemaphoreSlim _refreshGate = new(1);
     private readonly object _cacheGate = new();
     private Publication? _cache;
     private bool _loaded;
     private DateTimeOffset _nextRefresh;
     private string _lastStatus = "not_refreshed";
+    // Replaced as a whole (one reference write), so a report read on another thread never sees
+    // the time of one request with the outcome of another.
+    private RequestRecord? _lastRequest;
 
-    internal bool Online => Environment.GetEnvironmentVariable("MR_DISABLE_DUTY_COMMUNITY") != "1" &&
-        settings.GetSetting(Enabled) == "true";
+    internal bool Online => !_killSwitch() && settings.GetSetting(Enabled) == "true";
 
     internal void SetOnline(bool enabled) => settings.SetSetting(Enabled, enabled ? "true" : "false");
 
@@ -33,36 +38,47 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             return Response("offline");
         if (!await _refreshGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
             return Response("refreshing");
+        DateTimeOffset? sentAt = null;
+        string? outcome = null;
+        JsonObject Finish(string status)
+        {
+            outcome = _lastStatus = status;
+            return Response(status);
+        }
         try
         {
             var now = _timeProvider.GetUtcNow();
             if (now < _nextRefresh)
                 return Response(_lastStatus);
             _nextRefresh = now.AddSeconds(30);
-            var index = await _fetch("main", "index.json", 4096, cancellationToken)
-                .ConfigureAwait(false);
+            // An unusable reply from one source (a mirror that has not synchronised yet answering
+            // with a placeholder, say) does not decide while the other can still deliver the file.
+            sentAt = _timeProvider.GetUtcNow();
+            var index = await _fetch("main", "index.json", 4096,
+                bytes => Usable(() => ReadPointer(bytes)), cancellationToken).ConfigureAwait(false);
             if (index is null)
-                return Response(_lastStatus = "not_deployed");
+                return Finish("not_deployed");
             var pointer = ReadPointer(index);
             if (pointer.Commit is null)
-                return Response(_lastStatus = ReadCache() is null ? "empty" : "invalid_index");
+                return Finish(ReadCache() is null ? "empty" : "invalid_index");
             var previous = ReadCache();
             if (previous?.Commit == pointer.Commit && previous.Hash == pointer.Hash)
             {
                 if (previous.Generation != pointer.Generation)
-                    return Response(_lastStatus = "invalid_index");
+                    return Finish("invalid_index");
                 _nextRefresh = now.AddMinutes(2);
-                return Response(_lastStatus = "ready");
+                return Finish("ready");
             }
 
-            var bundle = await _fetch(pointer.Commit, "snapshot.json",
-                CommunityContent.MaxSnapshotBytes, cancellationToken).ConfigureAwait(false);
+            sentAt = _timeProvider.GetUtcNow();
+            var bundle = await _fetch(pointer.Commit, "snapshot.json", CommunityContent.MaxSnapshotBytes,
+                bytes => Usable(() => ReadPublication(pointer, bytes)), cancellationToken).ConfigureAwait(false);
             if (bundle is null)
-                return Response(_lastStatus = "temporarily_unavailable");
+                return Finish("temporarily_unavailable");
             var result = ReadPublication(pointer, bundle);
             // A lagging mirror must never roll back an already installed source.
             if (previous is not null && result.Generation <= previous.Generation)
-                return Response(_lastStatus = "stale_mirror");
+                return Finish("stale_mirror");
             lock (_cacheGate)
             {
                 repository.SaveCache(index, bundle);
@@ -70,24 +86,51 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
                 _loaded = true;
             }
             _nextRefresh = now.AddMinutes(2);
-            return Response(_lastStatus = "ready");
+            return Finish("ready");
         }
         catch (Exception error) when (error is JsonException or FormatException)
         {
-            return Response(_lastStatus = "invalid_index");
+            return Finish("invalid_index");
         }
         catch (Exception error) when (error is HttpRequestException or IOException ||
                                       error is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return Response(_lastStatus = "temporarily_unavailable");
+            return Finish("temporarily_unavailable");
         }
         finally
         {
+            if (sentAt is { } at)
+                RecordRequest(new(at, outcome ?? (cancellationToken.IsCancellationRequested ? "cancelled" : "failed")));
             _refreshGate.Release();
         }
     }
 
     internal Publication? Current() => ReadCache();
+
+    /// <summary>
+    /// Records a community request this process sent (the library fetch here; the GitHub
+    /// sign-in, submission and issue-status requests through CommunityHandlers). The report
+    /// states the most recently sent one.
+    /// </summary>
+    internal void RecordRequest(RequestRecord? record)
+    {
+        if (record is null)
+            return;
+        RequestRecord? seen;
+        do
+        {
+            seen = Volatile.Read(ref _lastRequest);
+            if (seen is not null && seen.At > record.At)
+                return;
+        }
+        while (!ReferenceEquals(Interlocked.CompareExchange(ref _lastRequest, record, seen), seen));
+    }
+
+    internal Capture.DutyCommunityDiagnostics Diagnostics()
+    {
+        var last = Volatile.Read(ref _lastRequest);
+        return new(settings.GetSetting(Enabled) == "true", _killSwitch(), last?.At, last?.Outcome);
+    }
 
     private JsonObject Response(string status, int offset = 0)
     {
@@ -155,27 +198,61 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             snapshot["entries"] is not JsonArray entries || entries.Count > CommunityContent.MaxEntries)
             throw new FormatException("invalid_snapshot");
         var byId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+        // An entry published before the publisher refused the characters CommunityContent.Refused
+        // names stays valid as published, but this client neither shows nor installs it: it is
+        // left out and links to it are dropped, as for a withdrawn entry. Any other failure,
+        // a wrong hash or a broken link included, still rejects the whole snapshot.
+        var skipped = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         foreach (var node in entries)
         {
             if (node is not JsonObject item)
                 throw new FormatException("invalid_content");
-            CommunityContent.Validate(item, published: true);
-            if (!byId.TryAdd(item["id"]!.GetValue<string>(), item))
+            CommunityContent.ValidateAsPublished(item);
+            var id = item["id"]!.GetValue<string>();
+            var kept = CommunityContent.NewlyRefused(item) is null ? byId : skipped;
+            if (byId.ContainsKey(id) || skipped.ContainsKey(id) || !kept.TryAdd(id, item))
                 throw new FormatException("duplicate_id");
         }
 
-        foreach (var item in byId.Values)
+        JsonObject? Target(JsonNode? link)
         {
-            if (item["links"]!.AsArray().Any(link => !byId.TryGetValue(link!.GetValue<string>(), out var target)
+            var linkId = link!.GetValue<string>();
+            return byId.GetValueOrDefault(linkId) ?? skipped.GetValueOrDefault(linkId);
+        }
+        foreach (var item in byId.Values.Concat(skipped.Values))
+        {
+            if (item["links"]!.AsArray().Any(link => Target(link) is not { } target
                   || JsonNode.DeepEquals(item["type"], target["type"])))
                 throw new FormatException("invalid_links");
         }
+        foreach (var item in byId.Values)
+        {
+            var links = item["links"]!.AsArray();
+            if (links.Any(link => skipped.ContainsKey(link!.GetValue<string>())))
+                item["links"] = new JsonArray(links.Where(link => !skipped.ContainsKey(link!.GetValue<string>()))
+                    .Select(link => link!.DeepClone()).ToArray());
+        }
         return new(pointer.Commit, pointer.Hash, pointer.Generation, byId);
+    }
+
+    private static bool Usable(Action read)
+    {
+        try
+        {
+            read();
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or FormatException)
+        {
+            return false;
+        }
     }
 
     private static bool IsLowerHex(string value, int length) =>
         value.Length == length && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 
+    /// <summary>When a community request was sent and how it ended, as a status token.</summary>
+    internal sealed record RequestRecord(DateTimeOffset At, string Outcome);
     internal sealed record PublicationPointer(string? Commit, string Hash, int Generation);
     internal sealed record Publication(string Commit, string Hash, int Generation, Dictionary<string, JsonObject> Entries);
 }
