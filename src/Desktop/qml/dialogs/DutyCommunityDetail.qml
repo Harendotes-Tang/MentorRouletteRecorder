@@ -19,6 +19,12 @@ ColumnLayout {
     // ticked two, pressed this 投稿 and sent the open entry alone (2026-11-23).
     readonly property int ticked: store.checkedIds.length
     readonly property var actionIds: ticked > 0 ? store.checkedIds : item ? [item.id] : []
+    // 撤回发布 takes, of the same entries, those this library published that are still live.
+    readonly property var withdrawIds: actionIds.filter(id => store.withdrawable(id))
+    // The public copy of an entry published from here, for the line that says it is public.
+    readonly property var publication: item && !store.remote ? store.ownPublication(item.id) : null
+    // An installed copy whose public entry its author withdrew: the copy stays, and says so.
+    readonly property bool sourceWithdrawn: !store.remote && !publication && !!sourceItem && sourceItem.status === "withdrawn"
     readonly property var sourceItem: store.source
     readonly property bool sourceNewer: !store.remote && !!sourceItem && !!row && !!row.upstream
         && sourceItem.status !== "withdrawn" && sourceItem.revision > row.upstream.revision
@@ -45,6 +51,10 @@ ColumnLayout {
              item.status === "verified" ? qsTr("维护者核对过内容和适用范围")
              : item.status === "community" ? qsTr("还没有人核对过，用之前自己先看一遍") : ""],
             [qsTr("许可"), store.licenseCode(license), store.licenseDetail(license)],
+            [qsTr("公共共享库"), sourceWithdrawn ? store.statusText("withdrawn") : !publication ? ""
+                : publication.status === "withdrawn" ? store.statusText("withdrawn") : qsTr("已发布"),
+             sourceWithdrawn ? qsTr("作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留")
+             : publication ? qsTr("以 @%1 的名义公开，只有这个 GitHub 账号能撤回").arg(publication.author.login) : ""],
             [qsTr("投稿"), item.issue ? "#" + item.issue : ""],
             [qsTr("更新于"), day(item.updated_at)],
             [qsTr("上次使用"), used ? Qt.formatDateTime(new Date(used), "MM-dd HH:mm") : ""]
@@ -300,6 +310,14 @@ ColumnLayout {
                     visible: pane.sourceNewer
                     text: qsTr("对比来源更新")
                     onClicked: pane.store.compareSource()
+                }
+                AppButton {
+                    objectName: "dutyCommunityWithdraw"
+                    compact: true
+                    visible: pane.withdrawIds.length > 0
+                    text: pane.ticked > 0 ? qsTr("从公共共享库撤回 %1 项").arg(pane.withdrawIds.length)
+                                          : qsTr("从公共共享库撤回")
+                    onClicked: pane.store.withdrawRows(pane.withdrawIds)
                 }
             }
         }

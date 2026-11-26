@@ -11,7 +11,6 @@
 
 #include <QApplication>
 #include <QClipboard>
-#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFont>
@@ -40,6 +39,7 @@ private Q_SLOTS:
     void communityEditorSaysWhyASaveIsRefused();
     void communityLateRepliesKeepThePlayersPlace();
     void communityAuthorizationIgnoresSupersededReplies();
+    void withdrawalRequiresOnePublishingAccount();
     void communityPublicLibraryFoldsAndFilters();
     void communityDirectorySetsTheRangeAndGroupsTheList();
     void communityTextRulesMatchThePublisher();
@@ -54,6 +54,36 @@ void DutyCommunityTests::initTestCase()
 {
     QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence()));
     registerSceneQmlTypes();
+}
+
+void DutyCommunityTests::withdrawalRequiresOnePublishingAccount()
+{
+    Scene scene;
+    auto *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QVariantList rows = qmlList(dialog->property("localRows")), published;
+    QStringList ids;
+    for (int i = 0; i < 2; ++i) {
+        QVariantMap row = qmlMap(rows.at(i));
+        row.insert(QStringLiteral("upstream"), QVariant());
+        rows[i] = row;
+        ids << qmlMap(row.value(QStringLiteral("content"))).value(QStringLiteral("id")).toString();
+        auto item = publicEntry(i + 1, "reminder", "Withdraw", "", 4).value(QStringLiteral("content")).toMap();
+        item.insert(QStringLiteral("id"), ids.last());
+        item.insert(QStringLiteral("author"), QVariantMap{{QStringLiteral("id"), 150 + i},
+            {QStringLiteral("login"), i == 0 ? QStringLiteral("one") : QStringLiteral("two")}});
+        published << QVariantMap{{QStringLiteral("content"), item}};
+    }
+    dialog->setProperty("localRows", rows);
+    dialog->setProperty("publicRows", published);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "withdrawRows", Q_ARG(QVariant, QVariant(ids))));
+    auto *consent = scene.item(QStringLiteral("dutyCommunityConsent"), true);
+    QVERIFY(consent && !consent->isEnabled());
+    consent->setProperty("checked", true);
+    auto *send = scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true);
+    QVERIFY(send && !send->isEnabled());
+    QVERIFY(visibleText(scene.item(QStringLiteral("dutyCommunitySubmission"), true),
+        QStringLiteral("所选条目由不同的 GitHub 账号发布（@one、@two）。请返回列表，按发布账号分别撤回。")));
 }
 
 void DutyCommunityTests::dashboardOpensTheCommunityLibrary()

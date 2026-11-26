@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Validate and publish public reminder and macro submissions from the trusted main checkout."""
+"""Validate and publish public reminder and macro submissions, and their authors' withdrawals,
+from the trusted main checkout."""
 
 from __future__ import annotations
 
@@ -26,7 +27,10 @@ INDEX = ROOT / "index.json"
 SNAPSHOT = ROOT / "snapshot.json"
 LEDGER = ROOT / "submissions.json"
 RESULT_LABELS = {"published": "community-published", "failed": "community-failed",
-                 "conflict": "community-classification", "duplicate": "community-duplicate"}
+                 "conflict": "community-classification", "duplicate": "community-duplicate",
+                 "withdrawn": "community-withdrawn"}
+# The JSON block of an Issue in which an author withdraws published entries, instead of a submission.
+WITHDRAWAL = {"schema_version", "withdraw"}
 # Added beside the result label while a published item reads like one already in the library.
 SIMILAR_LABEL = "community-similar"
 FIELDS = {"schema_version", "id", "type", "content_id", "region", "language", "title", "body",
@@ -47,6 +51,10 @@ MAX_LIVE_ENTRIES = 350
 # at most this many of its Issues publish something on one day (by the Issue's update date).
 MAX_ACCOUNT_ENTRIES = 40
 MAX_ACCOUNT_DAILY = 5
+# Withdrawn entries stay in the snapshot. Since authors withdraw their own, publishing and
+# withdrawing in turn could fill the snapshot for everyone; an account's entries of any status
+# are held to this many, and a maintainer removes withdrawn ones to make room.
+MAX_ACCOUNT_STORED = 60
 MAX_BATCH = 20
 # Two bodies at least this alike are reported to the maintainer; the app folds them together.
 # The app computes the same number (src/Desktop/qml/dialogs/DutyCommunityMatch.js).
@@ -257,7 +265,8 @@ def similar_to(item, entries):
     return [{"id": identifier, "author": entries[identifier]["author"]["login"]} for _, identifier in sorted(found)[:5]]
 
 
-def parse_submission(issue):
+def issue_block(issue):
+    """The JSON block the app copied into the Issue: a submission or a withdrawal."""
     body = issue.get("body") or ""
     if len(body.encode("utf-8")) > MAX_ISSUE + 200:
         raise Invalid("Submission exceeds the size limit.")
@@ -265,7 +274,26 @@ def parse_submission(issue):
                          + re.escape(MARKER) + r"\s+```json\r?\n(.*)\r?\n```\s*", body, re.DOTALL)
     if not match:
         raise Invalid("Paste the complete structured submission block from the app.")
-    data = decode(match[1])
+    return decode(match[1])
+
+
+def is_withdrawal(data):
+    return isinstance(data, dict) and "withdraw" in data
+
+
+def parse_withdrawal(data):
+    """The IDs an author withdraws: 1 to 20, each a stable content ID, none twice."""
+    if set(data) != WITHDRAWAL:
+        raise Invalid("Paste the complete withdrawal block from the app.")
+    ids = data["withdraw"]
+    if not integer(data["schema_version"], 1, 1) or not isinstance(ids, list) or not ids or \
+            not values(ids, MAX_BATCH, lambda value: text(value, 36) and ID.fullmatch(value)):
+        raise Invalid("A withdrawal names between 1 and 20 published IDs, each once.")
+    return ids
+
+
+def parse_submission(issue):
+    data = issue_block(issue)
     if not isinstance(data, dict) or set(data) != {"schema_version", "license", "consent", "items", "base_revisions"} or \
             not integer(data["schema_version"], 1, 1) or data["consent"] is not True or data["license"] not in ("CC-BY-4.0", "CC-BY-SA-4.0"):
         raise Invalid("Choose a supported license and confirm permission to publish the content.")
@@ -291,6 +319,27 @@ def live(entries, author_id=None):
                for item in entries.values())
 
 
+def stored(entries, author_id):
+    """How many of one account's entries the snapshot holds, withdrawn ones included."""
+    return sum(item["author"]["id"] == author_id for item in entries.values())
+
+
+def oversized(entries):
+    return len(encode(list(entries.values()))) + 100 > MAX_BYTES
+
+
+def validate_capacity(entries, revised, author_id):
+    own = live(revised, author_id)
+    if own > MAX_ACCOUNT_ENTRIES and own > live(entries, author_id):
+        raise Invalid(f"An account can have at most {MAX_ACCOUNT_ENTRIES} live entries in the library.")
+    held = stored(revised, author_id)
+    if held > MAX_ACCOUNT_STORED and held > stored(entries, author_id):
+        raise Invalid(f"An account can have at most {MAX_ACCOUNT_STORED} entries in the library, withdrawn ones "
+                      "included. Ask a maintainer to remove withdrawn entries.")
+    if (live(revised) > MAX_LIVE_ENTRIES and live(revised) > live(entries)) or len(revised) > MAX_ENTRIES or oversized(revised):
+        raise Invalid("The current community release has reached its capacity.")
+
+
 def published_on(ledger, author_id, day):
     """How many times this account published something on this day (edits of an Issue included),
     from the ledger's tally. The tally only grows: an Issue edited into a failing body afterwards
@@ -298,9 +347,13 @@ def published_on(ledger, author_id, day):
     return (ledger.get("daily") or {}).get(str(author_id), {}).get(day, 0)
 
 
-def count_publication(ledger, author_id, day):
-    days = ledger.setdefault("daily", {}).setdefault(str(author_id), {})
-    days[day] = days.get(day, 0) + 1
+def count_publication(ledger, record):
+    """Counts an Issue that changed the library toward its author's daily limit (record from
+    ledger_record). Only a publication counts; a withdrawal does not (see withdraw)."""
+    if record["result"]["status"] != "published":
+        return
+    days = ledger.setdefault("daily", {}).setdefault(str(record["author"]), {})
+    days[record["day"]] = days.get(record["day"], 0) + 1
 
 
 def ledger_record(issue, digest, result):
@@ -325,6 +378,37 @@ def without(entries, identifier, now):
     return revised
 
 
+def withdraw(identifiers, entries, author, timestamp):
+    """An author takes their own entries out of use: each is marked withdrawn with a new revision,
+    so that installed copies say so and nobody can import it any more. Its text and its links stay,
+    as when a maintainer withdraws it. An entry already withdrawn stays as it is, so the same
+    Issue processed again changes nothing. A withdrawal is not a publication: it is open to an
+    account that reached its daily limit, and is not counted toward it."""
+    revised = dict(entries)
+    for identifier in identifiers:
+        current = entries.get(identifier)
+        if current is None:
+            raise Invalid("Only published IDs can be withdrawn. Refresh the community library in the app.")
+        if current["author"]["id"] != author["id"]:
+            raise Invalid("Only the original author can withdraw a published ID. "
+                          "Submit the withdrawal with the GitHub account that published it.")
+        if current["status"] != "withdrawn":
+            revised[identifier] = dict(current, status="withdrawn", revision=current["revision"] + 1,
+                                       updated_at=timestamp)
+            validate(revised[identifier], published=True, legacy=True)
+    if revised != entries and oversized(revised):
+        raise Invalid("The current community release has reached its capacity.")
+    return {"status": "withdrawn", "ids": list(identifiers)}, revised
+
+
+def issue_author(issue):
+    user = issue.get("user") or {}
+    if user.get("type") != "User" or not integer(user.get("id"), 1, 2**63-1) or \
+            not isinstance(user.get("login"), str) or not LOGIN.fullmatch(user["login"]):
+        raise Invalid("A GitHub user account is required.")
+    return {"id": user["id"], "login": user["login"]}
+
+
 def evaluate(issue, entries, ledger=None):
     """ledger: the submissions ledger (its daily tally and removed IDs); None for an empty one."""
     ledger = ledger or {}
@@ -334,15 +418,14 @@ def evaluate(issue, entries, ledger=None):
     if category == "conflict":
         return {"status": "conflict", "detail": "Remove the calibration category labels from this community submission."}, entries
     try:
-        data = parse_submission(issue)
-        user = issue.get("user") or {}
-        if user.get("type") != "User" or not integer(user.get("id"), 1, 2**63-1) or \
-                not isinstance(user.get("login"), str) or not LOGIN.fullmatch(user["login"]):
-            raise Invalid("A GitHub user account is required.")
+        block = issue_block(issue)
+        author = issue_author(issue)
         timestamp = dt.datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%dT%H:%M:%SZ")
-        author = {"id": user["id"], "login": user["login"]}
+        if is_withdrawal(block):
+            return withdraw(parse_withdrawal(block), entries, author, timestamp)
+        data = parse_submission(issue)
         revised = dict(entries)
-        unchanged, candidates = set(), []
+        unchanged, candidates, withdrawn = set(), [], []
         for draft in data["items"]:
             if draft["id"] in ledger.get("removed", ()):
                 raise Invalid("A maintainer removed this ID from the library. Create a new ID.")
@@ -353,11 +436,17 @@ def evaluate(issue, entries, ledger=None):
                     raise Invalid("A published ID cannot change content type.")
                 if current["author"]["id"] != author["id"]:
                     raise Invalid("Only the original author can revise a published ID. Create a new ID for your adaptation.")
+                # A withdrawn entry is never published again under its ID. Left as it was (an
+                # edit of the Issue that first published it), it is named in the receipt instead
+                # of being reported as published.
+                if current["status"] == "withdrawn":
+                    if any(current[key] != draft[key] for key in FIELDS) or current["license"] != data["license"]:
+                        raise Invalid("This ID was withdrawn. Publish the text again under a new ID.")
+                    withdrawn.append(draft["id"])
+                    continue
                 if all(current[key] == draft[key] for key in FIELDS) and current["license"] == data["license"]:
                     unchanged.add(draft["id"])
                     continue
-                if current["status"] == "withdrawn":
-                    raise Invalid("A withdrawn entry requires maintainer review.")
                 if current["issue"] != issue["number"] and current["revision"] != base:
                     raise Invalid("Update conflict. Refresh the community library and review the latest source revision.")
             elif base is not None:
@@ -393,17 +482,16 @@ def evaluate(issue, entries, ledger=None):
                 revised[identifier] = dict(item, links=links)
                 validate(revised[identifier], published=True)
         validate_links(revised)
-        own = live(revised, author["id"])
-        if own > MAX_ACCOUNT_ENTRIES and own > live(entries, author["id"]):
-            raise Invalid(f"An account can have at most {MAX_ACCOUNT_ENTRIES} live entries in the library.")
-        if live(revised) > MAX_LIVE_ENTRIES and live(revised) > live(entries) or len(revised) > MAX_ENTRIES or \
-                len(encode(list(revised.values()))) + 100 > MAX_BYTES:
-            raise Invalid("The current community release has reached its capacity.")
-        if not kept:
-            return {"status": "duplicate", "skipped": skipped}, entries
-        result = {"status": "published", "ids": kept}
-        if skipped:
+        validate_capacity(entries, revised, author["id"])
+        if not kept and not skipped:
+            return {"status": "withdrawn", "ids": withdrawn, "earlier": True}, entries
+        result: dict = {"status": "published", "ids": kept} if kept else {"status": "duplicate", "skipped": skipped}
+        if kept and skipped:
             result["skipped"] = skipped
+        if withdrawn:
+            result["withdrawn"] = withdrawn
+        if not kept:
+            return result, entries
         similar = {identifier: similar_to(revised[identifier], revised) for identifier in changed}
         if any(similar.values()):
             result["similar"] = {identifier: found for identifier, found in similar.items() if found}
@@ -490,17 +578,30 @@ def files_for(entries, revised, generation):
             "snapshot_sha256": digest}
 
 
+def receipt_marker(number, digest):
+    return f"<!-- mr-community-receipt:{number}:{digest} -->"
+
+
+def bot_comment_header(comment):
+    user = comment.get("user") or {}
+    if user.get("type") == "Bot" and user.get("login") == "github-actions[bot]":
+        return (comment.get("body") or "").partition("\n")[0].rstrip("\r")
+    return None
+
+
+def has_receipt(repo, number, marker):
+    comments = api(repo, f"issues/{number}/comments?per_page=100", "--paginate", "--slurp")
+    return any(bot_comment_header(comment) == marker for page in comments for comment in page)
+
+
 def reply(repo, number, original, result):
     live = api(repo, f"issues/{number}")
     if fingerprint(live) != fingerprint(original):
         return
     present = labels(live)
     label = RESULT_LABELS[result["status"]]
-    marker = "<!-- mr-community-receipt:" + str(number) + ":" + fingerprint(live) + " -->"
-    comments = api(repo, f"issues/{number}/comments?per_page=100", "--paginate", "--slurp")
-    first = not any(comment.get("user", {}).get("login") == "github-actions[bot]"
-                    and (comment.get("body") or "").startswith(marker)
-                    for page in comments for comment in page)
+    marker = receipt_marker(number, fingerprint(live))
+    first = not has_receipt(repo, number, marker)
 
     def edit(flag, name):
         checked("gh", "issue", "edit", str(number), "--repo", repo, flag, name)
@@ -524,6 +625,18 @@ def receipt(result):
     """The bot comment. It names IDs and GitHub logins only, never submitted text, and writes a
     login in code style so that nobody is notified."""
     status = result["status"]
+    if status == "withdrawn" and result.get("earlier"):
+        return "\n".join([
+            "Nothing was published: these entries were withdrawn earlier and are not published again under their IDs."
+            " To share the text again, submit it as a new entry.",
+            "", "IDs: " + ", ".join(result["ids"])])
+    if status == "withdrawn":
+        return "\n".join([
+            "Withdrawn from the community library. Copies already imported show the entry as withdrawn,"
+            " and nobody can import it any more. Its text stays in the history of this repository.",
+            "", "IDs: " + ", ".join(result["ids"]), "",
+            "A withdrawn ID is not published again. To share the text again, submit it as a new entry.",
+            "", "[Public index](../blob/main/community/v1/index.json)"])
     if status not in ("published", "duplicate"):
         return result.get("detail", "")
     lines = ["Published as community content. Format validation does not verify game mechanics.",
@@ -540,6 +653,8 @@ def receipt(result):
     if kept_back:
         lines += ["", "Edits not applied, because the new text is already in the library; the published text stays:"]
         lines += [f"- `{entry['id']}`: the new text is the same as {owner(entry)} `{entry['same_as']}`" for entry in kept_back]
+    if result.get("withdrawn"):
+        lines += ["", "Withdrawn earlier, so not published again: " + ", ".join(f"`{x}`" for x in result["withdrawn"])]
     if result.get("similar"):
         lines += ["", "Published, and reads like entries already in the library (a maintainer may review):"]
         for identifier, found in result["similar"].items():
@@ -572,7 +687,7 @@ def process(repo, number):
         record = ledger_record(issue, digest, result)
         if revised != entries:
             index = files_for(entries, revised, index["generation"] + 1)
-            count_publication(ledger, record["author"], record["day"])
+            count_publication(ledger, record)
         ledger["issues"][str(number)] = record
         write(INDEX, index)
         write(LEDGER, ledger)
@@ -588,27 +703,62 @@ def process(repo, number):
     raise RuntimeError(f"Community issue #{number} changed or main advanced during all attempts.")
 
 
+def missing_receipts(repo, expected):
+    """Read each repository comment page once; a receipt belongs to its Issue and body revision."""
+    remaining = {f"https://api.github.com/repos/{repo}/issues/{number}".casefold(): (number, marker)
+                 for number, marker in expected.items()}
+    # The repository also receives calibration comments. Do not traverse years of those
+    # to find a single old receipt: budget one repository page per 100 expected receipts.
+    for page in range(1, (len(expected) + 99) // 100 + 1):
+        comments = api(repo, f"issues/comments?sort=created&direction=desc&per_page=100&page={page}")
+        for comment in comments:
+            issue_url = (comment.get("issue_url") or "").casefold()
+            expected_receipt = remaining.get(issue_url)
+            if expected_receipt and bot_comment_header(comment) == expected_receipt[1]:
+                del remaining[issue_url]
+        if not remaining or len(comments) < 100:
+            return [number for number, _ in remaining.values()]
+    missing = []
+    for number, marker in remaining.values():
+        try:
+            if has_receipt(repo, number, marker):
+                continue
+        except subprocess.CalledProcessError:
+            pass  # Let the ordinary per-Issue retry reconcile this one and report a persistent failure.
+        missing.append(number)
+    return missing
+
+
 def sweep(repo):
     failed = []
+    expected = {}
+    ledger = decode(LEDGER.read_bytes())
+
+    def retry(number):
+        try:
+            process(repo, number)
+        except (Invalid, RuntimeError, subprocess.CalledProcessError):
+            failed.append(number)
+
     page = 1
     while True:
         issues = api(repo, f"issues?state=open&sort=created&direction=asc&per_page=100&page={page}")
-        if not issues:
-            break
-        ledger = decode(LEDGER.read_bytes())
         for issue in issues:
             if "pull_request" in issue or classify(issue) == "other":
                 continue
             number = issue["number"]
             previous = ledger["issues"].get(str(number))
-            if previous and previous["fingerprint"] == fingerprint(issue) and \
-                    RESULT_LABELS[previous["result"]["status"]] in labels(issue):
-                continue
-            try:
-                process(repo, number)
-            except (Invalid, RuntimeError, subprocess.CalledProcessError):
-                failed.append(number)
+            digest = fingerprint(issue)
+            if (previous and previous["fingerprint"] == digest
+                    and RESULT_LABELS[previous["result"]["status"]] in labels(issue)):
+                expected[number] = receipt_marker(number, digest)
+            else:
+                retry(number)
+        if len(issues) < 100:
+            break
         page += 1
+    for number in missing_receipts(repo, expected):
+        retry(number)
     if failed:
         raise RuntimeError(f"Community issues to retry: {failed}")
 
@@ -628,6 +778,7 @@ def moderate(identifier, status, expected_revision):
         updated = dict(current, status=status, revision=expected_revision + 1, updated_at=now)
         revised = dict(entries)
         revised[identifier] = updated
+        validate_capacity(entries, revised, current["author"]["id"])
         index = files_for(entries, revised, index["generation"] + 1)
         write(INDEX, index)
         git("add", "--", INDEX.as_posix())

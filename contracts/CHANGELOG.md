@@ -1,5 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-26 · 「提醒与宏」作者撤回已发布的条目
+
+- `DutyCommunity` 新增动作 `prepare_withdrawal`（只增不删）：`withdraw` 为 1 至 20 个不重复的稳定 ID，应答与 `prepare_issue`
+  相同（`status = "prepared"` 与 `body`），`body` 是贴进同一个 GitHub Issue 表单的撤回块；ID 缺失、重复、格式不符或超过 20 个时
+  `status = "invalid_withdrawal"`。没有对应的原生提交动作。
+- `community-content-v1.schema.json` 新增 `Withdrawal`：`{"schema_version": 1, "withdraw": [ID…]}`。发布工作流只在 Issue 作者的
+  GitHub 账号发布了其中每个 ID 时把它们标为 `withdrawn`，并加 `community-withdrawn` 标签。
+- `issue_status` 新增取值 `withdrawn`（Issue 带 `community-withdrawn` 标签）。旧 Collector 对这样的 Issue 答 `processing`。
+
 ## 2026-11-26 · 「已确认」由采集服务判定；结果占比只算进本次数
 
 - `$defs/Run` 新增可选布尔字段 `review_confirmed`（只增不删）：玩家回答过软件留待确认的问题时为 `true`。由修订链推出，

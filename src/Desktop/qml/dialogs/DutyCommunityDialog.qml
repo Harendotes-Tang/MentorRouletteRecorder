@@ -760,6 +760,25 @@ MotionDialog {
     function isInstalled(id) {
         return localRows.some(row => row.content.id === id || (row.upstream && row.upstream.id === id))
     }
+    /// The refreshed public library by entry ID.
+    readonly property var publicById: {
+        const out = ({})
+        for (const row of publicRows) out[row.content.id] = row.content
+        return out
+    }
+    /// The public entry this library published under the given ID, or null: a local entry
+    /// written or adapted here (not an installed copy of someone's entry) whose ID the public
+    /// library holds. Only the GitHub account that published it can withdraw it; the workflow
+    /// checks that, the app cannot.
+    function ownPublication(id) {
+        const entry = publicById[id]
+        const local = entry ? localRows.find(row => row.content.id === id) : null
+        return local && !(local.upstream && local.upstream.id === id) ? entry : null
+    }
+    function withdrawable(id) {
+        const entry = ownPublication(id)
+        return !!entry && entry.status !== "withdrawn"
+    }
     function defaultLanguage() {
         const code = Runtime.lang ? Runtime.lang.code : ""
         return code === "ja" || code === "en" ? code : code === "zh-TW" ? "zh-Hant" : "zh-Hans"
@@ -1069,6 +1088,14 @@ MotionDialog {
         mode = "submit"
         submission.start(picked)
     }
+    /// 撤回发布: the given entries this library published, without what they link to (a
+    /// withdrawn reminder leaves its macros published).
+    function withdrawRows(ids) {
+        const picked = ids.filter(withdrawable).map(id => ({ content: publicById[id] }))
+        if (!picked.length) { note = statusText("invalid_withdrawal"); return }
+        mode = "submit"
+        submission.start(picked, "withdraw")
+    }
     function importFile() {
         const file = service.pickImport()
         if (file.data) mutate("import_file", { file: file.data })
@@ -1149,6 +1176,8 @@ MotionDialog {
         case "submit_not_sent": return qsTr("投稿没有发出，什么都没有提交，请稍后再试。")
         case "closed": return qsTr("投稿已关闭。")
         case "prepared": return qsTr("投稿正文已复制，请粘贴到浏览器表单并提交。")
+        case "withdrawal_prepared": return qsTr("撤回请求已复制，请粘贴到浏览器表单并提交。")
+        case "invalid_withdrawal": return qsTr("请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。")
         case "verified": return qsTr("社区投稿 · 已核验")
         case "outdated": return qsTr("过时")
         case "withdrawn": return qsTr("已撤回")
@@ -1157,7 +1186,9 @@ MotionDialog {
         }
     }
     function issueTone(status) {
-        return status === "published" || status === "duplicate" ? "ok" : status === "processing_failed" || status === "closed" ? "bad"
+        // withdrawn: a withdrawal Issue went through (or every entry of a submission was withdrawn).
+        return status === "published" || status === "duplicate" || status === "withdrawn" ? "ok"
+             : status === "processing_failed" || status === "closed" ? "bad"
              : status ? "warn" : "off"
     }
 
@@ -1393,6 +1424,7 @@ MotionDialog {
                     clip: true
 
                     DutyCommunityDetail {
+                        objectName: "dutyCommunityDetail"
                         anchors.fill: parent
                         visible: root.mode === "view"
                         store: root

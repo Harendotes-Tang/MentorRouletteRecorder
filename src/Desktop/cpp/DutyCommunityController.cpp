@@ -218,12 +218,16 @@ bool DutyCommunityController::openGitHub(const QString &target, int issue) const
         return QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/login/device")));
     if (target == QLatin1String("issue") && issue > 0)
         return QDesktopServices::openUrl(QUrl(QString::fromLatin1(Repo) + QStringLiteral("/issues/") + QString::number(issue)));
-    if (target != QLatin1String("fallback"))
+    // A submission ("fallback") and an author's withdrawal go into the same Issue form; only the
+    // title tells them apart for readers of the public repository.
+    const bool withdrawal = target == QLatin1String("withdrawal");
+    if (!withdrawal && target != QLatin1String("fallback"))
         return false;
     QUrl url(QString::fromLatin1(Repo) + QStringLiteral("/issues/new"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("template"), QStringLiteral("share-community-content.yml"));
-    query.addQueryItem(QStringLiteral("title"), QStringLiteral("MentorRecorder community contribution"));
+    query.addQueryItem(QStringLiteral("title"), withdrawal ? QStringLiteral("MentorRecorder community withdrawal")
+                                                           : QStringLiteral("MentorRecorder community contribution"));
     url.setQuery(query);
     return QDesktopServices::openUrl(url);
 }

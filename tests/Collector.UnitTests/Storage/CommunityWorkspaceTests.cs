@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using static MentorRecorder.Collector.UnitTests.CommunityTestData;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Community;
@@ -82,8 +82,9 @@ public sealed class CommunityWorkspaceTests
             prepare.CommandText = """
                 DROP INDEX community_local_order;
                 ALTER TABLE community_local DROP COLUMN edit_sequence;
+                ALTER TABLE community_local DROP COLUMN source_links_json;
                 CREATE INDEX community_local_order ON community_local(position, id);
-                DELETE FROM schema_migrations WHERE version = 19;
+                DELETE FROM schema_migrations WHERE version >= 19;
                 """;
             prepare.ExecuteNonQuery();
         }
@@ -542,6 +543,7 @@ public sealed class CommunityWorkspaceTests
     // in the library is labelled community-duplicate and published nothing.
     [Theory]
     [InlineData("community-duplicate", "duplicate")]
+    [InlineData("community-withdrawn", "withdrawn")]
     [InlineData("community-published", "published")]
     [InlineData("community-failed", "processing_failed")]
     [InlineData("", "processing")]
@@ -558,6 +560,25 @@ public sealed class CommunityWorkspaceTests
             }, new TestTime(), new TestProtector());
         var result = await github.RequestAsync("issue_status", new JsonObject { ["issue"] = 18 }, CancellationToken.None);
         Assert.Equal(expected, Status(result));
+    }
+
+    // An author withdraws published entries with a block pasted into the same Issue form; the
+    // workflow reads it (test_community_publish.py, CommunityWithdrawalTests).
+    [Fact]
+    public async Task WithdrawalBlockNamesEachIdOnce()
+    {
+        using var fixture = new TestDatabase();
+        using var host = CollectorHost.Open(fixture.Path, fixture.Clock);
+        async Task<JsonObject> Prepare(JsonArray ids) => await new MessageDispatcher(host).DispatchAsync(new IpcRequest(
+            Guid.NewGuid().ToString(), "DutyCommunity", new JsonObject { ["action"] = "prepare_withdrawal", ["withdraw"] = ids }),
+            CancellationToken.None);
+        var prepared = await Prepare(new JsonArray(MacroId, NoteId));
+        Assert.Equal("prepared", Status(prepared));
+        Assert.Equal(CommunityGithub.IssueMarker + "\n\n```json\n{\"schema_version\":1,\"withdraw\":[\"" + MacroId + "\",\"" +
+            NoteId + "\"]}\n```", prepared["body"]!.GetValue<string>());
+        var many = Enumerable.Range(1, 21).Select(n => (JsonNode?)$"00000000-0000-4000-8000-{n:D12}").ToArray();
+        foreach (var ids in new[] { new JsonArray(), new JsonArray(MacroId, MacroId), new JsonArray("macro"), new JsonArray(many) })
+            Assert.Equal("invalid_withdrawal", Status(await Prepare(ids)));
     }
 
     // The publisher runs the same vectors (test_community_publish.py, CommunityRepeatTests).
@@ -921,54 +942,4 @@ public sealed class CommunityWorkspaceTests
         return first["items"]!.AsArray().Concat(second["items"]!.AsArray()).Select(row => row!).ToArray();
     }
 
-    private static CommunityWorkspace Open(TestDatabase fixture)
-    {
-        var repository = new CommunityRepository(fixture.Database);
-        return new(repository, new CommunityLibrary(repository, new SettingsRepository(fixture.Database, fixture.Clock)));
-    }
-
-    private static JsonObject Draft(string id, string type, string body) => new()
-    {
-        ["schema_version"] = 1, ["id"] = id, ["type"] = type, ["content_id"] = 4, ["region"] = "CN",
-        ["language"] = "zh-Hans", ["title"] = "Example", ["body"] = body, ["boss"] = "", ["phase"] = "",
-        ["role"] = "", ["tags"] = new JsonArray(), ["links"] = new JsonArray(), ["source"] = "", ["game_version"] = "",
-    };
-
-    private static JsonObject Save(JsonObject draft, int revision, bool favorite = false) => new()
-    {
-        ["action"] = "save", ["content"] = draft.DeepClone(), ["revision"] = revision,
-        ["position"] = 0, ["favorite"] = favorite,
-    };
-
-    private static JsonObject Published(JsonObject original, int revision)
-    {
-        var draft = original.DeepClone().AsObject();
-        draft["revision"] = revision;
-        draft["status"] = "community";
-        draft["updated_at"] = "2026-11-18T10:00:00Z";
-        draft["author"] = new JsonObject { ["login"] = "user-one", ["id"] = 321 };
-        draft["issue"] = 53;
-        draft["license"] = "CC-BY-4.0";
-        return draft;
-    }
-
-    private static void Cache(CommunityRepository repository, int generation, params JsonObject[] items)
-    {
-        var (index, bytes) = Publication(generation, items);
-        repository.SaveCache(index, bytes);
-    }
-
-    private static (byte[] Index, byte[] Bytes) Publication(int generation, params JsonObject[] items)
-    {
-        var bytes = Encoding.UTF8.GetBytes(new JsonObject
-        {
-            ["schema_version"] = 1, ["generation"] = generation, ["entries"] = new JsonArray(items.Select(item => item.DeepClone()).ToArray()),
-        }.ToJsonString());
-        var index = new JsonObject
-        {
-            ["schema_version"] = 1, ["generation"] = generation, ["snapshot_commit"] = new string('a', 40),
-            ["snapshot_sha256"] = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-        };
-        return (Encoding.UTF8.GetBytes(index.ToJsonString()), bytes);
-    }
 }

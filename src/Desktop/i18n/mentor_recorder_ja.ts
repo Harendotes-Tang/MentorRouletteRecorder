@@ -6011,6 +6011,18 @@ SHA256：%3</translation>
         <translation>ライセンス</translation>
     </message>
     <message>
+        <source>已发布</source>
+        <translation>公開中</translation>
+    </message>
+    <message>
+        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <translation>作者が公開ライブラリから取り下げたため、ほかの人は取り込めなくなりました。ローカルのコピーはそのまま残ります</translation>
+    </message>
+    <message>
+        <source>以 @%1 的名义公开，只有这个 GitHub 账号能撤回</source>
+        <translation>@%1 として公開されています。取り下げられるのはこの GitHub アカウントだけです</translation>
+    </message>
+    <message>
         <source>状态</source>
         <translation>状態</translation>
     </message>
@@ -6085,6 +6097,14 @@ SHA256：%3</translation>
     <message>
         <source>对比来源更新</source>
         <translation>配布元の更新を比較</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回 %1 项</source>
+        <translation>公開ライブラリから %1 件を取り下げる</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>公開ライブラリから取り下げる</translation>
     </message>
     <message>
         <source>已复制</source>
@@ -6496,6 +6516,14 @@ SHA256：%3</translation>
     <message>
         <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
         <translation>投稿をコピーしました。ブラウザーのフォームに貼り付けて送信してください。</translation>
+    </message>
+    <message>
+        <source>撤回请求已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>取り下げ依頼をコピーしました。ブラウザーのフォームに貼り付けて送信してください。</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
+        <translation>自分が公開し、まだ取り下げていない項目を 1～20 件選び、先に公開ライブラリを更新してください。</translation>
     </message>
     <message>
         <source>过时</source>
@@ -7165,6 +7193,14 @@ SHA256：%3</translation>
         <translation>投稿は GitHub Issue で送信され、処理が終わると公開ライブラリで誰でも見られるようになります。</translation>
     </message>
     <message>
+        <source>核对下面要撤回的内容并勾选确认。</source>
+        <translation>下の取り下げる内容を確認し、確認にチェックを入れます。</translation>
+    </message>
+    <message>
+        <source>复制撤回请求，在浏览器打开的 GitHub 表单里粘贴，用发布这些内容的 GitHub 账号提交。</source>
+        <translation>取り下げ依頼をコピーし、ブラウザーで開いた GitHub のフォームに貼り付けて、これらを公開した GitHub アカウントで送信してください。</translation>
+    </message>
+    <message>
         <source>核对下面会公开的内容，选好许可并勾选确认。</source>
         <translation>下の公開される内容を確認し、ライセンスを選んで確認にチェックを入れます。</translation>
     </message>
@@ -7177,8 +7213,24 @@ SHA256：%3</translation>
         <translation>発行された Issue 番号を下部の「投稿の進み具合」に入力すると、いつでも処理状況を確認できます。</translation>
     </message>
     <message>
+        <source>撤回请求已复制，去浏览器粘贴</source>
+        <translation>取り下げ依頼をコピーしました。ブラウザーで貼り付けてください</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>公開ライブラリから取り下げる</translation>
+    </message>
+    <message>
         <source>投稿正文已复制，去浏览器粘贴</source>
         <translation>投稿をコピーしました。ブラウザーで貼り付けてください</translation>
+    </message>
+    <message>
+        <source>撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
+        <translation>取り下げ依頼（%1 件）をクリップボードにコピーし、GitHub のフォームをブラウザーで開きました。フォームが見当たらないときは、下の「フォームを開き直す」を押してください。</translation>
+    </message>
+    <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリで「取り下げ済み」になります。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7189,8 +7241,20 @@ SHA256：%3</translation>
         <translation>ブラウザーの GitHub フォームで「Community submission」の下の入力欄をクリックし、貼り付けます（Ctrl+V）。</translation>
     </message>
     <message>
+        <source>粘贴进去的是一段像程序代码的文字，不要删改，用发布这些内容的 GitHub 账号在页面上提交。</source>
+        <translation>貼り付けられるのはプログラムのコードのようなテキストです。手を加えずに、これらを公開した GitHub アカウントでページから送信してください。</translation>
+    </message>
+    <message>
         <source>粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。</source>
         <translation>貼り付けられるのはプログラムのコードのような長いテキストです。手を加えずに、そのまま GitHub のページで送信してください。</translation>
+    </message>
+    <message>
+        <source>所选条目由不同的 GitHub 账号发布（%1）。请返回列表，按发布账号分别撤回。</source>
+        <translation>選択した項目は複数の GitHub アカウント（%1）から公開されています。一覧に戻り、公開したアカウントごとに取り下げてください。</translation>
+    </message>
+    <message>
+        <source>只有发布时的 GitHub 账号能撤回：%1。用别的账号提交会处理失败。</source>
+        <translation>取り下げられるのは公開した GitHub アカウントだけです：%1。ほかのアカウントで送信すると処理に失敗します。</translation>
     </message>
     <message>
         <source>公开作者：@%1</source>
@@ -7221,8 +7285,16 @@ SHA256：%3</translation>
         <translation>公開される全文を表示</translation>
     </message>
     <message>
+        <source>我确认撤回这 %1 项，撤回后不能取消。</source>
+        <translation>この %1 件を取り下げることを確認します。取り下げは取り消せません。</translation>
+    </message>
+    <message>
         <source>我确认来源，并同意按所选许可公开发布。</source>
         <translation>出典を確認し、選択したライセンスでの公開に同意します。</translation>
+    </message>
+    <message>
+        <source>粘贴之前不要再复制别的内容。剪贴板只留最后复制的一段，撤回请求被换掉后，GitHub 会因为找不到完整的请求而处理失败。已经复制过别的，就点「再次复制撤回请求」。</source>
+        <translation>貼り付ける前にほかの内容をコピーしないでください。クリップボードには最後にコピーした内容しか残らず、取り下げ依頼が置き換わると GitHub は完全な依頼を見つけられず、処理に失敗します。すでにほかの内容をコピーしたときは「取り下げ依頼をもう一度コピー」を押してください。</translation>
     </message>
     <message>
         <source>粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。</source>
@@ -7257,6 +7329,10 @@ SHA256：%3</translation>
         <translation>コピーしました</translation>
     </message>
     <message>
+        <source>再次复制撤回请求</source>
+        <translation>取り下げ依頼をもう一度コピー</translation>
+    </message>
+    <message>
         <source>再次复制投稿正文</source>
         <translation>投稿をもう一度コピー</translation>
     </message>
@@ -7273,6 +7349,10 @@ SHA256：%3</translation>
         <translation>GitHub アカウントで送信（%1 件）</translation>
     </message>
     <message>
+        <source>点此复制撤回请求（%1 项）并粘贴到 GitHub 当中</source>
+        <translation>取り下げ依頼（%1 件）をコピーして GitHub に貼り付ける</translation>
+    </message>
+    <message>
         <source>点此复制（%1 项）并粘贴到 GitHub 当中</source>
         <translation>コピー（%1 件）して GitHub に貼り付ける</translation>
     </message>
@@ -7285,8 +7365,24 @@ SHA256：%3</translation>
         <translation>公開ライブラリに変更なしで掲載済みのため、再投稿しません</translation>
     </message>
     <message>
+        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <translation>公開ライブラリから取り下げ済みのため、この項目のままでは再投稿できません。もう一度公開するときは、新しい項目を作って投稿してください</translation>
+    </message>
+    <message>
         <source>公共库已有相同内容「%1」（%2），不再投稿</source>
         <translation>公開ライブラリに同じ内容の「%1」（%2）があるため、再投稿しません</translation>
+    </message>
+    <message>
+        <source>一次最多撤回 20 项，请少选几项再撤回。</source>
+        <translation>一度に取り下げられるのは 20 件までです。選ぶ項目を減らしてから取り下げてください。</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>取り下げると、この %1 件は公開ライブラリで「取り下げ済み」になります。ほかの人は取り込めなくなり、すでに取り込んだ人には「取り下げ済み」と表示されます。ローカルの項目はそのまま残ります。取り下げは取り消せず、本文は公開リポジトリの履歴に残ります。もう一度公開するときは、新しい項目を作って投稿してください。</translation>
+    </message>
+    <message>
+        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
+        <translation>選んだ内容はすべて公開ライブラリから取り下げ済みのため、投稿できません。</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>

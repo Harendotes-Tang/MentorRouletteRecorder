@@ -7,6 +7,9 @@
       "$ref": "#/$defs/Submission"
     },
     {
+      "$ref": "#/$defs/Withdrawal"
+    },
+    {
       "$ref": "#/$defs/Index"
     },
     {
@@ -344,6 +347,30 @@
         "consent",
         "items",
         "base_revisions"
+      ],
+      "additionalProperties": false
+    },
+    "Withdrawal": {
+      "description": "The block of an Issue in which the original author withdraws published entries; the workflow marks them withdrawn.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "withdraw": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "withdraw"
       ],
       "additionalProperties": false
     },

@@ -1090,7 +1090,7 @@ Collector 只与 github.com 的设备授权端点和 api.github.com 上的用户
 条目元数据、许可和 GitHub 作者身份公开。授权令牌以 Windows 当前用户 DPAPI 加密，存为数据库所在文件夹中的
 `community-github.bin`，不进入 SQLite、备份、诊断导出或 IPC；点击「退出 GitHub」即删除该文件，手动删除的效果相同。
 公开仓库的社区台账 `community/v1/submissions.json` 由发布工作流维护，其中另记有每个 GitHub 账号（以数字编号表示）
-每天（UTC 日期）发布内容的次数，以及维护者删除的条目 ID（[duty-community.md](duty-community.md)「投稿」第 4 条）；
+每天（UTC 日期）发布内容的次数，以及维护者删除的条目 ID（[duty-community.md](duty-community.md)「投稿」第 5 条）；
 这些记录是公开的，只增不减，本软件不读取也不写入它们。
 
 **本机留存。** 公共库缓存、本机条目与已安装的公开条目保存在数据库中；为识别桌面端对同一请求的重试，

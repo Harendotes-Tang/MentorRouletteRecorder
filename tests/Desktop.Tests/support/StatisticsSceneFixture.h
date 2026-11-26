@@ -82,7 +82,8 @@ public:
     {
         if (messageType == QLatin1String("DutyCommunity")) {
             const QString action = payload.value(QStringLiteral("action")).toString();
-            if (action == QLatin1String("submit") || action == QLatin1String("prepare_issue")) {
+            if (action == QLatin1String("submit") || action == QLatin1String("prepare_issue")
+                || action == QLatin1String("prepare_withdrawal")) {
                 lastCommunitySubmission = payload;
                 if (holdCommunitySubmission) {
                     auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-submission"), messageType, this);

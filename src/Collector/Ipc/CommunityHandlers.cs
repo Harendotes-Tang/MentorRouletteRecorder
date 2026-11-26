@@ -22,10 +22,14 @@ internal static class CommunityHandlers
                     host.CommunityWorkspace.Change(action, request.RequestId, payload),
                 "account" or "sign_in" or "poll" or "cancel" or "sign_out" or "submit" or "issue_status" =>
                     await GithubAsync(host, action, payload, token).ConfigureAwait(false),
-                "prepare_issue" => new JsonObject
+                // The block the player pastes into the GitHub Issue form: a submission, or the
+                // withdrawal of entries they published.
+                "prepare_issue" or "prepare_withdrawal" => new JsonObject
                 {
                     ["status"] = "prepared",
-                    ["body"] = CommunityGithub.BuildIssueBody(payload),
+                    ["body"] = action == "prepare_issue"
+                        ? CommunityGithub.BuildIssueBody(payload)
+                        : CommunityGithub.BuildWithdrawalBody(payload),
                 },
                 "copy" => Copy(payload),
                 _ => CommunityWorkspace.Result("invalid_action"),

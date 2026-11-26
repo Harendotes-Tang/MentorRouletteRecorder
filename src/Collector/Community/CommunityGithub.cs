@@ -322,20 +322,41 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             if (!seen.Contains(basis.Key) || CommunityContent.Integer(bases, basis.Key) < 1)
                 throw new FormatException("invalid_source_revision");
         }
-        // Compact JSON with an ASCII-escaped representation prevents embedded newlines/fences
-        // from altering the structural framing. GitHub takes the issue author from its session.
-        var body = IssueMarker + "\n\n```json\n" + new JsonObject
+        var body = IssueBlock(new JsonObject
         {
             ["schema_version"] = 1,
             ["license"] = license,
             ["consent"] = true,
             ["items"] = items.DeepClone(),
             ["base_revisions"] = bases.DeepClone(),
-        }.ToJsonString() + "\n```";
+        });
         if (body.Length > CommunityContent.MaxSubmissionBytes)
             throw new FormatException("submission_size");
         return body;
     }
+
+    /// <summary>
+    /// The Issue block in which an author withdraws published entries (Withdrawal in
+    /// contracts/community-content-v1.schema.json): 1 to 20 stable IDs, each once. The workflow
+    /// marks them withdrawn when the Issue's GitHub account published every one of them.
+    /// </summary>
+    internal static string BuildWithdrawalBody(JsonObject payload)
+    {
+        if (payload["withdraw"] is not JsonArray ids || ids.Count is < 1 or > CommunityContent.MaxBatch)
+            throw new FormatException("invalid_withdrawal");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in ids)
+        {
+            if (node is not JsonValue value || !value.TryGetValue<string>(out var id) || !CommunityContent.IsId(id) ||
+                !seen.Add(id))
+                throw new FormatException("invalid_withdrawal");
+        }
+        return IssueBlock(new JsonObject { ["schema_version"] = 1, ["withdraw"] = ids.DeepClone() });
+    }
+
+    // Compact JSON with an ASCII-escaped representation prevents embedded newlines/fences
+    // from altering the structural framing. GitHub takes the issue author from its session.
+    private static string IssueBlock(JsonObject data) => IssueMarker + "\n\n```json\n" + data.ToJsonString() + "\n```";
 
     private async Task<JsonObject> IssueStatusAsync(ActiveRequest request, int issue, CancellationToken token)
     {
@@ -352,6 +373,8 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
             not null when labels.Contains("community-failed") || labels.Contains("community-classification") => "processing_failed",
             // Every item repeated text already in the library, so nothing new was published.
             not null when labels.Contains("community-duplicate") => "duplicate",
+            // An author's withdrawal went through: its entries are marked withdrawn.
+            not null when labels.Contains("community-withdrawn") => "withdrawn",
             not null when labels.Contains("community-published") => "published",
             _ when record["state"]?.GetValue<string>() == "closed" => "closed",
             _ => "processing",

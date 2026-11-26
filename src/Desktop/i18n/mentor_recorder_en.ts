@@ -6011,6 +6011,18 @@ SHA256: %3</translation>
         <translation>Licence</translation>
     </message>
     <message>
+        <source>已发布</source>
+        <translation>Published</translation>
+    </message>
+    <message>
+        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <translation>Its author withdrew this entry from the public library, so nobody can import it any more; your local copy stays</translation>
+    </message>
+    <message>
+        <source>以 @%1 的名义公开，只有这个 GitHub 账号能撤回</source>
+        <translation>Published as @%1; only this GitHub account can withdraw it</translation>
+    </message>
+    <message>
         <source>状态</source>
         <translation>Status</translation>
     </message>
@@ -6085,6 +6097,14 @@ SHA256: %3</translation>
     <message>
         <source>对比来源更新</source>
         <translation>Compare source update</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回 %1 项</source>
+        <translation>Withdraw %1 from the public library</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>Withdraw from the public library</translation>
     </message>
     <message>
         <source>已复制</source>
@@ -6496,6 +6516,14 @@ SHA256: %3</translation>
     <message>
         <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
         <translation>Submission copied. Paste it into the browser form and submit.</translation>
+    </message>
+    <message>
+        <source>撤回请求已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>Withdrawal request copied. Paste it into the browser form and submit.</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
+        <translation>Select 1 to 20 items you published that are not withdrawn yet, and refresh the public library first.</translation>
     </message>
     <message>
         <source>过时</source>
@@ -7165,6 +7193,14 @@ SHA256: %3</translation>
         <translation>Submissions go through a GitHub Issue. Once processed, everyone can see them in the public library.</translation>
     </message>
     <message>
+        <source>核对下面要撤回的内容并勾选确认。</source>
+        <translation>Check the items to withdraw below and tick the confirmation.</translation>
+    </message>
+    <message>
+        <source>复制撤回请求，在浏览器打开的 GitHub 表单里粘贴，用发布这些内容的 GitHub 账号提交。</source>
+        <translation>Copy the withdrawal request, then paste it into the GitHub form opened in your browser and submit it with the GitHub account that published these items.</translation>
+    </message>
+    <message>
         <source>核对下面会公开的内容，选好许可并勾选确认。</source>
         <translation>Check what becomes public below, choose a licence and tick the confirmation.</translation>
     </message>
@@ -7177,8 +7213,24 @@ SHA256: %3</translation>
         <translation>Enter the Issue number under Submission progress at the bottom to check its state at any time.</translation>
     </message>
     <message>
+        <source>撤回请求已复制，去浏览器粘贴</source>
+        <translation>Withdrawal request copied. Paste it in the browser</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>Withdraw from the public library</translation>
+    </message>
+    <message>
         <source>投稿正文已复制，去浏览器粘贴</source>
         <translation>Submission copied. Paste it in the browser</translation>
+    </message>
+    <message>
+        <source>撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
+        <translation>The withdrawal request (%1) is on the clipboard and the GitHub form is open in the browser. If you do not see the form, click Reopen form below.</translation>
+    </message>
+    <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>Withdrawals go through a GitHub Issue. Once processed, these items are marked Withdrawn in the public library.</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7189,8 +7241,20 @@ SHA256: %3</translation>
         <translation>In the GitHub form in the browser, click the box under Community submission and paste (Ctrl+V).</translation>
     </message>
     <message>
+        <source>粘贴进去的是一段像程序代码的文字，不要删改，用发布这些内容的 GitHub 账号在页面上提交。</source>
+        <translation>What you paste is a block that looks like program code. Do not change any of it; submit it on the GitHub page with the account that published these items.</translation>
+    </message>
+    <message>
         <source>粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。</source>
         <translation>What you paste is a long block that looks like program code. Do not change any of it; submit it on the GitHub page as it is.</translation>
+    </message>
+    <message>
+        <source>所选条目由不同的 GitHub 账号发布（%1）。请返回列表，按发布账号分别撤回。</source>
+        <translation>The selected entries were published by different GitHub accounts (%1). Return to the list and withdraw each account’s entries separately.</translation>
+    </message>
+    <message>
+        <source>只有发布时的 GitHub 账号能撤回：%1。用别的账号提交会处理失败。</source>
+        <translation>Only the GitHub account that published them can withdraw them: %1. A request from another account fails.</translation>
     </message>
     <message>
         <source>公开作者：@%1</source>
@@ -7221,8 +7285,16 @@ SHA256: %3</translation>
         <translation>Show the full public text</translation>
     </message>
     <message>
+        <source>我确认撤回这 %1 项，撤回后不能取消。</source>
+        <translation>I confirm withdrawing these %1 items; this cannot be undone.</translation>
+    </message>
+    <message>
         <source>我确认来源，并同意按所选许可公开发布。</source>
         <translation>I confirm the source and agree to publish under the selected license.</translation>
+    </message>
+    <message>
+        <source>粘贴之前不要再复制别的内容。剪贴板只留最后复制的一段，撤回请求被换掉后，GitHub 会因为找不到完整的请求而处理失败。已经复制过别的，就点「再次复制撤回请求」。</source>
+        <translation>Do not copy anything else before pasting. The clipboard keeps only the last thing copied, and once the withdrawal request is replaced GitHub cannot find a complete request and fails to process it. If you already copied something else, click Copy withdrawal request again.</translation>
     </message>
     <message>
         <source>粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。</source>
@@ -7257,6 +7329,10 @@ SHA256: %3</translation>
         <translation>Copied</translation>
     </message>
     <message>
+        <source>再次复制撤回请求</source>
+        <translation>Copy withdrawal request again</translation>
+    </message>
+    <message>
         <source>再次复制投稿正文</source>
         <translation>Copy submission again</translation>
     </message>
@@ -7273,6 +7349,10 @@ SHA256: %3</translation>
         <translation>Submit with GitHub account (%1)</translation>
     </message>
     <message>
+        <source>点此复制撤回请求（%1 项）并粘贴到 GitHub 当中</source>
+        <translation>Copy the withdrawal request (%1), then paste into GitHub</translation>
+    </message>
+    <message>
         <source>点此复制（%1 项）并粘贴到 GitHub 当中</source>
         <translation>Copy (%1), then paste into GitHub</translation>
     </message>
@@ -7285,8 +7365,24 @@ SHA256: %3</translation>
         <translation>Already in the public library and unchanged, so it is not submitted again</translation>
     </message>
     <message>
+        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <translation>Withdrawn from the public library, so it cannot be submitted again as this item; to share it again, create a new item and submit that</translation>
+    </message>
+    <message>
         <source>公共库已有相同内容「%1」（%2），不再投稿</source>
         <translation>The public library already has the same text in “%1” (%2), so it is not submitted again</translation>
+    </message>
+    <message>
+        <source>一次最多撤回 20 项，请少选几项再撤回。</source>
+        <translation>You can withdraw at most 20 items at a time; select fewer and try again.</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>Once withdrawn, these %1 items are marked Withdrawn in the public library: nobody can import them any more, people who already imported them see Withdrawn, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
+    </message>
+    <message>
+        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
+        <translation>Everything selected has been withdrawn from the public library and cannot be submitted again.</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>

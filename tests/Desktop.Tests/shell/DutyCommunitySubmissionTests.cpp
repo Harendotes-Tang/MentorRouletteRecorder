@@ -9,11 +9,13 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFont>
+#include <QJsonArray>
 #include <QQuickStyle>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QUrlQuery>
 
 namespace {
 class DutyCommunitySubmissionTests : public QObject
@@ -33,6 +35,7 @@ private Q_SLOTS:
     void communityLinksAndSourceUpdatesReadPlainly();
     void communityMockAnswersAsTheCollectorDoes();
     void communityRefusedSaveIsOfferedBack();
+    void communityAuthorWithdrawsPublishedEntries();
 public:
     Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
     QList<QUrl> opened;
@@ -894,6 +897,87 @@ void DutyCommunitySubmissionTests::communityRefusedSaveIsOfferedBack()
     QVERIFY(QMetaObject::invokeMethod(dialog, "statusText", Q_RETURN_ARG(QVariant, sentence),
                                       Q_ARG(QVariant, QStringLiteral("submit_not_sent"))));
     QCOMPARE(sentence.toString(), s("投稿没有发出，什么都没有提交，请稍后再试。"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// 「提醒与宏 增加发布后回撤的功能」(owner, 2026-11-26): an entry published from this library is
+// withdrawn with a block pasted into the same GitHub form. An installed copy of someone's entry,
+// or one already withdrawn, offers nothing, and a withdrawn entry is not submitted again.
+void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
+{
+    const auto s = [](const char *text) { return QString::fromUtf8(text); };
+    const auto contentKey = QStringLiteral("content");
+    opened.clear();
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QVariantList local = qmlList(dialog->property("localRows"));
+    const auto contentOf = [&](int index) { return qmlMap(local.at(index).toMap().value(contentKey)); };
+    const auto idOf = [&](int index) { return contentOf(index).value(QStringLiteral("id")).toString(); };
+    // Rows 0 and 1 were written and published here; row 2 is an installed copy. 1 and 2 are withdrawn since.
+    QVariantList published;
+    for (int index = 0; index < 3; ++index) {
+        QVariantMap row = local.at(index).toMap(), content = contentOf(index);
+        content.insert(QStringLiteral("links"), QVariantList());
+        QVariantMap copy = asPublished(content, 960 + index).value(contentKey).toMap();
+        copy.insert(QStringLiteral("status"), index > 0 ? QStringLiteral("withdrawn") : QStringLiteral("community"));
+        row.insert(contentKey, content);
+        row.insert(QStringLiteral("upstream"), index == 2 ? QVariant(copy) : QVariant());
+        local.replace(index, row);
+        published << QVariantMap{{contentKey, copy}};
+    }
+    dialog->setProperty("localRows", local);
+    dialog->setProperty("publicRows", published);
+    const auto withdrawButton = [&] { return scene.item(QStringLiteral("dutyCommunityWithdraw"), true); };
+    const auto shows = [&](const char *name, const char *line) { return visibleText(scene.item(QString::fromLatin1(name), true), s(line)); };
+    for (int index : {2, 1}) {
+        QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, idOf(index))));
+        QTRY_VERIFY2(dialog->property("currentId").toString() == idOf(index) && !withdrawButton(), qPrintable(idOf(index)));
+        QVERIFY2(shows("dutyCommunityDetail", "已撤回"), qPrintable(idOf(index)));
+    }
+    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, idOf(0))));
+    QTRY_VERIFY(withdrawButton());
+    QCOMPARE(withdrawButton()->property("text").toString(), s("从公共共享库撤回"));
+    QVERIFY(shows("dutyCommunityDetail", "已发布"));
+    // Ticked together with the installed copy: only what was published here is withdrawn.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, idOf(0))));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, idOf(2))));
+    QTRY_COMPARE(withdrawButton()->property("text").toString(), s("从公共共享库撤回 1 项"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityWithdraw")));
+    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
+    QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
+    QVERIFY(submission);
+    QCOMPARE(submission->property("kind").toString(), QStringLiteral("withdraw"));
+    QCOMPARE(rowIds(submission->property("selected")), QStringList{idOf(0)});
+    QQuickItem *send = scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true);
+    QVERIFY(send);
+    QCOMPARE(send->property("text").toString(), s("点此复制撤回请求（1 项）并粘贴到 GitHub 当中"));
+    QVERIFY(!send->property("enabled").toBool());
+    QVERIFY(shows("dutyCommunitySubmission", "只有发布时的 GitHub 账号能撤回：@player。用别的账号提交会处理失败。"));
+    QVERIFY(!scene.item(QStringLiteral("dutyCommunityLicense"), true));
+    scene.item(QStringLiteral("dutyCommunityConsent"), true)->setProperty("checked", true);
+    QTRY_VERIFY(send->property("enabled").toBool());
+    QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "rememberUrl");
+    const auto unsetHandler = qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("https")); });
+    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmitBrowser")));
+    QTRY_VERIFY(submission->property("copied").toBool());
+    QCOMPARE(scene.backend.lastCommunitySubmission.value(QStringLiteral("withdraw")).toArray(), QJsonArray{idOf(0)});
+    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("mock withdrawal ") + idOf(0));
+    QVERIFY(opened.size() == 1 && QUrlQuery(opened.at(0)).queryItemValue(QStringLiteral("title"))
+                                      == QStringLiteral("MentorRecorder community withdrawal"));
+    QCOMPARE(dialog->property("note").toString(), s("撤回请求已复制，请粘贴到浏览器表单并提交。"));
+    QCOMPARE(scene.item(QStringLiteral("dutyCommunityCopyAgain"), true)->property("text").toString(), s("再次复制撤回请求"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunitySubmissionDone")));
+    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
+
+    // A withdrawn entry is not submitted again under its ID.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "submitRows", Q_ARG(QVariant, QVariant(QStringList{idOf(1)}))));
+    QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
+    QCOMPARE(submission->property("kind").toString(), QStringLiteral("submit"));
+    QVERIFY(rowIds(submission->property("submittable")).isEmpty());
+    QCOMPARE(qmlMap(submission->property("twins")).value(idOf(1)).toMap().value(QStringLiteral("kind")).toString(),
+             QStringLiteral("withdrawn"));
+    QVERIFY(shows("dutyCommunitySubmission", "选中的内容都已从公共共享库撤回，不能再投稿。"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

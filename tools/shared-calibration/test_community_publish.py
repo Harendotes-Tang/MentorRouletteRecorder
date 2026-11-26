@@ -137,6 +137,99 @@ class CommunityPublishTests(unittest.TestCase):
             self.assertEqual(entries[self.identifier], json.loads(data)["entries"][0])
             self.assertEqual(1, json.loads(data)["generation"])
 
+    def test_sweep_recovers_the_receipt_of_an_edit_with_an_unchanged_result_label(self):
+        original = self.issue("original")
+        current = self.issue("edited", labels=[{"name": "community-published"}])
+        digest = publisher.fingerprint(current)
+        result = {"status": "published", "ids": [self.identifier]}
+        ledger = {"issues": {"45": publisher.ledger_record(current, digest, result)}}
+        bot = {"login": "github-actions[bot]", "type": "Bot"}
+        issue_url = "https://api.github.com/repos/fixture/issues/45"
+        comments = [{"user": bot, "issue_url": issue_url,
+                     "body": publisher.receipt_marker(45, publisher.fingerprint(original))}]
+
+        def api(_repo, route, *args):
+            if route.startswith("issues?"):
+                return [current] if route.endswith("page=1") else []
+            if route.startswith("issues/comments?"):
+                return comments
+            if route.startswith("issues/45/comments?"):
+                return [comments]
+            return current
+
+        def checked(*args):
+            self.assertEqual(("gh", "issue", "comment"), args[:3])
+            comments.append({"user": bot, "issue_url": issue_url, "body": args[-1]})
+
+        with tempfile.TemporaryDirectory() as work:
+            ledger_path = Path(work) / "ledger.json"
+            ledger_path.write_bytes(publisher.encode(ledger))
+            with patch.object(publisher, "api", api), patch.object(publisher, "checked", checked), \
+                    patch.object(publisher, "LEDGER", ledger_path), patch.object(publisher, "latest_checkout"), \
+                    patch.object(publisher, "load", return_value=({}, ledger, {})):
+                publisher.sweep("fixture")
+                publisher.sweep("fixture")
+        self.assertEqual(2, len(comments))
+        self.assertTrue(comments[-1]["body"].startswith(publisher.receipt_marker(45, digest)))
+
+    def test_sweep_confirms_unchanged_issues_across_repository_comment_pages(self):
+        repo = "owner/public"
+        bot = {"login": "github-actions[bot]", "type": "Bot"}
+        issues = [self.issue(number=n, labels=[{"name": "community-published"}]) for n in range(1, 102)]
+        rows, comments = {}, []
+        for issue in issues:
+            number, digest = issue["number"], publisher.fingerprint(issue)
+            rows[str(number)] = {"fingerprint": digest, "result": {"status": "published"}}
+            comments.append({"user": bot, "issue_url": f"https://api.github.com/repos/{repo}/issues/{number}",
+                             "body": publisher.receipt_marker(number, digest) + "\nreceipt"})
+        # Markers on a different Issue, from a non-bot, or belonging to a previous edit cannot settle #101.
+        last = comments.pop()
+        comments.extend((dict(last, issue_url=comments[0]["issue_url"]),
+                         dict(last, user=dict(bot, type="User")),
+                         dict(last, body=publisher.receipt_marker(101, "0" * 64))))
+        calls = []
+
+        def api(_repo, route):
+            calls.append(route)
+            page = int(route.rsplit("=", 1)[1])
+            records = comments if route.startswith("issues/comments?") else issues
+            return records[100 * (page - 1):100 * page]
+
+        with tempfile.TemporaryDirectory() as work:
+            ledger_path = Path(work) / "ledger.json"
+            ledger_path.write_bytes(publisher.encode({"issues": rows}))
+            with patch.object(publisher, "api", api), patch.object(publisher, "LEDGER", ledger_path), \
+                    patch.object(publisher, "process") as process:
+                publisher.sweep(repo)
+                process.assert_called_once_with(repo, 101)
+                self.assertEqual(4, len(calls))  # two pages of Issues and two of repository comments
+                comments.append(last)
+                calls.clear()
+                process.reset_mock()
+                publisher.sweep(repo)
+                self.assertEqual(4, len(calls))
+                process.assert_not_called()
+
+    def test_old_receipt_among_unrelated_comments_uses_targeted_pagination(self):
+        repo = "owner/public"
+        marker = publisher.receipt_marker(45, "a" * 64)
+        ordinary = {"issue_url": "https://api.github.com/repos/owner/public/issues/12",
+                    "user": {"login": "tester", "type": "User"}, "body": "calibration"}
+        receipt = {"user": {"login": "github-actions[bot]", "type": "Bot"},
+                   "body": marker + "\nPublished"}
+        calls = []
+
+        def api(_repo, route, *args):
+            calls.append((route, args))
+            if route.startswith("issues/comments?"):
+                return [ordinary] * 100
+            return [[ordinary] * 100, [receipt]]
+
+        with patch.object(publisher, "api", api):
+            self.assertEqual([], publisher.missing_receipts(repo, {45: marker}))
+        self.assertEqual([("issues/comments?sort=created&direction=desc&per_page=100&page=1", ()),
+                          ("issues/45/comments?per_page=100", ("--paginate", "--slurp"))], calls)
+
 
 
 class CommunityRepeatTests(unittest.TestCase):
@@ -322,7 +415,7 @@ class CommunityRepeatTests(unittest.TestCase):
         edits, posted = reply(similar, [])
         self.assertEqual([("--add-label", "community-similar")], edits)
         # Once the receipt is there, a maintainer who removed community-similar keeps it removed.
-        receipt = {"user": {"login": "github-actions[bot]"},
+        receipt = {"user": {"login": "github-actions[bot]", "type": "Bot"},
                    "body": "<!-- mr-community-receipt:15:" + publisher.fingerprint(live) + " -->\nPublished"}
         edits, posted = reply(similar, [receipt])
         self.assertEqual(([], []), (edits, posted))
@@ -373,6 +466,24 @@ class CommunityCapacityTests(unittest.TestCase):
         self.assertNotIn(first, removed)
         self.assertEqual("published", self.submit(removed)[0]["status"])
 
+    def test_maintainer_restoration_obeys_account_and_global_limits(self):
+        for entries in (self.library(publisher.MAX_ACCOUNT_ENTRIES, author=201),
+                        self.library(publisher.MAX_LIVE_ENTRIES)):
+            withdrawn = self.published(900, 201, status="withdrawn")
+            entries[withdrawn["id"]] = withdrawn
+            with patch.object(publisher, "latest_checkout"), \
+                    patch.object(publisher, "load", return_value=({"generation": 1}, {}, entries)), \
+                    patch.object(publisher, "files_for") as snapshot:
+                with self.assertRaises(publisher.Invalid):
+                    publisher.moderate(withdrawn["id"], "verified", 1)
+                snapshot.assert_not_called()
+                del entries[next(iter(entries))]
+                with patch.object(publisher, "write"), patch.object(publisher, "git"), \
+                        patch.object(publisher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                    publisher.moderate(withdrawn["id"], "verified", 1)
+                restored = snapshot.call_args.args[1][withdrawn["id"]]
+                self.assertEqual(("verified", 2), (restored["status"], restored["revision"]))
+
     def test_removing_an_entry_drops_the_links_to_it_and_revises_the_linking_entries(self):
         macro = self.published(1, 300)
         note = self.published(2, 301, kind="reminder", links=[macro["id"]])
@@ -408,7 +519,7 @@ class CommunityCapacityTests(unittest.TestCase):
             result, revised = publisher.evaluate(issue, entries, ledger)
             record = publisher.ledger_record(issue, "digest", result)
             if revised != entries:
-                publisher.count_publication(ledger, record["author"], record["day"])
+                publisher.count_publication(ledger, record)
             ledger["issues"][str(issue["number"])] = record
             entries = revised
             results.append(result["status"])
@@ -485,6 +596,110 @@ class CommunityCapacityTests(unittest.TestCase):
                 self.assertEqual("failed", result["status"])
         joined = self.item(2, "/p 👩\u200d🍳 开场")
         self.assertEqual("published", publisher.evaluate(self.issue([joined], number=9, user=201), {})[0]["status"])
+
+
+class CommunityWithdrawalTests(unittest.TestCase):
+    """An author withdraws their own published entries with an Issue, as they submitted them."""
+
+    item = CommunityRepeatTests.item
+    issue = CommunityRepeatTests.issue
+    published = CommunityCapacityTests.published
+    ledger_after = CommunityCapacityTests.ledger_after
+
+    def withdrawal(self, ids, *, number=70, user=201, block=None):
+        data = block if block is not None else {"schema_version": 1, "withdraw": list(ids)}
+        return dict(number=number, state="open", title="Withdrawal", updated_at="2026-11-26T09:30:00Z",
+                    user={"id": user, "type": "User", "login": "player-name"}, labels=[],
+                    body=classification.MARKER + "\n\n```json\n" + json.dumps(data) + "\n```")
+
+    def test_the_author_withdraws_own_entries_and_a_second_run_changes_nothing(self):
+        macro = self.published(1, 201)
+        note = self.published(2, 201, kind="reminder", links=[macro["id"]])
+        other = self.published(3, 300)
+        entries = {item["id"]: item for item in (macro, note, other)}
+        result, revised = publisher.evaluate(self.withdrawal([macro["id"]]), entries)
+        self.assertEqual({"status": "withdrawn", "ids": [macro["id"]]}, result)
+        self.assertEqual(dict(macro, status="withdrawn", revision=2, updated_at="2026-11-26T09:30:00Z"),
+                         revised[macro["id"]], "text, links, author and the publishing Issue stay")
+        self.assertIs(note, revised[note["id"]], "an entry linking to it keeps the link")
+        self.assertEqual("community", entries[macro["id"]]["status"], "the library passed in is not changed")
+        again, unchanged = publisher.evaluate(self.withdrawal([macro["id"]]), revised)
+        self.assertEqual(("withdrawn", revised), (again["status"], unchanged))
+        text = publisher.receipt(result)
+        self.assertIn(macro["id"], text)
+        self.assertNotIn(macro["body"], text)
+        self.assertEqual("community-withdrawn", publisher.RESULT_LABELS[result["status"]])
+
+    def test_only_the_author_withdraws_and_only_published_ids(self):
+        macro = self.published(1, 201)
+        entries = {macro["id"]: macro}
+        cases = [("another account", self.withdrawal([macro["id"]], user=999), "original author"),
+                 ("unknown ID", self.withdrawal([self.item(9, "/p x")["id"]]), "Only published IDs"),
+                 ("no ID", self.withdrawal([]), "between 1 and 20"),
+                 ("too many", self.withdrawal([self.item(n, "/p x")["id"] for n in range(21)]), "between 1 and 20"),
+                 ("twice", self.withdrawal([macro["id"], macro["id"]]), "between 1 and 20"),
+                 ("not an ID", self.withdrawal(["macro"]), "between 1 and 20"),
+                 ("extra field", self.withdrawal((), block={"schema_version": 1, "withdraw": [macro["id"]],
+                                                            "reason": "x"}), "complete withdrawal block")]
+        for name, issue, detail in cases:
+            with self.subTest(name):
+                result, unchanged = publisher.evaluate(issue, entries)
+                self.assertEqual("failed", result["status"])
+                self.assertIn(detail, result["detail"])
+                self.assertIs(entries, unchanged)
+
+    def test_a_withdrawal_is_open_at_the_daily_limit_and_is_not_counted(self):
+        # Five publications use up the day; the withdrawal after them goes through and is not counted.
+        issues = [self.issue([self.item(n, f"/p 条目 {n}")], number=n, user=201) for n in range(1, 6)]
+        issues.append(self.withdrawal([self.item(1, "")["id"]], number=6))
+        results, ledger = self.ledger_after(issues)
+        self.assertEqual(["published"] * 5 + ["withdrawn"], results)
+        self.assertEqual({"2026-11-23": 5}, ledger["daily"]["201"])
+        busy = {"schema_version": 1, "issues": {}, "daily": {"201": {"2026-11-26": 5}}}
+        macro = self.published(1, 201)
+        result, _ = publisher.evaluate(self.withdrawal([macro["id"]]), {macro["id"]: macro}, busy)
+        self.assertEqual("withdrawn", result["status"])
+
+    def test_a_withdrawn_entry_is_never_reported_as_published_again(self):
+        first, second = self.item(1, "/p 第一条"), self.item(2, "/p 第二条")
+        _, entries = publisher.evaluate(self.issue([first, second], number=10, user=201), {})
+        _, entries = publisher.evaluate(self.withdrawal([first["id"]], number=11), entries)
+        # The Issue that published both is edited: the other entry is published, the withdrawn one named.
+        edited = self.issue([first, dict(second, title="改过")], number=10, user=201)
+        result, revised = publisher.evaluate(edited, entries)
+        self.assertEqual(("published", [second["id"]], [first["id"]]),
+                         (result["status"], result["ids"], result["withdrawn"]))
+        self.assertEqual("withdrawn", revised[first["id"]]["status"])
+        self.assertIn("Withdrawn earlier", publisher.receipt(result))
+        # With nothing else in it, the Issue reads as withdrawn earlier and changes nothing.
+        result, unchanged = publisher.evaluate(self.issue([first], number=10, user=201), entries)
+        self.assertEqual(({"status": "withdrawn", "ids": [first["id"]], "earlier": True}, entries), (result, unchanged))
+        self.assertIn("withdrawn earlier", publisher.receipt(result))
+        # The same ID with other text is refused; the same text under a new ID publishes.
+        result, _ = publisher.evaluate(self.issue([dict(first, body="/p 换了")], number=12, user=201), entries)
+        self.assertEqual("failed", result["status"])
+        self.assertIn("new ID", result["detail"])
+        fresh = dict(first, id=self.item(3, "")["id"])
+        self.assertEqual("published", publisher.evaluate(self.issue([fresh], number=13, user=201), entries)[0]["status"])
+
+    def test_withdrawn_entries_count_toward_what_one_account_holds(self):
+        # Publishing and withdrawing in turn cannot fill the snapshot: an account holds at most
+        # MAX_ACCOUNT_STORED entries of any status, though fewer than 40 of them are live.
+        held = publisher.MAX_ACCOUNT_STORED
+        entries = {}
+        for number in range(1, held + 1):
+            entry = self.published(number, 201, status="withdrawn" if number <= held - 30 else "community")
+            entries[entry["id"]] = entry
+        fresh = self.issue([self.item(900, "/p 新的条目")], number=900, user=201)
+        result, unchanged = publisher.evaluate(fresh, entries)
+        self.assertEqual("failed", result["status"])
+        self.assertIn(str(held), result["detail"])
+        self.assertIs(entries, unchanged)
+        self.assertEqual("published", publisher.evaluate(dict(fresh, user={**fresh["user"], "id": 202}), entries)[0]["status"])
+        live = next(identifier for identifier, entry in entries.items() if entry["status"] == "community")
+        self.assertEqual("withdrawn", publisher.evaluate(self.withdrawal([live]), entries)[0]["status"])
+        removed = publisher.without(entries, next(iter(entries)), "2026-11-26T08:00:00Z")
+        self.assertEqual("published", publisher.evaluate(fresh, removed)[0]["status"])
 
 
 if __name__ == "__main__":

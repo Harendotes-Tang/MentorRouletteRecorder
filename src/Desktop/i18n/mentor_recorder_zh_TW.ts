@@ -6011,6 +6011,18 @@ SHA256：%3</translation>
         <translation>授權</translation>
     </message>
     <message>
+        <source>已发布</source>
+        <translation>已發布</translation>
+    </message>
+    <message>
+        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <translation>作者已從公共共享庫撤回這一筆，別人不能再匯入；你的本機副本照常保留</translation>
+    </message>
+    <message>
+        <source>以 @%1 的名义公开，只有这个 GitHub 账号能撤回</source>
+        <translation>以 @%1 的名義公開，只有這個 GitHub 帳號能撤回</translation>
+    </message>
+    <message>
         <source>状态</source>
         <translation>狀態</translation>
     </message>
@@ -6085,6 +6097,14 @@ SHA256：%3</translation>
     <message>
         <source>对比来源更新</source>
         <translation>比較來源更新</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回 %1 项</source>
+        <translation>從公共共享庫撤回 %1 項</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>從公共共享庫撤回</translation>
     </message>
     <message>
         <source>已复制</source>
@@ -6496,6 +6516,14 @@ SHA256：%3</translation>
     <message>
         <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
         <translation>投稿內文已複製，請貼到瀏覽器表單並提交。</translation>
+    </message>
+    <message>
+        <source>撤回请求已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>撤回請求已複製，請貼到瀏覽器表單並提交。</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
+        <translation>請選擇 1 至 20 筆自己發布、還沒有撤回的內容，並先重新整理公共共享庫。</translation>
     </message>
     <message>
         <source>过时</source>
@@ -7165,6 +7193,14 @@ SHA256：%3</translation>
         <translation>投稿透過 GitHub Issue 提交，處理完成後，所有人都能在公共共享庫裡看到。</translation>
     </message>
     <message>
+        <source>核对下面要撤回的内容并勾选确认。</source>
+        <translation>核對下面要撤回的內容並勾選確認。</translation>
+    </message>
+    <message>
+        <source>复制撤回请求，在浏览器打开的 GitHub 表单里粘贴，用发布这些内容的 GitHub 账号提交。</source>
+        <translation>複製撤回請求，在瀏覽器開啟的 GitHub 表單中貼上，用發布這些內容的 GitHub 帳號送出。</translation>
+    </message>
+    <message>
         <source>核对下面会公开的内容，选好许可并勾选确认。</source>
         <translation>核對下面會公開的內容，選好授權並勾選確認。</translation>
     </message>
@@ -7177,8 +7213,24 @@ SHA256：%3</translation>
         <translation>把產生的 Issue 編號填進底部的「投稿進度」，隨時檢視處理狀態。</translation>
     </message>
     <message>
+        <source>撤回请求已复制，去浏览器粘贴</source>
+        <translation>撤回請求已複製，請到瀏覽器貼上</translation>
+    </message>
+    <message>
+        <source>从公共共享库撤回</source>
+        <translation>從公共共享庫撤回</translation>
+    </message>
+    <message>
         <source>投稿正文已复制，去浏览器粘贴</source>
         <translation>投稿內文已複製，請到瀏覽器貼上</translation>
+    </message>
+    <message>
+        <source>撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
+        <translation>撤回請求（%1 項）已複製到剪貼簿，GitHub 表單已在瀏覽器開啟；沒看到表單就點下面的「重新開啟表單」。</translation>
+    </message>
+    <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在公共共享庫裡標為「已撤回」。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7189,8 +7241,20 @@ SHA256：%3</translation>
         <translation>在瀏覽器的 GitHub 表單裡，點「Community submission」下方的輸入框，貼上（Ctrl+V）。</translation>
     </message>
     <message>
+        <source>粘贴进去的是一段像程序代码的文字，不要删改，用发布这些内容的 GitHub 账号在页面上提交。</source>
+        <translation>貼上的是一段像程式碼的文字，不要刪改，用發布這些內容的 GitHub 帳號在頁面上提交。</translation>
+    </message>
+    <message>
         <source>粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。</source>
         <translation>貼上的是一大段像程式碼的文字，不要刪改，直接在 GitHub 頁面上提交。</translation>
+    </message>
+    <message>
+        <source>所选条目由不同的 GitHub 账号发布（%1）。请返回列表，按发布账号分别撤回。</source>
+        <translation>所選項目由不同的 GitHub 帳號發布（%1）。請返回清單，依發布帳號分別撤回。</translation>
+    </message>
+    <message>
+        <source>只有发布时的 GitHub 账号能撤回：%1。用别的账号提交会处理失败。</source>
+        <translation>只有發布時的 GitHub 帳號能撤回：%1。用別的帳號提交會處理失敗。</translation>
     </message>
     <message>
         <source>公开作者：@%1</source>
@@ -7221,8 +7285,16 @@ SHA256：%3</translation>
         <translation>檢視將公開的全文</translation>
     </message>
     <message>
+        <source>我确认撤回这 %1 项，撤回后不能取消。</source>
+        <translation>我確認撤回這 %1 項，撤回後不能取消。</translation>
+    </message>
+    <message>
         <source>我确认来源，并同意按所选许可公开发布。</source>
         <translation>我確認來源，並同意依所選授權公開發布。</translation>
+    </message>
+    <message>
+        <source>粘贴之前不要再复制别的内容。剪贴板只留最后复制的一段，撤回请求被换掉后，GitHub 会因为找不到完整的请求而处理失败。已经复制过别的，就点「再次复制撤回请求」。</source>
+        <translation>貼上之前不要再複製其他內容。剪貼簿只保留最後複製的一段，撤回請求被換掉後，GitHub 會因為找不到完整的請求而處理失敗。已經複製過其他內容，就點「再次複製撤回請求」。</translation>
     </message>
     <message>
         <source>粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。</source>
@@ -7257,6 +7329,10 @@ SHA256：%3</translation>
         <translation>已複製</translation>
     </message>
     <message>
+        <source>再次复制撤回请求</source>
+        <translation>再次複製撤回請求</translation>
+    </message>
+    <message>
         <source>再次复制投稿正文</source>
         <translation>再次複製投稿內文</translation>
     </message>
@@ -7273,6 +7349,10 @@ SHA256：%3</translation>
         <translation>用 GitHub 帳號提交（%1 項）</translation>
     </message>
     <message>
+        <source>点此复制撤回请求（%1 项）并粘贴到 GitHub 当中</source>
+        <translation>點此複製撤回請求（%1 項）並貼到 GitHub 當中</translation>
+    </message>
+    <message>
         <source>点此复制（%1 项）并粘贴到 GitHub 当中</source>
         <translation>點此複製（%1 項）並貼到 GitHub 當中</translation>
     </message>
@@ -7285,8 +7365,24 @@ SHA256：%3</translation>
         <translation>公共庫裡已有這一項，沒有改動，不再投稿</translation>
     </message>
     <message>
+        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <translation>這一項已從公共共享庫撤回，不能再用原來的條目投稿；想再公開，請新增一筆再投稿</translation>
+    </message>
+    <message>
         <source>公共库已有相同内容「%1」（%2），不再投稿</source>
         <translation>公共庫已有相同內容「%1」（%2），不再投稿</translation>
+    </message>
+    <message>
+        <source>一次最多撤回 20 项，请少选几项再撤回。</source>
+        <translation>一次最多撤回 20 項，請少選幾項再撤回。</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>撤回後，這 %1 項在公共共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
+    </message>
+    <message>
+        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
+        <translation>選取的內容都已從公共共享庫撤回，不能再投稿。</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>

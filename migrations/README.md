@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**19**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**20**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -25,6 +25,7 @@
 > | 17 | `0017_candidate_player_round.sql` | 保存玩家第二轮采证的轮次标识，按轮次与协议档案查询。升级前的观测保留空标识 |
 > | 18 | `0018_duty_community.sql` | 副本攻略及社区内容 |
 > | 19 | `0019_community_local_edit_order.sql` | 持久记录本地社区内容的编辑顺序，旧条目保留原排列 |
+> | 20 | `0020_community_source_links.sql` | 记录安装或更新社区条目时本地可采用的来源关联，供后续合并比较 |
 
 ## 命名
 
@@ -171,3 +172,7 @@ HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`ke
 并把索引 `community_local_order` 重建为 `(edit_sequence DESC, position, id)`，使本地「提醒与宏」列表把最近编辑的条目排在最前。
 迁移不回填：升级前已有的条目该列为 NULL（CHECK 对 NULL 成立），排在所有编辑过的条目之后，彼此保持原有的 `position`、`id` 顺序，
 直到下一次编辑（[docs/data-model.md](../docs/data-model.md) 「副本社区内容」）。升级前快照以升级开始时的版本命名：从 18 升级为 `pre_schema_18_…`，从 17 一次升到 19 则只留 `pre_schema_17_…` 一份。
+
+## schema 19 → 20
+
+`0020_community_source_links.sql` 在 `community_local` 增加可空的 `source_links_json`。旧库无法还原上次导入时的本地关联基线，该列保留 NULL。只有安装或应用明确的来源版本后才写入基线。旧条目选择“保留我的修改”时，若本地关联与完整来源不同，整组保留；选择“使用来源版本”即可采用当前可用的关联。

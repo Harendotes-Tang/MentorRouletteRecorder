@@ -7,11 +7,18 @@ import "DutyCommunityMatch.js" as Match
 
 // The right pane of 副本提醒与导随宏 while submitting: what becomes public, how it is sent,
 // under which licence. The player confirms here; nothing opens on top of the list.
+// It also withdraws entries this library published (kind "withdraw"): that block goes into the
+// same GitHub Issue form, so the paste steps serve both.
 ColumnLayout {
     id: pane
 
     required property var store
     readonly property var service: store.service
+    property string kind: "submit"
+    readonly property bool withdrawing: kind === "withdraw"
+    // Which GitHub form DutyCommunityController.openGitHub opens.
+    readonly property string formTarget: withdrawing ? "withdrawal" : "fallback"
+    // Withdrawing: the public entries, each as { content }. Submitting: the local rows.
     property var selected: []
     property var account: null
     property string code: ""
@@ -29,12 +36,13 @@ ColumnLayout {
     readonly property bool copied: copiedBody.length > 0
     property bool copiedAgain: false
     property var confirmed: ({})
-    readonly property var published: {
-        const out = ({})
-        for (const row of store.publicRows) out[row.content.id] = row.content
-        return out
-    }
-    readonly property var sameText: Match.repeats(selected.map(row => row.content), published)
+    readonly property var published: store.publicById
+    readonly property var sameText: withdrawing ? ({}) : Match.repeats(selected.map(row => row.content), published)
+    // The GitHub accounts that published what is being withdrawn: only they can withdraw it.
+    readonly property string authors: withdrawing
+        ? Array.from(new Set(selected.map(row => "@" + row.content.author.login))).join(qsTr("、")) : ""
+    readonly property bool mixedWithdrawalAuthors: withdrawing
+        && new Set(selected.map(row => row.content.author.id)).size > 1
     readonly property bool requiresShareAlike: selected.some(row => !sameText[row.content.id] && row.upstream
         && row.upstream.id !== row.content.id && row.upstream.license === "CC-BY-SA-4.0")
     readonly property var licenseChoices: requiresShareAlike ? store.licenseOptions.filter(option => option.value === "CC-BY-SA-4.0")
@@ -42,10 +50,16 @@ ColumnLayout {
     readonly property string licenseCode: license.currentValue || (licenseChoices.length ? licenseChoices[0].value : "")
     readonly property var plan: {
         const result = { rows: [], items: [], bases: {}, reviews: {}, outdated: {}, twins: {}, longSource: {} }
+        if (withdrawing) return result
         for (const row of selected) {
             const draft = attributedDraft(row)
             const id = draft.id
             const current = published[id]
+            // A withdrawn entry is never published again under its ID; the workflow refuses it.
+            if (current && current.status === "withdrawn") {
+                result.twins[id] = { kind: "withdrawn", entry: current }
+                continue
+            }
             // Retained revisions keep their ID. Only new entries omitted by the batch redirect links.
             draft.links = Array.from(new Set(draft.links.map(link =>
                 sameText[link] && !published[link] ? sameText[link].id : link)))
@@ -81,8 +95,11 @@ ColumnLayout {
     readonly property bool needsReview: Object.keys(plan.reviews).some(id => confirmed[id] !== plan.reviews[id].key)
     readonly property bool hasOutdatedBase: Object.keys(plan.outdated).length > 0
     readonly property bool hasLongSource: Object.keys(plan.longSource).length > 0
+    // What the copy button sends: the entries submitted, or the entries withdrawn.
+    readonly property int sendCount: withdrawing ? selected.length : submittable.length
     readonly property bool canSubmit: visible && !copied && !posting && !store.refreshing && consent.checked
-        && !needsReview && !hasOutdatedBase && !hasLongSource && submittable.length > 0 && submittable.length <= 20
+        && sendCount > 0 && sendCount <= 20 && (withdrawing ? !mixedWithdrawalAuthors
+            : !needsReview && !hasOutdatedBase && !hasLongSource)
     signal finished()
     spacing: 0
 
@@ -92,9 +109,11 @@ ColumnLayout {
         if (consent) consent.checked = false
     }
 
-    function start(items) {
+    /// nextKind: "submit" (the default) or "withdraw".
+    function start(items, nextKind) {
         ++submissionGeneration
         posting = false
+        kind = nextKind || "submit"
         selected = items
         confirmed = ({})
         consent.checked = false
@@ -106,7 +125,7 @@ ColumnLayout {
 
     function copyAgain() {
         copiedAgain = service.copy(copiedBody)
-        store.note = store.statusText(copiedAgain ? "prepared" : "copy_failed")
+        store.note = store.statusText(!copiedAgain ? "copy_failed" : withdrawing ? "withdrawal_prepared" : "prepared")
         if (copiedAgain) copiedAgainTimer.restart()
     }
 
@@ -197,18 +216,24 @@ ColumnLayout {
                                                      + "\n+ " + value(change.key, change.next)).join("\n\n")
     }
 
+    /// direct: through the signed-in GitHub account (submissions only); otherwise the block is
+    /// copied for the browser form.
     function submit(direct) {
-        if (!canSubmit || (direct && !account)) return
+        if (!canSubmit || (direct && (!account || withdrawing))) return
         const submission = submissionGeneration
         const review = reviewGeneration
         const isCurrent = () => visible && submission === submissionGeneration
             && review === reviewGeneration && !store.refreshing
-        const bases = Object.assign({}, plan.bases)
-        for (const id of Object.keys(plan.reviews)) bases[id] = plan.reviews[id].revision
-        const data = { items: plan.items, base_revisions: bases, license: licenseCode, consent: consent.checked }
-        if (account) data.author_id = account.id
+        let data = { withdraw: selected.map(row => row.content.id) }
+        if (!withdrawing) {
+            const bases = Object.assign({}, plan.bases)
+            for (const id of Object.keys(plan.reviews)) bases[id] = plan.reviews[id].revision
+            data = { items: plan.items, base_revisions: bases, license: licenseCode, consent: consent.checked }
+            if (account) data.author_id = account.id
+        }
+        const count = sendCount
         posting = true
-        store.call(direct ? "submit" : "prepare_issue", data, (result) => {
+        store.call(direct ? "submit" : withdrawing ? "prepare_withdrawal" : "prepare_issue", data, (result) => {
             if (submission === submissionGeneration) posting = false
             const current = isCurrent()
             if (result.status === "submitted") {
@@ -220,12 +245,12 @@ ColumnLayout {
             } else if (result.status === "prepared") {
                 if (!current) return
                 if (!service.copy(result.body)) { store.note = store.statusText("copy_failed"); return }
-                copiedItemCount = data.items.length
+                copiedItemCount = count
                 copiedBody = result.body
-                service.openGitHub("fallback", 0)
+                service.openGitHub(formTarget, 0)
                 store.basket = []
             }
-            if (current) store.report(result)
+            if (current) store.report(withdrawing && result.status === "prepared" ? { status: "withdrawal_prepared" } : result)
         }, direct ? undefined : () => {
             if (isCurrent()) return true
             if (submission === submissionGeneration) posting = false
@@ -266,13 +291,20 @@ ColumnLayout {
                 objectName: "dutyCommunitySubmissionHeading"
                 renderType: Theme.bodyRenderType
                 Layout.topMargin: 18
-                text: pane.copied ? qsTr("投稿正文已复制，去浏览器粘贴") : qsTr("投稿到公共共享库")
+                text: pane.withdrawing
+                      ? (pane.copied ? qsTr("撤回请求已复制，去浏览器粘贴") : qsTr("从公共共享库撤回"))
+                      : pane.copied ? qsTr("投稿正文已复制，去浏览器粘贴") : qsTr("投稿到公共共享库")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(18)
                 font.bold: true
             }
             Body {
-                text: pane.copied
+                text: pane.withdrawing
+                      ? (pane.copied
+                         ? qsTr("撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
+                               .arg(pane.copiedItemCount)
+                         : qsTr("撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。"))
+                      : pane.copied
                       ? qsTr("投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
                             .arg(pane.copiedItemCount)
                       : qsTr("投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。")
@@ -337,6 +369,8 @@ ColumnLayout {
                                 text: {
                                     if (!entry.twin) return ""
                                     if (entry.twin.kind === "unchanged") return qsTr("公共库里已有这一项，没有改动，不再投稿")
+                                    if (entry.twin.kind === "withdrawn")
+                                        return qsTr("这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿")
                                     const other = entry.twin.entry
                                     return pane.published[other.id]
                                         ? qsTr("公共库已有相同内容「%1」（%2），不再投稿").arg(other.title).arg(other.author.login)
@@ -347,13 +381,13 @@ ColumnLayout {
                             }
                             Body {
                                 objectName: "dutyCommunitySubmissionSource"
-                                visible: !entry.twin && entry.draft.source.length > 0
+                                visible: !pane.withdrawing && !entry.twin && entry.draft.source.length > 0
                                 textFormat: Text.PlainText
                                 text: qsTr("来源：%1").arg(entry.draft.source)
                             }
                             Body {
                                 objectName: "dutyCommunitySubmissionTags"
-                                visible: !entry.twin && entry.draft.tags.length > 0
+                                visible: !pane.withdrawing && !entry.twin && entry.draft.tags.length > 0
                                 textFormat: Text.PlainText
                                 text: qsTr("标签：%1").arg(entry.draft.tags.join(qsTr("、")))
                             }
@@ -420,7 +454,13 @@ ColumnLayout {
                 Repeater {
                     model: pane.copied ? [
                         qsTr("在浏览器的 GitHub 表单里，点「Community submission」下面的输入框，粘贴（Ctrl+V）。"),
-                        qsTr("粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。"),
+                        pane.withdrawing
+                            ? qsTr("粘贴进去的是一段像程序代码的文字，不要删改，用发布这些内容的 GitHub 账号在页面上提交。")
+                            : qsTr("粘贴进去的是一大段像程序代码的文字，不要删改，直接在 GitHub 页面上提交。"),
+                        qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
+                    ] : pane.withdrawing ? [
+                        qsTr("核对下面要撤回的内容并勾选确认。"),
+                        qsTr("复制撤回请求，在浏览器打开的 GitHub 表单里粘贴，用发布这些内容的 GitHub 账号提交。"),
                         qsTr("把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。")
                     ] : [
                         qsTr("核对下面会公开的内容，选好许可并勾选确认。"),
@@ -474,8 +514,15 @@ ColumnLayout {
                     spacing: 10
 
                     Body {
-                        text: pane.submittable.length === 0
-                              ? qsTr("选中的内容公共共享库里都已经有了，不需要再投稿。")
+                        objectName: "dutyCommunitySubmissionScope"
+                        text: pane.withdrawing
+                              ? (pane.sendCount > 20 ? qsTr("一次最多撤回 20 项，请少选几项再撤回。")
+                                 : qsTr("撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。")
+                                       .arg(pane.sendCount))
+                              : pane.submittable.length === 0
+                              ? (pane.selected.length > 0 && pane.selected.every(row => (pane.twins[row.content.id] || {}).kind === "withdrawn")
+                                 ? qsTr("选中的内容都已从公共共享库撤回，不能再投稿。")
+                                 : qsTr("选中的内容公共共享库里都已经有了，不需要再投稿。"))
                               : pane.submittable.length > 20 ? qsTr("一次最多投稿 20 项，请少选几项再投稿。")
                               : qsTr("会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
                                     .arg(pane.submittable.length)
@@ -483,10 +530,15 @@ ColumnLayout {
                     Body {
                         textFormat: Text.PlainText
                         color: Theme.textPrimary
-                        text: pane.account ? qsTr("公开作者：@%1").arg(pane.account.login)
-                                           : qsTr("公开作者以提交时登录的 GitHub 账号为准。")
+                        text: pane.mixedWithdrawalAuthors
+                              ? qsTr("所选条目由不同的 GitHub 账号发布（%1）。请返回列表，按发布账号分别撤回。").arg(pane.authors)
+                              : pane.withdrawing
+                              ? qsTr("只有发布时的 GitHub 账号能撤回：%1。用别的账号提交会处理失败。").arg(pane.authors)
+                              : pane.account ? qsTr("公开作者：@%1").arg(pane.account.login)
+                                             : qsTr("公开作者以提交时登录的 GitHub 账号为准。")
                     }
                     RowLayout {
+                        visible: !pane.withdrawing
                         Layout.fillWidth: true
                         spacing: 8
                         Text {
@@ -515,6 +567,7 @@ ColumnLayout {
                     }
                     Body {
                         objectName: "dutyCommunityLicenseDetail"
+                        visible: !pane.withdrawing
                         text: {
                             const choice = pane.licenseChoices[Math.max(0, license.currentIndex)]
                             const detail = choice ? choice.detail : ""
@@ -523,7 +576,7 @@ ColumnLayout {
                         }
                     }
                     ScrollView {
-                        visible: pane.showFullText
+                        visible: pane.showFullText && !pane.withdrawing
                         Layout.fillWidth: true
                         Layout.preferredHeight: 190
                         StyledTextArea {
@@ -537,8 +590,10 @@ ColumnLayout {
                     SelectionCheckBox {
                         id: consent
                         objectName: "dutyCommunityConsent"
-                        text: qsTr("我确认来源，并同意按所选许可公开发布。")
-                        enabled: !pane.needsReview && !pane.hasOutdatedBase && !pane.posting
+                        text: pane.withdrawing ? qsTr("我确认撤回这 %1 项，撤回后不能取消。").arg(pane.sendCount)
+                                               : qsTr("我确认来源，并同意按所选许可公开发布。")
+                        enabled: !pane.posting && (pane.withdrawing ? !pane.mixedWithdrawalAuthors
+                            : !pane.needsReview && !pane.hasOutdatedBase)
                     }
                 }
             }
@@ -567,14 +622,16 @@ ColumnLayout {
                     y: 12
                     width: parent.width - 28
                     color: Theme.textPrimary
-                    text: qsTr("粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。")
+                    text: pane.withdrawing
+                          ? qsTr("粘贴之前不要再复制别的内容。剪贴板只留最后复制的一段，撤回请求被换掉后，GitHub 会因为找不到完整的请求而处理失败。已经复制过别的，就点「再次复制撤回请求」。")
+                          : qsTr("粘贴之前不要再复制别的内容，宏也不用单独复制。剪贴板只留最后复制的一段，投稿正文被换掉后，GitHub 会因为找不到完整的投稿而处理失败。已经复制过别的，就点「再次复制投稿正文」。")
                 }
             }
             Flow {
                 Layout.fillWidth: true
                 Layout.bottomMargin: 18
                 spacing: 6
-                visible: pane.store.configured && !pane.copied
+                visible: pane.store.configured && !pane.copied && !pane.withdrawing
                 AppButton { compact: true; visible: !pane.account && !pane.authorizing; text: qsTr("GitHub 账号"); onClicked: pane.auth("account") }
                 AppButton { compact: true; visible: !pane.account && !pane.authorizing; text: qsTr("开始设备授权"); onClicked: pane.auth("sign_in") }
                 AppButton { compact: true; visible: !!pane.code; text: qsTr("打开 GitHub 授权"); onClicked: pane.service.openGitHub("device", 0) }
@@ -598,7 +655,7 @@ ColumnLayout {
             visible: pane.copied
             variant: "primary"
             iconName: pane.copiedAgain ? "check" : "copy"
-            text: pane.copiedAgain ? qsTr("已复制") : qsTr("再次复制投稿正文")
+            text: pane.copiedAgain ? qsTr("已复制") : pane.withdrawing ? qsTr("再次复制撤回请求") : qsTr("再次复制投稿正文")
             onClicked: pane.copyAgain()
         }
         AppButton {
@@ -606,7 +663,7 @@ ColumnLayout {
             iconName: "external-link"
             iconAfterText: true
             text: qsTr("重新打开表单")
-            onClicked: pane.service.openGitHub("fallback", 0)
+            onClicked: pane.service.openGitHub(pane.formTarget, 0)
         }
         AppButton {
             objectName: "dutyCommunitySubmissionDone"
@@ -616,7 +673,7 @@ ColumnLayout {
         }
         AppButton {
             objectName: "dutyCommunitySubmitNative"
-            visible: pane.store.configured && !pane.copied
+            visible: pane.store.configured && !pane.copied && !pane.withdrawing
             variant: "primary"
             text: qsTr("用 GitHub 账号提交（%1 项）").arg(pane.submittable.length)
             enabled: pane.canSubmit && !!pane.account
@@ -625,10 +682,11 @@ ColumnLayout {
         AppButton {
             objectName: "dutyCommunitySubmitBrowser"
             visible: !pane.copied
-            variant: pane.store.configured ? "secondary" : "primary"
+            variant: pane.store.configured && !pane.withdrawing ? "secondary" : "primary"
             iconName: "external-link"
             iconAfterText: true
-            text: qsTr("点此复制（%1 项）并粘贴到 GitHub 当中").arg(pane.submittable.length)
+            text: pane.withdrawing ? qsTr("点此复制撤回请求（%1 项）并粘贴到 GitHub 当中").arg(pane.sendCount)
+                                   : qsTr("点此复制（%1 项）并粘贴到 GitHub 当中").arg(pane.submittable.length)
             enabled: pane.canSubmit
             onClicked: pane.submit(false)
         }

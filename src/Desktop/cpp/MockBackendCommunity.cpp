@@ -340,16 +340,15 @@ QJsonValue authorId(const QJsonObject &entry)
     return entry.value(QStringLiteral("author")).toObject().value(QStringLiteral("id"));
 }
 
-/// CommunityWorkspace.KeepInstalledLinks: links only to entries `local` holds or `installing` adds.
-QJsonObject keepInstalledLinks(const QJsonArray &local, QJsonObject draft, const QSet<QString> &installing)
+/// The source links available locally or being installed in this transaction.
+QJsonArray installedLinks(const QJsonArray &local, const QJsonObject &draft, const QSet<QString> &installing)
 {
     QJsonArray kept;
     for (const QJsonValue &link : draft.value(QStringLiteral("links")).toArray()) {
         if (installing.contains(link.toString()) || rowIndex(local, link.toString()) >= 0)
             kept.append(link);
     }
-    draft.insert(QStringLiteral("links"), kept);
-    return draft;
+    return kept;
 }
 
 /// CommunityWorkspace.AddMissing: the entries not here yet, unless an entry that is here was not
@@ -370,14 +369,21 @@ QJsonObject addMissing(QJsonArray &local, const QList<QJsonObject> &items)
         const int index = rowIndex(local, itemId);
         if (index < 0)
             continue;
-        const QJsonValue upstream = local.at(index).toObject().value(QStringLiteral("upstream"));
-        if (!upstream.isObject() || authorId(upstream.toObject()) != authorId(item))
+        const QJsonObject existing = local.at(index).toObject();
+        const QJsonValue upstream = existing.value(QStringLiteral("upstream"));
+        const bool compatible = upstream.isObject() ? authorId(upstream.toObject()) == authorId(item)
+            : existing.value(QStringLiteral("content")).toObject() == draftOf(item);
+        if (!compatible)
             return status("local_conflict");
     }
     // Saved in reverse so the selected entry appears above its newly installed links; the local
     // copy holds the content alone and the published fields stay with `upstream`.
     for (auto it = missing.crbegin(); it != missing.crend(); ++it) {
-        QJsonObject row = localRow(keepInstalledLinks(local, draftOf(*it), installing), 0, false);
+        QJsonObject draft = draftOf(*it);
+        const auto links = installedLinks(local, draft, installing);
+        draft.insert(QStringLiteral("links"), links);
+        QJsonObject row = localRow(draft, 0, false);
+        row.insert(QStringLiteral("source_links"), links);
         row.insert(QStringLiteral("upstream"), *it);
         local.prepend(row);
     }
@@ -440,6 +446,7 @@ QJsonObject communityChange(QJsonArray &local, bool fetched, const QString &acti
         QJsonObject row{{QStringLiteral("content"), item}, {QStringLiteral("revision"), revision + 1},
                         {QStringLiteral("position"), position}, {QStringLiteral("favorite"), favorite}};
         if (index >= 0) {
+            row.insert(QStringLiteral("source_links"), existing.value(QStringLiteral("source_links")));
             const QJsonValue upstream = existing.value(QStringLiteral("upstream"));
             if (!upstream.isUndefined())
                 row.insert(QStringLiteral("upstream"), upstream);
@@ -550,7 +557,9 @@ QJsonObject communityChange(QJsonArray &local, bool fetched, const QString &acti
         const QJsonObject content = old.value(QStringLiteral("content")).toObject();
         for (const char *field : DraftFields) {
             const QString key = QString::fromLatin1(field);
-            if (basis.value(key) != content.value(key))
+            const QJsonValue previous = key == QLatin1String("links") && old.contains(QStringLiteral("source_links"))
+                ? old.value(QStringLiteral("source_links")) : basis.value(key);
+            if (previous != content.value(key))
                 draft.insert(key, content.value(key));
         }
     }
@@ -558,7 +567,9 @@ QJsonObject communityChange(QJsonArray &local, bool fetched, const QString &acti
         installed.value(QStringLiteral("status")).toString() != QLatin1String("installed"))
         return installed;
     QJsonObject row = old;
-    row.insert(QStringLiteral("content"), keepInstalledLinks(local, draft, {}));
+    row.insert(QStringLiteral("source_links"), installedLinks(local, remote, {}));
+    draft.insert(QStringLiteral("links"), installedLinks(local, draft, {}));
+    row.insert(QStringLiteral("content"), draft);
     row.insert(QStringLiteral("revision"), revision + 1);
     row.insert(QStringLiteral("upstream"), remote);
     local.removeAt(rowIndex(local, localId));
@@ -588,7 +599,13 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
 
     if (action == QLatin1String("list")) {
         QJsonObject result = status("ready");
-        result.insert(QStringLiteral("items"), m_communityLocal);
+        QJsonArray items;
+        for (const auto &value : m_communityLocal) {
+            auto row = value.toObject();
+            row.remove(QStringLiteral("source_links"));
+            items.append(row);
+        }
+        result.insert(QStringLiteral("items"), items);
         result.insert(QStringLiteral("next"), QJsonValue::Null);
         result.insert(QStringLiteral("generation"), 1);
         return result;
@@ -653,6 +670,21 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
     if (action == QLatin1String("prepare_issue")) {
         QJsonObject result = status("prepared");
         result.insert(QStringLiteral("body"), QStringLiteral("mock submission"));
+        return result;
+    }
+    if (action == QLatin1String("prepare_withdrawal")) {
+        // CommunityGithub.BuildWithdrawalBody: 1 to 20 stable IDs, each once.
+        const QJsonArray ids = payload.value(QStringLiteral("withdraw")).toArray();
+        QStringList named;
+        for (const QJsonValue &id : ids) {
+            if (!isId(id.toString()) || named.contains(id.toString()))
+                return status("invalid_withdrawal");
+            named << id.toString();
+        }
+        if (named.isEmpty() || named.size() > 20)
+            return status("invalid_withdrawal");
+        QJsonObject result = status("prepared");
+        result.insert(QStringLiteral("body"), QStringLiteral("mock withdrawal ") + named.join(QLatin1Char(',')));
         return result;
     }
     if (action == QLatin1String("account"))

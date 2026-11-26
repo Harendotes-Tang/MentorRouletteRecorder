@@ -81,17 +81,29 @@ internal sealed class CommunityRepository(SqliteDatabase database)
         return (long)command.ExecuteScalar()! + additional <= MaxItems;
     }
 
-    internal void Save(JsonObject item, SqliteTransaction transaction, bool updateOrder = true)
+    // The source's direct links actually adopted on this machine. NULL identifies a legacy
+    // row or an imported file whose original installation projection is unknown.
+    internal JsonArray? SourceLinks(string id, SqliteTransaction transaction)
+    {
+        using var command = database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT source_links_json FROM community_local WHERE id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        return command.ExecuteScalar() is string json ? JsonNode.Parse(json)!.AsArray() : null;
+    }
+
+    internal void Save(JsonObject item, SqliteTransaction transaction, bool updateOrder = true, JsonArray? sourceLinks = null)
     {
         using var command = database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO community_local(id, revision, position, favorite, content_json, upstream_json, edit_sequence)
-            VALUES ($id, $revision, $position, $favorite, $content, $upstream,
+            INSERT INTO community_local(id, revision, position, favorite, content_json, upstream_json, source_links_json, edit_sequence)
+            VALUES ($id, $revision, $position, $favorite, $content, $upstream, $source_links,
                 CASE WHEN $updateOrder THEN (SELECT COALESCE(MAX(edit_sequence), 0) + 1 FROM community_local) END)
             ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, position=excluded.position,
                 favorite=excluded.favorite, content_json=excluded.content_json, upstream_json=excluded.upstream_json,
-                edit_sequence=COALESCE(excluded.edit_sequence, community_local.edit_sequence)
+                edit_sequence=COALESCE(excluded.edit_sequence, community_local.edit_sequence),
+                source_links_json=COALESCE(excluded.source_links_json, community_local.source_links_json)
             """;
         command.Parameters.AddWithValue("$id", item["content"]!["id"]!.GetValue<string>());
         command.Parameters.AddWithValue("$revision", item["revision"]!.GetValue<int>());
@@ -99,6 +111,7 @@ internal sealed class CommunityRepository(SqliteDatabase database)
         command.Parameters.AddWithValue("$favorite", item["favorite"]!.GetValue<bool>());
         command.Parameters.AddWithValue("$content", item["content"]!.ToJsonString());
         command.Parameters.AddWithValue("$upstream", (object?)item["upstream"]?.ToJsonString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$source_links", (object?)sourceLinks?.ToJsonString() ?? DBNull.Value);
         command.Parameters.AddWithValue("$updateOrder", updateOrder);
         command.ExecuteNonQuery();
     }

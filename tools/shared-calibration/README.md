@@ -480,6 +480,7 @@ gh label create community-failed --repo Harendotes-Tang/MentorRecorder-Calibrati
 gh label create community-classification --repo Harendotes-Tang/MentorRecorder-Calibrations
 gh label create community-duplicate --repo Harendotes-Tang/MentorRecorder-Calibrations
 gh label create community-similar --repo Harendotes-Tang/MentorRecorder-Calibrations
+gh label create community-withdrawn --repo Harendotes-Tang/MentorRecorder-Calibrations
 ```
 
 [部署与联调说明](../../docs/duty-community.md)

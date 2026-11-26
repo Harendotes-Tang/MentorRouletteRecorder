@@ -486,7 +486,7 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 | `checksum` | TEXT | NOT NULL | 迁移脚本内容的 SHA-256，检测被篡改的历史迁移 |
 | `applied_at_utc` | TEXT | NOT NULL | |
 
-启动时向前迁移到本程序支持的最高版本（当前为 **19**，`0019_community_local_edit_order.sql`；
+启动时向前迁移到本程序支持的最高版本（当前为 **20**，`0020_community_source_links.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
 或历史迁移的名称或 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
 错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。历史中缺少的版本不导致拒绝，而是补执行该脚本。本软件没有只读模式。
@@ -707,7 +707,7 @@ CSV 的 `date` 列是**UTC 日历日**（取 `entered_at` / `matched_at` / `ende
 不重建记录或向已删除记录写入事件。
 原有备份及用户导出文件不参与永久清理。
 
-## 副本社区内容（schema 18、19）
+## 副本社区内容（schema 18 至 20）
 
 `community_local` 以稳定 UUID 保存提醒或宏，内部包含本地修订号、排序、收藏、正文、关联 ID 及导入时的来源快照。内容关联通过 Collector 在同一事务中校验。来源快照是更新对比的基准，合并时保留本地修改过的字段。来源撤回只改变显示状态。
 
@@ -715,5 +715,7 @@ schema 19（`0019_community_local_edit_order.sql`）增加 `edit_sequence`（`CH
 `edit_sequence DESC, position, id` 排序（索引 `community_local_order` 随之重建），最近编辑的条目排在最前。正文有变化的保存、
 复制、安装、应用更新与导入取当前最大值加一；只改收藏或排序的保存，以及删除条目时从其他条目移除关联，不改变它。
 升级前已有的条目该列为 NULL（满足 CHECK），排在所有编辑过的条目之后，彼此仍按 `position`、`id` 排序，直到下一次编辑。
+
+schema 20 增加可空的 `source_links_json`。安装或应用更新时，保存当时本机可采用的来源关联。本地关联仍等于这份基线时，“保留我的修改”会采用新来源关联；用户改过该字段时整组保留。旧库及分享文件没有这份本地基线，沿用完整来源比较，用户可通过“使用来源版本”覆盖本地关联。另存个人版本会复制原条目的已知基线。
 
 `community_cache` 原子保存已验证的索引与快照字节，以便断网或刷新失败后继续使用。`community_receipts` 保存本地变更的 IPC 请求 ID、请求摘要和结果，用于安全重放；只保留按写入顺序最新的 500 条。联网开关只存在于 `application_settings`。这些表使用现有数据库迁移和升级前备份机制，与副本识别、历史记录、个人心得和校准表独立。
