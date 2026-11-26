@@ -98,8 +98,8 @@ public sealed class SpeechCache
     }
 
     /// <summary>
-    /// The cached file for a key, stamped as just used, or null. A file that does not start like a
-    /// WAV is removed and reported as a miss.
+    /// Returns a cached sentence and updates its last-use time. Removes files whose PCM header
+    /// or sample length no longer matches the canonical file written by the synthesizer.
     /// </summary>
     /// <param name="key">Key from <see cref="KeyFor"/>.</param>
     public string? TryGet(string key)
@@ -115,7 +115,7 @@ public sealed class SpeechCache
                     return null;
                 }
 
-                if (info.Length < WaveFile.CanonicalHeaderBytes || !StartsLikeWave(path))
+                if (!HasCompleteAudio(path))
                 {
                     info.Delete();
                     return null;
@@ -227,12 +227,13 @@ public sealed class SpeechCache
             : Enumerable.Empty<FileInfo>();
     }
 
-    private static bool StartsLikeWave(string path)
+    private static bool HasCompleteAudio(string path)
     {
-        Span<byte> head = stackalloc byte[12];
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        return stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) == head.Length &&
-               head[..4].SequenceEqual("RIFF"u8) && head.Slice(8, 4).SequenceEqual("WAVE"u8);
+        Span<byte> header = stackalloc byte[WaveFile.CanonicalHeaderBytes];
+        return stream.Length <= OnlineSpeechClient.MaxResponseBytes &&
+               stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) == header.Length &&
+               WaveFile.IsCanonicalHeader(header, stream.Length);
     }
 
     private static bool TryDelete(string path)

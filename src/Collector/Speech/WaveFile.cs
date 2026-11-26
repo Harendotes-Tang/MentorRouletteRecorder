@@ -150,6 +150,24 @@ public static class WaveFile
         return true;
     }
 
+    /// <summary>Checks the normalized PCM header against the number of bytes currently on disk.</summary>
+    internal static bool IsCanonicalHeader(ReadOnlySpan<byte> header, long fileLength)
+    {
+        if (header.Length != CanonicalHeaderBytes || fileLength <= CanonicalHeaderBytes ||
+            !header[..4].SequenceEqual("RIFF"u8) || !header.Slice(8, 8).SequenceEqual("WAVEfmt "u8) ||
+            BinaryPrimitives.ReadUInt32LittleEndian(header[4..]) != fileLength - 8 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(header[16..]) != 16 ||
+            !TryReadFormat(header.Slice(20, 16), out var shape, out _) ||
+            !header.Slice(36, 4).SequenceEqual("data"u8))
+        {
+            return false;
+        }
+
+        var sampleBytes = fileLength - CanonicalHeaderBytes;
+        return BinaryPrimitives.ReadUInt32LittleEndian(header[40..]) == sampleBytes &&
+               sampleBytes % (shape.Channels * 2) == 0;
+    }
+
     private static byte[] Build(int channels, int sampleRate, ReadOnlySpan<byte> samples)
     {
         var file = new byte[CanonicalHeaderBytes + samples.Length];

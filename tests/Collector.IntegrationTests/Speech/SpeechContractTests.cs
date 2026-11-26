@@ -80,7 +80,7 @@ public sealed class SpeechContractTests
         Assert.Equal(SpeechProviderWire.AllTokens.Order(StringComparer.Ordinal), ContractSchema.DeclaredEnum("$defs", "SpeechProvider", "enum"));
         Assert.Equal(
             SpeechProviderWire.AllTokens.Where(token => token != "none").Order(StringComparer.Ordinal),
-            ContractSchema.DeclaredEnum("$defs", "Responses", "SynthesizeSpeech", "properties", "provider", "enum"));
+            ContractSchema.DeclaredEnum("$defs", "ResponsePayloads", "$defs", "SynthesizeSpeech", "properties", "provider", "enum"));
 
         var kinds = ContractSchema.Root["$defs"]!["CaptureStatus"]!["properties"]!["last_valid_event_kind"]!["enum"]!
             .AsArray().Select(node => node?.GetValue<string>()).ToArray();

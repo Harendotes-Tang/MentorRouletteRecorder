@@ -130,7 +130,10 @@ public sealed partial class RunImportService
                 }
                 return candidate;
             }).ToArray());
-        var rendered = _database.Read(_ => Render(preview, cancellationToken), cancellationToken);
+        // Classify all rows against one WAL snapshot. The live writer can keep recording
+        // until commit rechecks the selected rows against the current database.
+        var rendered = _database.ReadSnapshot((snapshot, transaction) =>
+            new RunImportService(snapshot, _clock).Render(preview, transaction, cancellationToken), cancellationToken);
         return FreezeAndCache(preview, rendered, pageSize, cancellationToken);
     }
 
@@ -199,7 +202,17 @@ public sealed partial class RunImportService
         return _database.RunInTransaction(transaction =>
         {
             _idempotency.ThrowIfPurgedRequest(requestId, transaction, previewId);
-            var receipt = FindReceipt(previewId, requestId, transaction);
+            var receipt = FindReceipt(previewId, transaction);
+            // A fresh request id can replay a committed preview. A key already owned by
+            // a different import or mutation must never claim that preview's success.
+            if (receipt?.RequestId != requestId)
+            {
+                if (_idempotency.TryGetResponse(requestId, transaction) is not null)
+                    throw new CollectorException(ErrorCodes.IdempotencyConflict,
+                        CollectorTexts.ImportCommitRequestReused(), field: "request_id");
+                if (_idempotency.WasAppliedBeforePrune(requestId, transaction))
+                    throw CollectorException.ExpiredIdempotencyResponse(requestId);
+            }
             if (receipt is not null)
             {
                 if (!string.Equals(receipt.Value.Fingerprint, selectionFingerprint, StringComparison.Ordinal))
@@ -208,11 +221,6 @@ public sealed partial class RunImportService
                 replay["replayed"] = true;
                 return replay;
             }
-            if (_idempotency.TryGetResponse(requestId, transaction) is not null)
-                throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                    CollectorTexts.ImportCommitRequestReused(), field: "request_id");
-            if (_idempotency.WasAppliedBeforePrune(requestId, transaction))
-                throw CollectorException.ExpiredIdempotencyResponse(requestId);
             if (preview is null || _clock.UtcNow - preview.Created > PreviewLifetime)
                 throw CollectorException.BadRequest(CollectorTexts.ImportCommitPreviewExpired(), "preview_id");
             var candidates = selected.Select(number => preview.Candidates.SingleOrDefault(candidate => candidate.RowNumber == number)
@@ -326,7 +334,7 @@ public sealed partial class RunImportService
         return output;
     }
 
-    private JsonObject Render(Preview preview, CancellationToken cancellationToken)
+    private JsonObject Render(Preview preview, SqliteTransaction transaction, CancellationToken cancellationToken)
     {
         var rows = new JsonArray();
         var counts = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -338,7 +346,7 @@ public sealed partial class RunImportService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var (status, matching) = candidate.Run is null || candidate.Errors.Count != 0
-                ? ("invalid", (string?)null) : Classify(candidate, null);
+                ? ("invalid", (string?)null) : Classify(candidate, transaction);
             if (candidate.Run is { } run && status is "new" or "possible_duplicate")
             {
                 if (candidate.HasStableId && seenIds.TryGetValue(run.RunId, out var earlier))
@@ -411,7 +419,7 @@ public sealed partial class RunImportService
             : CollectorException.BadRequest(verbatim.Chinese, "file_path");
     }
 
-    private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction? transaction)
+    private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction transaction)
     {
         var incoming = candidate.Run!;
         var previousDutyNames = candidate.PreviousDutyNameFingerprints ?? Array.Empty<string>();
@@ -461,7 +469,7 @@ public sealed partial class RunImportService
     /// reading, is looked for in that region and among UNKNOWN runs only; its fingerprints are still compared under
     /// every other region (see Classify). Two named regions are never compared by time (contracts/CHANGELOG.md 2026-10-24).
     /// </summary>
-    private string? FindNearby(MentorRun incoming, SqliteTransaction? transaction)
+    private string? FindNearby(MentorRun incoming, SqliteTransaction transaction)
     {
         var sourceTime = incoming.ImportMetadata?.SourceRecordedAtUtc;
         var sourceDay = RunImportCandidateNormalizer.SourceDay(incoming.ImportMetadata?.SourceRecordedAt);
@@ -512,15 +520,14 @@ public sealed partial class RunImportService
             $"CAST(substr({rest}, instr({rest}, '-') + 1) AS INTEGER)) END)";
     }
 
-    private (string Fingerprint, string Json)? FindReceipt(string previewId, string requestId, SqliteTransaction transaction)
+    private (string RequestId, string Fingerprint, string Json)? FindReceipt(string previewId, SqliteTransaction transaction)
     {
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT selection_fingerprint, response_json FROM run_import_batches WHERE preview_id = $preview OR request_id = $request;";
+        command.CommandText = "SELECT request_id, selection_fingerprint, response_json FROM run_import_batches WHERE preview_id = $preview;";
         command.Parameters.AddWithValue("$preview", previewId);
-        command.Parameters.AddWithValue("$request", requestId);
         using var reader = command.ExecuteReader();
-        return reader.Read() ? (reader.GetString(0), reader.GetString(1)) : null;
+        return reader.Read() ? (reader.GetString(0), reader.GetString(1), reader.GetString(2)) : null;
     }
     private void StoreReceipt(string previewId, string requestId, string fingerprint, JsonObject response, SqliteTransaction transaction)
     {

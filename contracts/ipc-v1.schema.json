@@ -2,18 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mentorrecorder.local/contracts/ipc-v1.schema.json",
   "title": "MentorRecorder Named Pipe IPC, protocol version 1",
-  "description": "Wire contract between MentorRecorder.Desktop.exe (client) and MentorRecorder.Collector.exe (server). Transport: Windows Named Pipe 'MentorRecorder.<UserSidHash>.v1', ACL restricted to the current user. Framing: 4-byte little-endian unsigned payload length, followed by that many bytes of UTF-8 JSON conforming to $defs/Envelope. Maximum frame size is 4194304 bytes (4 MiB), matching FrameCodec.MaxFrameBytes in the Collector and kMaxFrameBytes in src/Desktop/cpp/IpcFraming.h. There is no HTTP, TCP, WebSocket or gRPC surface.",
+  "description": "Wire contract between MentorRecorder.Desktop.exe (client) and MentorRecorder.Collector.exe (server). Transport: Windows Named Pipe 'MentorRecorder.<UserSidHash>.v1', ACL restricted to the current user. Framing: 4-byte little-endian unsigned payload length, followed by that many bytes of UTF-8 JSON conforming to the root envelope schema. Maximum frame size is 4194304 bytes (4 MiB), matching FrameCodec.MaxFrameBytes in the Collector and kMaxFrameBytes in src/Desktop/cpp/IpcFraming.h. There is no HTTP, TCP, WebSocket or gRPC surface.",
 
-  "anyOf": [
+  "oneOf": [
     { "$ref": "#/$defs/RequestEnvelope" },
-    { "$ref": "#/$defs/ResponseEnvelope" },
-    { "$ref": "#/$defs/EventEnvelope" },
-    { "$ref": "#/$defs/ErrorEnvelope" }
+    { "$ref": "#/$defs/ResponseEnvelope" }
   ],
 
   "$defs": {
-
-    "//": "======================= primitives =======================",
 
     "Uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
     "UtcTimestamp": {
@@ -84,8 +80,10 @@
       "description": "UNSUPPORTED_BUILD is the fail-closed outcome: the client build is unknown, so no packet is interpreted and no run is recorded."
     },
 
-    "//envelopes": "======================= envelopes =======================",
-
+    "BusinessMessageType": {
+      "$ref": "#/$defs/MessageType",
+      "not": { "enum": ["Event", "Error"] }
+    },
     "RequestEnvelope": {
       "type": "object",
       "additionalProperties": false,
@@ -96,7 +94,7 @@
           "$ref": "#/$defs/Uuid",
           "description": "Client-generated. Mutating requests are idempotent by request_id: replaying the same id returns the original result without applying the change twice."
         },
-        "message_type": { "$ref": "#/$defs/MessageType" },
+        "message_type": { "$ref": "#/$defs/BusinessMessageType" },
         "payload": { "type": "object" }
       },
       "allOf": [
@@ -105,20 +103,34 @@
     },
 
     "ResponseEnvelope": {
+      "oneOf": [
+        { "$ref": "#/$defs/BusinessResponseEnvelope" },
+        { "$ref": "#/$defs/EventEnvelope" },
+        { "$ref": "#/$defs/ErrorEnvelope" }
+      ]
+    },
+    "BusinessResponseEnvelope": {
       "type": "object",
-      "description": "Every answer the Collector writes. 'ok' says which shape 'payload' has: the response payload of $defs/Responses when true, a copy of 'error' when false. 'error' is present exactly when ok is false; it is duplicated into 'payload' so that a client reading either branch sees the same object.",
+      "description": "An answer to a known business request. 'ok' says which shape 'payload' has: the response payload of $defs/Responses when true, a copy of 'error' when false. 'error' is present exactly when ok is false; it is duplicated into 'payload' so that a client reading either branch sees the same object.",
       "additionalProperties": false,
       "required": ["protocol_version", "request_id", "message_type", "ok", "payload"],
       "properties": {
         "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
         "request_id": { "$ref": "#/$defs/Uuid" },
-        "message_type": { "$ref": "#/$defs/MessageType" },
+        "message_type": { "$ref": "#/$defs/BusinessMessageType" },
         "ok": { "type": "boolean" },
         "error": { "$ref": "#/$defs/ErrorPayload" },
         "payload": { "type": "object" }
       },
       "if": { "properties": { "ok": { "const": false } }, "required": ["ok"] },
-      "then": { "required": ["error"] }
+      "then": {
+        "required": ["error"],
+        "properties": { "payload": { "$ref": "#/$defs/ErrorPayload" } }
+      },
+      "else": {
+        "not": { "required": ["error"] },
+        "$ref": "#/$defs/SuccessPayloadBinding"
+      }
     },
 
     "EventEnvelope": {
@@ -211,8 +223,6 @@
       "description": "TextRefs parallel to a list of Chinese sentences: entry i is the reference of sentence i, or null when that sentence has none. The Desktop ignores a list whose length differs from the Chinese one.",
       "items": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }] }
     },
-
-    "//domain": "======================= domain objects =======================",
 
     "Run": {
       "type": "object",
@@ -460,8 +470,6 @@
       }
     },
 
-    "//paging": "======================= paging and filtering =======================",
-
     "PageInfo": {
       "type": "object",
       "additionalProperties": false,
@@ -521,8 +529,6 @@
         "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
       }
     },
-
-    "//stats": "======================= statistics =======================",
 
     "DashboardStats": {
       "type": "object",
@@ -766,8 +772,6 @@
         "joined_in_progress_count": { "type": "integer", "minimum": 0, "description": "Attempts in this group recorded as joined in progress. Absent from older Collectors." }
       }
     },
-
-    "//capture": "======================= capture and diagnostics =======================",
 
     "CaptureAdapter": {
       "type": "object",
@@ -1153,8 +1157,6 @@
         "ready": { "type": "boolean", "description": "calibration_changed only: true exactly when calibration_state is READY." }
       }
     },
-
-    "//binding": "======================= per-message payload binding =======================",
 
     "CalibrationEvidenceRequest": {
       "type": "object",
@@ -2206,374 +2208,526 @@
       }
     },
 
-    "//responses": "======================= response payloads =======================",
+    "SuccessPayloadBinding": {
+      "allOf": [
+        { "if": { "properties": { "message_type": { "const": "QueryHistorySelection" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryHistorySelection" } } } },
+        { "if": { "properties": { "message_type": { "const": "StageHistorySelection" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StageHistorySelection" } } } },
+        { "if": { "properties": { "message_type": { "const": "BatchMutateRuns" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/BatchMutateRuns" } } } },
+        { "if": { "properties": { "message_type": { "const": "PreviewRunRegionMigration" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/PreviewRunRegionMigration" } } } },
+        { "if": { "properties": { "message_type": { "const": "CreateCharacterProfile" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CreateCharacterProfile" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateCharacterProfile" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateCharacterProfile" } } } },
+        { "if": { "properties": { "message_type": { "const": "DeleteCharacterProfile" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/DeleteCharacterProfile" } } } },
+        { "if": { "properties": { "message_type": { "const": "ResolveCharacterIdentity" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ResolveCharacterIdentity" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetHistoryRetentionSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetHistoryRetentionSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateHistoryRetentionSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateHistoryRetentionSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetPendingImageCleanup" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetPendingImageCleanup" } } } },
+        { "if": { "properties": { "message_type": { "const": "AcknowledgeImageCleanup" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/AcknowledgeImageCleanup" } } } },
+        { "if": { "properties": { "message_type": { "const": "SetDisplayTimeZone" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SetDisplayTimeZone" } } } },
+        { "if": { "properties": { "message_type": { "const": "PreviewRunImport" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/PreviewRunImport" } } } },
+        { "if": { "properties": { "message_type": { "const": "CommitRunImport" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CommitRunImport" } } } },
+        { "if": { "properties": { "message_type": { "const": "QueryCandidateObservations" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryCandidateObservations" } } } },
+        { "if": { "properties": { "message_type": { "const": "ReviewCandidateObservation" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ReviewCandidateObservation" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportCandidateEvidence" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportCandidateEvidence" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetVersion" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetVersion" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetStatus" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetStatus" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCaptureStatus" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureStatus" } } } },
+        { "if": { "properties": { "message_type": { "const": "ListCaptureAdapters" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ListCaptureAdapters" } } } },
+        { "if": { "properties": { "message_type": { "const": "SelectGameProcess" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SelectGameProcess" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartCapture" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StartCapture" } } } },
+        { "if": { "properties": { "message_type": { "const": "StopCapture" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StopCapture" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartCaptureValidation" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StartCaptureValidation" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCaptureValidationStatus" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureValidationStatus" } } } },
+        { "if": { "properties": { "message_type": { "const": "AddCaptureValidationMarker" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/AddCaptureValidationMarker" } } } },
+        { "if": { "properties": { "message_type": { "const": "StopCaptureValidation" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StopCaptureValidation" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetProtocolProfileStatus" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetProtocolProfileStatus" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCurrentRun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCurrentRun" } } } },
+        { "if": { "properties": { "message_type": { "const": "QueryRunCalendarDays" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryRunCalendarDays" } } } },
+        { "if": { "properties": { "message_type": { "const": "QueryRuns" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryRuns" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetDashboardStats" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetDashboardStats" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetDungeonStats" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetDungeonStats" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetJobStats" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetJobStats" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetResultStats" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetResultStats" } } } },
+        { "if": { "properties": { "message_type": { "const": "CreateManualRun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CreateManualRun" } } } },
+        { "if": { "properties": { "message_type": { "const": "CorrectRun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CorrectRun" } } } },
+        { "if": { "properties": { "message_type": { "const": "SoftDeleteRun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SoftDeleteRun" } } } },
+        { "if": { "properties": { "message_type": { "const": "RestoreRun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/RestoreRun" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetRunRevisions" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetRunRevisions" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateAchievementBaseline" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateAchievementBaseline" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportCsv" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportCsv" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportJson" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportJson" } } } },
+        { "if": { "properties": { "message_type": { "const": "BackupDatabase" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/BackupDatabase" } } } },
+        { "if": { "properties": { "message_type": { "const": "ConfirmCalibration" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ConfirmCalibration" } } } },
+        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/DiscardCalibration" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCalibrationEvidence" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCalibrationEvidence" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetTemplateObservation" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetTemplateObservation" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCalibrationShareCode" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCalibrationShareCode" } } } },
+        { "if": { "properties": { "message_type": { "const": "CheckSharedCalibration" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckSharedCalibration" } } } },
+        { "if": { "properties": { "message_type": { "const": "ImportCalibrationCode" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ImportCalibrationCode" } } } },
+        { "if": { "properties": { "message_type": { "const": "AcceptSharedQueueInference" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/AcceptSharedQueueInference" } } } },
+        { "if": { "properties": { "message_type": { "const": "RejectSharedCalibration" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/RejectSharedCalibration" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportDiagnosticsReport" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportDiagnosticsReport" } } } },
+        { "if": { "properties": { "message_type": { "const": "SetRunReflection" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SetRunReflection" } } } },
+        { "if": { "properties": { "message_type": { "const": "DutyCommunity" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/DutyCommunity" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetReflectionSummary" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetReflectionSummary" } } } },
+        { "if": { "properties": { "message_type": { "const": "SubscribeLiveEvents" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SubscribeLiveEvents" } } } },
+        { "if": { "properties": { "message_type": { "const": "UndoRevision" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UndoRevision" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetRunEvents" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetRunEvents" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCaptureSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateCaptureSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateCaptureSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetSpeechSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/GetSpeechSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateSpeechSettings" } } } },
+        { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/SynthesizeSpeech" } } } },
+        { "if": { "properties": { "message_type": { "const": "CheckDatabaseIntegrity" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckDatabaseIntegrity" } } } },
+        { "if": { "properties": { "message_type": { "const": "CheckUpdateNow" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckUpdateNow" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartUpdateDownload" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/StartUpdateDownload" } } } },
+        { "if": { "properties": { "message_type": { "const": "CancelUpdateDownload" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/CancelUpdateDownload" } } } },
+        { "if": { "properties": { "message_type": { "const": "ResolveUpdateMirrorOffer" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResponsePayloads/$defs/ResolveUpdateMirrorOffer" } } } }
+      ]
+    },
 
     "Responses": {
-      "QueryHistorySelection": { "$ref": "#/$defs/QueryHistorySelectionResult" },
-      "StageHistorySelection": { "$ref": "#/$defs/StageHistorySelectionResult" },
-      "BatchMutateRuns": { "$ref": "#/$defs/BatchMutateRunsResult" },
-      "PreviewRunRegionMigration": { "$ref": "#/$defs/PreviewRunRegionMigrationResult" },
-      "CreateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
-      "UpdateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
-      "DeleteCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
-      "ResolveCharacterIdentity": { "$ref": "#/$defs/CharacterIdentityResult" },
-      "GetHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
-      "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
-      "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },
-      "AcknowledgeImageCleanup": { "$ref": "#/$defs/ImageCleanupAcknowledgement" },
-      "SetDisplayTimeZone": { "$ref": "#/$defs/SetDisplayTimeZoneResult" },
+      "description": "Compatibility pointers to the response payload schema for each message type.",
+      "QueryHistorySelection": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryHistorySelection" },
+      "StageHistorySelection": { "$ref": "#/$defs/ResponsePayloads/$defs/StageHistorySelection" },
+      "BatchMutateRuns": { "$ref": "#/$defs/ResponsePayloads/$defs/BatchMutateRuns" },
+      "PreviewRunRegionMigration": { "$ref": "#/$defs/ResponsePayloads/$defs/PreviewRunRegionMigration" },
+      "CreateCharacterProfile": { "$ref": "#/$defs/ResponsePayloads/$defs/CreateCharacterProfile" },
+      "UpdateCharacterProfile": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateCharacterProfile" },
+      "DeleteCharacterProfile": { "$ref": "#/$defs/ResponsePayloads/$defs/DeleteCharacterProfile" },
+      "ResolveCharacterIdentity": { "$ref": "#/$defs/ResponsePayloads/$defs/ResolveCharacterIdentity" },
+      "GetHistoryRetentionSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/GetHistoryRetentionSettings" },
+      "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateHistoryRetentionSettings" },
+      "GetPendingImageCleanup": { "$ref": "#/$defs/ResponsePayloads/$defs/GetPendingImageCleanup" },
+      "AcknowledgeImageCleanup": { "$ref": "#/$defs/ResponsePayloads/$defs/AcknowledgeImageCleanup" },
+      "SetDisplayTimeZone": { "$ref": "#/$defs/ResponsePayloads/$defs/SetDisplayTimeZone" },
+      "PreviewRunImport": { "$ref": "#/$defs/ResponsePayloads/$defs/PreviewRunImport" },
+      "CommitRunImport": { "$ref": "#/$defs/ResponsePayloads/$defs/CommitRunImport" },
+      "QueryCandidateObservations": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryCandidateObservations" },
+      "ReviewCandidateObservation": { "$ref": "#/$defs/ResponsePayloads/$defs/ReviewCandidateObservation" },
+      "ExportCandidateEvidence": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportCandidateEvidence" },
+      "GetVersion": { "$ref": "#/$defs/ResponsePayloads/$defs/GetVersion" },
+      "GetStatus": { "$ref": "#/$defs/ResponsePayloads/$defs/GetStatus" },
+      "GetCaptureStatus": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureStatus" },
+      "ListCaptureAdapters": { "$ref": "#/$defs/ResponsePayloads/$defs/ListCaptureAdapters" },
+      "SelectGameProcess": { "$ref": "#/$defs/ResponsePayloads/$defs/SelectGameProcess" },
+      "StartCapture": { "$ref": "#/$defs/ResponsePayloads/$defs/StartCapture" },
+      "StopCapture": { "$ref": "#/$defs/ResponsePayloads/$defs/StopCapture" },
+      "StartCaptureValidation": { "$ref": "#/$defs/ResponsePayloads/$defs/StartCaptureValidation" },
+      "GetCaptureValidationStatus": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureValidationStatus" },
+      "AddCaptureValidationMarker": { "$ref": "#/$defs/ResponsePayloads/$defs/AddCaptureValidationMarker" },
+      "StopCaptureValidation": { "$ref": "#/$defs/ResponsePayloads/$defs/StopCaptureValidation" },
+      "GetProtocolProfileStatus": { "$ref": "#/$defs/ResponsePayloads/$defs/GetProtocolProfileStatus" },
+      "GetCurrentRun": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCurrentRun" },
+      "QueryRunCalendarDays": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryRunCalendarDays" },
+      "QueryRuns": { "$ref": "#/$defs/ResponsePayloads/$defs/QueryRuns" },
+      "GetDashboardStats": { "$ref": "#/$defs/ResponsePayloads/$defs/GetDashboardStats" },
+      "GetDungeonStats": { "$ref": "#/$defs/ResponsePayloads/$defs/GetDungeonStats" },
+      "GetJobStats": { "$ref": "#/$defs/ResponsePayloads/$defs/GetJobStats" },
+      "GetResultStats": { "$ref": "#/$defs/ResponsePayloads/$defs/GetResultStats" },
+      "CreateManualRun": { "$ref": "#/$defs/ResponsePayloads/$defs/CreateManualRun" },
+      "CorrectRun": { "$ref": "#/$defs/ResponsePayloads/$defs/CorrectRun" },
+      "SoftDeleteRun": { "$ref": "#/$defs/ResponsePayloads/$defs/SoftDeleteRun" },
+      "RestoreRun": { "$ref": "#/$defs/ResponsePayloads/$defs/RestoreRun" },
+      "GetRunRevisions": { "$ref": "#/$defs/ResponsePayloads/$defs/GetRunRevisions" },
+      "UpdateAchievementBaseline": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateAchievementBaseline" },
+      "ExportCsv": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportCsv" },
+      "ExportJson": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportJson" },
+      "BackupDatabase": { "$ref": "#/$defs/ResponsePayloads/$defs/BackupDatabase" },
+      "ConfirmCalibration": { "$ref": "#/$defs/ResponsePayloads/$defs/ConfirmCalibration" },
+      "DiscardCalibration": { "$ref": "#/$defs/ResponsePayloads/$defs/DiscardCalibration" },
+      "GetCalibrationEvidence": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCalibrationEvidence" },
+      "GetTemplateObservation": { "$ref": "#/$defs/ResponsePayloads/$defs/GetTemplateObservation" },
+      "GetCalibrationShareCode": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCalibrationShareCode" },
+      "CheckSharedCalibration": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckSharedCalibration" },
+      "ImportCalibrationCode": { "$ref": "#/$defs/ResponsePayloads/$defs/ImportCalibrationCode" },
+      "AcceptSharedQueueInference": { "$ref": "#/$defs/ResponsePayloads/$defs/AcceptSharedQueueInference" },
+      "RejectSharedCalibration": { "$ref": "#/$defs/ResponsePayloads/$defs/RejectSharedCalibration" },
+      "ExportDiagnosticsReport": { "$ref": "#/$defs/ResponsePayloads/$defs/ExportDiagnosticsReport" },
+      "SetRunReflection": { "$ref": "#/$defs/ResponsePayloads/$defs/SetRunReflection" },
+      "DutyCommunity": { "$ref": "#/$defs/ResponsePayloads/$defs/DutyCommunity" },
+      "GetReflectionSummary": { "$ref": "#/$defs/ResponsePayloads/$defs/GetReflectionSummary" },
+      "SubscribeLiveEvents": { "$ref": "#/$defs/ResponsePayloads/$defs/SubscribeLiveEvents" },
+      "UndoRevision": { "$ref": "#/$defs/ResponsePayloads/$defs/UndoRevision" },
+      "GetRunEvents": { "$ref": "#/$defs/ResponsePayloads/$defs/GetRunEvents" },
+      "GetCaptureSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/GetCaptureSettings" },
+      "UpdateCaptureSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateCaptureSettings" },
+      "GetSpeechSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/GetSpeechSettings" },
+      "UpdateSpeechSettings": { "$ref": "#/$defs/ResponsePayloads/$defs/UpdateSpeechSettings" },
+      "SynthesizeSpeech": { "$ref": "#/$defs/ResponsePayloads/$defs/SynthesizeSpeech" },
+      "CheckDatabaseIntegrity": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckDatabaseIntegrity" },
+      "CheckUpdateNow": { "$ref": "#/$defs/ResponsePayloads/$defs/CheckUpdateNow" },
+      "StartUpdateDownload": { "$ref": "#/$defs/ResponsePayloads/$defs/StartUpdateDownload" },
+      "CancelUpdateDownload": { "$ref": "#/$defs/ResponsePayloads/$defs/CancelUpdateDownload" },
+      "ResolveUpdateMirrorOffer": { "$ref": "#/$defs/ResponsePayloads/$defs/ResolveUpdateMirrorOffer" }
+    },
 
-      "PreviewRunImport": { "$ref": "#/$defs/RunImportPreview" },
-      "CommitRunImport": { "$ref": "#/$defs/RunImportCommit" },
-      "QueryCandidateObservations": { "$ref": "#/$defs/CandidateQueryResult" },
-      "ReviewCandidateObservation": { "$ref": "#/$defs/CandidateReviewResult" },
-      "ExportCandidateEvidence": { "$ref": "#/$defs/CandidateExportResult" },
-      "description": "Response payload schema per message_type. Referenced by tests and by the Desktop client generator.",
-      "GetVersion": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["collector_version", "protocol_version"],
-        "properties": {
-          "collector_version": { "type": "string" },
-          "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
-          "build_id": { "type": ["string", "null"] }
-        }
-      },
-      "GetStatus": { "$ref": "#/$defs/CollectorStatus" }, "GetCaptureStatus": { "$ref": "#/$defs/CaptureStatus" },
-      "ListCaptureAdapters": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["npcap_installed", "adapters"],
-        "properties": {
-          "npcap_installed": { "type": "boolean" },
-          "npcap_version": { "type": ["string", "null"] },
-          "install_hint": { "type": ["string", "null"], "description": "Shown when Npcap is missing. Npcap is never bundled or downloaded by this software." },
-          "install_hint_ref": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }], "description": "install_hint as a catalogue reference (contracts/collector-texts.md); null exactly when install_hint is. Optional: a Collector before 2026-10-15 does not send it." },
-          "adapters": { "type": "array", "items": { "$ref": "#/$defs/CaptureAdapter" } }
-        }
-      },
-      "SelectGameProcess": { "$ref": "#/$defs/CaptureStatus" },
-      "StartCapture": { "$ref": "#/$defs/CaptureStatus" }, "StopCapture": { "$ref": "#/$defs/CaptureStatus" },
-      "StartCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
-      "GetCaptureValidationStatus": { "$ref": "#/$defs/CaptureValidationStatus" },
-      "AddCaptureValidationMarker": { "$ref": "#/$defs/CaptureValidationStatus" },
-      "StopCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
-      "GetProtocolProfileStatus": { "$ref": "#/$defs/ProtocolProfileStatus" },
-      "GetCurrentRun": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["state"],
-        "properties": {
-          "state": { "$ref": "#/$defs/RunState" },
-          "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
-          "elapsed_ms": {
-            "description": "Time the run in flight has spent in its duty: monotonic milliseconds since the run's transition to ENTERED_DUTY, counted from the entry itself when the entry was replayed after the fact (a confirmation or a shared bind that handed over messages kept earlier). Null while no run is in flight and while the run has not entered a duty (MENTOR_MATCHED).",
-            "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }]
+    "ResponsePayloads": {
+      "$defs": {
+        "QueryHistorySelection": { "$ref": "#/$defs/QueryHistorySelectionResult" },
+        "StageHistorySelection": { "$ref": "#/$defs/StageHistorySelectionResult" },
+        "BatchMutateRuns": { "$ref": "#/$defs/BatchMutateRunsResult" },
+        "PreviewRunRegionMigration": { "$ref": "#/$defs/PreviewRunRegionMigrationResult" },
+        "CreateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+        "UpdateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+        "DeleteCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+        "ResolveCharacterIdentity": { "$ref": "#/$defs/CharacterIdentityResult" },
+        "GetHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
+        "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
+        "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },
+        "AcknowledgeImageCleanup": { "$ref": "#/$defs/ImageCleanupAcknowledgement" },
+        "SetDisplayTimeZone": { "$ref": "#/$defs/SetDisplayTimeZoneResult" },
+
+        "PreviewRunImport": { "$ref": "#/$defs/RunImportPreview" },
+        "CommitRunImport": { "$ref": "#/$defs/RunImportCommit" },
+        "QueryCandidateObservations": { "$ref": "#/$defs/CandidateQueryResult" },
+        "ReviewCandidateObservation": { "$ref": "#/$defs/CandidateReviewResult" },
+        "ExportCandidateEvidence": { "$ref": "#/$defs/CandidateExportResult" },
+        "GetVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["collector_version", "protocol_version"],
+          "properties": {
+            "collector_version": { "type": "string" },
+            "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+            "build_id": { "type": ["string", "null"] }
           }
-        }
-      },
-      "QueryRunCalendarDays": {
-        "type": "object", "additionalProperties": false, "required": ["month", "days"],
-        "properties": {
-          "month": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$" },
-          "days": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "date" } }
-        }
-      },
-      "QueryRuns": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["items", "page_info"],
-        "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/$defs/Run" } },
-          "page_info": { "$ref": "#/$defs/PageInfo" }
-        }
-      },
-      "GetDashboardStats": { "$ref": "#/$defs/DashboardStats" },
-      "GetDungeonStats": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["items", "page_info", "distinct_count"],
-        "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/$defs/DungeonStatsRow" } },
-          "page_info": { "$ref": "#/$defs/PageInfo" },
-          "distinct_count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Number of distinct duties matching the filter, before paging. Equal to page_info.total; stated separately because '共 N 个副本' is a fact about the data set, not about the page, and a client must never count the rows it happens to hold."
+        },
+        "GetStatus": { "$ref": "#/$defs/CollectorStatus" }, "GetCaptureStatus": { "$ref": "#/$defs/CaptureStatus" },
+        "ListCaptureAdapters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["npcap_installed", "adapters"],
+          "properties": {
+            "npcap_installed": { "type": "boolean" },
+            "npcap_version": { "type": ["string", "null"] },
+            "install_hint": { "type": ["string", "null"], "description": "Shown when Npcap is missing. Npcap is never bundled or downloaded by this software." },
+            "install_hint_ref": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }], "description": "install_hint as a catalogue reference (contracts/collector-texts.md); null exactly when install_hint is. Optional: a Collector before 2026-10-15 does not send it." },
+            "adapters": { "type": "array", "items": { "$ref": "#/$defs/CaptureAdapter" } }
           }
-        }
-      },
-      "GetJobStats": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["items", "page_info"],
-        "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/$defs/JobStatsRow" } },
-          "page_info": { "$ref": "#/$defs/PageInfo" }
-        }
-      },
-      "GetResultStats": { "$ref": "#/$defs/ResultStats" },
-      "CreateManualRun": { "$ref": "#/$defs/MutationResult" }, "CorrectRun": { "$ref": "#/$defs/MutationResult" },
-      "SoftDeleteRun": { "$ref": "#/$defs/MutationResult" }, "RestoreRun": { "$ref": "#/$defs/MutationResult" },
-      "GetRunRevisions": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["items", "page_info"],
-        "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/$defs/RunRevision" } },
-          "page_info": { "$ref": "#/$defs/PageInfo" }
-        }
-      },
-      "UpdateAchievementBaseline": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id"],
-        "properties": {
-          "region": { "$ref": "#/$defs/Region", "description": "The owning region of the returned achievement settings." },
-          "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The character profile the returned settings belong to. Null only in a replay of a response stored before profiles existed." },
-          "goal_count": { "type": "integer", "minimum": 1 },
-          "baseline_completed_count": { "type": "integer", "minimum": 0 },
-          "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },
-          "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "When the stored settings last changed. A save whose goal and baseline both equal the stored values changes nothing and answers the stored time." },
-          "audit_event_id": { "$ref": "#/$defs/Uuid", "description": "The history entry this save wrote. A save that changed nothing writes none and answers the entry that stored the current values, or a new id when the history has no such entry." },
-          "idempotent_replay": { "type": "boolean", "default": false }
-        }
-      },
-      "ExportCsv": { "$ref": "#/$defs/ExportResult" }, "ExportJson": { "$ref": "#/$defs/ExportResult" },
-      "BackupDatabase": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["target_path", "byte_count", "completed_at_utc"],
-        "properties": {
-          "target_path": { "type": "string" },
-          "byte_count": { "type": "integer", "minimum": 0 },
-          "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
-          "integrity_check_passed": { "type": "boolean" },
-          "pruned_count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "How many older automatically named backups the retention policy removed (BackupService.RetainedBackups = 14)."
+        },
+        "SelectGameProcess": { "$ref": "#/$defs/CaptureStatus" },
+        "StartCapture": { "$ref": "#/$defs/CaptureStatus" }, "StopCapture": { "$ref": "#/$defs/CaptureStatus" },
+        "StartCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
+        "GetCaptureValidationStatus": { "$ref": "#/$defs/CaptureValidationStatus" },
+        "AddCaptureValidationMarker": { "$ref": "#/$defs/CaptureValidationStatus" },
+        "StopCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
+        "GetProtocolProfileStatus": { "$ref": "#/$defs/ProtocolProfileStatus" },
+        "GetCurrentRun": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {
+            "state": { "$ref": "#/$defs/RunState" },
+            "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
+            "elapsed_ms": {
+              "description": "Time the run in flight has spent in its duty: monotonic milliseconds since the run's transition to ENTERED_DUTY, counted from the entry itself when the entry was replayed after the fact (a confirmation or a shared bind that handed over messages kept earlier). Null while no run is in flight and while the run has not entered a duty (MENTOR_MATCHED).",
+              "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }]
+            }
           }
-        }
-      },
-      "ConfirmCalibration": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["profile_id", "profile_path", "bound_in_session"],
-        "properties": {
-          "profile_id": { "type": "string" },
-          "profile_path": { "type": "string" },
-          "bound_in_session": { "type": "boolean" }
-        }
-      },
-      "DiscardCalibration": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["state"],
-        "properties": {
-          "state": { "$ref": "#/$defs/CalibrationState" }
-        }
-      },
-      "GetCalibrationEvidence": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
-      "GetTemplateObservation": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
-      "GetCalibrationShareCode": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["code", "code_sha256", "issue_url", "code_in_url"],
-        "description": "The share code of the calibration in force. A local calibration's code is taken from the profile file this machine wrote (basis CALIBRATED). Since plan §20.5 a shared calibration this machine has proven - a complete duty recorded and every audited criterion passed (its SharedCalibrationCandidate status is PROVEN) - is handed back as the code text the store downloaded (basis VERIFIED). Refused with ERR_SHARE_CODE_UNAVAILABLE (details.reason NO_PROFILE, NOT_LOCAL, SHARED, SHARED_NOT_PROVEN or NOT_SHAREABLE) when there is none.",
-        "properties": {
-          "code": { "type": "string", "pattern": "^MRC1\\.", "maxLength": 4096 },
-          "code_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "issue_url": { "type": "string", "pattern": "^https://github\\.com/", "maxLength": 7500, "description": "The public repository's share-calibration issue form, prefilled with the title, the basis text field (since plan §20.5) and, when code_in_url, the code. The Desktop opens it in the system browser; the Collector never requests it." },
-          "code_in_url": { "type": "boolean", "description": "False when the code was left out to keep the address under 7500 characters; the Desktop then only copies the code. The title and the basis always stay in the address." },
-          "basis": { "type": "string", "enum": ["CALIBRATED", "VERIFIED"], "description": "What the code rests on; the form's basis text field is prefilled with the exact text the public repository's Action accepts for it (anything else is refused as BASIS_INVALID): CALIBRATED - calibrated on this machine, timeline checked entry by entry (分享给其他玩家); VERIFIED - another player's code this machine verified and recorded with (这份校准好用，告诉其他玩家). Optional: a Collector up to 1.7.2 does not send it; read absent as CALIBRATED." }
-        }
-      },
-      "CheckSharedCalibration": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["outcome"],
-        "properties": {
-          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "RECENTLY_CHECKED", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent; also when this machine's shared-calibration bookkeeping cannot be read right now, so whether the player refused is unknown (nothing is sent either; then message and message_ref are present). RECENTLY_CHECKED: a manual check ran seconds ago and its answer stands for this one; nothing is running, so the card already shows the result." },
-          "message": { "type": "string", "maxLength": 1000, "description": "Present only when the outcome alone would tell the player something untrue; the Desktop shows it instead of its own sentence for the outcome. zh-Hans, no hex. Since 2026-10-21 only for NOT_NEEDED while the bookkeeping cannot be read (sharing.check.state_unreadable): asking again later may succeed. Optional: absent otherwise, and a Collector before 2026-10-21 never sends it." },
-          "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md); present exactly when message is." }
-        }
-      },
-      "ImportCalibrationCode": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["outcome", "reason", "message", "code_sha256"],
-        "properties": {
-          "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
-          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, STATE_UNREADABLE (this machine's shared-calibration bookkeeping cannot be read right now, so neither a refusal nor the code's record is known; asking again later may succeed), REJECTED, REVOKED (an index this machine read revoked the code; a revocation is never taken back), TOO_MANY_CANDIDATES or CHANGED." },
-          "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
-          "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
-          "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." },
-          "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "When APPLIED: PUBLISHED when the last index this machine read lists the code, IMPORTED otherwise. Null when not applied. Optional: a Collector before 1.1.0 does not send it." }
-        }
-      },
-      "AcceptSharedQueueInference": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["outcome"],
-        "properties": {
-          "outcome": { "type": "string", "enum": ["ACCEPTED", "NOTHING_TO_ACCEPT"] }
-        }
-      },
-      "RejectSharedCalibration": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["withdrawn_profile_id", "dropped_candidates"],
-        "description": "改为本机校准. The withdrawal and the re-arm complete in the background; calibration_changed announces them. Refused with ERR_CALIBRATION_NOT_READY and a sentence the player can read, changing nothing, while the profile in force is a shared calibration (profile_origin = SHARED_CALIBRATION) and either the current run is MENTOR_MATCHED or ENTERED_DUTY, or the profile infers matches from the queue and still holds a queue request within its match window: withdrawing it would close that run, or lose the run that queue request leads to. Dropping codes still being checked cuts nothing and goes ahead.",
-        "properties": {
-          "withdrawn_profile_id": { "type": ["string", "null"], "description": "The shared profile that was in force and is being withdrawn." },
-          "dropped_candidates": { "type": "integer", "minimum": 0 }
-        }
-      },
-      "ExportDiagnosticsReport": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["target_path", "byte_count", "completed_at_utc"],
-        "properties": {
-          "target_path": { "type": "string" },
-          "byte_count": { "type": "integer", "minimum": 0 },
-          "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
-        }
-      },
-      "SetRunReflection": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["run_id", "reflection"],
-        "properties": {
-          "run_id": { "$ref": "#/$defs/Uuid" },
-          "reflection": {
-            "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
-            "description": "The stored reflection, or null when the request cleared it."
-          },
-          "run": { "$ref": "#/$defs/Run" }
-        }
-      },
-      "DutyCommunity": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["status"],
-        "properties": {
-          "status": { "type": "string" },
-          "app_configured": { "type": "boolean" },
-          "online": { "type": "boolean" },
-          "cached": { "type": "boolean" },
-          "next": { "type": ["integer", "null"], "minimum": 0 },
-          "generation": { "type": "integer", "minimum": 0 },
-          "items": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
-          "entries": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
-          "body": { "type": "string", "maxLength": 30000 },
-          "account": { "type": "object" },
-          "user_code": { "type": "string", "maxLength": 32 },
-          "interval": { "type": "integer", "minimum": 5 },
-          "issue": { "type": "integer", "minimum": 1 }
-        }
-      },
-      "GetReflectionSummary": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["reflection_count", "pending_completed_count", "recent", "next_pending"],
-        "properties": {
-          "reflection_count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Reflections on non-deleted runs."
-          },
-          "pending_completed_count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Non-deleted runs with result COMPLETED and no reflection."
-          },
-          "recent": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/ReflectionEntry" },
-            "description": "Ordered by reflection.updated_at_utc descending; soft-deleted runs are excluded."
-          },
-          "next_pending": {
-            "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }],
-            "description": "Most recent (by matched_at_utc desc) COMPLETED non-deleted run without a reflection; the 补录心得 target."
+        },
+        "QueryRunCalendarDays": {
+          "type": "object", "additionalProperties": false, "required": ["month", "days"],
+          "properties": {
+            "month": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$" },
+            "days": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "date" } }
           }
+        },
+        "QueryRuns": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["items", "page_info"],
+          "properties": {
+            "items": { "type": "array", "items": { "$ref": "#/$defs/Run" } },
+            "page_info": { "$ref": "#/$defs/PageInfo" }
+          }
+        },
+        "GetDashboardStats": { "$ref": "#/$defs/DashboardStats" },
+        "GetDungeonStats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["items", "page_info", "distinct_count"],
+          "properties": {
+            "items": { "type": "array", "items": { "$ref": "#/$defs/DungeonStatsRow" } },
+            "page_info": { "$ref": "#/$defs/PageInfo" },
+            "distinct_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of distinct duties matching the filter, before paging. Equal to page_info.total; stated separately because '共 N 个副本' is a fact about the data set, not about the page, and a client must never count the rows it happens to hold."
+            }
+          }
+        },
+        "GetJobStats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["items", "page_info"],
+          "properties": {
+            "items": { "type": "array", "items": { "$ref": "#/$defs/JobStatsRow" } },
+            "page_info": { "$ref": "#/$defs/PageInfo" }
+          }
+        },
+        "GetResultStats": { "$ref": "#/$defs/ResultStats" },
+        "CreateManualRun": { "$ref": "#/$defs/MutationResult" }, "CorrectRun": { "$ref": "#/$defs/MutationResult" },
+        "SoftDeleteRun": { "$ref": "#/$defs/MutationResult" }, "RestoreRun": { "$ref": "#/$defs/MutationResult" },
+        "GetRunRevisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["items", "page_info"],
+          "properties": {
+            "items": { "type": "array", "items": { "$ref": "#/$defs/RunRevision" } },
+            "page_info": { "$ref": "#/$defs/PageInfo" }
+          }
+        },
+        "UpdateAchievementBaseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id"],
+          "properties": {
+            "region": { "$ref": "#/$defs/Region", "description": "The owning region of the returned achievement settings." },
+            "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The character profile the returned settings belong to. Null only in a replay of a response stored before profiles existed." },
+            "goal_count": { "type": "integer", "minimum": 1 },
+            "baseline_completed_count": { "type": "integer", "minimum": 0 },
+            "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },
+            "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "When the stored settings last changed. A save whose goal and baseline both equal the stored values changes nothing and answers the stored time." },
+            "audit_event_id": { "$ref": "#/$defs/Uuid", "description": "The history entry this save wrote. A save that changed nothing writes none and answers the entry that stored the current values, or a new id when the history has no such entry." },
+            "idempotent_replay": { "type": "boolean", "default": false }
+          }
+        },
+        "ExportCsv": { "$ref": "#/$defs/ExportResult" }, "ExportJson": { "$ref": "#/$defs/ExportResult" },
+        "BackupDatabase": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_path", "byte_count", "completed_at_utc"],
+          "properties": {
+            "target_path": { "type": "string" },
+            "byte_count": { "type": "integer", "minimum": 0 },
+            "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+            "integrity_check_passed": { "type": "boolean" },
+            "pruned_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many older automatically named backups the retention policy removed (BackupService.RetainedBackups = 14)."
+            }
+          }
+        },
+        "ConfirmCalibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile_id", "profile_path", "bound_in_session"],
+          "properties": {
+            "profile_id": { "type": "string" },
+            "profile_path": { "type": "string" },
+            "bound_in_session": { "type": "boolean" }
+          }
+        },
+        "DiscardCalibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {
+            "state": { "$ref": "#/$defs/CalibrationState" }
+          }
+        },
+        "GetCalibrationEvidence": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
+        "GetTemplateObservation": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
+        "GetCalibrationShareCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "code_sha256", "issue_url", "code_in_url"],
+          "description": "The share code of the calibration in force. A local calibration's code is taken from the profile file this machine wrote (basis CALIBRATED). Since plan §20.5 a shared calibration this machine has proven - a complete duty recorded and every audited criterion passed (its SharedCalibrationCandidate status is PROVEN) - is handed back as the code text the store downloaded (basis VERIFIED). Refused with ERR_SHARE_CODE_UNAVAILABLE (details.reason NO_PROFILE, NOT_LOCAL, SHARED, SHARED_NOT_PROVEN or NOT_SHAREABLE) when there is none.",
+          "properties": {
+            "code": { "type": "string", "pattern": "^MRC1\\.", "maxLength": 4096 },
+            "code_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "issue_url": { "type": "string", "pattern": "^https://github\\.com/", "maxLength": 7500, "description": "The public repository's share-calibration issue form, prefilled with the title, the basis text field (since plan §20.5) and, when code_in_url, the code. The Desktop opens it in the system browser; the Collector never requests it." },
+            "code_in_url": { "type": "boolean", "description": "False when the code was left out to keep the address under 7500 characters; the Desktop then only copies the code. The title and the basis always stay in the address." },
+            "basis": { "type": "string", "enum": ["CALIBRATED", "VERIFIED"], "description": "What the code rests on; the form's basis text field is prefilled with the exact text the public repository's Action accepts for it (anything else is refused as BASIS_INVALID): CALIBRATED - calibrated on this machine, timeline checked entry by entry (分享给其他玩家); VERIFIED - another player's code this machine verified and recorded with (这份校准好用，告诉其他玩家). Optional: a Collector up to 1.7.2 does not send it; read absent as CALIBRATED." }
+          }
+        },
+        "CheckSharedCalibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "RECENTLY_CHECKED", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent; also when this machine's shared-calibration bookkeeping cannot be read right now, so whether the player refused is unknown (nothing is sent either; then message and message_ref are present). RECENTLY_CHECKED: a manual check ran seconds ago and its answer stands for this one; nothing is running, so the card already shows the result." },
+            "message": { "type": "string", "maxLength": 1000, "description": "Present only when the outcome alone would tell the player something untrue; the Desktop shows it instead of its own sentence for the outcome. zh-Hans, no hex. Since 2026-10-21 only for NOT_NEEDED while the bookkeeping cannot be read (sharing.check.state_unreadable): asking again later may succeed. Optional: absent otherwise, and a Collector before 2026-10-21 never sends it." },
+            "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md); present exactly when message is." }
+          }
+        },
+        "ImportCalibrationCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "reason", "message", "code_sha256"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
+            "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, STATE_UNREADABLE (this machine's shared-calibration bookkeeping cannot be read right now, so neither a refusal nor the code's record is known; asking again later may succeed), REJECTED, REVOKED (an index this machine read revoked the code; a revocation is never taken back), TOO_MANY_CANDIDATES or CHANGED." },
+            "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
+            "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
+            "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." },
+            "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "When APPLIED: PUBLISHED when the last index this machine read lists the code, IMPORTED otherwise. Null when not applied. Optional: a Collector before 1.1.0 does not send it." }
+          }
+        },
+        "AcceptSharedQueueInference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["ACCEPTED", "NOTHING_TO_ACCEPT"] }
+          }
+        },
+        "RejectSharedCalibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["withdrawn_profile_id", "dropped_candidates"],
+          "description": "改为本机校准. The withdrawal and the re-arm complete in the background; calibration_changed announces them. Refused with ERR_CALIBRATION_NOT_READY and a sentence the player can read, changing nothing, while the profile in force is a shared calibration (profile_origin = SHARED_CALIBRATION) and either the current run is MENTOR_MATCHED or ENTERED_DUTY, or the profile infers matches from the queue and still holds a queue request within its match window: withdrawing it would close that run, or lose the run that queue request leads to. Dropping codes still being checked cuts nothing and goes ahead.",
+          "properties": {
+            "withdrawn_profile_id": { "type": ["string", "null"], "description": "The shared profile that was in force and is being withdrawn." },
+            "dropped_candidates": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "ExportDiagnosticsReport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_path", "byte_count", "completed_at_utc"],
+          "properties": {
+            "target_path": { "type": "string" },
+            "byte_count": { "type": "integer", "minimum": 0 },
+            "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+          }
+        },
+        "SetRunReflection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run_id", "reflection"],
+          "properties": {
+            "run_id": { "$ref": "#/$defs/Uuid" },
+            "reflection": {
+              "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
+              "description": "The stored reflection, or null when the request cleared it."
+            },
+            "run": { "$ref": "#/$defs/Run" }
+          }
+        },
+        "DutyCommunity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string" },
+            "app_configured": { "type": "boolean" },
+            "online": { "type": "boolean" },
+            "cached": { "type": "boolean" },
+            "next": { "type": ["integer", "null"], "minimum": 0 },
+            "generation": { "type": "integer", "minimum": 0 },
+            "items": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
+            "entries": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
+            "body": { "type": "string", "maxLength": 30000 },
+            "account": { "type": "object" },
+            "user_code": { "type": "string", "maxLength": 32 },
+            "interval": { "type": "integer", "minimum": 5 },
+            "issue": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "GetReflectionSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reflection_count", "pending_completed_count", "recent", "next_pending"],
+          "properties": {
+            "reflection_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Reflections on non-deleted runs."
+            },
+            "pending_completed_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Non-deleted runs with result COMPLETED and no reflection."
+            },
+            "recent": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ReflectionEntry" },
+              "description": "Ordered by reflection.updated_at_utc descending; soft-deleted runs are excluded."
+            },
+            "next_pending": {
+              "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }],
+              "description": "Most recent (by matched_at_utc desc) COMPLETED non-deleted run without a reflection; the 补录心得 target."
+            }
+          }
+        },
+        "SubscribeLiveEvents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subscription_id"],
+          "properties": {
+            "subscription_id": { "$ref": "#/$defs/Uuid" },
+            "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000 }
+          }
+        },
+        "UndoRevision": { "$ref": "#/$defs/MutationResult" },
+        "GetRunEvents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run_id", "events"],
+          "properties": {
+            "run_id": { "$ref": "#/$defs/Uuid" },
+            "events": { "type": "array", "items": { "$ref": "#/$defs/RunEventEntry" } }
+          }
+        },
+        "GetCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
+        "UpdateCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
+        "GetSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
+        "UpdateSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
+        "SynthesizeSpeech": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["audio_path", "from_cache", "provider"],
+          "description": "Refused with ERR_SPEECH_DISABLED (MR_DISABLE_ONLINE_SPEECH set; checked first, before the cache), ERR_SPEECH_NOT_CONFIGURED, ERR_SPEECH_AUTH (401/403), ERR_SPEECH_QUOTA (429), ERR_SPEECH_NETWORK (other status, refused redirect, connection failure), ERR_SPEECH_TIMEOUT (8 s budget, or details.reason QUEUE_FULL / QUEUE_WAIT) or ERR_SPEECH_FORMAT (not audio/* or application/octet-stream, over 5 MB, or not RIFF/WAVE 16-bit PCM). details carries at most http_status and an upper-case reason token; the service's response text is never passed on.",
+          "properties": {
+            "audio_path": { "type": "string", "minLength": 1, "description": "Absolute path of <data dir>\\tts-cache\\<64 hex>.wav: canonical RIFF/WAVE, 16-bit PCM, 44-byte header. The Desktop plays only files in that folder." },
+            "from_cache": { "type": "boolean", "description": "True when no request was sent." },
+            "provider": { "type": "string", "enum": ["azure", "openai_compatible"] }
+          }
+        },
+        "CheckDatabaseIntegrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "detail", "checked_at_utc"],
+          "description": "Read-only PRAGMA integrity_check of the open database file, on a read-only connection of its own: it does not take the database gate live capture writes through, and sees the last committed state; nothing is repaired or written. One check at a time; a request while one runs is ERR_DB_BUSY (retryable). Cancelled when the requesting connection closes or the Collector stops, without an answer. A file too damaged for the check to run is passed = false with SQLite's sentence; a lock held elsewhere is ERR_DB_BUSY (retryable).",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "detail": { "type": "string", "minLength": 1, "maxLength": 200, "description": "\"ok\", or the first problem line, run through the log sanitizer." },
+            "checked_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+          }
+        },
+        "CheckUpdateNow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "update"],
+          "description": "The user asked for an update check now (docs/privacy-boundary.md §8.4). The daily throttle does not apply; the setting and the kill switch do, and nothing is sent under either. Asynchronous: answered when the one GET has returned (or at once when nothing is sent); other requests on the connection are answered meanwhile. Notification only, as ever: nothing is downloaded or run.",
+          "properties": {
+            "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off, or was switched off while the check ran - that check stops before sending anything more, the mirror included, and records nothing. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
+            "update": { "$ref": "#/$defs/UpdateStatus" }
+          }
+        },
+        "StartUpdateDownload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["update"],
+          "description": "The user asked to download the installer of the newer version (docs/privacy-boundary.md §8.6). Answered at once with the status as it now stands: download.state is DOWNLOADING when a download was started or is already running; VERIFYING while an installer of that version already on disk is checked again (READY follows if it still matches, a new download if it does not); READY at once when that installer was verified moments ago; FAILED (NO_UPDATE / DISABLED) when there is nothing to download. Nothing new is started, and the state is reported unchanged (IDLE or the earlier FAILED), while a cancelled download is still finishing or within a few seconds of the last start. Progress is read from GetStatus.",
+          "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
+        },
+        "CancelUpdateDownload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["update"],
+          "description": "Stops a running download and removes what was written; download.state is IDLE afterwards. Does nothing in any other state.",
+          "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
+        },
+        "ResolveUpdateMirrorOffer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["update"],
+          "description": "Resolves the active offer without waiting for the mirror. A stale or unknown offer has no effect.",
+          "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
         }
-      },
-      "SubscribeLiveEvents": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["subscription_id"],
-        "properties": {
-          "subscription_id": { "$ref": "#/$defs/Uuid" },
-          "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000 }
-        }
-      },
-      "UndoRevision": { "$ref": "#/$defs/MutationResult" },
-      "GetRunEvents": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["run_id", "events"],
-        "properties": {
-          "run_id": { "$ref": "#/$defs/Uuid" },
-          "events": { "type": "array", "items": { "$ref": "#/$defs/RunEventEntry" } }
-        }
-      },
-      "GetCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
-      "UpdateCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
-      "GetSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
-      "UpdateSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
-      "SynthesizeSpeech": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["audio_path", "from_cache", "provider"],
-        "description": "Refused with ERR_SPEECH_DISABLED (MR_DISABLE_ONLINE_SPEECH set; checked first, before the cache), ERR_SPEECH_NOT_CONFIGURED, ERR_SPEECH_AUTH (401/403), ERR_SPEECH_QUOTA (429), ERR_SPEECH_NETWORK (other status, refused redirect, connection failure), ERR_SPEECH_TIMEOUT (8 s budget, or details.reason QUEUE_FULL / QUEUE_WAIT) or ERR_SPEECH_FORMAT (not audio/* or application/octet-stream, over 5 MB, or not RIFF/WAVE 16-bit PCM). details carries at most http_status and an upper-case reason token; the service's response text is never passed on.",
-        "properties": {
-          "audio_path": { "type": "string", "minLength": 1, "description": "Absolute path of <data dir>\\tts-cache\\<64 hex>.wav: canonical RIFF/WAVE, 16-bit PCM, 44-byte header. The Desktop plays only files in that folder." },
-          "from_cache": { "type": "boolean", "description": "True when no request was sent." },
-          "provider": { "type": "string", "enum": ["azure", "openai_compatible"] }
-        }
-      },
-      "CheckDatabaseIntegrity": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["passed", "detail", "checked_at_utc"],
-        "description": "Read-only PRAGMA integrity_check of the open database file, on a read-only connection of its own: it does not take the database gate live capture writes through, and sees the last committed state; nothing is repaired or written. One check at a time; a request while one runs is ERR_DB_BUSY (retryable). Cancelled when the requesting connection closes or the Collector stops, without an answer. A file too damaged for the check to run is passed = false with SQLite's sentence; a lock held elsewhere is ERR_DB_BUSY (retryable).",
-        "properties": {
-          "passed": { "type": "boolean" },
-          "detail": { "type": "string", "minLength": 1, "maxLength": 200, "description": "\"ok\", or the first problem line, run through the log sanitizer." },
-          "checked_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
-        }
-      },
-      "CheckUpdateNow": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["outcome", "update"],
-        "description": "The user asked for an update check now (docs/privacy-boundary.md §8.4). The daily throttle does not apply; the setting and the kill switch do, and nothing is sent under either. Asynchronous: answered when the one GET has returned (or at once when nothing is sent); other requests on the connection are answered meanwhile. Notification only, as ever: nothing is downloaded or run.",
-        "properties": {
-          "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off, or was switched off while the check ran - that check stops before sending anything more, the mirror included, and records nothing. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
-          "update": { "$ref": "#/$defs/UpdateStatus" }
-        }
-      },
-      "StartUpdateDownload": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["update"],
-        "description": "The user asked to download the installer of the newer version (docs/privacy-boundary.md §8.6). Answered at once with the status as it now stands: download.state is DOWNLOADING when a download was started or is already running; VERIFYING while an installer of that version already on disk is checked again (READY follows if it still matches, a new download if it does not); READY at once when that installer was verified moments ago; FAILED (NO_UPDATE / DISABLED) when there is nothing to download. Nothing new is started, and the state is reported unchanged (IDLE or the earlier FAILED), while a cancelled download is still finishing or within a few seconds of the last start. Progress is read from GetStatus.",
-        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
-      },
-      "CancelUpdateDownload": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["update"],
-        "description": "Stops a running download and removes what was written; download.state is IDLE afterwards. Does nothing in any other state.",
-        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
-      },
-      "ResolveUpdateMirrorOffer": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["update"],
-        "description": "Resolves the active offer without waiting for the mirror. A stale or unknown offer has no effect.",
-        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
       }
     },
 

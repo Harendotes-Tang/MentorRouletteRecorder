@@ -10,15 +10,19 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-foreach(v SRC_ROOT CONFIG DEST)
+foreach(v DEST)
     if(NOT DEFINED ${v})
         message(FATAL_ERROR "StageCollector.cmake: ${v} is required")
     endif()
 endforeach()
 
-set(_candidates
+if(DEFINED SOURCE_DIRECTORY)
+    set(_candidates "${SOURCE_DIRECTORY}")
+else()
+    set(_candidates
     "${SRC_ROOT}/x64/${CONFIG}/net8.0-windows/win-x64"
     "${SRC_ROOT}/${CONFIG}/net8.0-windows/win-x64")
+endif()
 
 set(_src "")
 set(_newest 0)
@@ -41,6 +45,21 @@ file(GLOB_RECURSE _payload RELATIVE "${_src}" "${_src}/deucalion*")
 if(_payload)
     message(FATAL_ERROR "StageCollector.cmake: refusing to stage an injection payload: ${_payload}")
 endif()
+
+# Profiles are a managed subtree. A file missing from the rebuilt Collector must
+# not survive a second staging into a Desktop or CTest directory.
+if(IS_SYMLINK "${DEST}/protocol-profiles")
+    message(FATAL_ERROR "Refusing to synchronize linked protocol-profiles directory")
+endif()
+file(GLOB_RECURSE _staged_profiles RELATIVE "${DEST}" "${DEST}/protocol-profiles/*.json")
+foreach(rel IN LISTS _staged_profiles)
+    if(NOT EXISTS "${_src}/${rel}")
+        file(REMOVE "${DEST}/${rel}")
+        if(EXISTS "${DEST}/${rel}" OR IS_SYMLINK "${DEST}/${rel}")
+            message(FATAL_ERROR "StageCollector.cmake: cannot remove obsolete built-in profile: ${DEST}/${rel}")
+        endif()
+    endif()
+endforeach()
 
 file(GLOB_RECURSE _files RELATIVE "${_src}" "${_src}/*")
 set(_count 0)

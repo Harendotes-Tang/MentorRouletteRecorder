@@ -493,6 +493,30 @@ for ($i = 0; $i -lt $statements.Count; $i++) {{
     def test_a_version_whose_tag_git_cannot_read_is_refused(self):
         self.assertTrue(self.reused_version_guard("9.9.9-beta.2", failing_git=True)["refused"])
 
+    def test_a_tagged_dirty_tree_requires_the_explicit_reuse_override(self):
+        (self.repository / "uncommitted.cs").write_text("// pending source", encoding="utf-8")
+        result = self.reused_version_guard("9.9.9-beta.2", tag="v9.9.9-beta.2")
+        self.assertTrue(result["refused"])
+        self.assertIn("-AllowReusedVersion", result["message"])
+        self.assertFalse(self.reused_version_guard("9.9.9-beta.2", allow=True)["refused"])
+
+    def test_debug_publish_embeds_symbols_in_a_separate_build_directory(self):
+        observed = self.run_package_statements(f"""
+$RepoRoot = {ps_literal(REPO)}
+$BuildDir = {ps_literal(self.repository)}
+$Configuration = 'Debug'
+. ([scriptblock]::Create((Get-StatementRange '^\\$publishSymbolOptions\\s*=' '^& dotnet publish')))
+$properties = & dotnet msbuild (Join-Path $RepoRoot 'src/Collector/MentorRecorder.Collector.csproj') -nologo `
+    -p:Configuration=Debug @($publishSymbolOptions | Where-Object {{ $_ -like '-p:*' }}) `
+    -getProperty:DebugType,PathMap
+if ($LASTEXITCODE -ne 0) {{ throw 'MSBuild property evaluation failed' }}
+@{{ symbols = ($properties -join [Environment]::NewLine | ConvertFrom-Json).Properties;
+    options = $publishSymbolOptions }} | ConvertTo-Json -Compress
+""")
+        self.assertEqual("embedded", observed["symbols"]["DebugType"])
+        self.assertIn(str(REPO), observed["symbols"]["PathMap"])
+        self.assertEqual(str(self.repository / "collector-publish-artifacts"), observed["options"][1])
+
     def test_an_untagged_version_its_own_tag_or_the_override_passes(self):
         self.assertFalse(self.reused_version_guard("9.9.9-beta.2")["refused"])
         self.assertFalse(self.reused_version_guard("9.9.9-beta.2", tag="v9.9.9-beta.2")["refused"])

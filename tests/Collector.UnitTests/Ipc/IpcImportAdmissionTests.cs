@@ -10,10 +10,10 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class IpcImportAdmissionTests
 {
     [Fact]
-    public async Task ImportAdmissionIsSharedAcrossConnectionsAndCancellationReleasesDatabaseWait()
+    public async Task ImportAdmissionIsSharedAcrossConnectionsAndCancellationPreservesCachedPreviews()
     {
         using var fixture = new TestDatabase();
-        var clock = new PreviewClock(fixture.Clock.UtcNow);
+        using var clock = new PreviewClock(fixture.Clock.UtcNow);
         using var host = OpenHost(fixture, clock);
         var dispatcher = new MessageDispatcher(host);
         var previews = Enumerable.Range(0, RunImportService.MaxPreviews)
@@ -21,7 +21,9 @@ public sealed class IpcImportAdmissionTests
         var commit = CommitRequest(previews[0]);
         var blocker = new DatabaseBlocker(host.Database);
         await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
-        clock.Observe();
+        // A WAL preview no longer waits behind the writer. Pause the admitted preview at
+        // its normalization timestamp so the other connection always sees an occupied slot.
+        clock.PauseNextRead();
 
         using var firstStream = new ScriptedPipePeer(PreviewRequest("cancelled-preview"));
         using var firstLifetime = new CancellationTokenSource();
@@ -33,7 +35,7 @@ public sealed class IpcImportAdmissionTests
         Task secondConnection = Task.CompletedTask;
         try
         {
-            await clock.FirstObservedRead.WaitAsync(TimeSpan.FromSeconds(90));
+            await clock.Paused.WaitAsync(TimeSpan.FromSeconds(90));
             secondConnection = new PipeConnection(secondStream, dispatcher).ServeAsync(secondLifetime.Token);
             var replies = new List<JsonObject>();
             for (var index = 0; index < 32; index++)
@@ -49,18 +51,19 @@ public sealed class IpcImportAdmissionTests
                 Assert.True(reply["error"]!["retryable"]!.GetValue<bool>());
             });
             Assert.Equal("GetVersion", Assert.Single(replies, reply => reply["ok"]!.GetValue<bool>())["message_type"]!.GetValue<string>());
-            Assert.Equal(1, clock.ObservedReads);
 
             await firstLifetime.CancelAsync();
-            // The database holder is still running: leaving the connection must release its
-            // one admitted worker without waiting for somebody else's database operation.
+            clock.Resume();
+            // The connection token is cancelled before normalization can proceed to cache admission.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => firstConnection.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(0, firstStream.WrittenResponses);
             Assert.False(blocker.Finished);
         }
         finally
         {
             await firstLifetime.CancelAsync();
+            clock.Resume();
             await secondLifetime.CancelAsync();
             await blocker.DisposeAsync();
             await Drain(firstConnection);
@@ -316,19 +319,25 @@ public sealed class IpcImportAdmissionTests
         catch (OperationCanceledException) { }
     }
 
-    private sealed class PreviewClock(DateTimeOffset utcNow) : IClock
+    private sealed class PreviewClock(DateTimeOffset utcNow) : IClock, IDisposable
     {
-        private readonly TaskCompletionSource _firstRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private bool _observe;
-        private int _reads;
-        public Task FirstObservedRead => _firstRead.Task;
-        public int ObservedReads => Volatile.Read(ref _reads);
-        public void Observe() => Volatile.Write(ref _observe, true);
+        private readonly TaskCompletionSource _paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim _resume = new();
+        private int _pauseNextRead;
+        public Task Paused => _paused.Task;
+        public void PauseNextRead() => Interlocked.Exchange(ref _pauseNextRead, 1);
+        public void Resume() => _resume.Set();
+        public void Dispose() => _resume.Dispose();
         public DateTimeOffset UtcNow
         {
             get
             {
-                if (Volatile.Read(ref _observe)) { Interlocked.Increment(ref _reads); _firstRead.TrySetResult(); }
+                if (Interlocked.Exchange(ref _pauseNextRead, 0) == 1)
+                {
+                    _paused.SetResult();
+                    if (!_resume.Wait(TimeSpan.FromSeconds(90)))
+                        throw new TimeoutException("Test did not release the admitted preview.");
+                }
                 return utcNow;
             }
         }

@@ -796,8 +796,11 @@ if ($unsuffixedRefusal) {
 # copy compares equal to the reissue and is never offered it (audit 2026-11-26 M-2). The tag
 # v<Version> may exist only on HEAD itself.
 $versionTag = Get-VersionTagState -RepoRoot $RepoRoot -Version $Version
+$sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
+$versionProblem = $versionTag.Problem
+if ($versionTag.TagCommit -and $sourceStateBeforeVerify.Problem) { $versionProblem = $sourceStateBeforeVerify.Problem }
 $reusedVersionRefusal = Get-ReusedVersionRefusal -Version $Version -TagCommit $versionTag.TagCommit `
-    -HeadCommit $versionTag.HeadCommit -Problem $versionTag.Problem
+    -HeadCommit $sourceStateBeforeVerify.Commit -Problem $versionProblem -Dirty ([bool]$sourceStateBeforeVerify.Dirty)
 if ($reusedVersionRefusal) {
     if (-not $AllowReusedVersion) {
         throw $reusedVersionRefusal
@@ -809,7 +812,6 @@ if ($reusedVersionRefusal) {
 # unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
 # commit by another session in between would otherwise leave a clean source_commit beside
 # binaries built from another tree.
-$sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
 $verificationResult = $null
 
 # verify.ps1, build.ps1 and the scripts they run read their CMake directory from MR_BUILD_DIR:
@@ -866,7 +868,13 @@ New-Item -ItemType Directory -Path $CollectorStage | Out-Null
 Write-Head '发布 Collector / Publish Collector'
 # Self-contained: the installer promises no dependencies to install by hand, and the .NET
 # runtime is the only dependency this project may redistribute. Npcap is not (see the .iss).
-& dotnet publish $CollectorProject `
+$publishSymbolOptions = @()
+if ($Configuration -eq 'Debug') {
+    # Isolate this publish so the developer's normal Debug build keeps its portable PDB.
+    $publishSymbolOptions = @('--artifacts-path', (Join-Path $BuildDir 'collector-publish-artifacts'),
+        '-p:DebugType=embedded', "-p:PathMap=$RepoRoot=/_/")
+}
+& dotnet publish $CollectorProject @publishSymbolOptions `
     -c $Configuration `
     -r win-x64 `
     --self-contained true `
@@ -1043,7 +1051,8 @@ foreach ($blocker in $distributionBlockers) {
 } | ConvertTo-Json | Set-Content -LiteralPath $BuildMetadataPath -Encoding utf8
 
 Write-Head '部署 Qt 运行时 / Deploy Qt runtime'
-$deployMode = if ($Configuration -eq 'Debug') { '--debug' } else { '--release' }
+# The MinGW SDK supplies release Qt DLLs even for a Debug build of our application.
+# Let windeployqt inspect the imports of the staged executable.
 $qtDeploymentArguments = @()
 if ($null -ne $qtGraphsContext) {
     $qtDeploymentArguments = @(Get-QtGraphsDeploymentArguments -Context $qtGraphsContext)
@@ -1051,7 +1060,6 @@ if ($null -ne $qtGraphsContext) {
 # --no-ffmpeg / --exclude-plugins: online speech only plays WAV files, which the Windows
 # multimedia backend handles; see $ForbiddenMediaPatterns.
 & $Windeployqt `
-    $deployMode `
     --compiler-runtime `
     --no-translations `
     --no-ffmpeg `

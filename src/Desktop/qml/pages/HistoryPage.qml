@@ -1596,6 +1596,7 @@ Item {
 
     RunDetailPanel {
         visible: Runtime.app.hasSelection
+        enabled: Runtime.app.recovery.identityVerified
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.bottom: parent.bottom

@@ -441,6 +441,62 @@ public sealed class RunImportServiceTests
     }
 
     [Fact]
+    public void ReplayOfCommittedPreviewRejectsAKeyOwnedByAnotherImportOrMutation()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var first = service.PreviewSource("ROWS", rows: new JsonArray(History()), timeZone: "+08:00");
+        var second = service.PreviewSource("ROWS", rows: new JsonArray(History("第二条心得")), timeZone: "+08:00");
+        var original = CommitAll(service, first, Id());
+        var otherImport = Id();
+        CommitAll(service, second, otherImport);
+        var otherMutation = Id();
+        var runId = original["run_ids"]![0]!.GetValue<string>();
+        var change = new RunChangeSet { Specified = new HashSet<string> { RunFields.Note }, Note = "保留更正" };
+        fixture.Mutations().CorrectRun(new CorrectRunCommand(otherMutation, runId, 1, "测试编号归属", change));
+
+        foreach (var key in new[] { otherImport, otherMutation })
+            Assert.Equal(ErrorCodes.IdempotencyConflict,
+                Assert.Throws<CollectorException>(() => CommitAll(service, first, key)).Code);
+        var replay = CommitAll(service, first, Id());
+        Assert.True(replay["replayed"]!.GetValue<bool>());
+        Assert.True(JsonNode.DeepEquals(original["run_ids"], replay["run_ids"]));
+        Assert.Equal(2, fixture.Count("mentor_runs"));
+    }
+
+    [Fact]
+    public async Task PreviewReadsCommittedSnapshotWhileWriterHasUncommittedRun()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var run = TestDatabase.Run();
+        var inserted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var finish = new ManualResetEventSlim();
+        var writer = Task.Run(() => fixture.Database.RunLiveCaptureTransaction(tx =>
+        {
+            new RunRepository(fixture.Database).Insert(run, tx);
+            inserted.SetResult();
+            Assert.True(finish.Wait(TimeSpan.FromSeconds(30)));
+        }));
+
+        JsonObject preview;
+        try
+        {
+            await inserted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            preview = service.PreviewSource("ROWS", rows: new JsonArray(Wire.Run(run)), cancellationToken: timeout.Token);
+            Assert.Equal("new", preview["rows"]![0]!["status"]!.GetValue<string>());
+        }
+        finally
+        {
+            finish.Set();
+            await writer;
+        }
+        Assert.Equal(1, CommitAll(service, preview)["duplicate_count"]!.GetValue<int>());
+        Assert.Equal(1, fixture.Count("mentor_runs"));
+    }
+
+    [Fact]
     public void ImportRequestIdentityIsReservedAcrossExistingMutationsAndRetentionPruning()
     {
         using var fixture = new TestDatabase();

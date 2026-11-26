@@ -249,6 +249,7 @@ private:
     QString m_runEventsState = QStringLiteral("idle");
     LiveText m_runEventsMessage;
     QString m_runEventsRunId;
+    quint64 m_selectionGeneration = 0;
 };
 
 } // namespace mr

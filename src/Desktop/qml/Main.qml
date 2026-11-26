@@ -379,7 +379,15 @@ ApplicationWindow {
 
     Connections {
         target: Runtime.app.recovery
-        function onScopeChanging() { recoveryInbox.close(); recoveryNotice.hide() }
+        function onScopeChanging() {
+            recoveryInbox.close()
+            recoveryNotice.hide()
+            if (reasonDialog.visible) {
+                window.reasonSubmitting = false
+                window.reasonRunId = ""
+                reasonDialog.close()
+            }
+        }
         function onInboxRequested() {
             // The inbox is only a list and needs no editor: an editor left open, even a form
             // parked with 「返回」, does not turn 待处理 into "show the editor". Only an editor
@@ -1772,7 +1780,7 @@ ApplicationWindow {
                 AppButton {
                     objectName: "reasonConfirmButton"
                     variant: "primary"
-                    enabled: !window.reasonSubmitting
+                    enabled: !window.reasonSubmitting && window.reasonRunId.length > 0 && Runtime.app.recovery.identityVerified
                     text: window.reasonSubmitting
                           ? qsTr("提交中…")
                           : window.reasonDialogConfirm(window.reasonAction)

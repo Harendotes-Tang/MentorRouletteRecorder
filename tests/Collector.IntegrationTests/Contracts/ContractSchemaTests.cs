@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using Json.Schema;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Speech;
@@ -522,6 +523,7 @@ public sealed class ContractSchemaTests
             if (!ok)
             {
                 sawFailure = true;
+                Assert.True(JsonNode.DeepEquals(envelope["error"], payload));
                 ContractSchema.Validate(
                     "$defs/ErrorPayload", envelope["error"], $"error object of {messageType}");
                 ContractSchema.Validate(
@@ -565,6 +567,57 @@ public sealed class ContractSchemaTests
         Assert.Contains("run_created", seenEventKinds);
         Assert.Contains("run_updated", seenEventKinds);
         Assert.Contains("stats_invalidated", seenEventKinds);
+    }
+
+    [Fact]
+    public void PublishedDocumentMatchesItsDeclaredMetaSchema() =>
+        Assert.True(MetaSchemas.Draft202012.Evaluate(ContractSchema.Root).IsValid);
+
+    [Fact]
+    public void RootRejectsInvalidResponsesAndReservedRequestTypes()
+    {
+        var envelope = ContractSchema.RequestEnvelope("GetVersion", new JsonObject());
+        bool Accepted() => ContractSchema.Evaluate(string.Empty, envelope).IsValid;
+
+        envelope["ok"] = true;
+        Assert.False(Accepted());
+        envelope["payload"] = new JsonObject { ["collector_version"] = "1.0", ["protocol_version"] = 1 };
+        Assert.True(Accepted());
+        envelope["error"] = new JsonObject { ["code"] = "ERR_BAD_REQUEST", ["message"] = "invalid" };
+        Assert.False(Accepted());
+        envelope["ok"] = false;
+        Assert.False(Accepted());
+        envelope["payload"] = envelope["error"]!.DeepClone();
+        Assert.True(Accepted());
+
+        envelope["message_type"] = "Error";
+        Assert.True(Accepted());
+        envelope["ok"] = true;
+        Assert.False(Accepted());
+        envelope.Remove("error");
+        envelope["message_type"] = "Event";
+        envelope["payload"] = new JsonObject();
+        Assert.False(Accepted());
+        envelope.Remove("ok");
+        Assert.False(Accepted());
+        envelope["message_type"] = "Error";
+        Assert.False(Accepted());
+    }
+
+    [Fact]
+    public void EverySuccessBindingUsesThePublishedPayloadForItsMessage()
+    {
+        var definitions = ContractSchema.Root["$defs"]!;
+        var bindings = definitions["SuccessPayloadBinding"]!["allOf"]!.AsArray().ToDictionary(
+            rule => rule!["if"]!["properties"]!["message_type"]!["const"]!.GetValue<string>(),
+            rule => rule!["then"]!["properties"]!["payload"]!["$ref"]!.GetValue<string>());
+        Assert.Equal(ContractSchema.BusinessMessageTypes.Order(), bindings.Keys.Order());
+        foreach (var (message, reference) in bindings)
+        {
+            Assert.Equal("#/$defs/ResponsePayloads/$defs/" + message, reference);
+            Assert.Equal(reference, definitions["Responses"]![message]!["$ref"]!.GetValue<string>());
+            Assert.NotNull(definitions["ResponsePayloads"]!["$defs"]![message]);
+        }
     }
 
     [Fact]

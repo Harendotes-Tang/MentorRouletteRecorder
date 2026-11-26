@@ -725,7 +725,7 @@ public sealed partial class LiveProtocolPipeline :
                 ThrowIfStorageFailed();
                 var beforeStats = _parser.GetParserStats();
                 // A run this message matches belongs to the character that logged in on its connection.
-                MatchingFrom(message.ConnectionKey, () => ApplyAndPublish(() => _parser.Accept(message)));
+                ParseAndPublish(_parser, message);
 
                 var afterStats = _parser.GetParserStats();
                 NoteProfileConnection(message, beforeStats.ParseOk, afterStats.ParseOk);
@@ -966,6 +966,16 @@ public sealed partial class LiveProtocolPipeline :
     /// screen would otherwise be spoken at entry time, seconds late and back to back with the entry.
     /// </summary>
     public static readonly TimeSpan FreshMatchAge = TimeSpan.FromSeconds(5);
+
+    /// <summary>Only verified semantic events can change a run. Unrelated packets still update parser diagnostics.</summary>
+    private void ParseAndPublish(ProfileMessageParser parser, DecodedMessage message, bool replayed = false)
+    {
+        if (parser.ParseEvent(message) is { } semanticEvent)
+        {
+            MatchingFrom(message.ConnectionKey, () =>
+                ApplyAndPublish(() => parser.DeliverVerified(semanticEvent, message), replayed));
+        }
+    }
 
     /// <summary>Applies one step to the state machine and publishes what it changed.</summary>
     /// <param name="action">The step to apply.</param>

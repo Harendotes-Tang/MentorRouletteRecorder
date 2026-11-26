@@ -50,6 +50,8 @@ public:
     explicit RunListModel(QObject *parent = nullptr);
 
     void setBackend(IBackend *backend);
+    /// Drop rows from the previous database immediately and read the new database's first page.
+    void reloadForNewDatabase();
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

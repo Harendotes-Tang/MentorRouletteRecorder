@@ -117,9 +117,12 @@ void HistoryController::invalidateResultRequests()
 void HistoryController::invalidateDatabaseScope()
 {
     invalidateResultRequests();
+    m_unansweredCorrection = {};
     m_unansweredBatch = {};
+    clearSelection();
     discardCheckedRuns();
     clearRegionMigrationPreview();
+    m_runs->reloadForNewDatabase();
 }
 
 void HistoryController::adoptRunRevisionFromEvent(const QJsonObject &run)
@@ -223,6 +226,7 @@ void HistoryController::clearSelection()
 
 void HistoryController::resetSelectedDetails(bool clearErrorMessage)
 {
+    ++m_selectionGeneration;
     m_selectedRunRevisions.clear();
     m_selectedRunEvents.clear();
     m_runEventsState = QStringLiteral("idle");
@@ -287,14 +291,15 @@ void HistoryController::refreshRunEvents()
     m_runEventsState = QStringLiteral("loading");
     m_runEventsMessage.clear();
     m_selectedRunEvents.clear();
+    const quint64 selectionGeneration = m_selectionGeneration;
     Q_EMIT runEventsChanged();
 
     BackendReply *eventsReply = m_backend->getRunEvents(runId);
     const QPointer<BackendReply> eventsGuard(eventsReply);
     eventsReply->whenDone(
-        this, [this, runId, eventsGuard](bool ok, const QVariantMap &payload, const QString &code,
+        this, [this, runId, selectionGeneration, eventsGuard](bool ok, const QVariantMap &payload, const QString &code,
                                          const QString &message) {
-            if (m_runEventsRunId != runId)
+            if (m_runEventsRunId != runId || selectionGeneration != m_selectionGeneration)
                 return;
             if (!ok) {
                 m_selectedRunEvents.clear();

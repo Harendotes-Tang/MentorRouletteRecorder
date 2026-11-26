@@ -17,6 +17,8 @@
 #include <QTemporaryDir>
 
 #include <algorithm>
+#include <barrier>
+#include <thread>
 
 namespace {
 
@@ -127,6 +129,31 @@ private Q_SLOTS:
                         "MentorRecorder", 1, 0, "ReflectionShareDialog");
         qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/dialogs/ReflectionShareWindow.qml")),
                         "MentorRecorder", 1, 0, "ReflectionShareWindow");
+    }
+
+    void concurrentBatchExportsKeepBothImages()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("card.png"));
+        std::barrier ready(2);
+        QString paths[2], errors[2];
+        const QColor colors[] = {Qt::red, Qt::blue};
+        const auto write = [&](int index) {
+            QImage image(128, 128, QImage::Format_RGB32);
+            image.fill(colors[index]);
+            ready.arrive_and_wait();
+            paths[index] = mr::ReflectionShareController::writeUniquePng(image, path, &errors[index]);
+        };
+        std::thread first(write, 0);
+        write(1);
+        first.join();
+        for (int index = 0; index < 2; ++index) {
+            QVERIFY2(!paths[index].isEmpty(), qPrintable(errors[index]));
+            QCOMPARE(QImage(paths[index]).pixelColor(0, 0), colors[index]);
+        }
+        QVERIFY(paths[0] != paths[1]);
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 2);
     }
 
     void theWindowOfItsOwnKeepsCardsNarrowAndMovesARowToEitherEndInOneClick()

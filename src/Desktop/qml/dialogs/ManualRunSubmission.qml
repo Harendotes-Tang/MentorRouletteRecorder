@@ -180,9 +180,7 @@ QtObject {
         errorText = qsTranslate("EditRunDialog", "记录已保存，心情和心得未保存，请重试。") + "\n" + message
     }
 
-    // Consume only successful additions so retry never copies them twice.
-    // Failed removals are reported once unless failed additions prevented them
-    // from being attempted, matching NoteImageStore's partial-success contract.
+    // Keep failed additions and removals staged until the store confirms each path.
     function commitNoteImages(runId) {
         if (!imagesDirty) return true
         if (!imageStore || !runId) {
@@ -195,8 +193,7 @@ QtObject {
         const added = result.added || []
         const removed = result.removed || []
         pendingImageAdds = pendingImageAdds.filter(function(item) { return added.indexOf(item.path) < 0 })
-        removedImagePaths = pendingImageAdds.length > 0
-            ? removedImagePaths.filter(function(path) { return removed.indexOf(path) < 0 }) : []
+        removedImagePaths = removedImagePaths.filter(function(path) { return removed.indexOf(path) < 0 })
         if (!result.ok) {
             errorCode = "ERR_NOTE_IMAGE"
             errorText = result.error || qsTranslate("EditRunDialog", "图片没有保存。")

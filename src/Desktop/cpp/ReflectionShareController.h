@@ -43,6 +43,8 @@ public:
     Q_INVOKABLE void retryFailed();
     /// 实际 PNG 写入路径，也供测试核验失败和取消；不建立目标父目录。
     static bool writePng(const QImage &image, const QString &path, QString *error);
+    /// 批量导出在同一目录内原子选用未占用的名称，返回实际路径；失败时返回空路径并填写 error。
+    static QString writeUniquePng(const QImage &image, const QString &path, QString *error);
     /// Test seam: the capture wait (15 s) in \a milliseconds, so a test can outlast it.
     void setCaptureTimeoutForTesting(int milliseconds) { m_captureTimeoutMs = milliseconds; }
 Q_SIGNALS:
@@ -62,7 +64,7 @@ private:
     /// a batch carries on once the window is restored rather than failing every image.
     void armCaptureTimeout(QWindow *window, quint64 generation, std::function<void()> expired);
     void processNextBatch();
-    QString uniqueBatchPath(const BatchEntry &entry, int index) const;
+    QString batchPath(const BatchEntry &entry, int index) const;
     void startBatch(const QList<int> &indices);
     void finish(const QString &feedback, const QString &savedPath = {});
     bool m_busy = false;

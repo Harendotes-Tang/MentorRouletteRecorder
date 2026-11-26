@@ -289,7 +289,7 @@ ColumnLayout {
             variant: "primary"
             objectName: "saveRunButton"
             visible: dialogBody.dialog.currentStep === 3
-            enabled: !dialogBody.dialog.submitting && (dialogBody.dialog.recordSaved || dialogBody.dialog.awaitingRetry || !dialogBody.dialog.editMode || dialogBody.dialog.diffRows.length > 0 || dialogBody.dialog.imagesDirty || dialogBody.dialog.confirmsImportedFacts)
+            enabled: dialogBody.dialog.canUseEditTarget && !dialogBody.dialog.submitting && (dialogBody.dialog.recordSaved || dialogBody.dialog.awaitingRetry || !dialogBody.dialog.editMode || dialogBody.dialog.diffRows.length > 0 || dialogBody.dialog.imagesDirty || dialogBody.dialog.confirmsImportedFacts)
             text: dialogBody.submitLabel
             onClicked: dialogBody.dialog.submit()
         }

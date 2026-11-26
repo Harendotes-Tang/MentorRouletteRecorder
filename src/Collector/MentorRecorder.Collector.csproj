@@ -62,6 +62,17 @@
           CopyToPublishDirectory="Never" />
   </ItemGroup>
 
+  <!-- A built-in profile removed from the source tree must also disappear from
+       incremental output. Local and shared profiles live in separate data folders. -->
+  <Target Name="PruneObsoleteBuiltInProfiles" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_CurrentProfile Include="..\..\protocol-profiles\**\*.json" />
+      <_ObsoleteProfile Include="$(TargetDir)protocol-profiles\**\*.json"
+                        Exclude="@(_CurrentProfile->'$(TargetDir)protocol-profiles\%(RecursiveDir)%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <Delete Files="@(_ObsoleteProfile)" />
+  </Target>
+
   <!--
     NOTE: the repository-wide target StripInjectionPayloadFromOutput in
     Directory.Build.targets removes the native injection payload shipped

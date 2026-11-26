@@ -195,14 +195,55 @@ public sealed class ProtocolDecodedReplayTests
 
         var profile = ProfilePathFor(expected.Profile);
         var first = DecodedReplayRunner.Run(FixturePath(name), profile, databasePath);
+        int StoredErrors()
+        {
+            using var database = SqliteDatabase.Open(databasePath, SystemClock.Instance);
+            return new ParserErrorRepository(database, SystemClock.Instance).Count();
+        }
+        var firstErrors = StoredErrors();
+        Assert.Equal(first.Parser.Errors.Sum(error => error.Count), firstErrors);
         var second = DecodedReplayRunner.Run(FixturePath(name), profile, databasePath);
 
+        Assert.Equal(firstErrors, StoredErrors());
+        Assert.Equal(first.Parser.ParseFailed, second.Parser.ParseFailed);
         Assert.Equal(first.Runs, second.Runs);
         Assert.Equal(0, second.Writes.RunsCreated);
         Assert.Equal(0, second.Writes.EventsAppended);
         Assert.Equal(expected.AttemptCount, second.Statistics.AttemptCount);
         Assert.Equal(expected.CompletedCount, second.Statistics.CompletedCount);
         Assert.Equal(expected.RunCount > 0, second.Writes.IdempotentReplay);
+    }
+
+    [Fact]
+    public void ReplayingOneSessionWithADifferentProfileKeepsBothDiagnosticsOnce()
+    {
+        using var temp = TempDirectory.Reserve("DecodedIt");
+        var path = temp.Combine("replay.db");
+        var fixture = FixturePath("synthetic_len_mismatch");
+        DecodedReplayRunner.Run(fixture, ProfilePath, path);
+        using var database = SqliteDatabase.Open(path, SystemClock.Instance);
+        var stored = new ParserErrorRepository(database, SystemClock.Instance);
+        Assert.Equal(1, stored.Count());
+
+        // Older replay rows and live errors use random ids. Preserve them, even when their
+        // detail is identical, since the stored columns cannot identify the parsing profile.
+        database.RunInTransaction(tx =>
+        {
+            using var legacy = database.CreateCommand();
+            legacy.Transaction = tx;
+            legacy.CommandText = "UPDATE parser_errors SET error_id = $id";
+            legacy.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            Assert.Equal(1, legacy.ExecuteNonQuery());
+        });
+        for (var pass = 0; pass < 2; pass++)
+        {
+            var matched = DecodedReplayRunner.Run(fixture, ProfilePath, path);
+            Assert.Equal("E_LEN_MISMATCH", Assert.Single(matched.Parser.Errors).Code);
+            var unmatched = DecodedReplayRunner.Run(fixture, ProfilePathFor("synthetic-cn-shape-v1"), path);
+            var mismatch = Assert.Single(unmatched.Parser.Errors);
+            Assert.Equal("E_PROFILE_UNSUPPORTED", mismatch.Code);
+            Assert.Equal(2 + mismatch.Count, stored.Count());
+        }
     }
 
     /// <summary>

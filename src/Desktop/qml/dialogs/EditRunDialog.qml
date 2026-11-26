@@ -79,6 +79,7 @@ MotionDialog {
     property var jobOptions: []
     property var runData: null
     property bool editMode: false
+    readonly property bool canUseEditTarget: !editMode || (!!runData && Runtime.app.recovery.identityVerified)
     property string externalErrorText: ""
     /// The code of the failure written to externalErrorText next; set first.
     property string externalErrorCode: ""
@@ -273,7 +274,15 @@ MotionDialog {
 
     Connections {
         target: Runtime.app.recovery
-        function onScopeChanging() { submission.scopeChanging() }
+        function onScopeChanging() {
+            if (dialog.editMode && dialog.editingActive) {
+                submission.resetSession()
+                dialog.runData = null
+                dialog.closeEditor()
+            } else {
+                submission.scopeChanging()
+            }
+        }
     }
     Connections {
         target: Runtime.app
@@ -1226,6 +1235,7 @@ MotionDialog {
     }
 
     function submit() {
+        if (!canUseEditTarget) return
         if (submission.resume()) return
         if (!editMode && reflectionText.trim().length > 2000) {
             errorCode = "ERR_BAD_REQUEST"

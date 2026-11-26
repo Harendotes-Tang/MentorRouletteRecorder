@@ -167,6 +167,28 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         Assert.False(File.Exists(path));
     }
 
+    [Theory]
+    [InlineData(44, -1)] // header survives, samples are missing
+    [InlineData(50, -1)] // partially truncated audio
+    [InlineData(60, 16)] // invalid fmt chunk size
+    [InlineData(60, 32)] // invalid block alignment
+    [InlineData(60, 40)] // incorrect data length
+    public void ACorruptCanonicalWaveIsRemovedAndCanBeReplaced(int keepBytes, int corruptOffset)
+    {
+        var cache = new SpeechCache(_directory, _database.Clock);
+        var key = SpeechCache.KeyFor(SpeechProvider.Azure, "v", 100, "t");
+        var audio = WaveFile.Silence(frames: 8);
+        var path = cache.Store(key, audio);
+        var damaged = audio[..keepBytes];
+        if (corruptOffset >= 0) damaged[corruptOffset] ^= 1;
+        File.WriteAllBytes(path, damaged);
+
+        Assert.Null(cache.TryGet(key));
+        Assert.False(File.Exists(path));
+        cache.Store(key, audio);
+        Assert.Equal(path, cache.TryGet(key));
+    }
+
     [Fact]
     public void TheLeastRecentlyUsedFilesGoFirstOnceTheCapIsPassed()
     {

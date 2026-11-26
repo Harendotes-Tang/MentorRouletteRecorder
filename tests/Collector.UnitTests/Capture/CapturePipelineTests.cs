@@ -452,6 +452,40 @@ public sealed class CapturePipelineTests
         Assert.Equal(0, queue.DroppedCount);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StartupKeepsTheGapMessagesAndLossMarkersInOrderOnlyIfTheSourceStarts(bool starts)
+    {
+        var startup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim(true);
+        var order = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var queue = new DecodedMessageQueue(new OrderSink(order, entered, release),
+            DecodedMessageQueue.MinCapacity, onSinkError: null, onDropped: null, beforeWait: null,
+            onConnectionLost: () => order.Enqueue("closed"),
+            onDirectionDamaged: (_, _) => order.Enqueue("damaged"),
+            onSequenceGap: count => order.Enqueue($"gap {count}"), sourceStarted: startup.Task);
+
+        for (var i = 0; i < queue.Capacity; i++) queue.Offer(Message(1));
+        queue.OfferConnectionLost();
+        queue.OfferDirectionDamaged("test", MessageDirection.Inbound);
+        queue.Offer(Message(2));
+        Assert.Empty(order);
+        startup.SetResult(starts);
+        Assert.True(queue.Complete(TimeSpan.FromSeconds(5)));
+        Assert.Equal(3, queue.DroppedCount);
+        if (!starts)
+        {
+            Assert.Empty(order);
+            return;
+        }
+
+        Assert.Equal("gap 3", order.First());
+        Assert.Equal(queue.Capacity - 3, order.Count(entry => entry == "1"));
+        Assert.Equal(new[] { "closed", "damaged", "2" }, order.TakeLast(3));
+    }
+
     /// <summary>Records what reached it, holding the first message until released.</summary>
     private sealed class OrderSink(
         System.Collections.Concurrent.ConcurrentQueue<string> order,

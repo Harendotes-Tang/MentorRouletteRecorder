@@ -16,6 +16,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
 #include <cmath>
@@ -36,6 +37,16 @@ QString availablePngPath(const QString &directory, const QString &fileName)
     for (int number = 2; QFileInfo::exists(path); ++number)
         path = QDir(directory).filePath(stem + QStringLiteral(" (%1).png").arg(number));
     return path;
+}
+
+bool encodePng(const QImage &image, QIODevice *file, QString *error)
+{
+    QImageWriter writer(file, "png");
+    if (writer.write(image))
+        return true;
+    if (error)
+        *error = mr::ReflectionShareController::tr("无法生成 PNG 图片：%1").arg(writer.errorString());
+    return false;
 }
 
 QQuickItem *findShareVisual(QQuickItem *item, const QString &name)
@@ -242,9 +253,7 @@ bool ReflectionShareController::writePng(const QImage &image, const QString &pat
         if (error) *error = tr("无法创建图片文件：%1").arg(file.errorString());
         return false;
     }
-    QImageWriter writer(&file, "png");
-    if (!writer.write(image)) {
-        if (error) *error = tr("无法生成 PNG 图片：%1").arg(writer.errorString());
+    if (!encodePng(image, &file, error)) {
         file.cancelWriting();
         return false;
     }
@@ -253,6 +262,39 @@ bool ReflectionShareController::writePng(const QImage &image, const QString &pat
         return false;
     }
     return true;
+}
+
+QString ReflectionShareController::writeUniquePng(const QImage &image, const QString &path, QString *error)
+{
+    if (image.isNull() || path.trimmed().isEmpty()) {
+        if (error) *error = tr("没有可保存的图片，或尚未选择保存位置。");
+        return {};
+    }
+    const QFileInfo target(path);
+    const QString directory = target.absolutePath();
+    QTemporaryFile file(QDir(directory).filePath(QStringLiteral(".mentor-share-XXXXXX")));
+    if (!file.open()) {
+        if (error) *error = tr("无法创建图片文件：%1").arg(file.errorString());
+        return {};
+    }
+    if (!encodePng(image, &file, error))
+        return {};
+    if (!file.flush()) {
+        if (error) *error = tr("无法保存图片文件：%1").arg(file.errorString());
+        return {};
+    }
+    for (;;) {
+        const QString available = availablePngPath(directory, target.fileName());
+        if (file.rename(available)) {
+            file.setAutoRemove(false);
+            return available;
+        }
+        // Another exporter may claim the candidate between lookup and the no-replace rename.
+        if (!QFileInfo::exists(available)) {
+            if (error) *error = tr("无法保存图片文件：%1").arg(file.errorString());
+            return {};
+        }
+    }
 }
 
 void ReflectionShareController::saveTo(QObject *object, const QString &path)
@@ -346,10 +388,6 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         done({}, tr("请使用 .png 文件名保存分享图片。"));
         return;
     }
-    if (rejectExisting && QFileInfo::exists(target)) {
-        done({}, tr("目标文件已存在，未覆盖。请重试生成新的文件名。"));
-        return;
-    }
     const quint64 generation = ++m_generation;
     // 原生保存窗口可能跨过午夜；每次真正抓取前刷新日期，也覆盖逐条重试。
     if (item->property("opaquePaper").toBool())
@@ -379,20 +417,17 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
             done({}, tr("生成的图片不完整，未保存。请重试。"));
             return;
         }
-        if (rejectExisting && QFileInfo::exists(target)) {
-            done({}, tr("目标文件已存在，未覆盖。请重试生成新的文件名。"));
-            return;
-        }
         if (!restorePaperAlpha(image, capturedItem)) {
             done({}, tr("无法正确生成图片的透明边缘，尚未保存。请重新打开预览后重试。"));
             return;
         }
         QString error;
-        if (!writePng(image, target, &error)) {
-            done({}, error);
-            return;
-        }
-        done(QFileInfo(target).absoluteFilePath(), {});
+        QString savedPath;
+        if (rejectExisting)
+            savedPath = writeUniquePng(image, target, &error);
+        else if (writePng(image, target, &error))
+            savedPath = QFileInfo(target).absoluteFilePath();
+        done(savedPath, error);
     });
     armCaptureTimeout(item->window(), generation, [this, done] {
         ++m_generation;
@@ -401,14 +436,14 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     });
 }
 
-QString ReflectionShareController::uniqueBatchPath(const BatchEntry &entry, int index) const
+QString ReflectionShareController::batchPath(const BatchEntry &entry, int index) const
 {
     QString name = suggestedFileName(entry.item, entry.label);
     if (m_numberBatchFiles) {
         const int digits = qMax(2, static_cast<int>(QString::number(m_batchEntries.size()).size()));
         name.prepend(QStringLiteral("%1_").arg(index + 1, digits, 10, QLatin1Char('0')));
     }
-    return availablePngPath(m_batchDirectory, name);
+    return QDir(m_batchDirectory).filePath(name);
 }
 
 void ReflectionShareController::saveBatchTo(const QVariantList &entries, const QString &directory, bool numberFiles)
@@ -477,7 +512,7 @@ void ReflectionShareController::processNextBatch()
     }
     const int index = m_pendingBatch.takeFirst();
     const BatchEntry entry = m_batchEntries.at(index);
-    captureTo(entry.item, uniqueBatchPath(entry, index), true,
+    captureTo(entry.item, batchPath(entry, index), true,
               [this, index](const QString &path, const QString &error) {
         QVariantMap result = m_batchResults.at(index).toMap();
         result.insert(QStringLiteral("status"), error.isEmpty() ? QStringLiteral("saved") : QStringLiteral("failed"));

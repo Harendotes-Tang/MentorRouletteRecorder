@@ -34,6 +34,61 @@ def run_powershell(shell, script):
 
 @unittest.skipUnless(os.name == "nt", "Windows packaging paths")
 class PackageBuildDirectoryTests(unittest.TestCase):
+    def test_removed_profile_disappears_from_collector_and_incremental_desktop_output(self):
+        cmake = os.environ.get("MR_CMAKE_EXE") or shutil.which("cmake")
+        if not cmake or not shutil.which("dotnet"):
+            self.skipTest("CMake and the .NET SDK are required")
+        project = REPO / "src/Collector/MentorRecorder.Collector.csproj"
+        stage = REPO / "src/Desktop/cmake/StageCollector.cmake"
+        with tempfile.TemporaryDirectory(prefix="mr staged profiles ") as temp:
+            collector, desktop = (Path(temp) / name for name in ("collector", "desktop"))
+            fn = Path("protocol-profiles/cn/cn.2026.08.05.json")
+            for root in (collector, desktop):
+                (root / fn).parent.mkdir(parents=True)
+                (root / fn).write_bytes(b"current")
+                (root / fn.parent / "retired.json").write_bytes(b"obsolete")
+            (collector / "MentorRecorder.Collector.dll").write_bytes(b"collector")
+            preserved = desktop / "unrelated.txt"
+            preserved.write_bytes(b"keep")
+            subprocess.run(["dotnet", "msbuild", str(project), "-nologo", "-t:PruneObsoleteBuiltInProfiles",
+                            f"-p:OutDir={collector}{os.sep}"], check=True, capture_output=True, timeout=90)
+            subprocess.run([cmake, f"-DSOURCE_DIRECTORY={collector}", f"-DDEST={desktop}", "-P", str(stage)],
+                           check=True, capture_output=True, timeout=30)
+            for root in (collector, desktop):
+                self.assertFalse((root / fn.parent / "retired.json").exists())
+                self.assertEqual(b"current", (root / fn).read_bytes())
+            self.assertEqual(b"keep", preserved.read_bytes())
+
+    def test_locked_obsolete_profile_fails_collector_prune_and_desktop_staging(self):
+        cmake = os.environ.get("MR_CMAKE_EXE") or shutil.which("cmake")
+        pwsh = shutil.which("pwsh")
+        if not (cmake and pwsh and shutil.which("dotnet")):
+            self.skipTest("PowerShell, CMake and the .NET SDK are required")
+        with tempfile.TemporaryDirectory(prefix="mr locked profiles ") as temp:
+            collector, desktop = (Path(temp) / name for name in ("collector", "desktop"))
+            for root in (collector, desktop):
+                path = root / "protocol-profiles/cn/retired.json"
+                path.parent.mkdir(parents=True)
+                path.write_bytes(b"obsolete")
+            (collector / "MentorRecorder.Collector.dll").write_bytes(b"collector")
+            project = REPO / "src/Collector/MentorRecorder.Collector.csproj"
+            stage = REPO / "src/Desktop/cmake/StageCollector.cmake"
+            for root, invocation in (
+                    (collector, f"dotnet msbuild {ps_literal(project)} -nologo -t:PruneObsoleteBuiltInProfiles "
+                                f"{ps_literal('-p:OutDir=' + str(collector) + os.sep)}"),
+                    (desktop, f"& {ps_literal(cmake)} {ps_literal('-DSOURCE_DIRECTORY=' + str(collector))} "
+                              f"{ps_literal('-DDEST=' + str(desktop))} -P {ps_literal(stage)}")):
+                obsolete = root / "protocol-profiles/cn/retired.json"
+                run = run_powershell(pwsh, f"""
+$lock = [IO.File]::Open({ps_literal(obsolete)}, 'Open', 'Read', 'Read')
+try {{ {invocation}; $code = $LASTEXITCODE }} finally {{ $lock.Dispose() }}
+exit $code
+""")
+                self.assertNotEqual(0, run.returncode, run.stdout + run.stderr)
+                self.assertIn("retired.json", (run.stdout + run.stderr).decode(errors="replace"))
+                self.assertTrue(obsolete.exists())
+                obsolete.unlink()
+
     @unittest.skipUnless(os.name == "nt", "Windows short-path aliases")
     def test_short_paths_cannot_select_the_development_directory_for_distribution(self):
         import ctypes

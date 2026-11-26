@@ -327,14 +327,15 @@ function Get-ReusedVersionRefusal {
         一个发出去的版本号（先行版也一样）不再用于另一份内容：已安装旧包的人比较版本号时认为两者相同，
         永远不会被引到重打的包上（审计 2026-11-26 M-2：1.10.0-beta.2、1.9.1-beta.3/4 与 1.9.1 都曾以同一
         版本号重打）。tag v<Version> 已存在且不指向 HEAD 时返回拒绝的说明；git 无法回答时同样拒绝，
-        因为无法确认这个号是否已被用掉。没有这个 tag，或 tag 正指向 HEAD（同一提交重打）时返回 $null。
+        因为无法确认这个号是否已被用掉。没有这个 tag，或 tag 正指向干净的 HEAD 时返回 $null。
         package.ps1 在验证与构建之前停下，除非显式给出 -AllowReusedVersion。
     #>
     param(
         [Parameter(Mandatory = $true)][string]$Version,
         [AllowEmptyString()][AllowNull()][string]$TagCommit,
         [AllowEmptyString()][AllowNull()][string]$HeadCommit,
-        [AllowEmptyString()][AllowNull()][string]$Problem
+        [AllowEmptyString()][AllowNull()][string]$Problem,
+        [bool]$Dirty = $false
     )
 
     $advice = '撤回的版本请改用下一个号（如 beta.N 之后用 beta.N+1）；确需以同一版本号重打时加 -AllowReusedVersion'
@@ -342,7 +343,10 @@ function Get-ReusedVersionRefusal {
         return ("无法确认版本 {0} 的 tag v{0} 是否已存在：{1}。{2}" -f $Version, $Problem, $advice)
     }
     if ([string]::IsNullOrWhiteSpace($TagCommit)) { return $null }
-    if ($TagCommit -ceq $HeadCommit) { return $null }
+    if ($TagCommit -ceq $HeadCommit) {
+        if ($Dirty) { return ("版本 {0} 的 tag 已存在，工作区有未提交改动。{1}" -f $Version, $advice) }
+        return $null
+    }
     $short = { param($commit) if ([string]::IsNullOrWhiteSpace($commit)) { '（未知）' } else { $commit.Substring(0, [Math]::Min(12, $commit.Length)) } }
     return ("版本 {0} 已经发过：tag v{0} 指向 {1}，而 HEAD 是 {2}。同一个版本号不能再打出另一份内容。{3}" -f
         $Version, (& $short $TagCommit), (& $short $HeadCommit), $advice)

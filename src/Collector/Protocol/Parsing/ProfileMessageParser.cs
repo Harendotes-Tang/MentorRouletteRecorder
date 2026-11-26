@@ -96,27 +96,44 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
     /// <inheritdoc />
     public void Accept(DecodedMessage message)
     {
+        if (ParseEvent(message) is { } semanticEvent) DeliverVerified(semanticEvent, message);
+    }
+
+    /// <summary>Parses and counts a message without reading any run state. A refusal or an ignored message yields no event.</summary>
+    internal SemanticEvent? ParseEvent(DecodedMessage message)
+    {
         if (message is null)
         {
             Fail(ParserErrorCode.Internal, 0, PacketDirection.None, "null message");
-            return;
+            return null;
         }
-
         try
         {
-            Parse(message);
+            return Parse(message);
         }
         catch (Exception ex)
         {
-            // The capture thread must survive anything a packet can do to us. Nothing about
-            // the payload is recorded, only the exception type.
-            Fail(
-                ParserErrorCode.Internal,
-                message.Opcode,
-                ToPacketDirection(message.Direction),
-                "unhandled " + ex.GetType().Name);
+            FailUnhandled(message, ex);
+            return null;
         }
     }
+
+    /// <summary>Delivers a verified event, including duplicates whose handling belongs to the state machine.</summary>
+    internal void DeliverVerified(SemanticEvent semanticEvent, DecodedMessage message)
+    {
+        try
+        {
+            _sink.Accept(semanticEvent);
+        }
+        catch (Exception ex)
+        {
+            FailUnhandled(message, ex);
+        }
+    }
+
+    private void FailUnhandled(DecodedMessage message, Exception ex) =>
+        Fail(ParserErrorCode.Internal, message.Opcode, ToPacketDirection(message.Direction),
+            "unhandled " + ex.GetType().Name);
 
     /// <inheritdoc />
     public ParserStatsSnapshot GetParserStats()
@@ -129,7 +146,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
         }
     }
 
-    private void Parse(DecodedMessage message)
+    private SemanticEvent? Parse(DecodedMessage message)
     {
         // Framing assigns opcode 0 to segments without an IPC header. Heartbeats and
         // session control remain visible to capture/trace, but are not failed business
@@ -137,7 +154,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
         // fail-closed parsing path; checking opcode alone would hide unknown IPC messages.
         if (message.SegmentType != FfxivFraming.SegmentTypeIpc && message.Opcode == 0)
         {
-            return;
+            return null;
         }
 
         var direction = ToPacketDirection(message.Direction);
@@ -146,7 +163,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             Fail(
                 ParserErrorCode.ProfileUnsupported, message.Opcode, direction,
                 "no usable protocol profile is in force");
-            return;
+            return null;
         }
 
         if (profile.IsObfuscated(message.Opcode))
@@ -158,7 +175,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             Fail(
                 ParserErrorCode.ProfileUnsupported, message.Opcode, direction,
                 "the profile declares this opcode as obfuscated by the client");
-            return;
+            return null;
         }
 
         var payload = message.Payload.Span;
@@ -178,14 +195,13 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
                 message.Epoch,
                 HashPayload(payload),
                 DutyClearSignal.SemanticKey);
-            Deliver(
+            return CountParsed(
                 new DutyResult
                 {
                     Key = clearKey, ObservedAtUtc = message.ObservedAtUtc, Mono = message.Mono, Victory = true,
                 },
                 clearKey,
                 message);
-            return;
         }
 
         // The two CN duty-start contents, by the same rule and on the same body: checked after the
@@ -213,8 +229,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
                     Key = startKey, ObservedAtUtc = message.ObservedAtUtc, Mono = message.Mono,
                     RemainingSeconds = seconds,
                 };
-            Deliver(startEvent, startKey, message);
-            return;
+            return CountParsed(startEvent, startKey, message);
         }
 
         var definition = Match(profile, direction, message);
@@ -226,7 +241,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             // a *declared* message). They are counted, never ringed and never persisted
             // (contracts/CHANGELOG.md entry 18).
             Ignore();
-            return;
+            return null;
         }
 
         if (!definition.AcceptsLength(payload.Length))
@@ -236,7 +251,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"{definition.Name}: payload length {payload.Length} violates the declared length rule"));
-            return;
+            return null;
         }
 
         var values = new Dictionary<string, long>(definition.Fields.Count, StringComparer.Ordinal);
@@ -247,7 +262,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
                 Fail(
                     ParserErrorCode.OffsetOutOfBounds, message.Opcode, direction,
                     definition.Name + "." + field.Name + ": reads past the end of the payload");
-                return;
+                return null;
             }
 
             if (field.Type == ProfileFieldType.Bytes)
@@ -267,13 +282,13 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
                     // not a broken profile, so counting it as a refusal would hide the length
                     // and offset violations that do matter (review finding M-2).
                     Ignore();
-                    return;
+                    return null;
                 }
 
                 Fail(
                     ParserErrorCode.FieldConstraint, message.Opcode, direction,
                     definition.Name + "." + field.Name + ": value is outside the declared constraints");
-                return;
+                return null;
             }
 
             values[field.Name] = value;
@@ -294,17 +309,17 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             Fail(
                 ParserErrorCode.FieldConstraint, message.Opcode, direction,
                 definition.Name + ": a required field was not declared by the profile");
-            return;
+            return null;
         }
 
-        Deliver(semanticEvent, key, message);
+        return CountParsed(semanticEvent, key, message);
     }
 
-    /// <summary>Counts one verified event and hands it to the sink.</summary>
+    /// <summary>Counts the verified observation before the caller delivers it.</summary>
     /// <param name="semanticEvent">The event.</param>
     /// <param name="key">Its key.</param>
     /// <param name="message">The message it came from.</param>
-    private void Deliver(SemanticEvent semanticEvent, EventKey key, DecodedMessage message)
+    private SemanticEvent CountParsed(SemanticEvent semanticEvent, EventKey key, DecodedMessage message)
     {
         lock (_gate)
         {
@@ -318,10 +333,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             _lastValidEventKind = semanticEvent.EventType;
         }
 
-        // Duplicates are forwarded on purpose: the state machine owns the one deduplication
-        // rule (docs/state-machine.md) and the database owns the UNIQUE index. Counting them
-        // here is diagnostics, not a second, competing policy.
-        _sink.Accept(semanticEvent);
+        return semanticEvent;
     }
 
     private static ProfileMessage? Match(

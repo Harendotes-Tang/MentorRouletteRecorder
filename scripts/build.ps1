@@ -175,13 +175,6 @@ if (-not (Test-Path -LiteralPath $DesktopOutput)) {
     exit 1
 }
 
-$forbiddenCollectorPayload = Get-ChildItem -LiteralPath $CollectorOutput -Recurse -File |
-    Where-Object { $_.Name -like 'deucalion-*.dll' }
-if ($forbiddenCollectorPayload) {
-    Write-Host 'Collector 构建输出包含禁止的注入载荷，拒绝部署。' -ForegroundColor Red
-    exit 1
-}
-
 $collectorDestinations = @($DesktopOutput)
 $ipcTestOutput = Join-Path $BuildDir 'tests\Desktop.Tests'
 if (Test-Path -LiteralPath $ipcTestOutput) {
@@ -190,9 +183,9 @@ if (Test-Path -LiteralPath $ipcTestOutput) {
     $collectorDestinations += $ipcTestOutput
 }
 foreach ($destination in $collectorDestinations) {
-    foreach ($item in Get-ChildItem -LiteralPath $CollectorOutput) {
-        Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force
-    }
+    & $CMakeExe "-DSOURCE_DIRECTORY=$CollectorOutput" "-DDEST=$destination" `
+        -P (Join-Path $RepoRoot 'src/Desktop/cmake/StageCollector.cmake')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 Write-Head '核验项目专用 QtGraphs / Verify project QtGraphs runtime'

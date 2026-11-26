@@ -398,14 +398,17 @@ elseif (-not (Test-Path -LiteralPath $collectorExe)) {
     Add-Failure 'listener-check' ("找不到 Collector 可执行文件: {0}" -f $collectorExe)
 }
 else {
-    $probeDb = Join-Path ([System.IO.Path]::GetTempPath()) ("mr-verify-{0}.db" -f ([guid]::NewGuid().ToString('N')))
-    $stdout = "$probeDb.out"
-    $stderr = "$probeDb.err"
-    # 显式指定一次性日志目录。--db 已隐含把日志写到数据库旁边，此处再写一次是为了
-    # 让读脚本的人确认探针不会写入、轮转或按保留期删除使用者自己的诊断日志。
-    $probeLogs = "$probeDb.logs"
+    $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mr-verify-{0}" -f ([guid]::NewGuid().ToString('N')))
+    New-Item -ItemType Directory -Path $probeRoot | Out-Null
+    $probeDb = Join-Path $probeRoot 'probe.db'
+    $probeLogs = Join-Path $probeRoot 'logs'
+    $stdout = Join-Path $probeRoot 'serve.out'
+    $stderr = Join-Path $probeRoot 'serve.err'
+    $previousDataRoot = $env:MR_DATA_DIR
     $serve = $null
     try {
+        # Startup prunes calibrated profiles under MR_DATA_DIR and update files beside --db.
+        $env:MR_DATA_DIR = $probeRoot
         # The single-instance lease is per user, not per database, so anything else serving
         # as this user blocks the probe. Retry for a bounded time: a Collector still shutting
         # down after this run's own tests is transient, while a developer's instance or
@@ -495,15 +498,12 @@ else {
         }
     }
     finally {
+        $env:MR_DATA_DIR = $previousDataRoot
         if ($serve -and -not $serve.HasExited) {
             Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue
             $serve.WaitForExit(15000) | Out-Null
         }
-        # -Recurse because $probeLogs is a directory: the probe's diagnostic log lands
-        # beside its throw-away database, not in the user's real log folder.
-        foreach ($path in @($stdout, $stderr) + @(Get-ChildItem -Path "$probeDb*" -ErrorAction SilentlyContinue | ForEach-Object FullName)) {
-            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -528,7 +528,7 @@ else {
     $doctorBase = Join-Path ([System.IO.Path]::GetTempPath()) ("mr-doctor-{0}" -f ([guid]::NewGuid().ToString('N')))
     $doctorOut = "$doctorBase.out"
     $doctorErr = "$doctorBase.err"
-    $doctorText = ''
+    [string]$doctorText = ''
     $doctorExit = -1
     try {
         # The assertion is independent of the machine it runs on.
@@ -560,31 +560,29 @@ else {
             ("--capture-doctor 退出码 {0}（允许 0 或 1）: {1}" -f $doctorExit, $doctorText.Trim())
     }
     else {
-        $doctor = $null
-        try { $doctor = $doctorText | ConvertFrom-Json }
-        catch {
-            Add-Failure 'live-capture-status' `
-                ("--capture-doctor 的输出不是 JSON: {0}" -f $doctorText.Trim())
+        try {
+            $doctor = ConvertFrom-Json -InputObject $doctorText -AsHashtable -NoEnumerate
+            if ($doctor -isnot [System.Collections.IDictionary] -or
+                $doctor['boundary'] -isnot [System.Collections.IDictionary]) {
+                throw '采集诊断必须返回包含 boundary 对象的报告。'
+            }
+            $status = $doctor['live_capture_status']
+            $monitor = $doctor['boundary']['monitor_type']
+            $hook = $doctor['boundary']['injected_hook_enabled']
+            if ($status -isnot [string] -or $status -cne 'VERIFIED_POP_TO_EXIT') {
+                throw "live_capture_status 应为 VERIFIED_POP_TO_EXIT，实际为 '$status'。"
+            }
+            if ($monitor -isnot [string] -or $monitor -cne 'WinPCap') {
+                throw "monitor_type 应为 WinPCap，实际为 '$monitor'。"
+            }
+            if ($hook -isnot [bool] -or $hook) {
+                throw 'injected_hook_enabled 必须为布尔值 false。'
+            }
+            Write-Host ("  live_capture_status={0} monitor_type={1} injected_hook={2} (exit {3})" -f
+                $status, $monitor, $hook, $doctorExit) -ForegroundColor Green
         }
-
-        if ($doctor) {
-            if ($doctor.live_capture_status -ne 'VERIFIED_POP_TO_EXIT') {
-                Add-Failure 'live-capture-status' `
-                    ("live_capture_status = {0}，应为 VERIFIED_POP_TO_EXIT（docs/live-validation-guide.md §0），" -f
-                        $doctor.live_capture_status)
-            }
-            elseif ($doctor.boundary.injected_hook_enabled) {
-                Add-Failure 'live-capture-status' '报告注入式钩子已启用；这是硬边界违规。'
-            }
-            elseif ($doctor.boundary.monitor_type -ne 'WinPCap') {
-                Add-Failure 'live-capture-status' `
-                    ("monitor_type = {0}，应为 WinPCap。" -f $doctor.boundary.monitor_type)
-            }
-            else {
-                Write-Host ("  live_capture_status={0} monitor_type={1} injected_hook={2} (exit {3})" -f
-                    $doctor.live_capture_status, $doctor.boundary.monitor_type,
-                    $doctor.boundary.injected_hook_enabled, $doctorExit) -ForegroundColor Green
-            }
+        catch {
+            Add-Failure 'live-capture-status' $_.Exception.Message
         }
     }
 }

@@ -650,9 +650,10 @@ public sealed class CaptureControllerTests : IDisposable
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
             for (var i = 0; i < DecodedMessageQueue.MinCapacity + 50; i++) Source.PushOpcode(2);
 
-            WaitUntil(() => _lifecycle.DroppedTotal != 0);
-
-            Assert.True(_lifecycle.DroppedTotal > 0, "an overflow inside a live session must be reported at once");
+            Assert.Equal(50, controller.Snapshot().DroppedCount);
+            Assert.Equal(0, _lifecycle.DroppedTotal);
+            release.Set();
+            WaitUntil(() => _lifecycle.DroppedTotal == 50);
             Assert.Equal(CaptureControllerState.Running, controller.State);
             Assert.DoesNotContain("stopped:UserStop", _lifecycle.Events);
         }
@@ -660,6 +661,10 @@ public sealed class CaptureControllerTests : IDisposable
         {
             release.Set();
         }
+        controller.Stop();
+        controller.Start();
+        controller.Stop();
+        Assert.Equal(50, _lifecycle.DroppedTotal);
     }
 
     /// <summary>
@@ -839,37 +844,6 @@ public sealed class CaptureControllerTests : IDisposable
         controller.Stop();
     }
 
-    /// <summary>
-    /// A drop counted by a queue whose session was already torn down is never reported -- the
-    /// flush task returns without clearing once the generation no longer matches -- so the
-    /// count must be discarded at the next start, or it downgrades a run in flight to
-    /// INTERRUPTED over a hole in somebody else's sequence (review finding R-5).
-    /// </summary>
-    [Fact]
-    public void DropsLeftOverFromARetiredSessionDoNotReachTheNextOne()
-    {
-        WithGame();
-        using var controller = Build();
-        controller.Start();
-        controller.Stop();
-
-        // The in-flight callback that arrives after teardown. Nobody is listening any more, so
-        // the count is neither reported nor cleared -- it simply stays.
-        controller.NoteDroppedFromRetiredSession(7, generation: long.MaxValue);
-        WaitUntil(() => controller.PendingDroppedCount == 7, seconds: 5);
-        Assert.Equal(7, controller.PendingDroppedCount);
-        Assert.Equal(0, _lifecycle.DroppedTotal);
-
-        controller.Start();
-
-        Assert.Equal(0, controller.PendingDroppedCount);
-
-        // And the new session is never told about a hole in somebody else's sequence.
-        Thread.Sleep(200);
-        Assert.Equal(0, _lifecycle.DroppedTotal);
-        controller.Stop();
-    }
-
     [Fact]
     public void RefusesToStopWhenNothingIsRunning()
     {
@@ -999,6 +973,7 @@ public sealed class CaptureControllerTests : IDisposable
             source.PushOpcode(1);
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
             for (var i = 0; i <= DecodedMessageQueue.MinCapacity; i++) source.PushOpcode(2);
+            release.Set();
             Assert.True(SpinWait.SpinUntil(
                 () => controller.State != CaptureControllerState.Running, TimeSpan.FromSeconds(5)));
         }

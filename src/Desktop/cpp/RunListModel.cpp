@@ -146,6 +146,18 @@ void RunListModel::reload()
     loadRows();
 }
 
+void RunListModel::reloadForNewDatabase()
+{
+    beginResetModel();
+    m_rows.clear();
+    m_total = 0;
+    m_page = 1;
+    m_anchorRow = 0;
+    endResetModel();
+    Q_EMIT pagingChanged();
+    reload();
+}
+
 void RunListModel::loadRows()
 {
     const quint64 generation = ++m_loadGeneration;

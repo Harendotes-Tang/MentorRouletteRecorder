@@ -34,6 +34,12 @@ public sealed class DecodedMessageQueue : IDisposable
     public const int MaxCapacity = 65536;
 
     private readonly Channel<DecodedMessage> _channel;
+    // Eviction and removal of the next surviving item must agree about which gap precedes it.
+    // No lifecycle or parser work runs under this short channel-access lock.
+    private readonly object _handoff = new();
+    private long _pendingOverflow;
+    private readonly Action<long>? _onSequenceGap;
+    private readonly Task<bool>? _sourceStarted;
     private readonly IDecodedMessageSink _sink;
     private readonly Action<Exception>? _onSinkError;
     private readonly Action<long>? _onDropped;
@@ -66,12 +72,8 @@ public sealed class DecodedMessageQueue : IDisposable
     /// to continue or tear the capture session down.
     /// </param>
     /// <param name="onDropped">
-    /// Called with the incremental count the moment a message is lost to overflow, so the owner
-    /// can downgrade the run in flight <em>while</em> it is in flight; reporting only at
-    /// teardown leaves a duty whose exit marker was dropped stuck in ENTERED_DUTY with nothing
-    /// recording the hole (review finding H-7).
-    ///
-    /// It runs on the capture callback thread, so an implementation must return immediately.
+    /// Immediate diagnostic count from the capture callback; the callback must return immediately.
+    /// The parser receives the business gap separately, at its position in the observation stream.
     /// </param>
     /// <param name="onConnectionLost">
     /// Called from the parser thread when a connection-lost marker reaches the front of the
@@ -97,7 +99,11 @@ public sealed class DecodedMessageQueue : IDisposable
     {
     }
 
-    /// <summary>Allows a test to hold the worker immediately before it obtains its wait token.</summary>
+    /// <summary>
+    /// A controller can defer draining until its source has started. A failed start discards staged items.
+    /// On a successful start the parser receives each overflow gap before its next surviving item.
+    /// The optional beforeWait hook permits deterministic tests of shutdown during a wait.
+    /// </summary>
     internal DecodedMessageQueue(
         IDecodedMessageSink sink,
         int capacity,
@@ -105,7 +111,9 @@ public sealed class DecodedMessageQueue : IDisposable
         Action<long>? onDropped,
         Action? onConnectionLost,
         Action? beforeWait,
-        Action<string, MessageDirection>? onDirectionDamaged = null)
+        Action<string, MessageDirection>? onDirectionDamaged = null,
+        Action<long>? onSequenceGap = null,
+        Task<bool>? sourceStarted = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
 
@@ -115,6 +123,8 @@ public sealed class DecodedMessageQueue : IDisposable
         _onConnectionLost = onConnectionLost;
         _onDirectionDamaged = onDirectionDamaged;
         _beforeWait = beforeWait;
+        _onSequenceGap = onSequenceGap;
+        _sourceStarted = sourceStarted;
         Capacity = Math.Clamp(capacity, MinCapacity, MaxCapacity);
         _channel = Channel.CreateBounded<DecodedMessage>(
             new BoundedChannelOptions(Capacity)
@@ -129,7 +139,11 @@ public sealed class DecodedMessageQueue : IDisposable
                 // reports the session as unreleasable and the session row is never closed.
                 // Waking the worker inline needs no free pool thread.
                 AllowSynchronousContinuations = true,
-            }, _ => Drop());
+            }, _ =>
+            {
+                _pendingOverflow++;
+                Drop();
+            });
 
         _worker = new Thread(Drain)
         {
@@ -209,10 +223,28 @@ public sealed class DecodedMessageQueue : IDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        if (_disposed || !_channel.Writer.TryWrite(message))
+        if (!TryOffer(message))
         {
             Drop();
-            return;
+        }
+    }
+
+    private bool TryOffer(DecodedMessage message)
+    {
+        lock (_handoff)
+        {
+            return !_disposed && _channel.Writer.TryWrite(message);
+        }
+    }
+
+    /// <summary>Unreported evictions when a timed-out drain abandons every remaining survivor.</summary>
+    internal long TakePendingOverflow()
+    {
+        lock (_handoff)
+        {
+            var count = _pendingOverflow;
+            _pendingOverflow = 0;
+            return count;
         }
     }
 
@@ -242,7 +274,7 @@ public sealed class DecodedMessageQueue : IDisposable
     /// sequence that has none and downgrade the run to INTERRUPTED.
     /// </summary>
     /// <returns>True when the marker was queued.</returns>
-    public bool OfferConnectionLost() => !_disposed && _channel.Writer.TryWrite(ConnectionLostMarker);
+    public bool OfferConnectionLost() => TryOffer(ConnectionLostMarker);
 
     /// <summary>
     /// Session id of a direction-damaged marker, compared by reference. Unlike
@@ -263,7 +295,7 @@ public sealed class DecodedMessageQueue : IDisposable
     public bool OfferDirectionDamaged(string connectionKey, MessageDirection direction)
     {
         ArgumentNullException.ThrowIfNull(connectionKey);
-        return !_disposed && _channel.Writer.TryWrite(new DecodedMessage(
+        return TryOffer(new DecodedMessage(
             DirectionDamagedTag,
             direction,
             DateTimeOffset.UnixEpoch,
@@ -276,9 +308,7 @@ public sealed class DecodedMessageQueue : IDisposable
     }
 
     /// <summary>
-    /// Counts one lost message and tells the owner at once. The callback must not block: this
-    /// runs on the capture callback thread, and blocking there makes the driver drop packets
-    /// nobody can count.
+    /// Counts an evicted or refused message for diagnostics on the producer thread.
     /// </summary>
     private void Drop()
     {
@@ -293,7 +323,10 @@ public sealed class DecodedMessageQueue : IDisposable
     {
         _channel.Writer.TryComplete();
         if (_worker.Join(timeout)) return true;
-        _stopping.Cancel();
+        lock (_handoff)
+        {
+            _stopping.Cancel();
+        }
         // These accepted messages will never reach the sink. Counted as abandoned rather than
         // dropped: the session is already ending, so this is not a gap the state machine has
         // to downgrade a run over (review finding H-7).
@@ -307,9 +340,8 @@ public sealed class DecodedMessageQueue : IDisposable
         // channel is complete and empty and cancellation is raised, so the only thing it can
         // do on waking is leave. That is not a stuck sink and must not be reported as one:
         // CPU starvation alone would otherwise refuse every stop on a healthy queue.
-        // "waiting" is only ever set while no message is held: Drain marks the delivering
-        // stage before its cancellation check, so a worker that dequeued something reads as
-        // delivering (and is abandoned by that check), never as waiting.
+        // Dequeuing and marking the delivering stage share the lock used to cancel the worker.
+        // Once cancelled, a worker that still reports waiting can no longer take an item.
         // "starting" (not yet in the loop) and "exited" (in its last instructions) hold nothing
         // either; only a delivering, connection-lost or direction-damaged stage means the sink may
         // be running.
@@ -328,6 +360,13 @@ public sealed class DecodedMessageQueue : IDisposable
         var reader = _channel.Reader;
         try
         {
+            // Start can produce both packets and lifecycle markers. They all stay in the same bounded
+            // queue until the controller commits startup; none belongs to a failed startup.
+            if (_sourceStarted is not null && !_sourceStarted.GetAwaiter().GetResult())
+            {
+                while (reader.TryRead(out _)) Interlocked.Increment(ref _abandoned);
+                return;
+            }
             while (!_stopping.IsCancellationRequested)
             {
                 EnterStage(StageWaiting);
@@ -337,22 +376,25 @@ public sealed class DecodedMessageQueue : IDisposable
                     return;
                 }
 
-                while (reader.TryRead(out var message))
+                while (true)
                 {
-                    // Marked before the cancellation check on purpose: Complete() treats a
-                    // worker that still reads "waiting" as holding nothing, so the stage must
-                    // change the moment a message is in hand.
-                    EnterStage(ReferenceEquals(message, ConnectionLostMarker)
-                        ? StageConnectionLost
-                        : ReferenceEquals(message.CaptureSessionId, DirectionDamagedTag)
-                            ? StageDirectionDamaged
-                            : $"delivering 0x{message.Opcode:x4}");
-                    if (_stopping.IsCancellationRequested)
+                    DecodedMessage message;
+                    long gap;
+                    lock (_handoff)
                     {
-                        Interlocked.Increment(ref _abandoned);
-                        return;
+                        if (_stopping.IsCancellationRequested || !reader.TryRead(out var next)) break;
+                        message = next;
+                        gap = _pendingOverflow;
+                        _pendingOverflow = 0;
+                        // Complete must see a worker with an item in hand as delivering, even if a gap
+                        // callback blocks before the item's own sink is called.
+                        EnterStage(ReferenceEquals(message, ConnectionLostMarker)
+                            ? StageConnectionLost
+                            : ReferenceEquals(message.CaptureSessionId, DirectionDamagedTag)
+                                ? StageDirectionDamaged
+                                : $"delivering 0x{message.Opcode:x4}");
                     }
-                    Deliver(message);
+                    Deliver(message, gap);
 
                     if (_stopping.IsCancellationRequested)
                     {
@@ -372,10 +414,11 @@ public sealed class DecodedMessageQueue : IDisposable
         }
     }
 
-    private void Deliver(DecodedMessage message)
+    private void Deliver(DecodedMessage message, long gap)
     {
         try
         {
+            if (gap > 0) _onSequenceGap?.Invoke(gap);
             if (ReferenceEquals(message, ConnectionLostMarker))
             {
                 _onConnectionLost?.Invoke();

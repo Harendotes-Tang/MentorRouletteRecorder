@@ -46,7 +46,7 @@ public static class ContractSchema
     /// </summary>
     /// <param name="pointer">
     /// Slash-separated path under the document root; the empty string is the whole contract,
-    /// that is the four-way envelope union at the root.
+    /// including request, business reply, event, and error envelopes.
     /// </param>
     public static JsonSchema At(string pointer)
     {
@@ -188,6 +188,11 @@ public static class ContractSchema
 
     private static JsonSchema Build(string pointer)
     {
+        if (pointer.Length == 0)
+        {
+            return JsonSchema.FromText(Root.ToJsonString());
+        }
+
         JsonNode? node = Root;
         foreach (var segment in pointer.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -201,20 +206,8 @@ public static class ContractSchema
         // copy of $defs, and its own $id so two fragments never collide in the registry.
         fragment["$schema"] = "https://json-schema.org/draft/2020-12/schema";
         fragment["$id"] = "https://mentorrecorder.local/contracts/test/" +
-            Uri.EscapeDataString(pointer.Length == 0 ? "root" : pointer);
-        // The contract uses string-valued "//" entries in $defs as section headers. They are
-        // legal JSON and legal documentation, but a validator reads every $defs value as a
-        // schema, and a string is not one.
-        var defs = new JsonObject();
-        foreach (var (name, value) in Root["$defs"]!.AsObject())
-        {
-            if (value is JsonObject or null || value is JsonValue flag && flag.TryGetValue<bool>(out _))
-            {
-                defs[name] = value?.DeepClone();
-            }
-        }
-
-        fragment["$defs"] = defs;
+            Uri.EscapeDataString(pointer);
+        fragment["$defs"] = Root["$defs"]!.DeepClone();
 
         return JsonSchema.FromText(fragment.ToJsonString());
     }

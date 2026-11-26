@@ -27,6 +27,14 @@ mr_find_qt_private_modules()
 
 qt_standard_project_setup(REQUIRES 6.8)
 
+option(MR_DEV_BUILD
+    "Development build: own data root (MentorRecorder-dev), own pipe, dev marker; scripts/package.ps1 turns it OFF"
+    ON)
+if(MINGW AND NOT MR_DEV_BUILD)
+    add_compile_options("$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CXX>>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=/_/src>"
+                        "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CXX>>:-ffile-prefix-map=${CMAKE_BINARY_DIR}=/_/build>")
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
@@ -123,9 +131,6 @@ endif()
 # configured again with -DMR_DEV_BUILD=ON. PUBLIC on the wire library, so the pipe
 # name, the Desktop library, the application and the tests all compile as the
 # same flavour. docs/build-and-package.md section 3.7.
-option(MR_DEV_BUILD
-    "Development build: own data root (MentorRecorder-dev), own pipe, dev marker; scripts/package.ps1 turns it OFF"
-    ON)
 if(MR_DEV_BUILD)
     target_compile_definitions(MentorRecorderIpcWire PUBLIC MR_DEV_BUILD)
     message(STATUS "MR_DEV_BUILD=ON: development build; data under %LOCALAPPDATA%/MentorRecorder-dev, "
@@ -736,10 +741,9 @@ if(MR_STAGE_COLLECTOR AND MR_DOTNET_EXE)
     add_custom_target(mr_stage_collector ALL
         COMMAND "${MR_DOTNET_EXE}" build
                 "${MR_REPO_ROOT}/src/Collector/MentorRecorder.Collector.csproj"
-                -c $<IF:$<CONFIG:Debug>,Debug,Release> --nologo -v q
+                -c $<IF:$<CONFIG:Debug>,Debug,Release> -p:Platform=x64 --nologo -v q
         COMMAND "${CMAKE_COMMAND}"
-                -DSRC_ROOT=${MR_REPO_ROOT}/src/Collector/bin
-                -DCONFIG=$<IF:$<CONFIG:Debug>,Debug,Release>
+                -DSOURCE_DIRECTORY=${MR_REPO_ROOT}/src/Collector/bin/x64/$<IF:$<CONFIG:Debug>,Debug,Release>/net8.0-windows/win-x64
                 -DDEST=$<TARGET_FILE_DIR:MentorRecorder.Desktop>
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageCollector.cmake"
         COMMENT "Staging MentorRecorder.Collector beside the Desktop executable"

@@ -192,9 +192,16 @@ public static class DecodedReplayRunner
             sink.Current = null;
             processor.AppendPendingRevisions(transaction);
 
-            foreach (var error in parser.GetParserStats().RecentErrors)
+            var errors = parser.GetParserStats().RecentErrors;
+            for (var index = 0; index < errors.Count; index++)
             {
-                parserErrors.Record(error.Kind, error.Message, fixture.CaptureSessionId, transaction);
+                var error = errors[index];
+                // The same session can be replayed against different profiles. Include the
+                // actual profile bytes, and keep distinct occurrences of identical errors.
+                var seed = FormattableString.Invariant(
+                    $"decoded-error:{fixture.Sha256}:{effectiveProfile?.ProfileSha256 ?? "unmatched"}:{index}:{error.Kind}:{error.Message}");
+                parserErrors.RecordReplay(error.Kind, error.Message, fixture.CaptureSessionId, transaction,
+                    SemanticEventProcessor.DeterministicId(seed));
             }
 
             sessions.Close(

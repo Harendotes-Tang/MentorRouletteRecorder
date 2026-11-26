@@ -175,10 +175,10 @@ public sealed class SharedCalibrationContractTests
         Assert.Equal(Tokens<SharedFetchOutcome>(), ContractSchema.DeclaredEnum("$defs", "SharedFetchOutcome", "enum"));
         Assert.Equal(Tokens<CalibrationMatchSource>(), ContractSchema.DeclaredEnum("$defs", "CalibrationMatchSource", "enum"));
         Assert.Equal(Tokens<SharedCandidateSource>(), ContractSchema.DeclaredEnum("$defs", "SharedCalibrationCandidate", "properties", "source", "enum"));
-        Assert.Equal(Tokens<SharedCheckOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "CheckSharedCalibration", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedConsentOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "AcceptSharedQueueInference", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedImportOutcome>(), ContractSchema.DeclaredEnum("$defs", "Responses", "ImportCalibrationCode", "properties", "outcome", "enum"));
-        Assert.Equal(Tokens<SharedShareBasis>(), ContractSchema.DeclaredEnum("$defs", "Responses", "GetCalibrationShareCode", "properties", "basis", "enum"));
+        Assert.Equal(Tokens<SharedCheckOutcome>(), ContractSchema.DeclaredEnum("$defs", "ResponsePayloads", "$defs", "CheckSharedCalibration", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedConsentOutcome>(), ContractSchema.DeclaredEnum("$defs", "ResponsePayloads", "$defs", "AcceptSharedQueueInference", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedImportOutcome>(), ContractSchema.DeclaredEnum("$defs", "ResponsePayloads", "$defs", "ImportCalibrationCode", "properties", "outcome", "enum"));
+        Assert.Equal(Tokens<SharedShareBasis>(), ContractSchema.DeclaredEnum("$defs", "ResponsePayloads", "$defs", "GetCalibrationShareCode", "properties", "basis", "enum"));
         Assert.Equal(new[] { "CALIBRATED", "VERIFIED" }, Tokens<SharedShareBasis>());
         Assert.Equal(
             new[] { "NOT_LOCAL", "NOT_SHAREABLE", "NO_PROFILE", "SHARED", "SHARED_NOT_PROVEN" }, Tokens<SharedShareCodeRefusal>());

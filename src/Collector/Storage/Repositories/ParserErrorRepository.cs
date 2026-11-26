@@ -36,7 +36,16 @@ public sealed class ParserErrorRepository
     /// <param name="detail">Non-sensitive explanatory detail.</param>
     /// <param name="captureSessionId">Session the refusal belongs to, if any.</param>
     /// <param name="transaction">Enclosing transaction.</param>
-    public void Record(string kind, string? detail, string? captureSessionId, SqliteTransaction transaction)
+    public void Record(string kind, string? detail, string? captureSessionId, SqliteTransaction transaction) =>
+        Insert(kind, detail, captureSessionId, transaction, replayId: null);
+
+    /// <summary>Retains one error from an identified fixture/profile replay. Older random-ID rows
+    /// have no fixture or profile digest and remain independent diagnostic history.</summary>
+    internal void RecordReplay(string kind, string? detail, string captureSessionId, SqliteTransaction transaction,
+        string replayId) => Insert(kind, detail, captureSessionId, transaction, replayId);
+
+    private void Insert(string kind, string? detail, string? captureSessionId, SqliteTransaction transaction,
+        string? replayId)
     {
         ArgumentException.ThrowIfNullOrEmpty(kind);
         ArgumentNullException.ThrowIfNull(transaction);
@@ -46,14 +55,15 @@ public sealed class ParserErrorRepository
             command.Transaction = transaction;
             command.CommandText =
                 "INSERT INTO parser_errors (error_id, occurred_at_utc, capture_session_id, kind, detail) " +
-                "VALUES ($id, $occurred, $session, $kind, $detail);";
-            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                "VALUES ($id, $occurred, $session, $kind, $detail)" +
+                (replayId is null ? ";" : " ON CONFLICT(error_id) DO NOTHING;");
+            command.Parameters.AddWithValue("$id", replayId ?? Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue(
                 "$occurred", UtcTimestamp.ToText(UtcTimestamp.Truncate(_clock.UtcNow)));
             command.Parameters.AddWithValue("$session", (object?)captureSessionId ?? DBNull.Value);
             command.Parameters.AddWithValue("$kind", kind);
             command.Parameters.AddWithValue("$detail", (object?)detail ?? DBNull.Value);
-            command.ExecuteNonQuery();
+            if (command.ExecuteNonQuery() == 0) return;
         }
 
         Trim(transaction);

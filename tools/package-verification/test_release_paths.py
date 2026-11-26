@@ -130,6 +130,85 @@ Get-Content -LiteralPath $stdout -Raw
                         observed,
                     )
 
+    def test_listener_isolates_profile_and_database_roots_and_restores_the_caller(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mr caller data ") as directory:
+            observed = self.run_script(REPO / "scripts/verify.ps1", f"""
+$caller = {ps_literal(directory)}
+$env:MR_DATA_DIR = $caller
+$collectorExe = (Get-Command pwsh).Source
+function Test-GateSkipped([string]$Name) {{ return $false }}
+function Add-Failure([string]$Name, [string]$Detail) {{ throw "$Name $Detail" }}
+function Get-NetTCPConnection {{ param($OwningProcess, $ErrorAction) }}
+function netstat {{ }}
+function Start-Process {{
+    param($FilePath, $ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
+          $RedirectStandardOutput, $RedirectStandardError)
+    $root = $env:MR_DATA_DIR
+    $db = $ArgumentList[2].Trim('"')
+    $logs = $ArgumentList[4].Trim('"')
+    $script:probe = @{{
+        root = $root; exists = [IO.Directory]::Exists($root)
+        databaseParent = [IO.Path]::GetDirectoryName($db); logParent = [IO.Path]::GetDirectoryName($logs)
+    }}
+    if ($script:failLaunch) {{ throw 'fixture launch failure' }}
+    [IO.File]::WriteAllText($RedirectStandardOutput, '{{"mode":"serve"}}')
+    [pscustomobject]@{{ Id = 123; HasExited = $true }}
+}}
+$gate = $ast.EndBlock.Statements | Where-Object {{ $_.Extent.Text.StartsWith("if (Test-GateSkipped 'listener-check')") }}
+if (@($gate).Count -ne 1) {{ throw 'Missing listener gate' }}
+$run = [scriptblock]::Create($gate.Extent.Text)
+$results = foreach ($script:failLaunch in @($false, $true)) {{
+    try {{ . $run 6>$null }} catch {{ if (-not $script:failLaunch -or $_.Exception.Message -ne 'fixture launch failure') {{ throw }} }}
+    $script:probe['restored'] = $env:MR_DATA_DIR
+    $script:probe['removed'] = -not (Test-Path -LiteralPath $script:probe.root)
+    $script:probe
+}}
+$results | ConvertTo-Json -Compress
+""")
+            self.assertEqual(2, len(observed))
+            self.assertNotEqual(observed[0]["root"], observed[1]["root"])
+            for probe in observed:
+                self.assertNotEqual(directory, probe["root"])
+                self.assertTrue(probe["exists"] and probe["removed"], probe)
+                self.assertEqual(directory, probe["restored"])
+                self.assertEqual(probe["root"], probe["databaseParent"])
+                self.assertEqual(probe["root"], probe["logParent"])
+
+    def test_capture_doctor_requires_a_complete_typed_report(self) -> None:
+        status = "VERIFIED_POP_TO_EXIT"
+        valid = {"live_capture_status": status, "boundary": {"monitor_type": "WinPCap", "injected_hook_enabled": False}}
+        malformed = ["", "null", "false", "0", "[]", "{}", "not json", json.dumps([valid])]
+        for boundary in (None, [], {}, {"monitor_type": "WinPCap"},
+                         {"monitor_type": "WinPCap", "injected_hook_enabled": None},
+                         {"monitor_type": "WinPCap", "injected_hook_enabled": 0},
+                         {"monitor_type": "WinPCap", "injected_hook_enabled": True},
+                         {"monitor_type": "other", "injected_hook_enabled": False}):
+            malformed.append(json.dumps({"live_capture_status": status, "boundary": boundary}))
+        malformed.append(json.dumps({"boundary": valid["boundary"]}))
+        cases = [(0, report, False) for report in malformed]
+        cases += [(0, json.dumps(valid), True), (1, json.dumps(valid), True), (2, json.dumps(valid), False)]
+        records = [{"exit": code, "text": report} for code, report, _ in cases]
+        observed = self.run_script(REPO / "scripts/verify.ps1", f"""
+$decision = $ast.FindAll({{ param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Extent.Text.StartsWith('if ($doctorExit -notin')
+}}, $true)
+if (@($decision).Count -ne 1) {{ throw 'Missing capture doctor decision' }}
+$run = [scriptblock]::Create($decision.Extent.Text)
+function Add-Failure([string]$Name, [string]$Detail) {{
+    if ($Name -ne 'live-capture-status') {{ throw "Unexpected gate $Name" }}
+    $script:failed = $true
+}}
+$results = @()
+foreach ($case in (ConvertFrom-Json {ps_literal(json.dumps(records))})) {{
+    $doctorText = $case.text; $doctorExit = $case.exit; $script:failed = $false
+    . $run 6>$null
+    $results += @(-not $script:failed)
+}}
+$results | ConvertTo-Json -Compress
+""")
+        self.assertEqual([passed for _, _, passed in cases], observed)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

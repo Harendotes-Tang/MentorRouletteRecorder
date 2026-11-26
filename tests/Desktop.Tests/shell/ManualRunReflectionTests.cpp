@@ -490,6 +490,56 @@ ManualRunSubmission {
         QCOMPARE(scene.dialog()->property("reflectionMood").toString(), QStringLiteral("bad"));
     }
 
+    void changingDatabaseClosesTheOldCorrection()
+    {
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QTRY_VERIFY(scene.controller.runs()->rowCount() > 0);
+        const QVariantMap run = scene.controller.runs()->runAt(0);
+        scene.controller.selectRun(run);
+        QVERIFY(QMetaObject::invokeMethod(scene.dialog(), "openForRun", Q_ARG(QVariant, run)));
+        QVERIFY(scene.dialog()->property("editingActive").toBool());
+        scene.controller.recovery()->setDatabasePath(QStringLiteral("artifacts/manual-restored-copy.db"));
+        QTRY_VERIFY(!scene.dialog()->property("editingActive").toBool());
+        QVERIFY(!scene.controller.hasSelection());
+        QVERIFY(scene.controller.selectedRunRevisions().isEmpty());
+        QVERIFY(scene.controller.selectedRunEvents().isEmpty());
+        QSignalSpy corrections(scene.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(corrections.isValid());
+        QVERIFY(QMetaObject::invokeMethod(scene.dialog(), "submit"));
+        QVERIFY(corrections.isEmpty());
+    }
+
+    void imageRetryRetainsOnlyUnremovedFiles()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+ManualRunSubmission {
+    property int calls: 0
+    property var sentRemovals: []
+    removedImagePaths: ["gone.png", "locked.png"]
+    imageStore: QtObject {
+        function commit(runId, adds, removes) {
+            ++calls
+            sentRemovals = removes
+            return calls === 1 ? {ok: false, removed: ["gone.png"], error: "locked"}
+                               : {ok: true, removed: removes}
+        }
+    }
+})", QUrl());
+        std::unique_ptr<QObject> session(component.create());
+        QVERIFY2(session, qPrintable(component.errorString()));
+        QSignalSpy completed(session.get(), SIGNAL(completed()));
+        QVERIFY(QMetaObject::invokeMethod(session.get(), "finishWithImages", Q_ARG(QVariant, "run-a")));
+        QVERIFY(completed.isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(session.get(), "resume"));
+        QCOMPARE(session->property("calls").toInt(), 2);
+        QCOMPARE(mrtest::qmlList(session->property("sentRemovals")), QVariantList{QStringLiteral("locked.png")});
+        QCOMPARE(completed.size(), 1);
+    }
+
     void anotherEditorsBusyErrorDoesNotReleaseThisSave()
     {
         Scene scene;

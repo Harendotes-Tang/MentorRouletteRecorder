@@ -351,8 +351,6 @@ public sealed partial class CaptureController : IDisposable
     /// <summary>Why the teardown that could not release everything was started; its retry ends the session so.</summary>
     private CaptureEndReason _releaseReason = CaptureEndReason.Error;
     private long _generation;
-    private long _pendingDropped;
-    private int _dropFlushScheduled;
     private int _polling;
 
     private readonly Stopwatch _processUptime = Stopwatch.StartNew();
@@ -678,14 +676,6 @@ public sealed partial class CaptureController : IDisposable
                     CollectorTexts.CaptureStartAlreadyRunning(),
                     new Dictionary<string, object?> { ["capture"] = _state.ToString().ToUpperInvariant() });
             }
-
-            // A session starts owing nothing. Drops counted after the previous session was
-            // torn down are never reported -- the flush task returns without clearing once the
-            // generation no longer matches -- and left standing they would reach the *next*
-            // session's first flush, where an EVENT_SEQUENCE_GAP downgrades a perfectly good
-            // run in flight to INTERRUPTED (review finding R-5).
-            Interlocked.Exchange(ref _pendingDropped, 0);
-            Interlocked.Exchange(ref _dropFlushScheduled, 0);
         }
 
         var npcap = DetectNpcap(force: true);
@@ -1043,13 +1033,17 @@ public sealed partial class CaptureController : IDisposable
                 clock: _services.Clock,
                 oodleTempManifestPath: _services.OodleTempManifestPath);
         var generation = _generation;
+        var sourceStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         DecodedMessageQueue? queue = null;
         queue = new DecodedMessageQueue(
             new HealthReportingSink(_sink,
                 () => DeliveryHealth(sessionId, source, queue?.DroppedCount ?? 0), ReportHealth),
             ReadQueueCapacity(),
             error => OnFault(CollectorTexts.CaptureFaultPipeline(), error, generation),
-            dropped => NoteDropped(dropped, generation),
+            onDropped: null,
+            beforeWait: null,
+            sourceStarted: sourceStarted.Task,
+            onSequenceGap: dropped => _services.Lifecycle.OnEventsDropped(sessionId, dropped),
             onConnectionLost: () => DeliverConnectionLost(sessionId, generation),
             onDirectionDamaged: (key, direction) => DeliverDirectionDamaged(sessionId, generation, key, direction));
         var run = new CaptureRun(
@@ -1120,10 +1114,12 @@ public sealed partial class CaptureController : IDisposable
                 _state = CaptureControllerState.Running;
                 BindPathRecovery(run);
             }
+            sourceStarted.SetResult(true);
         }
         catch (Exception ex)
         {
             var released = StopAndDisposeSource(source);
+            sourceStarted.TrySetResult(false);
             var queueStopped = StopQueue(queue);
 
             if (lifecycleStarted && queueStopped)
@@ -1309,17 +1305,13 @@ public sealed partial class CaptureController : IDisposable
 
         if (run is not null)
         {
-            // Only overflow drops nobody has reported yet. The backlog a timed-out shutdown
-            // gave up on (AbandonedCount) is deliberately not reported: a session that is
-            // already over has no sequence left to have a gap in, and reporting it would turn
-            // a correctly finished duty into EVENT_SEQUENCE_GAP (review finding H-7).
-            FlushDropped(run.CaptureSessionId, _generation, faultOnError: false);
             ReportHealth(new Protocol.Calibration.CaptureSessionHealth(
                 run.CaptureSessionId, silentReason, preexisting, finalIngress.AdapterDropped,
                 queue?.DroppedCount ?? 0, finalIngress.DamagedGameDirections));
 
             try
             {
+                ReportFinalOverflow(queue, run.CaptureSessionId);
                 var abandoned = queue?.AbandonedCount ?? 0;
                 if (abandoned > 0)
                 {
@@ -1667,93 +1659,17 @@ public sealed partial class CaptureController : IDisposable
         PublishOffThread("已经读到可解压的报文，抓包状态恢复正常。", generation);
     }
 
-    /// <summary>
-    /// One or more observations were lost to queue overflow. Reported to the lifecycle
-    /// listener at once rather than at teardown, because the run this happens to is still in
-    /// flight and its classification depends on knowing about the hole (review finding H-7).
-    ///
-    /// The forwarding itself is deferred off the capture callback thread: the listener writes
-    /// to the database, which may retry for seconds against a busy file, and blocking the
-    /// callback there would make the driver drop packets instead of us. Counts accumulate, so
-    /// a burst of drops becomes one report carrying all of them rather than one report each.
-    /// </summary>
-    /// <param name="count">How many observations were lost by this report.</param>
-    /// <param name="generation">Session generation the reporting queue belongs to.</param>
-    private void NoteDropped(long count, long generation)
+    private void ReportFinalOverflow(DecodedMessageQueue? queue, string sessionId)
     {
-        if (count <= 0)
-        {
-            return;
-        }
-
-        Interlocked.Add(ref _pendingDropped, count);
-        if (Interlocked.Exchange(ref _dropFlushScheduled, 1) != 0)
-        {
-            return;
-        }
-
-        _ = Task.Run(() =>
-        {
-            Interlocked.Exchange(ref _dropFlushScheduled, 0);
-            string? session;
-            lock (_gate)
-            {
-                if (_disposed || generation != _generation || _run is not { } run)
-                {
-                    return;
-                }
-
-                session = run.CaptureSessionId;
-            }
-
-            FlushDropped(session, generation);
-        });
-    }
-
-    /// <summary>
-    /// Overflow drops counted but not yet handed to the lifecycle listener.
-    ///
-    /// Exposed to tests because the leak this guards against has no other observable form:
-    /// the reporting task returns without clearing precisely when the session it belongs to
-    /// has already gone, leaving a count for the next session's first flush to pick up as an
-    /// EVENT_SEQUENCE_GAP of its own (review finding R-5).
-    /// </summary>
-    internal long PendingDroppedCount => Interlocked.Read(ref _pendingDropped);
-
-    /// <summary>
-    /// Counts a drop reported by a queue whose session generation no longer matches -- the
-    /// in-flight callback that arrives after teardown. Test seam for
-    /// <see cref="PendingDroppedCount"/>; production always reports the live generation.
-    /// </summary>
-    /// <param name="count">How many observations were lost.</param>
-    /// <param name="generation">Generation the reporting queue belongs to.</param>
-    internal void NoteDroppedFromRetiredSession(long count, long generation) =>
-        NoteDropped(count, generation);
-
-    /// <summary>
-    /// Hands every drop counted since the last report to the lifecycle listener. Safe to call
-    /// with nothing pending; safe to call from teardown, where it is the final report.
-    /// </summary>
-    /// <param name="captureSessionId">Session the drops belong to.</param>
-    /// <param name="generation">Generation the reporting queue belongs to.</param>
-    /// <param name="faultOnError">False for the final report after the source and queue have stopped.</param>
-    private void FlushDropped(string captureSessionId, long generation, bool faultOnError = true)
-    {
-        var dropped = Interlocked.Exchange(ref _pendingDropped, 0);
-        if (dropped <= 0)
-        {
-            return;
-        }
-
+        var count = queue?.TakePendingOverflow() ?? 0;
+        if (count == 0) return;
         try
         {
-            _services.Lifecycle.OnEventsDropped(captureSessionId, dropped);
+            _services.Lifecycle.OnEventsDropped(sessionId, count);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_dropped_failed", ex);
-            if (faultOnError)
-                OnFault(CollectorTexts.CaptureFaultPipeline(), ex, generation);
         }
     }
 
