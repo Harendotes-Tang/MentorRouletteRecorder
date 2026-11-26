@@ -314,6 +314,9 @@ private:
                 mr::DisplayTimeZone::set(previous);
                 QVERIFY(zoneToday != QDate::currentDate().toString(Qt::ISODate));
                 QCOMPARE(named, QStringLiteral("导随心得合集_%1_2条.png").arg(zoneToday));
+                // The zone switch keeps 合成长图, chosen in the same turn (StyledComboBox::keepRow).
+                QTest::qWait(50);
+                QCOMPARE(mode->property("currentIndex").toInt(), 1);
             }
             const auto entries = visibleEntries(combined);
             QCOMPARE(entries.size(), 2);

@@ -608,13 +608,14 @@ private slots:
 
     // Review RV1-5 (X1): a region chosen in settings for another client that contradicts
     // this client's install path also leaves the region unknown. The card says why in the
-    // Collector's words, not 「无法从安装路径判断区服」, and still offers 设置区服. The
-    // informational 已按手动指定的区服处理 is listed with the other Collector notes.
+    // Collector's words, not 「无法从安装路径判断区服」, and still offers 设置区服. A note
+    // whose key this catalogue does not hold is listed, as sent, with the other Collector notes.
     void aRegionChosenForAnotherClientSaysSo()
     {
         const QString mismatch = QString::fromUtf8(
-            "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。"
-            "若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
+            "设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。"
+            "安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；"
+            "如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。");
         PageScene scene;
         auto *backend = scene.fake<CaptureBackend>();
         backend->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
@@ -632,7 +633,9 @@ private slots:
         QTRY_COMPARE(scene.text(QStringLiteral("protocolProfileExplanation")), mismatch);
         QVERIFY(!scene.text(QStringLiteral("protocolProfileExplanation")).contains(QString::fromUtf8("无法从安装路径判断区服")));
 
-        // A choice applied against the path is an ordinary note in the tools panel.
+        // Once the region is known the card no longer asks for one. An older Collector's note
+        // (capture.game.region_override_applied, no longer in the catalogue nor emitted) is an
+        // ordinary note in the tools panel, in the words it was sent with.
         const QString applied = QString::fromUtf8(
             "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。"
             "若这不是你想要的，请到设置里清除手动指定的区服。");

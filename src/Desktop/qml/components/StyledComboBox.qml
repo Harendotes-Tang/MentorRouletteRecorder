@@ -30,15 +30,23 @@ ComboBox {
     // comes back in another order (the voice list is sorted for the language)
     // still lands on the same entry; without one, by its position.
     property var settledValue: undefined
+    // Whether the model was replaced since the row last settled: until it is, the row on
+    // show is the one to keep, even when it was picked in this same turn and has not
+    // settled yet (a zone or language switch right after it would otherwise undo it).
+    property bool modelReplaced: false
     function settleIndex() {
         control.settledIndex = control.currentIndex
         control.settledValue = control.valueRole.length > 0 ? control.currentValue : undefined
+        control.modelReplaced = false
     }
     onCurrentIndexChanged: Qt.callLater(control.settleIndex)
+    onModelChanged: control.modelReplaced = true
     Component.onCompleted: control.settleIndex()
     function keepRow() {
         if (!control.keepsRowAcrossLanguages)
             return
+        if (!control.modelReplaced)
+            control.settleIndex()
         const keptIndex = control.settledIndex
         const keptValue = control.settledValue
         Qt.callLater(function() {

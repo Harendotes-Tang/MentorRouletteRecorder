@@ -255,7 +255,7 @@ public sealed class CaptureDetectionTests
         static bool Mismatch(GameProcessDetection detection) => detection.Warnings.Any(warning =>
             warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
         static bool Applied(GameProcessDetection detection) => detection.Warnings.Any(warning =>
-            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideApplied().Key);
+            warning.Key == "capture.game.region_override_applied");
 
         CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = Region.Cn, RegionOverrideSpecified = true });
         var global = locator.Locate();

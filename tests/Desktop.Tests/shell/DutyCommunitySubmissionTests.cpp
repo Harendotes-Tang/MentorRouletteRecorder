@@ -266,7 +266,15 @@ void DutyCommunitySubmissionTests::communitySubmissionUsesAdoptedOrConfirmedRevi
     QVERIFY(difference);
     const QString text = difference->property("text").toString();
     QVERIFY(text.contains(QStringLiteral("Title on the other device")));
-    QVERIFY(text.contains(QStringLiteral("PLD")));
+    // Stored codes read as the dialog shows them elsewhere (audit 2026-11-26 RE-6): PLD by its name.
+    const auto shown = [dialog](const char *helper, const QString &code) {
+        QVariant out;
+        QMetaObject::invokeMethod(dialog, helper, Q_RETURN_ARG(QVariant, out), Q_ARG(QVariant, code));
+        return out.toString();
+    };
+    const QString paladin = shown("jobsLabel", QStringLiteral("PLD"));
+    QVERIFY2(!paladin.isEmpty() && paladin != QStringLiteral("PLD"), qPrintable(paladin));
+    QVERIFY2(text.contains(QString::fromUtf8("职业\n")) && text.contains(paladin), qPrintable(text));
     QVERIFY(QMetaObject::invokeMethod(confirm, "click"));
     QTRY_VERIFY(confirm->property("checked").toBool());
     consent->setProperty("checked", true);
@@ -285,7 +293,7 @@ void DutyCommunitySubmissionTests::communitySubmissionUsesAdoptedOrConfirmedRevi
     QTRY_VERIFY(!confirm->property("checked").toBool());
     QVERIFY(QMetaObject::invokeMethod(compare, "click"));
     difference = scene.item(QStringLiteral("dutyCommunityRevisionComparison"), true);
-    QVERIFY(difference && difference->property("text").toString().contains(QStringLiteral("CC-BY-SA-4.0")));
+    QVERIFY(difference && difference->property("text").toString().contains(shown("licenseLabel", QStringLiteral("CC-BY-SA-4.0"))));
     QVERIFY(QMetaObject::invokeMethod(confirm, "click"));
     consent->setProperty("checked", true);
     QTRY_VERIFY(native->property("enabled").toBool());
@@ -620,6 +628,12 @@ void DutyCommunitySubmissionTests::communityLinksAndSourceUpdatesReadPlainly()
     QTRY_COMPARE(dialog->property("currentId").toString(), reminderId);
     QQuickItem *link = nullptr;
     QTRY_VERIFY((link = visibleText(scene.mainWindow()->contentItem(), s("关联项 · 打完道谢"))) != nullptr);
+    // The row of links is laid out a frame after its text appears: click once it has its place.
+    QQuickItem *linkRow = link;
+    while (linkRow && !linkRow->inherits("QQuickFlow"))
+        linkRow = linkRow->parentItem();
+    QVERIFY(linkRow);
+    QTRY_VERIFY(linkRow->height() >= link->height());
     QTest::mouseClick(scene.mainWindow(), Qt::LeftButton, {},
                       link->mapToScene(QPointF(link->width() / 2, link->height() / 2)).toPoint());
     QTRY_COMPARE(dialog->property("currentId").toString(), macroId);
@@ -832,11 +846,16 @@ void DutyCommunitySubmissionTests::communityRefusedSaveIsOfferedBack()
     row.insert(QStringLiteral("revision"), row.value(QStringLiteral("revision")).toInt() + 1);
     QVERIFY(QMetaObject::invokeMethod(dialog, "startEdit", Q_ARG(QVariant, row)));
     QTRY_VERIFY(field("dutyCommunityEditorSave"));
+    // The mock answers on the next event-loop turn, which the click already spins: hold the
+    // answer back so that 新建宏 really comes before the refusal arrives.
+    const auto communityType = QStringLiteral("DutyCommunity");
+    scene.backend.setReplyDelay(400, communityType);
     QVERIFY(scene.click(QStringLiteral("dutyCommunityEditorSave")));
-    // 新建宏 before the refusal arrives.
+    QVERIFY(!dialog->property("refusedSave").isValid() || dialog->property("refusedSave").isNull());
     QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
                                       Q_ARG(QVariant, QVariant())));
     QTRY_VERIFY(field("dutyCommunityRefusedSave"));
+    scene.backend.setReplyDelay(0, communityType);
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
     QCOMPARE(textOf("dutyCommunityEditorHeading"), s("新建宏"));
     QCOMPARE(textOf("dutyCommunityRefusedSaveText"),

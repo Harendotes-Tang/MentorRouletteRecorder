@@ -734,14 +734,14 @@ void DutyCommunityTests::communityPublicLibraryFoldsAndFilters()
                             {QStringLiteral("sub"), QString()}, {QStringLiteral("count"), 1}};
     jobFilter->setProperty("options", many);
     jobFilter->setProperty("selection", QVariantList{QStringLiteral("J14")});
-    QVariant listed;
-    QVERIFY(QMetaObject::invokeMethod(jobFilter, "listed", Q_RETURN_ARG(QVariant, listed), Q_ARG(QVariant, QString())));
+    QVariant shown;
+    QVERIFY(QMetaObject::invokeMethod(jobFilter, "listed", Q_RETURN_ARG(QVariant, shown), Q_ARG(QVariant, QString())));
     QStringList values;
-    for (const QVariant &option : qmlMap(listed).value(QStringLiteral("rows")).toList())
+    for (const QVariant &option : qmlMap(shown).value(QStringLiteral("rows")).toList())
         values << option.toMap().value(QStringLiteral("value")).toString();
     QCOMPARE(values.size(), 13);
     QCOMPARE(values.last(), QStringLiteral("J14"));
-    QCOMPARE(qmlMap(listed).value(QStringLiteral("hidden")).toInt(), 2);
+    QCOMPARE(qmlMap(shown).value(QStringLiteral("hidden")).toInt(), 2);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

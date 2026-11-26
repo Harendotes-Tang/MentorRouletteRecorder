@@ -52,7 +52,7 @@
   双向控制符（U+202A–U+202E、U+2066–U+2069）与行、段分隔符（U+2028、U+2029）；正文只排除后两类。Collector、桌面编辑器与发布工具按同一规则拒绝。
 - 手动区服（文本目录，[collector-texts.md](collector-texts.md)）：安装路径只表明一个区服时以路径为准，手动选择只用于路径不表明或表明多个区服的客户端；
   选择与路径相反，或随包 Oodle 签名档案按程序文件的 SHA-256 与大小认出另一区服时，区服为 `UNKNOWN` 并发
-  `capture.game.region_override_mismatch`（措辞随之改写），`capture.game.region_override_applied` 不再发出（键仍在目录中）。
+  `capture.game.region_override_mismatch`（措辞随之改写），`capture.game.region_override_applied` 不再发出，该键已从目录中删除。
   `capture.validation.waiting_region_mismatch` 同步改写。导入新增警告 `import.warning.duty_unmatched`：副本名无法唯一对应目录时保留原名称并提示核对。
 - 延后应答上限：每个连接的上限由 8 条改为 10 条（`PipeConnection.MaxDeferredResponses`）。
   尚未应答的整文件任务（`ExportCsv`、`ExportJson`、`BackupDatabase`、`ExportDiagnosticsReport`、`ExportCandidateEvidence`）

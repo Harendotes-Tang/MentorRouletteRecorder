@@ -501,7 +501,7 @@ private Q_SLOTS:
         scene.close();
         QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
         QTRY_COMPARE(phase(scene), QStringLiteral("exported"));
-        QCOMPARE(scene.app->candidates()->roundId(), roundId);
+        QTRY_COMPARE(scene.app->candidates()->roundId(), roundId);
         QVERIFY(!scene.app->candidates()->roundRecoverable());
         QVERIFY(!scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isVisible());
         QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());

@@ -389,10 +389,6 @@ public static partial class CollectorTexts
     public static UserText CaptureGameRegionAmbiguous() =>
         new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。");
 
-    /// <summary><c>capture.game.region_override_applied</c>: 这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</summary>
-    public static UserText CaptureGameRegionOverrideApplied() =>
-        new("capture.game.region_override_applied", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。");
-
     /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。</summary>
     public static UserText CaptureGameRegionOverrideMismatch() =>
         new("capture.game.region_override_mismatch", "设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。");

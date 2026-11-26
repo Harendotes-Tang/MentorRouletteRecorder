@@ -120,7 +120,6 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。", "capture.game.path_denied"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。", "capture.game.path_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_ambiguous"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。", "capture.game.region_override_applied"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "设置中手动指定的区服、这个客户端的安装路径和它的程序文件表明的区服不一致，因此暂不进行任何自动记录。安装路径能明确表明区服时以路径为准：如果手动指定的区服选错了，请到设置里清除它；如果是安装文件夹的名称让软件认错了区服，请把游戏移到名称里不带其他区服字样的文件夹，再重新启动游戏。", "capture.game.region_override_mismatch"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_unmarked"), .args = ""},
     //: Placeholders: {file} shown as it is. Keep every {placeholder} exactly as written. {file} is the game's version file name, ffxivgame.ver.

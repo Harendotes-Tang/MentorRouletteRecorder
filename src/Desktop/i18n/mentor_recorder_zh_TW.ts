@@ -3427,11 +3427,6 @@ SHA256：%3</translation>
         <translation>無法從安裝路徑判斷伺服器地區（路徑同時含有多個伺服器地區的標記）。請到設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
     </message>
     <message>
-        <source>这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</source>
-        <comment>capture.game.region_override_applied</comment>
-        <translation>這個用戶端的安裝路徑表明的伺服器地區與設定中為它手動指定的伺服器地區不一致，已按手動指定的伺服器地區處理。若這不是你想要的，請到設定中清除手動指定的伺服器地區。</translation>
-    </message>
-    <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
         <translation>無法從安裝路徑判斷伺服器地區（路徑可讀取，但不含可辨識的伺服器地區標記）。請到設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）；在此之前不會進行任何自動記錄。</translation>

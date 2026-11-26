@@ -3427,11 +3427,6 @@ SHA256: %3</translation>
         <translation>The server region can&apos;t be determined from the install path (it contains markers for more than one region). Set the server region manually in Settings (CN / TC / Global); nothing is recorded automatically until then.</translation>
     </message>
     <message>
-        <source>这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</source>
-        <comment>capture.game.region_override_applied</comment>
-        <translation>The server region this client&apos;s install path indicates doesn&apos;t match the server region set manually for it in Settings, so the manually set region is used. If this isn&apos;t what you want, clear the manually set region in Settings.</translation>
-    </message>
-    <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
         <translation>The server region can&apos;t be determined from the install path (the path is readable but has no recognizable region marker). Set the server region manually in Settings (CN / TC / Global); nothing is recorded automatically until then.</translation>
