@@ -29,6 +29,9 @@ Button {
     // result popup's answers use these.
     property string overlayIcon: ""
     property bool iconAfterText: false
+    // A second Lucide icon after the label, for a button that also has a leading one: the
+    // external-link mark of a link with its own icon, or a menu button's chevron.
+    property string trailingIconName: ""
     readonly property int iconSize: compact ? 12 : 14
     readonly property bool hasIcon: (overlayIcon.length > 0 && OverlayIcons.has(overlayIcon))
                                     || (iconName.length > 0 && Lucide.has(iconName))
@@ -197,16 +200,19 @@ Button {
 
         readonly property real iconSpan: icon.visible ? icon.width : 0
         readonly property real gap: icon.visible && label.visible ? 6 : 0
-        // The label, not the icon, gives way when the button is narrower than
+        // The trailing icon with the gap before it.
+        readonly property real trailingSpan: trailing.visible ? trailing.width + (label.visible || icon.visible ? 6 : 0) : 0
+        // The label, not the icons, gives way when the button is narrower than
         // its content.
         readonly property real labelWidth: Math.min(label.implicitWidth,
-                                                    Math.max(0, width - iconSpan - gap))
-        readonly property real contentWidth: iconSpan + gap + labelWidth
+                                                    Math.max(0, width - iconSpan - gap - trailingSpan))
+        readonly property real contentWidth: iconSpan + gap + labelWidth + trailingSpan
         // Not `left`: that is Item's own anchor line.
         readonly property real contentLeft: Math.max(0, (width - contentWidth) / 2)
 
-        implicitWidth: iconSpan + gap + label.implicitWidth
-        implicitHeight: Math.max(icon.visible ? icon.height : 0, label.implicitHeight)
+        implicitWidth: iconSpan + gap + label.implicitWidth + trailingSpan
+        implicitHeight: Math.max(icon.visible ? icon.height : 0, trailing.visible ? trailing.height : 0,
+                                 label.implicitHeight)
         // Let baseline-aligned rows use the rendered label, including its vertical centering.
         baselineOffset: label.y + label.baselineOffset
 
@@ -225,6 +231,20 @@ Button {
             source: !control.hasIcon ? ""
                     : control.overlayIcon.length > 0 ? OverlayIcons.source(control.overlayIcon, control.foreground)
                     : Lucide.source(control.iconName, control.foreground)
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+        }
+
+        Image {
+            id: trailing
+            objectName: "buttonTrailingIcon"
+            visible: control.trailingIconName.length > 0 && Lucide.has(control.trailingIconName)
+            width: control.iconSize
+            height: control.iconSize
+            x: content.contentLeft + content.contentWidth - width
+            y: Math.round((parent.height - height) / 2)
+            sourceSize: icon.sourceSize
+            source: visible ? Lucide.source(control.trailingIconName, control.foreground) : ""
             fillMode: Image.PreserveAspectFit
             smooth: true
         }

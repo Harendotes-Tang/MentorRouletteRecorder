@@ -56,6 +56,7 @@ private slots:
     void library_writesTranslucentColoursAsStrokeOpacity();
     void appButton_drawsTheIconInTheLabelColour();
     void appButton_withoutAnIconIsTheOldTextButton();
+    void appButton_drawsATrailingIconAfterTheLabel();
     void appButton_ignoresAnUnknownIconName();
     void navItem_showsThePageIconInsteadOfTheNumber();
     void noteImages_keyboardActions_data();
@@ -225,6 +226,39 @@ AppButton { text: "导出 CSV" })"), qPrintable(scene.errors));
     QVERIFY(label->isVisible());
     // Same width rule as before: text plus 28 px, at least 80.
     QCOMPARE(button->implicitWidth(), std::max(80.0, label->implicitWidth() + 28));
+}
+
+// 「攻略目录 ↗」 drew its arrow as text (owner, 2026-11-26): a link that has its own icon puts
+// the external-link icon after the label, and a menu button its chevron, the same way.
+void IconTests::appButton_drawsATrailingIconAfterTheLabel()
+{
+    Scene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import MentorRecorder
+Item {
+    width: 400; height: 120
+    AppButton { objectName: "link"; text: "攻略目录"; iconName: "book-open-text"; trailingIconName: "external-link" }
+    AppButton { objectName: "plain"; text: "攻略目录"; iconName: "book-open-text"; trailingIconName: "no-such-icon"; y: 60 }
+})"), qPrintable(scene.errors));
+    QQuickItem *link = childNamed(scene.root.get(), QStringLiteral("link"));
+    QQuickItem *plain = childNamed(scene.root.get(), QStringLiteral("plain"));
+    QVERIFY(link && plain);
+    QQuickItem *icon = link->findChild<QQuickItem *>(QStringLiteral("buttonIcon"));
+    QQuickItem *label = link->findChild<QQuickItem *>(QStringLiteral("buttonLabel"));
+    QQuickItem *trailing = link->findChild<QQuickItem *>(QStringLiteral("buttonTrailingIcon"));
+    QVERIFY(icon && label && trailing);
+    QVERIFY(icon->isVisible() && trailing->isVisible());
+    QCOMPARE(trailing->width(), 14.0);
+    QTRY_COMPARE_WITH_TIMEOUT(trailing->property("status").toInt(), 1 /* Image.Ready */, 5000);
+    const QString svg = svgOf(trailing->property("source").toUrl().toString());
+    QVERIFY2(svg.contains(QStringLiteral("stroke=\"") + label->property("color").value<QColor>().name(QColor::HexRgb) + u'"'),
+             qPrintable(svg));
+    // Leading icon, label, trailing icon, left to right, with a 6 px gap before the trailing one.
+    QTRY_VERIFY(icon->x() < label->x());
+    QTRY_COMPARE(trailing->x(), label->x() + label->width() + 6);
+    // An unknown trailing icon takes no room.
+    QVERIFY(!plain->findChild<QQuickItem *>(QStringLiteral("buttonTrailingIcon"))->isVisible());
+    QCOMPARE(link->implicitWidth(), plain->implicitWidth() + 14 + 6);
 }
 
 void IconTests::appButton_ignoresAnUnknownIconName()

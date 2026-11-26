@@ -16,8 +16,8 @@ AppButton {
     readonly property alias menu: popup
     signal picked(string key, var item)
 
-    iconName: "chevron-down"
-    iconAfterText: true
+    // The chevron sits after the label, so the button can still lead with an icon of its own.
+    trailingIconName: "chevron-down"
     Accessible.role: Accessible.ButtonMenu
     onClicked: popup.visible ? popup.close() : popup.open()
     onVisibleChanged: if (!visible) popup.close()

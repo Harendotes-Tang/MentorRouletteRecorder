@@ -8,6 +8,7 @@ AppButton {
     property alias showSource: guide.showSource
     focusPolicy: Qt.NoFocus
     iconName: "book-open-text"
+    trailingIconName: "external-link"
     ToolTip.visible: hovered
     ToolTip.text: guide.tip
     action: DutyGuideAction {

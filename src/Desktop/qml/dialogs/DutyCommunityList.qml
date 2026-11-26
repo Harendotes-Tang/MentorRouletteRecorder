@@ -73,7 +73,7 @@ ColumnLayout {
             objectName: "dutyCommunitySort"
             compact: true
             variant: "ghost"
-            iconName: "arrow-up-down"
+            trailingIconName: "arrow-up-down"
             // 最近用过 is its own order.
             enabled: pane.store.activeScope !== "recent"
             text: (pane.store.sortOptions.find(option => option.value === pane.store.sortKey)

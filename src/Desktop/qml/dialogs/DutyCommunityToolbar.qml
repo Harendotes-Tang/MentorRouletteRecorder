@@ -88,6 +88,7 @@ RowLayout {
     ActionMenuButton {
         objectName: "dutyCommunityImportMenu"
         visible: !bar.store.remote
+        iconName: "file-input"
         text: qsTr("导入")
         groups: [{ head: "", items: [
             { key: "public", icon: "globe", label: qsTr("从公共共享库挑选"), sub: qsTr("到「公共共享库」里勾选，再导入到本地") },
@@ -99,6 +100,7 @@ RowLayout {
         objectName: "dutyCommunityNewMenu"
         visible: !bar.store.remote
         variant: "primary"
+        iconName: "plus"
         text: qsTr("新建")
         menuWidth: 340
         groups: [
