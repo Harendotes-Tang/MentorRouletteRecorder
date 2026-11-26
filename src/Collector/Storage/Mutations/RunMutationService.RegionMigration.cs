@@ -67,6 +67,7 @@ public sealed partial class RunMutationService
             throw CollectorException.BadRequest(CollectorTexts.BaselineTotalTooLarge(), "baseline_overlap");
         foreach (var run in runs)
         {
+            _database.YieldToLiveCapture();
             Commit(run, run with { Region = migration.Region, ProfileId = profile.ProfileId }, ChangeKind.Correct,
                 reason, AuditRequestId(requestId, run), fingerprint, transaction,
                 markCorrected: false, clearPendingReview: false);

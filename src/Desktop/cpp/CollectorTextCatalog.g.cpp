@@ -230,6 +230,8 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请选择不重复的标准记录编号，一次最多 {max} 条。", "history.batch.ids_invalid"), .args = "max:number"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "恢复和永久删除只能处理已软删除的记录。", "history.batch.not_deleted"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "此请求编号已用于不同的批量操作。", "history.batch.request_reused"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。", "history.batch.run_in_progress"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。", "history.batch.yielded_to_recording"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "目标角色的起始次数已变化，请重新预览。", "history.region.baseline_changed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请选择与来源不同的目标区服。", "history.region.different_target"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。", "history.region.duplicate"), .args = ""},

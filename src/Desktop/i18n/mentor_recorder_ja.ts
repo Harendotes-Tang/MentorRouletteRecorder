@@ -3517,6 +3517,16 @@ SHA256：%3</translation>
         <translation>検証のみで、自動記録はしません。設定で手動指定したリージョン、このクライアントのインストール先、そのプログラムファイルが示すリージョンが一致しません。インストール先からリージョンがはっきりわかる場合は、インストール先を優先します。手動指定したリージョンが間違っている場合は、設定で解除してください。インストールフォルダーの名前のせいでリージョンを誤って判定した場合は、ほかのリージョンを示す文字が名前に含まれないフォルダーにゲームを移してから、ゲームを再起動してください。</translation>
     </message>
     <message>
+        <source>有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。</source>
+        <comment>history.batch.run_in_progress</comment>
+        <translation>記録中のプレイがあります。終わってからこの一括操作を実行してください。記録は一切変更されていません。</translation>
+    </message>
+    <message>
+        <source>软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。</source>
+        <comment>history.batch.yielded_to_recording</comment>
+        <translation>アプリがゲームの内容を記録中のため、今回の一括操作は実行されず、記録は一切変更されていません。しばらくしてから再試行してください。</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>バックアップ内の記録元の情報が不完全です。バックアップを作成し直してから再試行してください。</translation>

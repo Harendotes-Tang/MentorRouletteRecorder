@@ -763,8 +763,14 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
             if (movingRuns)
                 Q_EMIT regionMovePendingChanged(false, ok || uncertain);
             if (!ok) {
-                m_batchFeedback = [unsent, uncertain, code,
+                // ERR_DB_BUSY changed nothing (a run being recorded, or the batch gave way to the
+                // recording): the Collector's sentence says so and asks for a later retry, which
+                // reuses this request with the ticks kept (audit 2026-11-26 H1b-1).
+                const bool busy = !unsent && !uncertain && code == QLatin1String("ERR_DB_BUSY");
+                m_batchFeedback = [unsent, uncertain, busy, code,
                                    refusal = collector_text::replyErrorText(batchGuard, message)] {
+                    if (busy && !refusal.isEmpty())
+                        return refusal.text();
                     // %1 is the Collector's own sentence (or its code).
                     const QString sentence = [unsent, uncertain] {
                         if (unsent)

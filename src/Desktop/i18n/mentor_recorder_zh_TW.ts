@@ -3517,6 +3517,16 @@ SHA256：%3</translation>
         <translation>僅驗證，不自動記錄。設定中手動指定的伺服器地區、這個用戶端的安裝路徑和它的程式檔案表明的伺服器地區不一致。安裝路徑能明確表明伺服器地區時以路徑為準：如果手動指定的伺服器地區選錯了，請到設定中清除它；如果是安裝資料夾的名稱讓軟體認錯了伺服器地區，請把遊戲移到名稱裡不含其他伺服器地區字樣的資料夾，再重新啟動遊戲。</translation>
     </message>
     <message>
+        <source>有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。</source>
+        <comment>history.batch.run_in_progress</comment>
+        <translation>有一場記錄正在進行，結束後再執行這次批次操作。任何記錄都沒有變動。</translation>
+    </message>
+    <message>
+        <source>软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。</source>
+        <comment>history.batch.yielded_to_recording</comment>
+        <translation>軟體正在記錄遊戲內容，這次批次操作沒有執行，任何記錄都沒有變動。請稍後再試。</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>備份中的記錄來源資訊不完整，請重新建立備份後重試。</translation>

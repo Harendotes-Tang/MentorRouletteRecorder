@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTimeZone>
+#include <QTimer>
 
 #include <algorithm>
 #include <utility>
@@ -70,6 +71,9 @@ public:
     QList<QVariantMap> exports;
     QList<QVariantMap> batches;
     bool dropBatchReply = false;
+    /// When set, the next BatchMutateRuns is refused with ERR_DB_BUSY and this message_ref key,
+    /// as the Collector answers a batch it did not run; the mock's records stay as they are.
+    QString refuseBatchWithKey;
 
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
@@ -89,6 +93,14 @@ public:
                                     const QString &requestId) override
     {
         actions.append({type, payload, requestId});
+        if (type == QLatin1String("BatchMutateRuns") && !refuseBatchWithKey.isEmpty()) {
+            auto *refused = new mr::BackendReply(requestId, type, this);
+            QTimer::singleShot(0, refused, [refused, key = std::exchange(refuseBatchWithKey, {})] {
+                refused->fail(QStringLiteral("ERR_DB_BUSY"), QStringLiteral("数据库正忙"), {},
+                              QJsonObject{{QStringLiteral("key"), key}});
+            });
+            return refused;
+        }
         auto *reply = MockBackend::requestWithId(type, payload, requestId);
         if (type != QLatin1String("BatchMutateRuns"))
             return reply;
@@ -475,6 +487,47 @@ private Q_SLOTS:
         QCOMPARE(retry.payload, first.payload);
         client.stop();
 #endif
+    }
+
+    void aStagedBatchTheCollectorDidNotRunKeepsTheTicksAndShowsItsSentence_data()
+    {
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<QString>("sentence");
+        QTest::newRow("yielded") << QStringLiteral("history.batch.yielded_to_recording")
+            << QStringLiteral("软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。");
+        QTest::newRow("run in progress") << QStringLiteral("history.batch.run_in_progress")
+            << QStringLiteral("有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。");
+    }
+
+    void aStagedBatchTheCollectorDidNotRunKeepsTheTicksAndShowsItsSentence()
+    {
+        QFETCH(QString, key);
+        QFETCH(QString, sentence);
+        SelectionMockBackend backend;
+        backend.resetRuns(selectionRuns(), {});
+        mr::HistoryController history(&backend);
+        history.checkAllMatchingRuns();
+        QTRY_COMPARE_WITH_TIMEOUT(history.checkedRunCount(), kLargeCount, 10000);
+        QSignalSpy refresh(&history, &mr::HistoryController::refreshRequested);
+
+        backend.refuseBatchWithKey = key;
+        history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("测试批量"));
+        QTRY_VERIFY_WITH_TIMEOUT(!history.batchRunning(), 10000);
+        const auto refused = backend.actions.last();
+        QCOMPARE(refused.type, QStringLiteral("BatchMutateRuns"));
+        QVERIFY(refused.payload.contains(QStringLiteral("selection_id")));
+        // Only the Collector's sentence: nothing was applied, and nothing is left unconfirmed.
+        QCOMPARE(history.batchFeedback(), sentence);
+        QCOMPARE(history.checkedRunCount(), kLargeCount);
+        QCOMPARE(refresh.count(), 0);
+        QVERIFY(backend.batches.isEmpty());
+
+        // The retry later is the same request, and applies.
+        history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("测试批量"));
+        QTRY_COMPARE_WITH_TIMEOUT(history.checkedRunCount(), 0, 15000);
+        QCOMPARE(backend.batches.size(), 1);
+        QCOMPARE(backend.actions.last().id, refused.id);
+        QCOMPARE(backend.actions.last().payload, refused.payload);
     }
 
     void uncertainBatchRetryKeepsRequestIdentity()

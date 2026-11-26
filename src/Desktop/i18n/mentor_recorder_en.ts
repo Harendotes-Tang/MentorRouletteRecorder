@@ -3517,6 +3517,16 @@ SHA256: %3</translation>
         <translation>Validation only, no automatic recording. The server region set manually in Settings, this client&apos;s install path and its program files don&apos;t agree on the server region. When the install path clearly indicates a region, the path takes precedence: if the manually set region is wrong, clear it in Settings; if the install folder&apos;s name made the app pick the wrong region, move the game to a folder whose name doesn&apos;t mention another region, then restart the game.</translation>
     </message>
     <message>
+        <source>有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。</source>
+        <comment>history.batch.run_in_progress</comment>
+        <translation>A run is being recorded right now. Run this bulk action after it ends. No records were changed.</translation>
+    </message>
+    <message>
+        <source>软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。</source>
+        <comment>history.batch.yielded_to_recording</comment>
+        <translation>The app is recording the game right now, so this bulk action wasn&apos;t carried out and no records were changed. Try again later.</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>The record source information in the backup is incomplete. Create the backup again and retry.</translation>

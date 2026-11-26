@@ -62,6 +62,12 @@ public sealed partial class RunMutationService
             }
             if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
                 throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
+            // A staged batch can run for seconds; while a duty is being recorded it is not started at
+            // all, and once started it gives way to a waiting live-capture write (YieldToLiveCapture),
+            // rolling back whole (audit 2026-11-26 H1b-1). Either way nothing is changed and the same
+            // request can be sent again.
+            if (selectionId is not null && _runs.AnyRunInFlight(tx))
+                throw new CollectorException(ErrorCodes.DbBusy, CollectorTexts.HistoryBatchRunInProgress(), retryable: true);
             var targets = sorted ?? loadSelection!(selectionId!);
             var runs = targets.Select(target =>
             {
@@ -92,6 +98,7 @@ public sealed partial class RunMutationService
                 var deleted = command.Action == "soft_delete";
                 foreach (var before in runs)
                 {
+                    _database.YieldToLiveCapture();
                     Commit(before, deleted ? before with { SoftDeleted = true } : Restored(before, tx),
                         deleted ? ChangeKind.SoftDelete : ChangeKind.Restore,
                         reason, AuditRequestId(command.RequestId, before), fingerprint, tx, markCorrected: false, clearPendingReview: deleted);
@@ -115,8 +122,10 @@ public sealed partial class RunMutationService
         return targets.OrderBy(target => target.RunId, StringComparer.Ordinal).ToArray();
     }
 
+    /// <summary>Loads one target of a batch or a migration preview, giving way to live capture first.</summary>
     private MentorRun LoadBatchTarget(BatchRunTarget target, SqliteTransaction transaction)
     {
+        _database.YieldToLiveCapture();
         var run = Load(target.RunId, transaction);
         RequireRevision(run, target.ExpectedRevision);
         return run;
@@ -146,6 +155,7 @@ public sealed partial class RunMutationService
             throw new CollectorException(ErrorCodes.NoChanges, CollectorTexts.ProfileAssignUnchanged(), field: "profile_id");
         foreach (var before in moved)
         {
+            _database.YieldToLiveCapture();
             Commit(before, before with { ProfileId = profileId }, ChangeKind.Correct, reason,
                 AuditRequestId(requestId, before), fingerprint, transaction, markCorrected: false, clearPendingReview: false);
             // The player's word replaces the automatic stamp for good: an answer about the

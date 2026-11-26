@@ -372,6 +372,11 @@ payload: <LiveEvent>}`。
 `BatchMutateRuns` 与 `PreviewRunRegionMigration` 只有指明暂存选择集（`selection_id`）时延后，直接列出 `runs` 的请求有
 2000 条的上限，仍在读循环上应答。指明 `selection_id` 的批量变更在读循环上、按收到的顺序取下暂存的集合，
 之后才交给后台执行，因此客户端随后发出的 `release` 不能撤回已受理的批量变更。
+后台执行的批量变更可能持续数秒，实时抓包写入优先：有一场记录正在进行时，指明 `selection_id` 的批量变更在开始前即答
+可重试的 `ERR_DB_BUSY`（`history.batch.run_in_progress`）；执行中的批量变更（两种形态）、带 `selection_id` 的区服迁移预览、
+永久删除与历史保留期清理在逐条处理之间检查，实时写入等待写连接锁已达 200 ms（`SqliteDatabase.YieldToLiveCapture`）时
+整个事务回滚，答 `ERR_DB_BUSY`（`history.batch.yielded_to_recording`），不改动任何记录、不写回执，可以相同 `request_id` 重试。
+导入提交目前尚不让步；备份、导出与完整性校验使用只读连接，不占用写连接锁（[data-model.md](data-model.md) 开头的连接参数）。
 延后的应答按各自完成的先后写回，可能与请求的顺序不同，客户端只能按 `request_id` 对应。
 同一连接上已受理而尚未应答（仍在处理，或已有结果
 尚未写出）的这类请求最多 10 条（`PipeConnection.MaxDeferredResponses`）；其中尚未应答的 `CheckUpdateNow`

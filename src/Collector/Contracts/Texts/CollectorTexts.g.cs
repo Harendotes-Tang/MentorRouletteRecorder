@@ -817,6 +817,14 @@ public static partial class CollectorTexts
     public static UserText HistoryBatchRequestReused() =>
         new("history.batch.request_reused", "此请求编号已用于不同的批量操作。");
 
+    /// <summary><c>history.batch.run_in_progress</c>: 有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。</summary>
+    public static UserText HistoryBatchRunInProgress() =>
+        new("history.batch.run_in_progress", "有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。");
+
+    /// <summary><c>history.batch.yielded_to_recording</c>: 软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。</summary>
+    public static UserText HistoryBatchYieldedToRecording() =>
+        new("history.batch.yielded_to_recording", "软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。");
+
     /// <summary><c>history.region.baseline_changed</c>: 目标角色的起始次数已变化，请重新预览。</summary>
     public static UserText HistoryRegionBaselineChanged() =>
         new("history.region.baseline_changed", "目标角色的起始次数已变化，请重新预览。");

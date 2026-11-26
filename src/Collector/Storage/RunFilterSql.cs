@@ -23,6 +23,13 @@ public static class RunFilterSql
         "EXISTS (SELECT 1 FROM run_revisions ir WHERE ir.run_id = mentor_runs.run_id " +
         "AND ir.revision = 1 AND ir.change_kind = 'IMPORT'))";
 
+    /// <summary>
+    /// The shape of an automatic run still in flight, over <c>mentor_runs</c>: the SQL form of
+    /// <see cref="Domain.Mutations.RunMutationRules.ReadsAsInFlight"/>.
+    /// </summary>
+    public const string InFlightPredicate = "(source = 'AUTO_NETWORK' AND NOT " + ImportedHistoryPredicate +
+        " AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)";
+
     // Date-only provenance describes an archival day, not a fabricated game instant.
     // SQLite validates the normalized value before it may be used by a date projection.
     private const string SourceDay = "CASE " +
@@ -143,9 +150,7 @@ public static class RunFilterSql
             // as the duty lasts (docs/statistics-definitions.md section 0). An unfinished run
             // that crash recovery handed to the player carries pending_review = 1 and DOES count:
             // it is over, only nobody saw how.
-            clauses.Add(
-                $"NOT (source = 'AUTO_NETWORK' AND NOT {ImportedHistoryPredicate} " +
-                "AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)");
+            clauses.Add("NOT " + InFlightPredicate);
         }
 
         var dateColumn = ColumnOf(filter.DateField);

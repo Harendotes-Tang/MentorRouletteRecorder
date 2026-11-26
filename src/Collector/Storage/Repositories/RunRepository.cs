@@ -151,6 +151,8 @@ public sealed class RunRepository
         var index = new Dictionary<MigrationKey, List<MigrationIdentity>>();
         foreach (var run in runs)
         {
+            // Many records of one duty and job share a key, so this scan grows with the square of the selection.
+            _database.YieldToLiveCapture();
             var identity = new MigrationIdentity(run.RunId, run.ContentId, run.DutyName, run.JobId,
                 UtcTimestamp.ToTextOrNull(run.MatchedAtUtc), UtcTimestamp.ToTextOrNull(run.EnteredAtUtc),
                 UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc));
@@ -471,6 +473,25 @@ public sealed class RunRepository
 
         AttachAll(runs, transaction);
         return runs;
+    }
+
+    /// <summary>
+    /// Whether a run is being recorded right now: a run in the in-flight shape
+    /// (<see cref="RunFilterSql.InFlightPredicate"/>) under a capture session that is still open.
+    /// A run of that shape left behind by an earlier process does not count: start-up recovery
+    /// closes that process's sessions.
+    /// </summary>
+    /// <param name="transaction">Enclosing transaction.</param>
+    internal bool AnyRunInFlight(SqliteTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "SELECT EXISTS (SELECT 1 FROM mentor_runs WHERE soft_deleted = 0 AND " + RunFilterSql.InFlightPredicate +
+            " AND EXISTS (SELECT 1 FROM capture_sessions s WHERE s.capture_session_id = mentor_runs.capture_session_id" +
+            " AND s.ended_at_utc IS NULL));";
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 
     /// <summary>

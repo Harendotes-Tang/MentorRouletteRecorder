@@ -471,4 +471,326 @@ public sealed class HistoryRetentionTests
         Assert.Equal(0, retention.CheckExpired(force: true));
         clock.UtcNow += TimeSpan.FromDays(30); Assert.Equal(1, retention.CheckExpired(force: true));
     }
+
+    [Theory]
+    [InlineData("soft_delete")]
+    [InlineData("restore")]
+    [InlineData("purge")]
+    [InlineData("assign_profile")]
+    [InlineData("move_region")]
+    [InlineData("preview")]
+    public void AStagedBatchGivesWayToAWaitingLiveCaptureWriteAndChangesNothing(string action)
+    {
+        using var f = new Fixture();
+        var (selectionId, selections, targets) = SeedLargeHistory(f, 30, softDeleted: action is "restore" or "purge");
+        using var staged = selections;
+        var command = LargeBatchCommand(f, action == "preview" ? RunMutationService.MoveRegionAction : action, [], selectionId);
+        var before = AllRuns(f);
+        var revisions = CountRows(f, "run_revisions");
+
+        var refusal = RefusedWhileALiveCaptureWriteWaits(f.Db.Database, () =>
+        {
+            if (action == "preview")
+                f.Mutations.PreviewStagedRunRegionMigration(selections.RequireStaged(selectionId), Region.Tc, command.Migration!.ProfileId);
+            else
+                f.Mutations.BatchMutateRuns(command, selections.RequireStaged);
+        });
+
+        Assert.Equal((ErrorCodes.DbBusy, true, "history.batch.yielded_to_recording"),
+            (refusal.Code, refusal.Retryable, refusal.Text?.Key));
+        Assert.Equal(before, AllRuns(f));
+        Assert.Equal(revisions, CountRows(f, "run_revisions"));
+        Assert.Equal(0, CountRows(f, "ipc_idempotency"));
+        Assert.Empty(f.Retention.PendingImageCleanup());
+
+        // With no live write waiting the same request applies in full, with one receipt.
+        if (action == "preview")
+        {
+            Assert.Equal(Region.Cn, f.Mutations.PreviewStagedRunRegionMigration(
+                selections.RequireStaged(selectionId), Region.Tc, command.Migration!.ProfileId).SourceRegion);
+            return;
+        }
+        var outcome = f.Mutations.BatchMutateRuns(command, selections.RequireStaged);
+        Assert.Equal(action == RunMutationService.AssignProfileAction ? 15 : targets.Length, outcome.ChangedCount);
+        Assert.False(outcome.IdempotentReplay);
+        Assert.Equal(1, CountRows(f, "ipc_idempotency"));
+        Assert.True(f.Mutations.BatchMutateRuns(command, selections.RequireStaged).IdempotentReplay);
+    }
+
+    [Fact]
+    public void ALiveCaptureWriteWaitingBehindALongStagedBatchGetsTheGateWithinASecond()
+    {
+        using var f = new Fixture();
+        var (selectionId, selections, targets) = SeedLargeHistory(f, 400, softDeleted: false);
+        using var staged = selections;
+        var command = LargeBatchCommand(f, "soft_delete", [], selectionId);
+        var before = AllRuns(f);
+        // Every changed row costs 10 ms here, so the batch alone would hold the gate for at least four seconds.
+        using var batchStarted = new ManualResetEventSlim();
+        using (var setup = f.Db.Database.CreateCommand())
+        {
+            setup.Connection!.CreateFunction("mr_test_pause", () => { batchStarted.Set(); Thread.Sleep(10); return 0L; });
+            setup.CommandText = "CREATE TEMP TRIGGER slow_batch BEFORE UPDATE ON mentor_runs BEGIN SELECT mr_test_pause(); END;";
+            setup.ExecuteNonQuery();
+        }
+
+        var batch = Task.Run(() => f.Mutations.BatchMutateRuns(command, selections.RequireStaged));
+        Assert.True(batchStarted.Wait(TimeSpan.FromSeconds(30)));
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        f.Db.Database.RunLiveCaptureTransaction(_ => { });
+        waited.Stop();
+
+        Assert.True(waited.Elapsed < TimeSpan.FromSeconds(1), $"live write waited {waited.Elapsed.TotalMilliseconds:F0} ms");
+        var refusal = Assert.Throws<CollectorException>(() => batch.GetAwaiter().GetResult());
+        Assert.Equal((ErrorCodes.DbBusy, "history.batch.yielded_to_recording"), (refusal.Code, refusal.Text?.Key));
+        Assert.Equal(before, AllRuns(f));
+        Assert.Equal(0, CountRows(f, "ipc_idempotency"));
+
+        using (var drop = f.Db.Database.CreateCommand())
+        {
+            drop.CommandText = "DROP TRIGGER temp.slow_batch;";
+            drop.ExecuteNonQuery();
+        }
+        Assert.Equal(targets.Length, f.Mutations.BatchMutateRuns(command, selections.RequireStaged).ChangedCount);
+    }
+
+    [Fact]
+    public void AStagedBatchIsRefusedWhileARunIsBeingRecorded()
+    {
+        using var f = new Fixture();
+        var (selectionId, selections, targets) = SeedLargeHistory(f, 3, softDeleted: false);
+        using var staged = selections;
+        var session = f.Db.OpenCaptureSession(Region.Cn, gameBuild: null);
+        f.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, result: RunResult.Unknown) with
+            { EndedAtUtc = null, DurationMs = null, CaptureSessionId = session });
+        var command = LargeBatchCommand(f, "soft_delete", [], selectionId);
+        var before = AllRuns(f);
+
+        var refusal = Assert.Throws<CollectorException>(() => f.Mutations.BatchMutateRuns(command, selections.RequireStaged));
+        Assert.Equal((ErrorCodes.DbBusy, true, "history.batch.run_in_progress"),
+            (refusal.Code, refusal.Retryable, refusal.Text?.Key));
+        Assert.Equal(before, AllRuns(f));
+        Assert.Equal(0, CountRows(f, "ipc_idempotency"));
+
+        // Once that capture session is over, the run left in that shape no longer counts as being recorded.
+        f.Db.Database.RunInTransaction(tx => new CaptureSessionRepository(f.Db.Database)
+            .Close(session, f.Db.Clock.UtcNow, CaptureEndReason.UserStop, tx));
+        Assert.Equal(targets.Length, f.Mutations.BatchMutateRuns(command, selections.RequireStaged).ChangedCount);
+
+        // A replay of the applied batch is answered from its receipt even while another run is recorded.
+        var next = f.Db.OpenCaptureSession(Region.Cn, gameBuild: null);
+        f.Db.InsertWithFirstRevision(TestDatabase.Run(source: RunSource.AutoNetwork, result: RunResult.Unknown) with
+            { EndedAtUtc = null, DurationMs = null, CaptureSessionId = next });
+        Assert.True(f.Mutations.BatchMutateRuns(command, selections.RequireStaged).IdempotentReplay);
+    }
+
+    private static MentorRun[] AllRuns(Fixture f) =>
+        f.Runs.Query(new RunFilter { IncludeDeleted = true }, null, 1, Paging.MaxPageSize).Items.ToArray();
+
+    private static long CountRows(Fixture f, string table)
+    {
+        using var command = f.Db.Database.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM " + table + ";";
+        return (long)command.ExecuteScalar()!;
+    }
+
+    /// <summary>
+    /// Holds the database gate on this thread while a live-capture write waits for it on another, for longer
+    /// than the yield threshold, then runs <paramref name="work"/> under the same (reentrant) gate and returns
+    /// what it threw. The waiting write completes once the gate is free.
+    /// </summary>
+    private static CollectorException RefusedWhileALiveCaptureWriteWaits(SqliteDatabase database, Action work)
+    {
+        Thread? writer = null;
+        var refusal = database.Read(_ =>
+        {
+            writer = new Thread(() => database.RunLiveCaptureTransaction(_ => { })) { IsBackground = true };
+            writer.Start();
+            Assert.True(SpinWait.SpinUntil(() => database.IsLiveCaptureWaiting, TimeSpan.FromSeconds(10)));
+            Thread.Sleep(SqliteDatabase.LiveCaptureYieldAfterMs + 50);
+            return Assert.Throws<CollectorException>(work);
+        });
+        Assert.True(writer!.Join(TimeSpan.FromSeconds(10)));
+        Assert.False(database.IsLiveCaptureWaiting);
+        return refusal;
+    }
+
+    private readonly Xunit.Abstractions.ITestOutputHelper _output;
+
+    public HistoryRetentionTests(Xunit.Abstractions.ITestOutputHelper output) => _output = output;
+
+    /// <summary>
+    /// Measurement, not a gate (audit 2026-11-26 H1b-1): how long each long holder of the database gate
+    /// keeps a live-capture write waiting. Prints one table row per case.
+    /// </summary>
+    [Theory]
+    [Trait("Category", "Soak")]
+    [InlineData(5000)]
+    [InlineData(20000)]
+    public void LongDatabaseWorkAgainstALiveCaptureWriterBenchmark(int count)
+    {
+        _output.WriteLine("| rows | case | duration ms | answer | longest live wait ms | live writes |");
+        foreach (var action in new[] { "soft_delete", "restore", "purge", "assign_profile", "move_region" })
+        {
+            using var f = new Fixture();
+            var (selectionId, selections, targets) = SeedLargeHistory(f, count, softDeleted: action is "restore" or "purge");
+            using (selections)
+            {
+                var command = LargeBatchCommand(f, action, [], selectionId);
+                if (action == "move_region")
+                    Measure(count, "preview move_region", f.Db.Database, () => f.Mutations.PreviewStagedRunRegionMigration(
+                        selections.RequireStaged(selectionId), Region.Tc, command.Migration!.ProfileId).ContributingCount);
+                Measure(count, action, f.Db.Database,
+                    () => f.Mutations.BatchMutateRuns(command, selections.RequireStaged).ChangedCount);
+                if (action != "move_region")
+                {
+                    var inline = targets.Take(HistoryRetentionService.MaxBatchSize).ToArray();
+                    if (action is "soft_delete" or "assign_profile") inline = inline.Select(target => target with
+                        { ExpectedRevision = f.Runs.Get(target.RunId)!.Revision }).ToArray();
+                    if (action is "restore" or "purge")
+                    {
+                        // The staged pass already changed these; run the inline case on a fresh history.
+                        using var g = new Fixture();
+                        var (_, other, fresh) = SeedLargeHistory(g, HistoryRetentionService.MaxBatchSize, softDeleted: true);
+                        other.Dispose();
+                        Measure(HistoryRetentionService.MaxBatchSize, action + " inline", g.Db.Database,
+                            () => g.Mutations.BatchMutateRuns(LargeBatchCommand(g, action, fresh, null)).ChangedCount);
+                    }
+                    else if (action == "soft_delete")
+                        Measure(inline.Length, "restore inline", f.Db.Database,
+                            () => f.Mutations.BatchMutateRuns(LargeBatchCommand(f, "restore", inline, null)).ChangedCount);
+                    else
+                        Measure(inline.Length, "assign_profile inline (to none)", f.Db.Database, () => f.Mutations.BatchMutateRuns(
+                            LargeBatchCommand(f, action, inline, null) with { ProfileId = null }).ChangedCount);
+                }
+            }
+
+            if (action != "purge") continue;
+            using var h = new Fixture();
+            SeedLargeHistory(h, count, softDeleted: false).Selections.Dispose();
+            var backup = Path.Combine(Path.GetDirectoryName(h.Db.Path)!, "backup.db");
+            Measure(count, "BackupDatabase", h.Db.Database,
+                () => (int)(h.Db.Database.BackupDatabase(backup, overwrite: false).ByteCount / 1024));
+            var exporter = new RunExporter(h.Runs, h.Db.Clock, h.Db.Database);
+            Measure(count, "ExportJson", h.Db.Database, () => (int)exporter.ExportJson(
+                Path.Combine(Path.GetDirectoryName(h.Db.Path)!, "export.json"), null, overwrite: false).RowCount);
+            using var expired = new Fixture();
+            SeedLargeHistory(expired, count, softDeleted: true).Selections.Dispose();
+            expired.Db.Clock.UtcNow += TimeSpan.FromDays(31);
+            Measure(count, "retention CheckExpired", expired.Db.Database, () => expired.Retention.CheckExpired(force: true));
+        }
+    }
+
+    private void Measure(int rows, string name, SqliteDatabase database, Func<int> work)
+    {
+        var (elapsed, answer, longest, writes) = AgainstLiveWriter(database, work);
+        _output.WriteLine(FormattableString.Invariant(
+            $"| {rows} | {name} | {elapsed.TotalMilliseconds:F0} | {answer} | {longest.TotalMilliseconds:F0} | {writes} |"));
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> while another thread issues a trivial live-capture write every 50 ms,
+    /// and returns how long the work took, what it answered, and the longest any of those writes took.
+    /// </summary>
+    private static (TimeSpan Elapsed, string Answer, TimeSpan LongestLiveWrite, int LiveWrites) AgainstLiveWriter(
+        SqliteDatabase database, Func<int> work)
+    {
+        using var stop = new CancellationTokenSource();
+        var longest = TimeSpan.Zero;
+        var writes = 0;
+        var writer = new Thread(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var started = System.Diagnostics.Stopwatch.StartNew();
+                database.RunLiveCaptureTransaction(tx =>
+                {
+                    using var probe = database.CreateCommand();
+                    probe.Transaction = tx;
+                    probe.CommandText = "SELECT COUNT(*) FROM schema_migrations;";
+                    probe.ExecuteScalar();
+                });
+                if (started.Elapsed > longest) longest = started.Elapsed;
+                writes++;
+                stop.Token.WaitHandle.WaitOne(50);
+            }
+        }) { IsBackground = true, Name = "benchmark-live-writer" };
+        writer.Start();
+        Thread.Sleep(120);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        string answer;
+        try { answer = work().ToString(System.Globalization.CultureInfo.InvariantCulture); }
+        catch (CollectorException ex) { answer = ex.Code + " " + ex.Text?.Key; }
+        var elapsed = clock.Elapsed;
+        Thread.Sleep(120);
+        stop.Cancel();
+        writer.Join();
+        return (elapsed, answer, longest, writes);
+    }
+
+    /// <summary>
+    /// <paramref name="count"/> manual runs filed under the CN profile, each at revision 3 with its creation and two
+    /// corrections in the trail, every fifth with a reflection; staged as one selection.
+    /// </summary>
+    private static (string SelectionId, HistorySelectionStore Selections, BatchRunTarget[] Targets) SeedLargeHistory(
+        Fixture f, int count, bool softDeleted)
+    {
+        var profile = f.Db.CurrentProfile();
+        f.Db.CurrentProfile(Region.Tc);
+        var origin = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var runs = Enumerable.Range(0, count).Select(index => TestDatabase.Run(softDeleted: softDeleted,
+                enteredAt: origin.AddHours(index)) with
+            { Revision = 3, ProfileId = index % 2 == 0 ? profile : null, DeletedAtUtc = softDeleted ? f.Db.Clock.UtcNow : null })
+            .OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
+        var revisions = new RunRevisionRepository(f.Db.Database);
+        var reflections = new RunReflectionRepository(f.Db.Database);
+        f.Db.Database.RunInTransaction(tx =>
+        {
+            using var advance = f.Db.Database.CreateCommand();
+            advance.Transaction = tx;
+            advance.CommandText = "UPDATE mentor_runs SET revision = $revision WHERE run_id = $id;";
+            var advanceTo = advance.Parameters.Add("$revision", SqliteType.Integer);
+            var advanceId = advance.Parameters.Add("$id", SqliteType.Text);
+            for (var index = 0; index < runs.Length; index++)
+            {
+                var run = runs[index];
+                f.Runs.Insert(run with { Revision = 1 }, tx);
+                for (var revision = 1; revision <= 3; revision++)
+                {
+                    if (revision > 1)
+                    {
+                        (advanceTo.Value, advanceId.Value) = (revision, run.RunId);
+                        advance.ExecuteNonQuery();
+                    }
+                    revisions.Append(new RunRevision
+                    {
+                        RevisionId = Id(), RunId = run.RunId, Revision = revision, ChangedAtUtc = run.CreatedAtUtc,
+                        ChangeKind = revision == 1 ? ChangeKind.CreateManual : ChangeKind.Correct,
+                        Actor = RevisionActor.User, Reason = "测试", RequestId = Id(),
+                        Changes = revision == 1 ? [] : [new RunFieldChange("note", null, "第 " + revision + " 次")],
+                    }, tx);
+                }
+                if (index % 5 == 0) reflections.Upsert(run.RunId, ReflectionMood.Good, "心得", f.Db.Clock.UtcNow, tx);
+            }
+        });
+        var targets = runs.Select(run => new BatchRunTarget(run.RunId, run.Revision)).ToArray();
+        var selections = new HistorySelectionStore(f.Db.Database);
+        var selectionId = HistorySelectionStore.Digest(targets);
+        var chunks = targets.Chunk(Paging.MaxPageSize).ToArray();
+        for (var index = 0; index < chunks.Length; index++)
+            selections.Stage(selectionId, index, chunks[index], last: index == chunks.Length - 1);
+        return (selectionId, selections, targets);
+    }
+
+    private static BatchMutateRunsCommand LargeBatchCommand(Fixture f, string action, BatchRunTarget[] runs, string? selectionId)
+    {
+        var command = new BatchMutateRunsCommand(Id(), action, runs, "批量操作", SelectionId: selectionId);
+        return action switch
+        {
+            RunMutationService.AssignProfileAction => command with { ProfileId = f.Db.CurrentProfile() },
+            RunMutationService.MoveRegionAction => command with
+                { Migration = new RunRegionMigration(Region.Tc, f.Db.CurrentProfile(Region.Tc), 0, 0) },
+            _ => command,
+        };
+    }
 }

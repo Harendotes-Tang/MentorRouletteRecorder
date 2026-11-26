@@ -21,6 +21,9 @@ public sealed class SqliteDatabase : IDisposable
     private readonly object _gate = new();
     private bool _disposed;
 
+    // Stopwatch timestamp of the moment a live-capture write began to wait for _gate; 0 while none waits.
+    private long _liveCaptureWaitingSince;
+
     private SqliteDatabase(
         SqliteConnection connection, string path, int schemaVersion, Func<string, SqliteConnection> openReadOnly,
         TimeZoneInfo? snapshotZone = null)
@@ -388,7 +391,21 @@ public sealed class SqliteDatabase : IDisposable
         ArgumentNullException.ThrowIfNull(work);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        lock (_gate)
+        // The busy budgets below apply only once the gate is held; the wait for the gate itself is
+        // announced here so a long unit of work can give way (YieldToLiveCapture). Only the first
+        // waiter's mark is kept and only that waiter clears it: live writes come from the one parser thread.
+        var waitingSince = System.Diagnostics.Stopwatch.GetTimestamp();
+        var announced = Interlocked.CompareExchange(ref _liveCaptureWaitingSince, waitingSince, 0) == 0;
+        try
+        {
+            Monitor.Enter(_gate);
+        }
+        finally
+        {
+            if (announced) Interlocked.CompareExchange(ref _liveCaptureWaitingSince, 0, waitingSince);
+        }
+
+        try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var restoreTimeout = _connection.DefaultTimeout;
@@ -404,6 +421,36 @@ public sealed class SqliteDatabase : IDisposable
                 _connection.DefaultTimeout = restoreTimeout;
             }
         }
+        finally
+        {
+            Monitor.Exit(_gate);
+        }
+    }
+
+    /// <summary>
+    /// How long a live-capture write may wait for the gate before a long unit of work that calls
+    /// <see cref="YieldToLiveCapture"/> gives way, in ms. While the parser thread waits here, the bounded
+    /// decoded-message queue (DropOldest) absorbs the duty's traffic; a long batch held it for seconds
+    /// (audit 2026-11-26 H1b-1), this bounds the wait to a fraction of one.
+    /// </summary>
+    internal const int LiveCaptureYieldAfterMs = 200;
+
+    /// <summary>Whether a live-capture write is waiting for the gate right now.</summary>
+    internal bool IsLiveCaptureWaiting => Volatile.Read(ref _liveCaptureWaitingSince) != 0;
+
+    /// <summary>
+    /// Called between rows by a long unit of work that holds the gate (a staged batch over the history,
+    /// its region-migration preview, a purge). Throws <c>ERR_DB_BUSY</c> once a live-capture write has
+    /// waited <see cref="LiveCaptureYieldAfterMs"/> or longer, so the caller's transaction rolls back
+    /// whole and the recording goes first; the request can be sent again unchanged. Costs one volatile
+    /// read while no live write waits.
+    /// </summary>
+    internal void YieldToLiveCapture()
+    {
+        var since = Volatile.Read(ref _liveCaptureWaitingSince);
+        if (since != 0 && System.Diagnostics.Stopwatch.GetElapsedTime(since).TotalMilliseconds >= LiveCaptureYieldAfterMs)
+            throw new CollectorException(
+                ErrorCodes.DbBusy, CollectorTexts.HistoryBatchYieldedToRecording(), retryable: true);
     }
 
     /// <summary>

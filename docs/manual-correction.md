@@ -50,6 +50,10 @@
 桌面端可直接提交最多 2000 条 `runs[{run_id,expected_revision}]`。更多记录先通过
 `StageHistorySelection` 分页传送，再以同一份已封存的 `selection_id` 提交。两种方式均需填写理由，
 整批先检查版本及状态，任何冲突均不写入。
+批量操作为实时记录让路：以 `selection_id` 提交时若有一场记录正在进行（未删除、处于进行中形态、所属采集会话尚未结束），
+开始前即答 `ERR_DB_BUSY`（`history.batch.run_in_progress`）；已执行过的同一 `request_id` 仍按回执重放。
+两种方式在执行中，一旦实时抓包写入等待数据库锁达 200 ms，整批回滚、不写回执，答 `ERR_DB_BUSY`
+（`history.batch.yielded_to_recording`）。两种情形都没有改动任何记录，可以相同 `request_id` 原样重试。
 `purge` 仅接受已软删除记录；普通审计写入仍只追加，永久清理事务获得指定记录的删除授权。
 
 `assign_profile` 改动记录所属的角色档案（[data-model.md](data-model.md) §1.6）：`profile_id` 为同区服的档案编号，

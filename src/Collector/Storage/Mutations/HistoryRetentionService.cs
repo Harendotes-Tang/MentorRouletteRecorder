@@ -114,6 +114,9 @@ public sealed class HistoryRetentionService : IDisposable
         var fingerprint = purge.Parameters.Add("$fingerprint", SqliteType.Text);
         foreach (var run in runs)
         {
+            // Every caller rolls the whole purge back on this: a batch answers ERR_DB_BUSY, the
+            // retention check logs it and tries again within the hour.
+            _database.YieldToLiveCapture();
             id.Value = run.RunId;
             fingerprint.Value = Hash(run.RunId);
             purge.ExecuteNonQuery();
@@ -191,7 +194,11 @@ public sealed class HistoryRetentionService : IDisposable
                 var ids = new List<string>(); using (var reader = command.ExecuteReader())
                     while (reader.Read()) ids.Add(reader.GetString(0));
                 var repository = new Repositories.RunRepository(_database);
-                var runs = ids.Select(id => repository.GetInternal(id, tx)!).ToArray();
+                var runs = ids.Select(id =>
+                {
+                    _database.YieldToLiveCapture();
+                    return repository.GetInternal(id, tx)!;
+                }).ToArray();
                 Purge(runs, tx); return ids;
             });
             if (purgedIds.Count > 0) _onPurged?.Invoke(purgedIds);

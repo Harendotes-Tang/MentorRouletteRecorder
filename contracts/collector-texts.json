@@ -189,6 +189,8 @@
     "history.batch.request_reused": "此请求编号已用于不同的批量操作。",
     "history.batch.already_deleted": "选中的记录已删除，请刷新后重试。",
     "history.batch.not_deleted": "恢复和永久删除只能处理已软删除的记录。",
+    "history.batch.yielded_to_recording": "软件正在记录游戏内容，这次批量操作没有执行，任何记录都没有改动。请稍后再试。",
+    "history.batch.run_in_progress": "有一场记录正在进行，结束后再执行这次批量操作。任何记录都没有改动。",
     "history.selection.first_page_required": "请先读取历史勾选快照的第一页。",
     "history.selection.digest_invalid": "历史勾选标识须为 64 位小写十六进制字符。",
     "history.selection.exclusive_target": "请选择一种历史勾选方式。",

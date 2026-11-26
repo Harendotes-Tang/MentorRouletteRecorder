@@ -37,6 +37,11 @@
   `ERR_BAD_REQUEST`（`field = "runs"`）。这些情形自 2026-11-22 的历史勾选快照起即如此，此前只是没有记录。
 - `CommitRunImport` 在导入名额被占用时先按 `request_id` 查找：已经完成的提交照常重放原结果，只有仍在执行的同一提交或新的提交才答
   `ERR_DB_BUSY`。
+- 实时抓包写入优先于长时间的数据库工作，`ERR_DB_BUSY`（可重试）新增两种情形，见 [error-codes.md](error-codes.md)：
+  `BatchMutateRuns`（两种形态，含 `purge`）与带 `selection_id` 的 `PreviewRunRegionMigration` 执行期间，实时写入等待数据库锁已达 200 ms 时让步，
+  整个事务回滚、不写回执，文本键 `history.batch.yielded_to_recording`，可以相同 `request_id` 重试；带 `selection_id` 的 `BatchMutateRuns`
+  到达时有一场记录正在进行，开始前即拒绝，文本键 `history.batch.run_in_progress`，已执行过的同一请求仍按回执重放。
+  两个文本键新增于 [collector-texts.json](collector-texts.json)；不新增字段或消息。
 - 请求编号：同一 `request_id` 的请求尚未得到应答时，客户端不得再用它发送另一条请求。桌面端（`IpcClient`）与采集服务自带的
   `PipeClient` 都在发送前拒绝这种重复（`df12f1e` 起）；连接失败后，桌面端把未应答的请求报告为传输失败（结果不确定），
   不再报告为拒绝。
