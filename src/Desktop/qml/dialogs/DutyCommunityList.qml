@@ -399,7 +399,7 @@ ColumnLayout {
                         compact: true
                         variant: "ghost"
                         visible: !pane.store.remote
-                        text: qsTr("去公共共享库找找")
+                        text: qsTr("去共享库找找")
                         onClicked: pane.store.tab = "public"
                     }
                 }

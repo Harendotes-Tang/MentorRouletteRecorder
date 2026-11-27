@@ -5770,7 +5770,7 @@ SHA256：%3</translation>
         <translation>プレイの記録はこの PC に保存</translation>
     </message>
     <message>
-        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <source>在「提醒与宏」中打开「允许共享库联网」后，只在你打开「共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
         <translation>「リマインダーとマクロ」で「公開ライブラリのオンライン接続を許可」をオンにすると、「公開ライブラリ」を開いたときや更新を押したときだけ、バックグラウンドサービスが GitHub 上の本プロジェクトの公開リポジトリから、投稿された内容を読み込みます（GitHub が 3 秒以内に応答しない場合や読み込めない場合は、GitCode 上の同名のミラーにも問い合わせ、先に届いた使える内容を使います）。これらのリクエストでは、ローカルの内容、キャラクター、絞り込み条件は送信しません。GitHub と GitCode にはあなたの IP アドレスがわかります。同じスイッチをオフにすると、これらのリクエストは止まります。</translation>
     </message>
     <message>
@@ -5826,7 +5826,7 @@ SHA256：%3</translation>
         <translation>既定では、起動時と実行中に定期的に更新を確認します。まず GitHub 上の本プロジェクトの公開リリースページからバージョン情報を読み取り（GitHub から読み込めない場合は、GitCode 上の同名のミラーから読み込みます）、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロード（こちらもまず GitHub から行い、失敗した場合は GitCode のミラーから行います）と公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。GitHub、GitCode とそれらのダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
     </message>
     <message>
-        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
+        <source>联网四：提醒与宏的共享库和投稿（默认关闭）</source>
         <translation>通信 4：リマインダーとマクロの公開ライブラリと投稿（既定でオフ）</translation>
     </message>
     <message>
@@ -6000,7 +6000,7 @@ SHA256：%3</translation>
         <translation>記録元</translation>
     </message>
     <message>
-        <source>公共共享库</source>
+        <source>共享库</source>
         <translation>公開ライブラリ</translation>
     </message>
     <message>
@@ -6020,7 +6020,7 @@ SHA256：%3</translation>
         <translation>削除済み</translation>
     </message>
     <message>
-        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <source>共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
         <translation>公開ライブラリにはこの項目がもうありません（作者が取り下げてから 30 日後、または管理者が削除したときに消えます）。ローカルのコピーはそのまま残ります</translation>
     </message>
     <message>
@@ -6028,7 +6028,7 @@ SHA256：%3</translation>
         <translation>公開中</translation>
     </message>
     <message>
-        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <source>作者已从共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
         <translation>作者が公開ライブラリから取り下げたため、ほかの人は取り込めなくなりました。ローカルのコピーはそのまま残ります</translation>
     </message>
     <message>
@@ -6112,11 +6112,11 @@ SHA256：%3</translation>
         <translation>配布元の更新を比較</translation>
     </message>
     <message>
-        <source>从公共共享库撤回 %1 项</source>
+        <source>从共享库撤回 %1 项</source>
         <translation>公開ライブラリから %1 件を取り下げる</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
+        <source>从共享库撤回</source>
         <translation>公開ライブラリから取り下げる</translation>
     </message>
     <message>
@@ -6343,23 +6343,23 @@ SHA256：%3</translation>
         <translation>確認中…</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。</source>
         <translation>公開ライブラリはオフラインです。ローカルとキャッシュの内容は利用できます。</translation>
     </message>
     <message>
-        <source>手动刷新时连接公共共享库。</source>
+        <source>手动刷新时连接共享库。</source>
         <translation>手動で更新すると公開ライブラリに接続します。</translation>
     </message>
     <message>
-        <source>正在刷新公共共享库。</source>
+        <source>正在刷新共享库。</source>
         <translation>公開ライブラリを更新しています。</translation>
     </message>
     <message>
-        <source>公共共享库尚未部署。</source>
+        <source>共享库尚未部署。</source>
         <translation>公開ライブラリはまだ公開されていません。</translation>
     </message>
     <message>
-        <source>公共共享库暂时没有内容。</source>
+        <source>共享库暂时没有内容。</source>
         <translation>公開ライブラリにコンテンツがありません。</translation>
     </message>
     <message>
@@ -6535,7 +6535,7 @@ SHA256：%3</translation>
         <translation>取り下げ依頼をコピーしました。ブラウザーのフォームに貼り付けて送信してください。</translation>
     </message>
     <message>
-        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新共享库。</source>
         <translation>自分が公開し、まだ取り下げていない項目を 1～20 件選び、先に公開ライブラリを更新してください。</translation>
     </message>
     <message>
@@ -6555,7 +6555,7 @@ SHA256：%3</translation>
         <translation>ローカル</translation>
     </message>
     <message>
-        <source>公共共享库</source>
+        <source>共享库</source>
         <translation>公開ライブラリ</translation>
     </message>
     <message>
@@ -6595,7 +6595,7 @@ SHA256：%3</translation>
         <translation>リマインダーを作成</translation>
     </message>
     <message>
-        <source>去公共共享库挑选</source>
+        <source>去共享库挑选</source>
         <translation>公開ライブラリから選ぶ</translation>
     </message>
     <message>
@@ -6603,15 +6603,15 @@ SHA256：%3</translation>
         <translation>または、よく使うマクロの例から始める</translation>
     </message>
     <message>
-        <source>正在刷新公共库…</source>
+        <source>正在刷新共享库…</source>
         <translation>公開ライブラリを更新中…</translation>
     </message>
     <message>
-        <source>公共共享库还没有内容</source>
+        <source>共享库还没有内容</source>
         <translation>公開ライブラリにはまだ内容がありません</translation>
     </message>
     <message>
-        <source>公共库联网已关闭</source>
+        <source>共享库联网已关闭</source>
         <translation>公開ライブラリはオフラインです</translation>
     </message>
     <message>
@@ -6619,11 +6619,11 @@ SHA256：%3</translation>
         <translation>初回の更新には数秒かかります。</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。打开「允许共享库联网」后，可以刷新并浏览大家投稿的内容。</source>
         <translation>公開ライブラリはオフラインです。ローカルとキャッシュの内容は引き続き使えます。「公開ライブラリの接続を許可」をオンにすると、更新して投稿された内容を閲覧できます。</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
+        <source>刷新共享库</source>
         <translation>公開ライブラリを更新</translation>
     </message>
     <message>
@@ -6743,11 +6743,11 @@ SHA256：%3</translation>
         <translation>ほかの人がコピー・改変して再共有できます。作者があなたであることの明記が必要で、改変版も同じ条件で公開しなければなりません。</translation>
     </message>
     <message>
-        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
+        <source>这条内容已从共享库撤回或不再提供，请刷新共享库后再试。</source>
         <translation>この内容は公開ライブラリから取り下げられたか、提供が終了しています。公開ライブラリを更新してから再試行してください。</translation>
     </message>
     <message>
-        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
+        <source>投稿的内容共享库里都已经有了，没有重复发布。</source>
         <translation>投稿した内容はすべて公開ライブラリにすでにあるため、重ねて公開されませんでした。</translation>
     </message>
 </context>
@@ -7064,7 +7064,7 @@ SHA256：%3</translation>
         <translation>「すべて」で見る（%1）</translation>
     </message>
     <message>
-        <source>去公共共享库找找</source>
+        <source>去共享库找找</source>
         <translation>公開ライブラリで探す</translation>
     </message>
     <message>
@@ -7187,22 +7187,22 @@ SHA256：%3</translation>
         <translation>オフライン</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
+        <source>刷新共享库</source>
         <translation>公開ライブラリを更新</translation>
     </message>
     <message>
-        <source>允许公共库联网</source>
+        <source>允许共享库联网</source>
         <translation>公開ライブラリのオンライン接続を許可</translation>
     </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
     <message>
-        <source>投稿到公共共享库</source>
+        <source>投稿到共享库</source>
         <translation>公開ライブラリに投稿</translation>
     </message>
     <message>
-        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在共享库里看到。</source>
         <translation>投稿は GitHub Issue で送信され、処理が終わると公開ライブラリで誰でも見られるようになります。</translation>
     </message>
     <message>
@@ -7230,7 +7230,7 @@ SHA256：%3</translation>
         <translation>取り下げ依頼をコピーしました。ブラウザーで貼り付けてください</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
+        <source>从共享库撤回</source>
         <translation>公開ライブラリから取り下げる</translation>
     </message>
     <message>
@@ -7242,11 +7242,11 @@ SHA256：%3</translation>
         <translation>取り下げ依頼（%1 件）をクリップボードにコピーし、GitHub のフォームをブラウザーで開きました。フォームが見当たらないときは、下の「フォームを開き直す」を押してください。</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。</source>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
         <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリに表示されなくなります。</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
         <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリで「取り下げ済み」になります。</translation>
     </message>
     <message>
@@ -7378,15 +7378,15 @@ SHA256：%3</translation>
         <translation>キャンセル</translation>
     </message>
     <message>
-        <source>公共库里已有这一项，没有改动，不再投稿</source>
+        <source>共享库里已有这一项，没有改动，不再投稿</source>
         <translation>公開ライブラリに変更なしで掲載済みのため、再投稿しません</translation>
     </message>
     <message>
-        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <source>这一项已从共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
         <translation>公開ライブラリから取り下げ済みのため、この項目のままでは再投稿できません。もう一度公開するときは、新しい項目を作って投稿してください</translation>
     </message>
     <message>
-        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
+        <source>共享库已有相同内容「%1」（%2），不再投稿</source>
         <translation>公開ライブラリに同じ内容の「%1」（%2）があるため、再投稿しません</translation>
     </message>
     <message>
@@ -7394,19 +7394,19 @@ SHA256：%3</translation>
         <translation>一度に取り下げられるのは 20 件までです。選ぶ項目を減らしてから取り下げてください。</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <source>撤回后，这 %1 项不再出现在共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
         <translation>取り下げると、この %1 件は公開ライブラリに表示されなくなり、ほかの人は取り込めなくなります。すでに取り込んだ人のローカルには「取り下げ済み」と表示され、あなたのローカルの項目はそのまま残ります。取り下げは取り消せず、本文は公開リポジトリの履歴に残ります。もう一度公開するときは、新しい項目を作って投稿してください。</translation>
     </message>
     <message>
-        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
+        <source>选中的内容都已从共享库撤回，不能再投稿。</source>
         <translation>選んだ内容はすべて公開ライブラリから取り下げ済みのため、投稿できません。</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
         <translation>取り下げると、この %1 件は公開ライブラリで「取り下げ済み」になります。ほかの人は取り込めなくなり、すでに取り込んだ人には「取り下げ済み」と表示されます。ローカルの項目はそのまま残ります。取り下げは取り消せず、本文は公開リポジトリの履歴に残ります。もう一度公開するときは、新しい項目を作って投稿してください。</translation>
     </message>
     <message>
-        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
+        <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
         <translation>選んだ内容はすべて公開ライブラリにあるため、投稿する必要はありません。</translation>
     </message>
     <message>
@@ -7498,15 +7498,15 @@ SHA256：%3</translation>
         <translation>タグ：%1</translation>
     </message>
     <message>
-        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
+        <source>来源加上原作者署名后超过 240 字，共享库收不下，这一项不能投稿。</source>
         <translation>出典に原作者の表記を加えると 240 文字を超え、公開ライブラリに収まらないため、この項目は投稿できません。</translation>
     </message>
     <message>
-        <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
+        <source>本地稿件基于第 %1 版，共享库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>この下書きはリビジョン %1 に基づいています。公開ライブラリはリビジョン %2 に更新されています。項目に戻り、更新を確認して適用してから投稿してください。</translation>
     </message>
     <message>
-        <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
+        <source>此稿件缺少来源修订号。请对比共享库第 %1 版，确认后再投稿。</source>
         <translation>この下書きには基準リビジョンがありません。公開リビジョン %1 と比較し、確認してから投稿してください。</translation>
     </message>
     <message>
@@ -7541,7 +7541,7 @@ SHA256：%3</translation>
         <translation>リージョン</translation>
     </message>
     <message>
-        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <source>共享库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
         <translation>公開ライブラリは、まず自分のリージョンと表示言語の内容だけを表示します。ここでチェックを外すと他の内容も表示できます</translation>
     </message>
     <message>
@@ -7557,11 +7557,11 @@ SHA256：%3</translation>
         <translation>インポート</translation>
     </message>
     <message>
-        <source>从公共共享库挑选</source>
+        <source>从共享库挑选</source>
         <translation>公開ライブラリから選ぶ</translation>
     </message>
     <message>
-        <source>到「公共共享库」里勾选，再导入到本地</source>
+        <source>到「共享库」里勾选，再导入到本地</source>
         <translation>「公開ライブラリ」で選んでからローカルに取り込みます</translation>
     </message>
     <message>

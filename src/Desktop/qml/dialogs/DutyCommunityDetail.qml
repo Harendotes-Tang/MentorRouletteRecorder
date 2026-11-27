@@ -48,17 +48,17 @@ ColumnLayout {
             // Free text of up to 240 characters wraps instead of being cut (audit 2026-11-26 RE-8).
             [qsTr("标签"), item.tags.join(qsTr("、")), "", true],
             // The stored text where there is one: it is published with the entry.
-            [qsTr("来源"), store.remote || item.source ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的")),
+            [qsTr("来源"), store.remote || item.source ? item.source : (row.upstream ? qsTr("共享库") : qsTr("自己写的")),
              "", true],
             [qsTr("作者"), author ? "@" + author.login : ""],
             [qsTr("状态"), item.status ? store.statusText(item.status) : "",
              item.status === "verified" ? qsTr("维护者核对过内容和适用范围")
              : item.status === "community" ? qsTr("还没有人核对过，用之前自己先看一遍") : ""],
             [qsTr("许可"), store.licenseCode(license), store.licenseDetail(license)],
-            [qsTr("公共共享库"), sourceRemoved ? qsTr("已移除") : sourceWithdrawn ? store.statusText("withdrawn") : !publication ? ""
+            [qsTr("共享库"), sourceRemoved ? qsTr("已移除") : sourceWithdrawn ? store.statusText("withdrawn") : !publication ? ""
                 : publication.status === "withdrawn" ? store.statusText("withdrawn") : qsTr("已发布"),
-             sourceRemoved ? qsTr("公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留")
-             : sourceWithdrawn ? qsTr("作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留")
+             sourceRemoved ? qsTr("共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留")
+             : sourceWithdrawn ? qsTr("作者已从共享库撤回这一条，别人不能再导入；你的本地副本照常保留")
              : publication ? qsTr("以 @%1 的名义公开，只有这个 GitHub 账号能撤回").arg(publication.author.login) : ""],
             [qsTr("投稿"), item.issue ? "#" + item.issue : ""],
             [qsTr("更新于"), day(item.updated_at)],
@@ -322,8 +322,8 @@ ColumnLayout {
                     objectName: "dutyCommunityWithdraw"
                     compact: true
                     visible: pane.withdrawIds.length > 0
-                    text: pane.ticked > 0 ? qsTr("从公共共享库撤回 %1 项").arg(pane.withdrawIds.length)
-                                          : qsTr("从公共共享库撤回")
+                    text: pane.ticked > 0 ? qsTr("从共享库撤回 %1 项").arg(pane.withdrawIds.length)
+                                          : qsTr("从共享库撤回")
                     onClicked: pane.store.withdrawRows(pane.withdrawIds)
                 }
             }

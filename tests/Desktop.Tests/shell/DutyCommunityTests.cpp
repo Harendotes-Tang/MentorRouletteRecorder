@@ -99,7 +99,7 @@ void DutyCommunityTests::dashboardOpensTheCommunityLibrary()
     QCOMPARE(dialog->property("tab").toString(), QStringLiteral("local"));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
 
-    // Leaving the tab drops an unsaved form; opening 公共共享库 starts a refresh once it may go online.
+    // Leaving the tab drops an unsaved form; opening 共享库 starts a refresh once it may go online.
     QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
                                       Q_ARG(QVariant, QVariant())));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
@@ -133,7 +133,7 @@ QObject *openEmptyCommunityDialog(Scene &scene)
 
 } // namespace
 
-// 还没有提醒或宏 and 公共共享库还没有内容 sat at the left edge of their column: the
+// 还没有提醒或宏 and 共享库还没有内容 sat at the left edge of their column: the
 // blank state was only as wide as its widest line, so the column could not
 // stretch it (owner's screenshots, 2026-11-22). The test measures where each
 // line is drawn, not where its box is.
@@ -169,8 +169,8 @@ void DutyCommunityTests::communityBlankStatesAreCentred()
     QTRY_VERIFY(!dialog->property("refreshing").toBool());
     dialog->setProperty("online", true);
     dialog->setProperty("libraryStatus", QStringLiteral("not_deployed"));
-    const auto heading = QString::fromUtf8("公共共享库还没有内容");
-    const auto body = QString::fromUtf8("公共共享库尚未部署。");
+    const auto heading = QString::fromUtf8("共享库还没有内容");
+    const auto body = QString::fromUtf8("共享库尚未部署。");
     QTRY_VERIFY2(offCentre(blank, body) < 1.5, qPrintable(QString::number(offCentre(blank, body))));
     QVERIFY2(offCentre(blank, heading) < 1.5, qPrintable(QString::number(offCentre(blank, heading))));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));

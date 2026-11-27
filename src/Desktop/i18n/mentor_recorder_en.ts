@@ -5770,7 +5770,7 @@ SHA256: %3</translation>
         <translation>Game records stay on this PC</translation>
     </message>
     <message>
-        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <source>在「提醒与宏」中打开「允许共享库联网」后，只在你打开「共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
         <translation>After you turn on “Let the public library go online” in “Reminders &amp; macros”, the background service reads what others have submitted from this project&apos;s public repository on GitHub, and only when you open “Public library” or click Refresh (if GitHub doesn&apos;t respond within 3 seconds or reading fails, it also asks the repository&apos;s mirror of the same name on GitCode and uses whichever usable content arrives first). These requests send none of your local content, characters or filters; GitHub and GitCode can see your IP address. Turning the same switch off stops these requests.</translation>
     </message>
     <message>
@@ -5826,7 +5826,7 @@ SHA256: %3</translation>
         <translation>By default, the app checks for updates at startup and periodically while running. It first reads version information from this project’s public release page on GitHub (if reading from GitHub fails, it falls back to the project’s mirror of the same name on GitCode) and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer (again from GitHub first, falling back to the GitCode mirror if that fails) and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. GitHub, GitCode and their download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
     </message>
     <message>
-        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
+        <source>联网四：提醒与宏的共享库和投稿（默认关闭）</source>
         <translation>Online use 4: the Reminders &amp; macros public library and submissions (off by default)</translation>
     </message>
     <message>
@@ -6000,7 +6000,7 @@ SHA256: %3</translation>
         <translation>Source</translation>
     </message>
     <message>
-        <source>公共共享库</source>
+        <source>共享库</source>
         <translation>Public library</translation>
     </message>
     <message>
@@ -6020,7 +6020,7 @@ SHA256: %3</translation>
         <translation>Removed</translation>
     </message>
     <message>
-        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <source>共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
         <translation>This entry is no longer in the public library (it leaves 30 days after its author withdraws it, or when a maintainer deletes it); your local copy stays</translation>
     </message>
     <message>
@@ -6028,7 +6028,7 @@ SHA256: %3</translation>
         <translation>Published</translation>
     </message>
     <message>
-        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <source>作者已从共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
         <translation>Its author withdrew this entry from the public library, so nobody can import it any more; your local copy stays</translation>
     </message>
     <message>
@@ -6112,11 +6112,11 @@ SHA256: %3</translation>
         <translation>Compare source update</translation>
     </message>
     <message>
-        <source>从公共共享库撤回 %1 项</source>
+        <source>从共享库撤回 %1 项</source>
         <translation>Withdraw %1 from the public library</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
+        <source>从共享库撤回</source>
         <translation>Withdraw from the public library</translation>
     </message>
     <message>
@@ -6343,23 +6343,23 @@ SHA256: %3</translation>
         <translation>Checking…</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。</source>
         <translation>The public library is offline. Local and cached content remains available.</translation>
     </message>
     <message>
-        <source>手动刷新时连接公共共享库。</source>
+        <source>手动刷新时连接共享库。</source>
         <translation>Refresh manually to connect to the public library.</translation>
     </message>
     <message>
-        <source>正在刷新公共共享库。</source>
+        <source>正在刷新共享库。</source>
         <translation>Refreshing the public library.</translation>
     </message>
     <message>
-        <source>公共共享库尚未部署。</source>
+        <source>共享库尚未部署。</source>
         <translation>The public library has not been deployed yet.</translation>
     </message>
     <message>
-        <source>公共共享库暂时没有内容。</source>
+        <source>共享库暂时没有内容。</source>
         <translation>The public library is empty.</translation>
     </message>
     <message>
@@ -6535,7 +6535,7 @@ SHA256: %3</translation>
         <translation>Withdrawal request copied. Paste it into the browser form and submit.</translation>
     </message>
     <message>
-        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新共享库。</source>
         <translation>Select 1 to 20 items you published that are not withdrawn yet, and refresh the public library first.</translation>
     </message>
     <message>
@@ -6555,7 +6555,7 @@ SHA256: %3</translation>
         <translation>Local</translation>
     </message>
     <message>
-        <source>公共共享库</source>
+        <source>共享库</source>
         <translation>Public library</translation>
     </message>
     <message>
@@ -6595,7 +6595,7 @@ SHA256: %3</translation>
         <translation>New reminder</translation>
     </message>
     <message>
-        <source>去公共共享库挑选</source>
+        <source>去共享库挑选</source>
         <translation>Browse the public library</translation>
     </message>
     <message>
@@ -6603,15 +6603,15 @@ SHA256: %3</translation>
         <translation>Or start from a common macro</translation>
     </message>
     <message>
-        <source>正在刷新公共库…</source>
+        <source>正在刷新共享库…</source>
         <translation>Refreshing the public library…</translation>
     </message>
     <message>
-        <source>公共共享库还没有内容</source>
+        <source>共享库还没有内容</source>
         <translation>Nothing in the public library yet</translation>
     </message>
     <message>
-        <source>公共库联网已关闭</source>
+        <source>共享库联网已关闭</source>
         <translation>The public library is offline</translation>
     </message>
     <message>
@@ -6619,11 +6619,11 @@ SHA256: %3</translation>
         <translation>The first refresh takes a few seconds.</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。打开「允许共享库联网」后，可以刷新并浏览大家投稿的内容。</source>
         <translation>The public library is offline. Local and cached content remains available. Turn on “Allow public library network” to refresh and browse what others have submitted.</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
+        <source>刷新共享库</source>
         <translation>Refresh public library</translation>
     </message>
     <message>
@@ -6743,11 +6743,11 @@ SHA256: %3</translation>
         <translation>Others may copy, change and share it again; they must name you as the author, and a changed version must be shared under the same terms.</translation>
     </message>
     <message>
-        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
+        <source>这条内容已从共享库撤回或不再提供，请刷新共享库后再试。</source>
         <translation>This item was withdrawn from the public library or is no longer offered. Refresh the public library and try again.</translation>
     </message>
     <message>
-        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
+        <source>投稿的内容共享库里都已经有了，没有重复发布。</source>
         <translation>Everything in this submission is already in the public library, so nothing was published again.</translation>
     </message>
 </context>
@@ -7064,7 +7064,7 @@ SHA256: %3</translation>
         <translation>See them under All (%1)</translation>
     </message>
     <message>
-        <source>去公共共享库找找</source>
+        <source>去共享库找找</source>
         <translation>Look in the public library</translation>
     </message>
     <message>
@@ -7187,22 +7187,22 @@ SHA256: %3</translation>
         <translation>Offline</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
+        <source>刷新共享库</source>
         <translation>Refresh the public library</translation>
     </message>
     <message>
-        <source>允许公共库联网</source>
+        <source>允许共享库联网</source>
         <translation>Let the public library go online</translation>
     </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
     <message>
-        <source>投稿到公共共享库</source>
+        <source>投稿到共享库</source>
         <translation>Submit to the public library</translation>
     </message>
     <message>
-        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在共享库里看到。</source>
         <translation>Submissions go through a GitHub Issue. Once processed, everyone can see them in the public library.</translation>
     </message>
     <message>
@@ -7230,7 +7230,7 @@ SHA256: %3</translation>
         <translation>Withdrawal request copied. Paste it in the browser</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
+        <source>从共享库撤回</source>
         <translation>Withdraw from the public library</translation>
     </message>
     <message>
@@ -7242,11 +7242,11 @@ SHA256: %3</translation>
         <translation>The withdrawal request (%1) is on the clipboard and the GitHub form is open in the browser. If you do not see the form, click Reopen form below.</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。</source>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
         <translation>Withdrawals go through a GitHub Issue. Once processed, these items no longer appear in the public library.</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
         <translation>Withdrawals go through a GitHub Issue. Once processed, these items are marked Withdrawn in the public library.</translation>
     </message>
     <message>
@@ -7378,15 +7378,15 @@ SHA256: %3</translation>
         <translation>Cancel</translation>
     </message>
     <message>
-        <source>公共库里已有这一项，没有改动，不再投稿</source>
+        <source>共享库里已有这一项，没有改动，不再投稿</source>
         <translation>Already in the public library and unchanged, so it is not submitted again</translation>
     </message>
     <message>
-        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <source>这一项已从共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
         <translation>Withdrawn from the public library, so it cannot be submitted again as this item; to share it again, create a new item and submit that</translation>
     </message>
     <message>
-        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
+        <source>共享库已有相同内容「%1」（%2），不再投稿</source>
         <translation>The public library already has the same text in “%1” (%2), so it is not submitted again</translation>
     </message>
     <message>
@@ -7394,19 +7394,19 @@ SHA256: %3</translation>
         <translation>You can withdraw at most 20 items at a time; select fewer and try again.</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <source>撤回后，这 %1 项不再出现在共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
         <translation>Once withdrawn, these %1 items no longer appear in the public library and nobody can import them; people who already imported them see Withdrawn on their copy, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
     </message>
     <message>
-        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
+        <source>选中的内容都已从共享库撤回，不能再投稿。</source>
         <translation>Everything selected has been withdrawn from the public library and cannot be submitted again.</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
         <translation>Once withdrawn, these %1 items are marked Withdrawn in the public library: nobody can import them any more, people who already imported them see Withdrawn, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
     </message>
     <message>
-        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
+        <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
         <translation>Everything selected is already in the public library; there is nothing to submit.</translation>
     </message>
     <message>
@@ -7498,15 +7498,15 @@ SHA256: %3</translation>
         <translation>Tags: %1</translation>
     </message>
     <message>
-        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
+        <source>来源加上原作者署名后超过 240 字，共享库收不下，这一项不能投稿。</source>
         <translation>With the original author&apos;s credit added, the source is over 240 characters, more than the public library can hold, so this item can&apos;t be submitted.</translation>
     </message>
     <message>
-        <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
+        <source>本地稿件基于第 %1 版，共享库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>This draft is based on revision %1. The public library now has revision %2. Return to the entry to review and apply the update before submitting.</translation>
     </message>
     <message>
-        <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
+        <source>此稿件缺少来源修订号。请对比共享库第 %1 版，确认后再投稿。</source>
         <translation>This draft has no base revision. Compare it with public revision %1 and confirm before submitting.</translation>
     </message>
     <message>
@@ -7541,7 +7541,7 @@ SHA256: %3</translation>
         <translation>Server region</translation>
     </message>
     <message>
-        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <source>共享库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
         <translation>The public library first shows only entries for your region and interface language; untick here to see the others</translation>
     </message>
     <message>
@@ -7557,11 +7557,11 @@ SHA256: %3</translation>
         <translation>Import</translation>
     </message>
     <message>
-        <source>从公共共享库挑选</source>
+        <source>从共享库挑选</source>
         <translation>Pick from the public library</translation>
     </message>
     <message>
-        <source>到「公共共享库」里勾选，再导入到本地</source>
+        <source>到「共享库」里勾选，再导入到本地</source>
         <translation>Tick entries in the public library, then import them</translation>
     </message>
     <message>

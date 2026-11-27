@@ -63,7 +63,7 @@ RowLayout {
         selection: bar.store.regionFilter
         AppToolTip {
             visible: regionChooser.hovered && bar.store.preset && bar.store.regionFilter.length > 0
-            text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+            text: qsTr("共享库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
         }
         onSelectionEdited: value => bar.store.setFilter("region", value)
     }
@@ -76,7 +76,7 @@ RowLayout {
         selection: bar.store.languageFilter
         AppToolTip {
             visible: languageChooser.hovered && bar.store.preset && bar.store.languageFilter.length > 0
-            text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+            text: qsTr("共享库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
         }
         onSelectionEdited: value => bar.store.setFilter("language", value)
     }
@@ -96,7 +96,7 @@ RowLayout {
         iconName: "file-input"
         text: qsTr("导入")
         groups: [{ head: "", items: [
-            { key: "public", icon: "globe", label: qsTr("从公共共享库挑选"), sub: qsTr("到「公共共享库」里勾选，再导入到本地") },
+            { key: "public", icon: "globe", label: qsTr("从共享库挑选"), sub: qsTr("到「共享库」里勾选，再导入到本地") },
             { key: "file", icon: "file-input", label: qsTr("导入文件…"), sub: qsTr("选一个之前导出的 .json 文件") }
         ] }]
         onPicked: key => key === "public" ? bar.store.tab = "public" : bar.store.importFile()

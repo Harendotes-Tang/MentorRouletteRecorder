@@ -994,10 +994,10 @@ opcode 与负载字节。
 
 | 字段 | 含义 |
 |---|---|
-| `enabled` | 设置「允许公共库联网」是否开启（默认关闭）。该开关只管公共库下载 |
+| `enabled` | 设置「允许共享库联网」是否开启（默认关闭）。该开关只管共享库下载 |
 | `kill_switch` | 进程环境变量 `MR_DISABLE_DUTY_COMMUNITY` 是否为 `1`，为 `1` 时本进程不发出任何副本社区请求 |
-| `last_request_utc` | 本进程最近**实际发出**的一次副本社区请求（公共库下载、投稿进度查询、GitHub 登录或投稿）的发出时间，从未发出时为 null；几次请求先后完成时，取发出时间最晚的一次。距上次检查不足 30 秒、或上次成功后不足 2 分钟而直接使用本机缓存的情形不计入；取消登录、退出 GitHub、离线时的拒绝与未到轮询间隔的登录轮询没有发出请求，同样不计入 |
-| `last_outcome` | 该次请求的结果令牌。公共库下载为 `ready`、`empty`、`not_deployed`、`invalid_index`、`stale_mirror` 或 `temporarily_unavailable`；GitHub 请求为该次 `DutyCommunity` 应答的 `status`（例如 `temporarily_unavailable`、`invalid_issue`、`submit_unconfirmed`、`submit_not_sent`）；请求被取消或意外失败时为 `cancelled` 或 `failed`。`last_request_utc` 为 null 时同为 null |
+| `last_request_utc` | 本进程最近**实际发出**的一次副本社区请求（共享库下载、投稿进度查询、GitHub 登录或投稿）的发出时间，从未发出时为 null；几次请求先后完成时，取发出时间最晚的一次。距上次检查不足 30 秒、或上次成功后不足 2 分钟而直接使用本机缓存的情形不计入；取消登录、退出 GitHub、离线时的拒绝与未到轮询间隔的登录轮询没有发出请求，同样不计入 |
+| `last_outcome` | 该次请求的结果令牌。共享库下载为 `ready`、`empty`、`not_deployed`、`invalid_index`、`stale_mirror` 或 `temporarily_unavailable`；GitHub 请求为该次 `DutyCommunity` 应答的 `status`（例如 `temporarily_unavailable`、`invalid_issue`、`submit_unconfirmed`、`submit_not_sent`）；请求被取消或意外失败时为 `cancelled` 或 `failed`。`last_request_utc` 为 null 时同为 null |
 
 该对象不含主机名、Issue 编号、条目文字或 GitHub 账号信息。
 
@@ -1049,7 +1049,7 @@ opcode 与负载字节。
 脱敏报告的 `boundary.outbound` 如实给出二者的开关状态（设置项与 `MR_DISABLE_SHARED_FETCH` /
 `MR_DISABLE_UPDATE_CHECK`），以及本进程最近一次实际发出请求的时间与结果（§9.6）。用户自行启用在线语音后，另有
 `boundary.outbound.online_speech` 记录的语音合成请求（[privacy-boundary.md](privacy-boundary.md) §8.3）；
-用户打开「允许公共库联网」后，另有 `boundary.outbound.duty_community` 记录的公共库请求（§9.6）。用户点击查询「投稿进度」时
+用户打开「允许共享库联网」后，另有 `boundary.outbound.duty_community` 记录的共享库请求（§9.6）。用户点击查询「投稿进度」时
 发往 GitHub 的请求同属副本社区一类，但不计入该对象（[privacy-boundary.md](privacy-boundary.md) §8.7）。
 除这四类之外没有任何出站连接。
 

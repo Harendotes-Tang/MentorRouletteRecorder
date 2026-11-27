@@ -33,7 +33,7 @@
 
 2026-11-23 新增 `external-link`（「提醒与宏」中打开浏览器的按钮用它代替文字箭头「↗」），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
 
-2026-11-25 新增 `layers`、`asterisk`、`refresh-cw`、`arrow-up-down`、`rows-3`、`chevrons-down-up`、`chevrons-up-down`、`shield-check`（「提醒与宏」副本目录的「全部」「通用」、刷新公共库、排序、紧凑行高、全部收起与展开、已核验），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
+2026-11-25 新增 `layers`、`asterisk`、`refresh-cw`、`arrow-up-down`、`rows-3`、`chevrons-down-up`、`chevrons-up-down`、`shield-check`（「提醒与宏」副本目录的「全部」「通用」、刷新共享库、排序、紧凑行高、全部收起与展开、已核验），同样取自 `lucide-static@1.76.0`，校验值已并入下表。
 
 2026-11-09 图标统一补齐：复选、浮窗、完成状态、窗口控制与复制操作的新增图标同样取自上述固定官方 npm 版本；浮窗旧名称由 `OverlayIcons.js` 映射到标准 Lucide 名称，运行时仍只读取本地生成库。
 

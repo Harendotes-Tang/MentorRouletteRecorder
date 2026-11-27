@@ -203,13 +203,13 @@ MotionDialog {
                                   + "\n\n" + qsTr("GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。")
                         },
                         {
-                            title: qsTr("联网四：提醒与宏的公共共享库和投稿（默认关闭）"),
+                            title: qsTr("联网四：提醒与宏的共享库和投稿（默认关闭）"),
                             // docs/privacy-boundary.md §8.7 (audit 2026-11-26 L1-1, RE-1 … RE-3).
                             // The mirror is asked when GitHub has not answered within 3 s
                             // (CommunityHttp.SlowAfter); the Issue lookup does not read the
                             // switch (CommunityGithub.IssueStatusAsync); the in-app sign-in
                             // needs a client id no published build carries.
-                            body: qsTr("在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，"
+                            body: qsTr("在「提醒与宏」中打开「允许共享库联网」后，只在你打开「共享库」或点刷新时，"
                                        + "后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容"
                                        + "（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。"
                                        + "这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。"

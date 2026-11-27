@@ -217,8 +217,8 @@ Rectangle {
                     variant: "ghost"
                     implicitWidth: implicitHeight
                     iconName: "refresh-cw"
-                    Accessible.name: qsTr("刷新公共库")
-                    tip: qsTr("刷新公共库")
+                    Accessible.name: qsTr("刷新共享库")
+                    tip: qsTr("刷新共享库")
                     enabled: rail.store.online && !rail.store.refreshing
                     onClicked: rail.store.loadPublic("refresh")
                 }
@@ -230,13 +230,13 @@ Rectangle {
                     renderType: Theme.bodyRenderType
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
-                    text: qsTr("允许公共库联网")
+                    text: qsTr("允许共享库联网")
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(12)
                 }
                 ToggleSwitch {
                     objectName: "dutyCommunityOnline"
-                    accessibleName: qsTr("允许公共库联网")
+                    accessibleName: qsTr("允许共享库联网")
                     checked: rail.store.online
                     onToggled: value => value ? rail.store.goOnline() : rail.store.loadPublic("online", { enabled: false })
                 }

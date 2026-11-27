@@ -469,7 +469,7 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 
 ## 社区提醒与导随宏
 
-社区投稿发布工具和工作流在本目录维护。使用 `sync_public_repo.py --out <checkout> --update-existing` 对已有公共库同步已管理的文件，校准和社区数据由各自发布流程维护。
+社区投稿发布工具和工作流在本目录维护。使用 `sync_public_repo.py --out <checkout> --update-existing` 对已有共享库同步已管理的文件，校准和社区数据由各自发布流程维护。
 
 部署时创建以下公共 Issue 标签：
 

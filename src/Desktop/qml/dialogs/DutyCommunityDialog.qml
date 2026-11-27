@@ -100,7 +100,7 @@ MotionDialog {
     /// Folded groups and groups shown in full, by "<scope>/<group>".
     property var collapsed: ({})
     property var uncapped: ({})
-    // Preferences that outlive the dialog (Design: 排序、行高、公共库的区服和语言算偏好).
+    // Preferences that outlive the dialog (Design: 排序、行高、共享库的区服和语言算偏好).
     property string sortLocal: "updated"
     property string sortPublic: "updated"
     property bool dense: false
@@ -865,7 +865,7 @@ MotionDialog {
     /// The one click the offline state offers: the player allows the public library and
     /// asks for it in the same gesture.
     function goOnline() { loadPublic("online", { enabled: true }) }
-    /// 公共共享库 refreshes each time it is opened once the player allowed it online (owner,
+    /// 共享库 refreshes each time it is opened once the player allowed it online (owner,
     /// 2026-11-23). The Collector answers from its cache within 30 s of its last check (2 min after
     /// a successful one), so switching back and forth does not reach GitHub every time.
     function refreshPublic() { if (online && publicAction !== "refresh" && publicAction !== "online") loadPublic("refresh") }
@@ -1128,11 +1128,11 @@ MotionDialog {
         switch (status) {
         case "ready": return ""
         case "checking": return qsTr("正在查询…")
-        case "offline": return qsTr("公共库联网已关闭，仍可使用本地内容与缓存。")
-        case "not_refreshed": return qsTr("手动刷新时连接公共共享库。")
-        case "refreshing": return qsTr("正在刷新公共共享库。")
-        case "not_deployed": return qsTr("公共共享库尚未部署。")
-        case "empty": return qsTr("公共共享库暂时没有内容。")
+        case "offline": return qsTr("共享库联网已关闭，仍可使用本地内容与缓存。")
+        case "not_refreshed": return qsTr("手动刷新时连接共享库。")
+        case "refreshing": return qsTr("正在刷新共享库。")
+        case "not_deployed": return qsTr("共享库尚未部署。")
+        case "empty": return qsTr("共享库暂时没有内容。")
         case "temporarily_unavailable": return qsTr("暂时无法联网或请求受限，保留上次有效缓存。")
         case "invalid_index": return qsTr("公共索引或内容校验失败，保留上次有效缓存。")
         case "stale_mirror": return qsTr("镜像尚未同步，继续使用现有版本。")
@@ -1143,7 +1143,7 @@ MotionDialog {
         case "already_installed": return qsTr("已安装，请在本地查看或检查更新。")
         case "source_changed": return qsTr("来源版本已变化，请重新刷新和对比。")
         // Only the chosen entry itself: a withdrawn linked entry is left out, not refused (RC-5).
-        case "source_unavailable": return qsTr("这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。")
+        case "source_unavailable": return qsTr("这条内容已从共享库撤回或不再提供，请刷新共享库后再试。")
         case "local_conflict": return qsTr("本地有同一条目或更新的修改，请重新加载。")
         case "local_limit": return qsTr("本地库已达到 400 条。")
         case "invalid_title": return qsTr("请填写标题，最多 120 字。")
@@ -1172,7 +1172,7 @@ MotionDialog {
         case "submitted": return qsTr("已提交投稿，等待工作流处理。")
         case "processing": return qsTr("投稿正在处理。")
         case "published": return qsTr("已公开发布。刷新共享库后可查看。")
-        case "duplicate": return qsTr("投稿的内容公共共享库里都已经有了，没有重复发布。")
+        case "duplicate": return qsTr("投稿的内容共享库里都已经有了，没有重复发布。")
         case "processing_failed": return qsTr("处理失败，请打开 GitHub Issue 查看原因。")
         case "submit_unconfirmed": return qsTr("提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。")
         // Failed before anything was sent (audit 2026-11-26 RC-4).
@@ -1180,7 +1180,7 @@ MotionDialog {
         case "closed": return qsTr("投稿已关闭。")
         case "prepared": return qsTr("投稿正文已复制，请粘贴到浏览器表单并提交。")
         case "withdrawal_prepared": return qsTr("撤回请求已复制，请粘贴到浏览器表单并提交。")
-        case "invalid_withdrawal": return qsTr("请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。")
+        case "invalid_withdrawal": return qsTr("请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新共享库。")
         case "verified": return qsTr("社区投稿 · 已核验")
         case "outdated": return qsTr("过时")
         case "withdrawn": return qsTr("已撤回")
@@ -1299,10 +1299,10 @@ MotionDialog {
                 options: [
                     { value: "local", label: qsTr("本地") + "  " + root.localRows.length },
                     { value: "public", label: root.listedPublicRows.length > 0
-                        ? qsTr("公共共享库") + "  " + root.listedPublicRows.length : qsTr("公共共享库") }
+                        ? qsTr("共享库") + "  " + root.listedPublicRows.length : qsTr("共享库") }
                 ]
                 currentValue: root.tab
-                // Clicking 公共共享库 while it is open refreshes it as well.
+                // Clicking 共享库 while it is open refreshes it as well.
                 onActivated: value => { if (value === root.tab && root.remote) root.refreshPublic(); root.tab = value }
             }
             Item { Layout.fillWidth: true }
@@ -1461,7 +1461,7 @@ MotionDialog {
                     spacing: 8
                     AppButton { variant: "primary"; iconName: "plus"; text: qsTr("新建宏"); onClicked: root.editNew("macro", null) }
                     AppButton { iconName: "bell"; text: qsTr("新建提醒"); onClicked: root.editNew("reminder", null) }
-                    AppButton { variant: "ghost"; iconName: "globe"; text: qsTr("去公共共享库挑选"); onClicked: root.tab = "public" }
+                    AppButton { variant: "ghost"; iconName: "globe"; text: qsTr("去共享库挑选"); onClicked: root.tab = "public" }
                 }
                 Text {
                     renderType: Theme.bodyRenderType
@@ -1535,11 +1535,11 @@ MotionDialog {
                 BlankState {
                     Layout.fillWidth: true
                     iconName: root.online ? "globe" : "cloud-off"
-                    heading: root.refreshing ? qsTr("正在刷新公共库…")
-                           : root.online ? qsTr("公共共享库还没有内容") : qsTr("公共库联网已关闭")
+                    heading: root.refreshing ? qsTr("正在刷新共享库…")
+                           : root.online ? qsTr("共享库还没有内容") : qsTr("共享库联网已关闭")
                     body: root.refreshing ? qsTr("第一次刷新需要几秒钟。")
                         : root.online ? root.statusText(root.libraryStatus || "not_refreshed")
-                        : qsTr("公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。")
+                        : qsTr("共享库联网已关闭，仍可使用本地内容与缓存。打开「允许共享库联网」后，可以刷新并浏览大家投稿的内容。")
                 }
                 AppButton {
                     objectName: "dutyCommunityGoOnline"
@@ -1547,7 +1547,7 @@ MotionDialog {
                     Layout.topMargin: 6
                     variant: "primary"
                     enabled: !root.refreshing
-                    text: root.online ? qsTr("刷新公共库") : qsTr("允许联网并刷新")
+                    text: root.online ? qsTr("刷新共享库") : qsTr("允许联网并刷新")
                     onClicked: root.online ? root.loadPublic("refresh") : root.goOnline()
                 }
             }

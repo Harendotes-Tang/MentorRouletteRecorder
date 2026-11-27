@@ -5770,8 +5770,8 @@ SHA256：%3</translation>
         <translation>遊戲記錄儲存在本機</translation>
     </message>
     <message>
-        <source>在「提醒与宏」中打开「允许公共库联网」后，只在你打开「公共共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
-        <translation>在「提醒與巨集」中開啟「允許公共庫連線」後，只在你開啟「公共共享庫」或點重新整理時，背景服務才會從本專案在 GitHub 的公開儲存庫讀取大家投稿的內容（GitHub 3 秒內沒有回應或讀取失敗時，也會向它在 GitCode 上的同名鏡像讀取，採用先讀到的可用內容）。這類請求不傳送你本機的內容、角色或篩選條件，GitHub 與 GitCode 能看到你的 IP 位址。關閉同一個開關即停止這類請求。</translation>
+        <source>在「提醒与宏」中打开「允许共享库联网」后，只在你打开「共享库」或点刷新时，后台服务从本项目在 GitHub 的公开仓库读取大家投稿的内容（GitHub 3 秒内没有回应或读取失败时，也会向它在 GitCode 上的同名镜像读取，用先读到的可用内容）。这类请求不发送你本地的内容、角色或筛选条件，GitHub 与 GitCode 能看到你的 IP 地址。关掉同一个开关即停止这类请求。</source>
+        <translation>在「提醒與巨集」中開啟「允許共享庫連線」後，只在你開啟「共享庫」或點重新整理時，背景服務才會從本專案在 GitHub 的公開儲存庫讀取大家投稿的內容（GitHub 3 秒內沒有回應或讀取失敗時，也會向它在 GitCode 上的同名鏡像讀取，採用先讀到的可用內容）。這類請求不傳送你本機的內容、角色或篩選條件，GitHub 與 GitCode 能看到你的 IP 位址。關閉同一個開關即停止這類請求。</translation>
     </message>
     <message>
         <source>在「投稿进度」里点「查看状态」时，后台服务会向 GitHub 查询你填写的 Issue 编号；这一查询不受上面的开关控制。</source>
@@ -5826,8 +5826,8 @@ SHA256：%3</translation>
         <translation>預設在啟動軟體時及持續執行期間定期檢查更新，先從本專案在 GitHub 的公開發布頁讀取版本資訊（GitHub 讀取失敗時，改從它在 GitCode 上的同名鏡像讀取），有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載安裝程式」只下載安裝程式（同樣先從 GitHub 下載，失敗時改從 GitCode 鏡像下載），並核對發布時公布的校驗值；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，GitHub、GitCode 及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝程式會刪除。</translation>
     </message>
     <message>
-        <source>联网四：提醒与宏的公共共享库和投稿（默认关闭）</source>
-        <translation>連網四：提醒與巨集的公共共享庫和投稿（預設關閉）</translation>
+        <source>联网四：提醒与宏的共享库和投稿（默认关闭）</source>
+        <translation>連網四：提醒與巨集的共享庫和投稿（預設關閉）</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -6000,8 +6000,8 @@ SHA256：%3</translation>
         <translation>來源</translation>
     </message>
     <message>
-        <source>公共共享库</source>
-        <translation>公共共享庫</translation>
+        <source>共享库</source>
+        <translation>共享庫</translation>
     </message>
     <message>
         <source>自己写的</source>
@@ -6020,16 +6020,16 @@ SHA256：%3</translation>
         <translation>已移除</translation>
     </message>
     <message>
-        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
-        <translation>公共共享庫裡已經沒有這一筆（作者撤回 30 天後或維護者刪除後會移除），你的本機副本照常保留</translation>
+        <source>共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <translation>共享庫裡已經沒有這一筆（作者撤回 30 天後或維護者刪除後會移除），你的本機副本照常保留</translation>
     </message>
     <message>
         <source>已发布</source>
         <translation>已發布</translation>
     </message>
     <message>
-        <source>作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
-        <translation>作者已從公共共享庫撤回這一筆，別人不能再匯入；你的本機副本照常保留</translation>
+        <source>作者已从共享库撤回这一条，别人不能再导入；你的本地副本照常保留</source>
+        <translation>作者已從共享庫撤回這一筆，別人不能再匯入；你的本機副本照常保留</translation>
     </message>
     <message>
         <source>以 @%1 的名义公开，只有这个 GitHub 账号能撤回</source>
@@ -6112,12 +6112,12 @@ SHA256：%3</translation>
         <translation>比較來源更新</translation>
     </message>
     <message>
-        <source>从公共共享库撤回 %1 项</source>
-        <translation>從公共共享庫撤回 %1 項</translation>
+        <source>从共享库撤回 %1 项</source>
+        <translation>從共享庫撤回 %1 項</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
-        <translation>從公共共享庫撤回</translation>
+        <source>从共享库撤回</source>
+        <translation>從共享庫撤回</translation>
     </message>
     <message>
         <source>已复制</source>
@@ -6343,24 +6343,24 @@ SHA256：%3</translation>
         <translation>正在查詢…</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
-        <translation>公共庫連線已關閉，仍可使用本機內容與快取。</translation>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。</source>
+        <translation>共享庫連線已關閉，仍可使用本機內容與快取。</translation>
     </message>
     <message>
-        <source>手动刷新时连接公共共享库。</source>
-        <translation>手動重新整理時連線到公共共享庫。</translation>
+        <source>手动刷新时连接共享库。</source>
+        <translation>手動重新整理時連線到共享庫。</translation>
     </message>
     <message>
-        <source>正在刷新公共共享库。</source>
-        <translation>正在重新整理公共共享庫。</translation>
+        <source>正在刷新共享库。</source>
+        <translation>正在重新整理共享庫。</translation>
     </message>
     <message>
-        <source>公共共享库尚未部署。</source>
-        <translation>公共共享庫尚未部署。</translation>
+        <source>共享库尚未部署。</source>
+        <translation>共享庫尚未部署。</translation>
     </message>
     <message>
-        <source>公共共享库暂时没有内容。</source>
-        <translation>公共共享庫暫時沒有內容。</translation>
+        <source>共享库暂时没有内容。</source>
+        <translation>共享庫暫時沒有內容。</translation>
     </message>
     <message>
         <source>暂时无法联网或请求受限，保留上次有效缓存。</source>
@@ -6535,8 +6535,8 @@ SHA256：%3</translation>
         <translation>撤回請求已複製，請貼到瀏覽器表單並提交。</translation>
     </message>
     <message>
-        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新公共共享库。</source>
-        <translation>請選擇 1 至 20 筆自己發布、還沒有撤回的內容，並先重新整理公共共享庫。</translation>
+        <source>请选择 1 至 20 条自己发布、还没有撤回的内容，并先刷新共享库。</source>
+        <translation>請選擇 1 至 20 筆自己發布、還沒有撤回的內容，並先重新整理共享庫。</translation>
     </message>
     <message>
         <source>过时</source>
@@ -6555,8 +6555,8 @@ SHA256：%3</translation>
         <translation>本機</translation>
     </message>
     <message>
-        <source>公共共享库</source>
-        <translation>公共共享庫</translation>
+        <source>共享库</source>
+        <translation>共享庫</translation>
     </message>
     <message>
         <source>关闭</source>
@@ -6595,36 +6595,36 @@ SHA256：%3</translation>
         <translation>新增提醒</translation>
     </message>
     <message>
-        <source>去公共共享库挑选</source>
-        <translation>去公共共享庫挑選</translation>
+        <source>去共享库挑选</source>
+        <translation>去共享庫挑選</translation>
     </message>
     <message>
         <source>或者从常用宏示例开始</source>
         <translation>或者從常用巨集範例開始</translation>
     </message>
     <message>
-        <source>正在刷新公共库…</source>
-        <translation>正在重新整理公共庫…</translation>
+        <source>正在刷新共享库…</source>
+        <translation>正在重新整理共享庫…</translation>
     </message>
     <message>
-        <source>公共共享库还没有内容</source>
-        <translation>公共共享庫還沒有內容</translation>
+        <source>共享库还没有内容</source>
+        <translation>共享庫還沒有內容</translation>
     </message>
     <message>
-        <source>公共库联网已关闭</source>
-        <translation>公共庫連線已關閉</translation>
+        <source>共享库联网已关闭</source>
+        <translation>共享庫連線已關閉</translation>
     </message>
     <message>
         <source>第一次刷新需要几秒钟。</source>
         <translation>第一次重新整理需要幾秒鐘。</translation>
     </message>
     <message>
-        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
-        <translation>公共庫連線已關閉，仍可使用本機內容與快取。開啟「允許公共庫連線」後，可以重新整理並瀏覽大家投稿的內容。</translation>
+        <source>共享库联网已关闭，仍可使用本地内容与缓存。打开「允许共享库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <translation>共享庫連線已關閉，仍可使用本機內容與快取。開啟「允許共享庫連線」後，可以重新整理並瀏覽大家投稿的內容。</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
-        <translation>重新整理公共庫</translation>
+        <source>刷新共享库</source>
+        <translation>重新整理共享庫</translation>
     </message>
     <message>
         <source>允许联网并刷新</source>
@@ -6743,12 +6743,12 @@ SHA256：%3</translation>
         <translation>別人可以複製、修改並再次分享，要寫明原作者是你，改過的版本也必須按同樣的規則公開。</translation>
     </message>
     <message>
-        <source>这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。</source>
-        <translation>這則內容已從公共共享庫撤回或不再提供，請重新整理公共共享庫後再試。</translation>
+        <source>这条内容已从共享库撤回或不再提供，请刷新共享库后再试。</source>
+        <translation>這則內容已從共享庫撤回或不再提供，請重新整理共享庫後再試。</translation>
     </message>
     <message>
-        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
-        <translation>投稿的內容公共共享庫裡都已經有了，沒有重複發布。</translation>
+        <source>投稿的内容共享库里都已经有了，没有重复发布。</source>
+        <translation>投稿的內容共享庫裡都已經有了，沒有重複發布。</translation>
     </message>
 </context>
 <context>
@@ -7064,8 +7064,8 @@ SHA256：%3</translation>
         <translation>在「全部」裡看（%1）</translation>
     </message>
     <message>
-        <source>去公共共享库找找</source>
-        <translation>去公共共享庫找找</translation>
+        <source>去共享库找找</source>
+        <translation>去共享庫找找</translation>
     </message>
     <message>
         <source>已选 %1 项</source>
@@ -7187,23 +7187,23 @@ SHA256：%3</translation>
         <translation>連線已關閉</translation>
     </message>
     <message>
-        <source>刷新公共库</source>
-        <translation>重新整理公共庫</translation>
+        <source>刷新共享库</source>
+        <translation>重新整理共享庫</translation>
     </message>
     <message>
-        <source>允许公共库联网</source>
-        <translation>允許公共庫連線</translation>
+        <source>允许共享库联网</source>
+        <translation>允許共享庫連線</translation>
     </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
     <message>
-        <source>投稿到公共共享库</source>
-        <translation>投稿到公共共享庫</translation>
+        <source>投稿到共享库</source>
+        <translation>投稿到共享庫</translation>
     </message>
     <message>
-        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
-        <translation>投稿透過 GitHub Issue 提交，處理完成後，所有人都能在公共共享庫裡看到。</translation>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在共享库里看到。</source>
+        <translation>投稿透過 GitHub Issue 提交，處理完成後，所有人都能在共享庫裡看到。</translation>
     </message>
     <message>
         <source>核对下面要撤回的内容并勾选确认。</source>
@@ -7230,8 +7230,8 @@ SHA256：%3</translation>
         <translation>撤回請求已複製，請到瀏覽器貼上</translation>
     </message>
     <message>
-        <source>从公共共享库撤回</source>
-        <translation>從公共共享庫撤回</translation>
+        <source>从共享库撤回</source>
+        <translation>從共享庫撤回</translation>
     </message>
     <message>
         <source>投稿正文已复制，去浏览器粘贴</source>
@@ -7242,12 +7242,12 @@ SHA256：%3</translation>
         <translation>撤回請求（%1 項）已複製到剪貼簿，GitHub 表單已在瀏覽器開啟；沒看到表單就點下面的「重新開啟表單」。</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。</source>
-        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容不再出現在公共共享庫裡。</translation>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
+        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容不再出現在共享庫裡。</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
-        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在公共共享庫裡標為「已撤回」。</translation>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
+        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在共享庫裡標為「已撤回」。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7378,36 +7378,36 @@ SHA256：%3</translation>
         <translation>取消</translation>
     </message>
     <message>
-        <source>公共库里已有这一项，没有改动，不再投稿</source>
-        <translation>公共庫裡已有這一項，沒有改動，不再投稿</translation>
+        <source>共享库里已有这一项，没有改动，不再投稿</source>
+        <translation>共享庫裡已有這一項，沒有改動，不再投稿</translation>
     </message>
     <message>
-        <source>这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
-        <translation>這一項已從公共共享庫撤回，不能再用原來的條目投稿；想再公開，請新增一筆再投稿</translation>
+        <source>这一项已从共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿</source>
+        <translation>這一項已從共享庫撤回，不能再用原來的條目投稿；想再公開，請新增一筆再投稿</translation>
     </message>
     <message>
-        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
-        <translation>公共庫已有相同內容「%1」（%2），不再投稿</translation>
+        <source>共享库已有相同内容「%1」（%2），不再投稿</source>
+        <translation>共享庫已有相同內容「%1」（%2），不再投稿</translation>
     </message>
     <message>
         <source>一次最多撤回 20 项，请少选几项再撤回。</source>
         <translation>一次最多撤回 20 項，請少選幾項再撤回。</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>撤回後，這 %1 項不再出現在公共共享庫裡，別人不能再匯入；已經匯入的人在本機看到「已撤回」，你本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
+        <source>撤回后，这 %1 项不再出现在共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>撤回後，這 %1 項不再出現在共享庫裡，別人不能再匯入；已經匯入的人在本機看到「已撤回」，你本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
     </message>
     <message>
-        <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
-        <translation>選取的內容都已從公共共享庫撤回，不能再投稿。</translation>
+        <source>选中的内容都已从共享库撤回，不能再投稿。</source>
+        <translation>選取的內容都已從共享庫撤回，不能再投稿。</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>撤回後，這 %1 項在公共共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
+        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>撤回後，這 %1 項在共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
     </message>
     <message>
-        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
-        <translation>選取的內容公共共享庫裡都已經有了，不需要再投稿。</translation>
+        <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
+        <translation>選取的內容共享庫裡都已經有了，不需要再投稿。</translation>
     </message>
     <message>
         <source>改编的来源要求改过的版本按同样的规则公开，所以只能选这一项。</source>
@@ -7498,15 +7498,15 @@ SHA256：%3</translation>
         <translation>標籤：%1</translation>
     </message>
     <message>
-        <source>来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。</source>
-        <translation>來源加上原作者署名後超過 240 字，公共共享庫放不下，這一項無法投稿。</translation>
+        <source>来源加上原作者署名后超过 240 字，共享库收不下，这一项不能投稿。</source>
+        <translation>來源加上原作者署名後超過 240 字，共享庫放不下，這一項無法投稿。</translation>
     </message>
     <message>
-        <source>本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
+        <source>本地稿件基于第 %1 版，共享库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。</source>
         <translation>本機稿件以第 %1 版為基礎，公開資料庫已更新至第 %2 版。請返回項目，比對並套用來源更新後再投稿。</translation>
     </message>
     <message>
-        <source>此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。</source>
+        <source>此稿件缺少来源修订号。请对比共享库第 %1 版，确认后再投稿。</source>
         <translation>此稿件缺少來源版本編號。請與公開資料庫第 %1 版比對，確認後再投稿。</translation>
     </message>
     <message>
@@ -7541,8 +7541,8 @@ SHA256：%3</translation>
         <translation>伺服器地區</translation>
     </message>
     <message>
-        <source>公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
-        <translation>公共庫先只顯示你的區服和介面語言的內容，在這裡取消勾選就能看到其他的</translation>
+        <source>共享库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的</source>
+        <translation>共享庫先只顯示你的區服和介面語言的內容，在這裡取消勾選就能看到其他的</translation>
     </message>
     <message>
         <source>语言</source>
@@ -7557,12 +7557,12 @@ SHA256：%3</translation>
         <translation>匯入</translation>
     </message>
     <message>
-        <source>从公共共享库挑选</source>
-        <translation>從公共共享庫挑選</translation>
+        <source>从共享库挑选</source>
+        <translation>從共享庫挑選</translation>
     </message>
     <message>
-        <source>到「公共共享库」里勾选，再导入到本地</source>
-        <translation>到「公共共享庫」裡勾選，再匯入到本機</translation>
+        <source>到「共享库」里勾选，再导入到本地</source>
+        <translation>到「共享庫」裡勾選，再匯入到本機</translation>
     </message>
     <message>
         <source>导入文件…</source>

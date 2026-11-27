@@ -146,7 +146,7 @@ void DutyCommunitySubmissionTests::communitySubmissionLeavesOutWhatIsAlreadyPubl
     QCOMPARE(scene.item(QStringLiteral("dutyCommunitySubmitBrowser"), true)->property("text").toString(),
              s("点此复制（1 项）并粘贴到 GitHub 当中"));
     QVERIFY(visibleText(scene.item(QStringLiteral("dutyCommunitySubmission"), true),
-                        s("公共库已有相同内容「Entry 900」（first-author），不再投稿")));
+                        s("共享库已有相同内容「Entry 900」（first-author），不再投稿")));
 
     // The licence names what others may do; the code it sends stays the same.
     QQuickItem *license = scene.item(QStringLiteral("dutyCommunityLicense"), true);
@@ -893,7 +893,7 @@ void DutyCommunitySubmissionTests::communityRefusedSaveIsOfferedBack()
     QVariant sentence;
     QVERIFY(QMetaObject::invokeMethod(dialog, "statusText", Q_RETURN_ARG(QVariant, sentence),
                                       Q_ARG(QVariant, QStringLiteral("source_unavailable"))));
-    QCOMPARE(sentence.toString(), s("这条内容已从公共共享库撤回或不再提供，请刷新公共共享库后再试。"));
+    QCOMPARE(sentence.toString(), s("这条内容已从共享库撤回或不再提供，请刷新共享库后再试。"));
     QVERIFY(QMetaObject::invokeMethod(dialog, "statusText", Q_RETURN_ARG(QVariant, sentence),
                                       Q_ARG(QVariant, QStringLiteral("submit_not_sent"))));
     QCOMPARE(sentence.toString(), s("投稿没有发出，什么都没有提交，请稍后再试。"));
@@ -940,12 +940,12 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
     }
     QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, idOf(0))));
     QTRY_VERIFY(withdrawButton());
-    QCOMPARE(withdrawButton()->property("text").toString(), s("从公共共享库撤回"));
+    QCOMPARE(withdrawButton()->property("text").toString(), s("从共享库撤回"));
     QVERIFY(shows("dutyCommunityDetail", "已发布"));
     // Ticked together with the installed copy: only what was published here is withdrawn.
     QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, idOf(0))));
     QVERIFY(QMetaObject::invokeMethod(dialog, "toggleChecked", Q_ARG(QVariant, idOf(2))));
-    QTRY_COMPARE(withdrawButton()->property("text").toString(), s("从公共共享库撤回 1 项"));
+    QTRY_COMPARE(withdrawButton()->property("text").toString(), s("从共享库撤回 1 项"));
     QVERIFY(scene.click(QStringLiteral("dutyCommunityWithdraw")));
     QTRY_COMPARE(dialog->property("mode").toString(), QStringLiteral("submit"));
     QObject *submission = dialog->findChild<QObject *>(QStringLiteral("dutyCommunitySubmission"));
@@ -980,7 +980,7 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
     QVERIFY(rowIds(submission->property("submittable")).isEmpty());
     QCOMPARE(qmlMap(submission->property("twins")).value(idOf(1)).toMap().value(QStringLiteral("kind")).toString(),
              QStringLiteral("withdrawn"));
-    QVERIFY(shows("dutyCommunitySubmission", "选中的内容都已从公共共享库撤回，不能再投稿。"));
+    QVERIFY(shows("dutyCommunitySubmission", "选中的内容都已从共享库撤回，不能再投稿。"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

@@ -292,8 +292,8 @@ ColumnLayout {
                 renderType: Theme.bodyRenderType
                 Layout.topMargin: 18
                 text: pane.withdrawing
-                      ? (pane.copied ? qsTr("撤回请求已复制，去浏览器粘贴") : qsTr("从公共共享库撤回"))
-                      : pane.copied ? qsTr("投稿正文已复制，去浏览器粘贴") : qsTr("投稿到公共共享库")
+                      ? (pane.copied ? qsTr("撤回请求已复制，去浏览器粘贴") : qsTr("从共享库撤回"))
+                      : pane.copied ? qsTr("投稿正文已复制，去浏览器粘贴") : qsTr("投稿到共享库")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(18)
                 font.bold: true
@@ -303,11 +303,11 @@ ColumnLayout {
                       ? (pane.copied
                          ? qsTr("撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
                                .arg(pane.copiedItemCount)
-                         : qsTr("撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。"))
+                         : qsTr("撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。"))
                       : pane.copied
                       ? qsTr("投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
                             .arg(pane.copiedItemCount)
-                      : qsTr("投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。")
+                      : qsTr("投稿通过 GitHub Issue 提交，处理完成后，所有人都能在共享库里看到。")
             }
 
             ColumnLayout {
@@ -368,12 +368,12 @@ ColumnLayout {
                                 textFormat: Text.PlainText
                                 text: {
                                     if (!entry.twin) return ""
-                                    if (entry.twin.kind === "unchanged") return qsTr("公共库里已有这一项，没有改动，不再投稿")
+                                    if (entry.twin.kind === "unchanged") return qsTr("共享库里已有这一项，没有改动，不再投稿")
                                     if (entry.twin.kind === "withdrawn")
-                                        return qsTr("这一项已从公共共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿")
+                                        return qsTr("这一项已从共享库撤回，不能再用原来的条目投稿；想再公开，请新建一条再投稿")
                                     const other = entry.twin.entry
                                     return pane.published[other.id]
-                                        ? qsTr("公共库已有相同内容「%1」（%2），不再投稿").arg(other.title).arg(other.author.login)
+                                        ? qsTr("共享库已有相同内容「%1」（%2），不再投稿").arg(other.title).arg(other.author.login)
                                         : qsTr("本次投稿的「%1」已有相同正文，此项不再投稿").arg(other.title)
                                 }
                                 color: Theme.textSecondary
@@ -395,21 +395,21 @@ ColumnLayout {
                                 objectName: "dutyCommunityLongSource"
                                 visible: !entry.twin && !!pane.plan.longSource[entry.draftId]
                                 color: Theme.red
-                                text: qsTr("来源加上原作者署名后超过 240 字，公共共享库收不下，这一项不能投稿。")
+                                text: qsTr("来源加上原作者署名后超过 240 字，共享库收不下，这一项不能投稿。")
                             }
                             Body {
                                 objectName: "dutyCommunityOutdatedBase"
                                 visible: !!entry.outdated
                                 textFormat: Text.PlainText
                                 text: entry.outdated
-                                    ? qsTr("本地稿件基于第 %1 版，公共库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。")
+                                    ? qsTr("本地稿件基于第 %1 版，共享库已更新到第 %2 版。请返回条目，核对并应用来源更新后再投稿。")
                                         .arg(entry.outdated.adopted).arg(entry.outdated.current)
                                     : ""
                             }
                             Body {
                                 visible: !!entry.review
                                 text: entry.review
-                                    ? qsTr("此稿件缺少来源修订号。请对比公共库第 %1 版，确认后再投稿。").arg(entry.review.revision)
+                                    ? qsTr("此稿件缺少来源修订号。请对比共享库第 %1 版，确认后再投稿。").arg(entry.review.revision)
                                     : ""
                             }
                             AppButton {
@@ -517,12 +517,12 @@ ColumnLayout {
                         objectName: "dutyCommunitySubmissionScope"
                         text: pane.withdrawing
                               ? (pane.sendCount > 20 ? qsTr("一次最多撤回 20 项，请少选几项再撤回。")
-                                 : qsTr("撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。")
+                                 : qsTr("撤回后，这 %1 项不再出现在共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。")
                                        .arg(pane.sendCount))
                               : pane.submittable.length === 0
                               ? (pane.selected.length > 0 && pane.selected.every(row => (pane.twins[row.content.id] || {}).kind === "withdrawn")
-                                 ? qsTr("选中的内容都已从公共共享库撤回，不能再投稿。")
-                                 : qsTr("选中的内容公共共享库里都已经有了，不需要再投稿。"))
+                                 ? qsTr("选中的内容都已从共享库撤回，不能再投稿。")
+                                 : qsTr("选中的内容共享库里都已经有了，不需要再投稿。"))
                               : pane.submittable.length > 20 ? qsTr("一次最多投稿 20 项，请少选几项再投稿。")
                               : qsTr("会公开这 %1 项的类型、标题、正文、副本、BOSS / 阶段、职业、游戏版本、区服、语言、标签、来源和关联项，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
                                     .arg(pane.submittable.length)

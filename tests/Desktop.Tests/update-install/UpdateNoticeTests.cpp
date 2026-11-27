@@ -926,8 +926,8 @@ ApplicationWindow {
         // (docs/privacy-boundary.md §8.7) are a fourth kind of request.
         QVERIFY(all.contains(QString::fromUtf8("后台服务仅为以下四类用途联网")));
         QVERIFY(!all.contains(QString::fromUtf8("三类用途")));
-        QVERIFY(all.contains(QString::fromUtf8("联网四：提醒与宏的公共共享库和投稿（默认关闭）")));
-        QVERIFY(all.contains(QString::fromUtf8("允许公共库联网")));
+        QVERIFY(all.contains(QString::fromUtf8("联网四：提醒与宏的共享库和投稿（默认关闭）")));
+        QVERIFY(all.contains(QString::fromUtf8("允许共享库联网")));
         // Audit 2026-11-26 RE-1: published builds submit through the browser only and
         // store no credential; the sign-in sentence is for a build configured for it.
         QVERIFY(all.contains(QString::fromUtf8("目前发布的版本只通过浏览器投稿")));
