@@ -29,6 +29,9 @@ MotionDialog {
     property string mode: "view"
     property var localRows: []
     property var publicRows: []
+    // What the public library lists. A withdrawn entry cannot be imported any more, so it is not
+    // shown there; publicRows keeps it for the status of local copies and for links.
+    readonly property var listedPublicRows: publicRows.filter(row => row.content.status !== "withdrawn")
     property var basket: []
     property var callbacks: ({})
     property int serial: 0
@@ -57,7 +60,7 @@ MotionDialog {
     readonly property var presetFilter: {
         const region = myRegion, language = defaultLanguage()
         // No entry of this language on the server: by server alone, so it never opens empty.
-        const any = publicRows.some(row => (!region || row.content.region === region || row.content.region === "ALL")
+        const any = listedPublicRows.some(row => (!region || row.content.region === region || row.content.region === "ALL")
                                            && row.content.language === language)
         return { region: region ? [region] : [], language: any ? [language] : [] }
     }
@@ -152,7 +155,7 @@ MotionDialog {
     property string issueState: ""
     readonly property int issueNumber: /^[0-9]{1,9}$/.test(issueText) ? Number(issueText) : 0
 
-    readonly property var rows: remote ? publicRows : localRows
+    readonly property var rows: remote ? listedPublicRows : localRows
     /// The tab's entries after search and filters, before the directory narrows them.
     readonly property var filtered: rows.filter(row => matches(row, ""))
     // content id -> { category, level, name } for the duties the entries may name.
@@ -160,7 +163,7 @@ MotionDialog {
         const map = ({})
         if (!visible) return map
         const regions = myRegion ? [myRegion] : []
-        for (const key of ["CN"].concat(localRows.concat(publicRows).map(row => row.content.region)))
+        for (const key of ["CN"].concat(localRows.concat(listedPublicRows).map(row => row.content.region)))
             if (regionKeys.includes(key) && !regions.includes(key)) regions.push(key)
         for (const region of regions)
             for (const entry of Runtime.app.dutyChoicesForRegion(region)) {
@@ -1240,7 +1243,7 @@ MotionDialog {
     // list and 投稿进度 step aside until the form is saved or left.
     readonly property bool editing: mode === "edit"
     readonly property bool onboarding: !remote && localRows.length === 0 && !editing
-    readonly property bool publicBlank: remote && publicRows.length === 0
+    readonly property bool publicBlank: remote && listedPublicRows.length === 0
 
     contentItem: ColumnLayout {
         spacing: 0
@@ -1296,8 +1299,8 @@ MotionDialog {
                 implicitWidth: naturalWidth
                 options: [
                     { value: "local", label: qsTr("本地") + "  " + root.localRows.length },
-                    { value: "public", label: root.publicRows.length > 0
-                        ? qsTr("公共共享库") + "  " + root.publicRows.length : qsTr("公共共享库") }
+                    { value: "public", label: root.listedPublicRows.length > 0
+                        ? qsTr("公共共享库") + "  " + root.listedPublicRows.length : qsTr("公共共享库") }
                 ]
                 currentValue: root.tab
                 // Clicking 公共共享库 while it is open refreshes it as well.

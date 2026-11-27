@@ -928,6 +928,8 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
     }
     dialog->setProperty("localRows", local);
     dialog->setProperty("publicRows", published);
+    // The public library lists only what can still be imported: the two withdrawn entries are hidden.
+    QCOMPARE(rowIds(dialog->property("listedPublicRows")), QStringList{idOf(0)});
     const auto withdrawButton = [&] { return scene.item(QStringLiteral("dutyCommunityWithdraw"), true); };
     const auto shows = [&](const char *name, const char *line) { return visibleText(scene.item(QString::fromLatin1(name), true), s(line)); };
     for (int index : {2, 1}) {

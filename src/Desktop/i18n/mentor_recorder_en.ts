@@ -7229,8 +7229,8 @@ SHA256: %3</translation>
         <translation>The withdrawal request (%1) is on the clipboard and the GitHub form is open in the browser. If you do not see the form, click Reopen form below.</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
-        <translation>Withdrawals go through a GitHub Issue. Once processed, these items are marked Withdrawn in the public library.</translation>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。</source>
+        <translation>Withdrawals go through a GitHub Issue. Once processed, these items no longer appear in the public library.</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7377,8 +7377,8 @@ SHA256: %3</translation>
         <translation>You can withdraw at most 20 items at a time; select fewer and try again.</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>Once withdrawn, these %1 items are marked Withdrawn in the public library: nobody can import them any more, people who already imported them see Withdrawn, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
+        <source>撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>Once withdrawn, these %1 items no longer appear in the public library and nobody can import them; people who already imported them see Withdrawn on their copy, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
     </message>
     <message>
         <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>

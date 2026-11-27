@@ -281,7 +281,9 @@ ColumnLayout {
                 spacing: 6
 
                 Repeater {
-                    model: pane.item ? pane.item.links : []
+                    // A link to an entry the public library no longer lists (withdrawn) is left out.
+                    model: !pane.item ? [] : pane.store.remote
+                        ? pane.item.links.filter(link => pane.store.rows.some(row => row.content.id === link)) : pane.item.links
                     delegate: AppButton {
                         required property string modelData
                         readonly property var target: pane.store.rows.find(row => row.content.id === modelData)

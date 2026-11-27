@@ -7229,8 +7229,8 @@ SHA256：%3</translation>
         <translation>撤回請求（%1 項）已複製到剪貼簿，GitHub 表單已在瀏覽器開啟；沒看到表單就點下面的「重新開啟表單」。</translation>
     </message>
     <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
-        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在公共共享庫裡標為「已撤回」。</translation>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。</source>
+        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容不再出現在公共共享庫裡。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7377,8 +7377,8 @@ SHA256：%3</translation>
         <translation>一次最多撤回 20 項，請少選幾項再撤回。</translation>
     </message>
     <message>
-        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>撤回後，這 %1 項在公共共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
+        <source>撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>撤回後，這 %1 項不再出現在公共共享庫裡，別人不能再匯入；已經匯入的人在本機看到「已撤回」，你本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
     </message>
     <message>
         <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>

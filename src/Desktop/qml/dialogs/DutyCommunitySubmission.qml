@@ -303,7 +303,7 @@ ColumnLayout {
                       ? (pane.copied
                          ? qsTr("撤回请求（%1 项）已复制到剪贴板，GitHub 表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
                                .arg(pane.copiedItemCount)
-                         : qsTr("撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。"))
+                         : qsTr("撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在公共共享库里。"))
                       : pane.copied
                       ? qsTr("投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。")
                             .arg(pane.copiedItemCount)
@@ -517,7 +517,7 @@ ColumnLayout {
                         objectName: "dutyCommunitySubmissionScope"
                         text: pane.withdrawing
                               ? (pane.sendCount > 20 ? qsTr("一次最多撤回 20 项，请少选几项再撤回。")
-                                 : qsTr("撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。")
+                                 : qsTr("撤回后，这 %1 项不再出现在公共共享库里，别人不能再导入；已经导入的人在本地看到「已撤回」，你本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。")
                                        .arg(pane.sendCount))
                               : pane.submittable.length === 0
                               ? (pane.selected.length > 0 && pane.selected.every(row => (pane.twins[row.content.id] || {}).kind === "withdrawn")
