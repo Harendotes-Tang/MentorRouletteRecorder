@@ -133,7 +133,9 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         }
         var installing = items.Select(item => Id(item)).ToHashSet(StringComparer.Ordinal);
         // Save in reverse so the selected entry appears above its newly installed links.
-        foreach (var item in missing.Reverse())
+        // Enumerable.Reverse, not missing.Reverse(): from C# 14 an array binds to the in-place
+        // MemoryExtensions.Reverse(Span<T>), which returns nothing.
+        foreach (var item in Enumerable.Reverse(missing))
         {
             var draft = CommunityContent.Draft(item);
             var links = InstalledLinks(item, installing, tx);

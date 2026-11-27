@@ -97,7 +97,7 @@ public sealed class CommunityWorkspaceTests
             var id = seed.Parameters.AddWithValue("$id", "");
             var position = seed.Parameters.AddWithValue("$position", 0);
             var content = seed.Parameters.AddWithValue("$content", "");
-            foreach (var legacyId in legacyIds.Reverse())
+            foreach (var legacyId in Enumerable.Reverse(legacyIds))
             {
                 id.Value = legacyId;
                 position.Value = legacyId == legacyIds[1] ? -2 : 0;
