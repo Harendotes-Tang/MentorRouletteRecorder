@@ -5,13 +5,13 @@ import MentorRecorder 1.0
 // `.ov-tip`: the explanation of a module, a bar or a button, shown while the
 // pointer rests on it. With 文字标签 off these are the only words the float
 // has, so they say what the graphic stands for and the numbers behind it.
-ToolTip {
+// The bubble itself is the application's tool tip (AppToolTip).
+AppToolTip {
     id: tip
 
     delay: 350
     timeout: -1
     margins: 4
-    padding: 0
     // A window of its own (Qt 6.8+). The float is only as tall as its content,
     // the mini bar a single line, so a tip kept inside the float's window could
     // only lie over the very thing it explains, buttons included (2026-10-20).
@@ -46,37 +46,6 @@ ToolTip {
         return -1
     }
     onAboutToShow: place()
-    // A tooltip wraps at 250 px, like the design's max-width; the box is no
-    // wider than the wrapped text.
-    contentWidth: Math.min(label.implicitWidth, 250)
-
-    contentItem: Text {
-        id: label
-        text: tip.text
-        // Duty names and categories may come from an imported file: shown as
-        // written, never as markup (which could fetch an image).
-        textFormat: Text.PlainText
-        color: Theme.textPrimary
-        font.pixelSize: Theme.fs(12)
-        font.weight: Font.Medium
-        lineHeight: 1.35
-        wrapMode: Text.Wrap
-        padding: 8
-        leftPadding: 10
-        rightPadding: 10
-    }
-
-    background: Rectangle {
-        radius: Theme.radiusS
-        color: Theme.surface
-        border.width: 1
-        border.color: Theme.border
-    }
-
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionFast }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
-    }
+    // A tooltip wraps at 250 px, like the design's max-width.
+    maxTextWidth: 250
 }

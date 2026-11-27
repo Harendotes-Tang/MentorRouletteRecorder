@@ -28,6 +28,8 @@ private slots:
     void reducedMotionCompletesColourFeedback();
     void hoverFadeRestsOnTheHoverColour_data();
     void hoverFadeRestsOnTheHoverColour();
+    void guideTipIsTheApplicationBubble_data();
+    void guideTipIsTheApplicationBubble();
 };
 
 void ControlMotionTests::pressedControlKeepsItsHitArea_data()
@@ -189,6 +191,77 @@ ApplicationWindow {
     const QColor primaryRest = primaryBackground->property("color").value<QColor>();
     QVERIFY2(primaryRest.rgba() != qRgba(0, 0, 0, 0),
              qPrintable(QStringLiteral("primary rests on %1").arg(primaryRest.name(QColor::HexArgb))));
+}
+
+// The 查看攻略 / 攻略目录 button's tip is the application's bubble (AppToolTip, the float's
+// `.ov-tip`): themed fill, border and corners in both themes, not Qt's square white box with a
+// black border, which stood out on the light dashboard (2026-11-27).
+void ControlMotionTests::guideTipIsTheApplicationBubble_data()
+{
+    QTest::addColumn<QString>("theme");
+    QTest::newRow("light") << QStringLiteral("light");
+    QTest::newRow("dark") << QStringLiteral("dark");
+}
+
+void ControlMotionTests::guideTipIsTheApplicationBubble()
+{
+    QFETCH(QString, theme);
+    QuietBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    controller.setThemeMode(theme);
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), QStringLiteral("classic"));
+    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 480; height: 240; visible: true
+    readonly property color surface: Theme.surface
+    readonly property color border: Theme.border
+    readonly property color ink: Theme.textPrimary
+    readonly property int radius: Theme.radiusS
+    DutyGuideButton { objectName: "dashboardDutyGuide"; x: 180; y: 120; compact: true; showSource: false }
+})", QUrl());
+    const std::unique_ptr<QObject> root(component.create());
+    QString errors;
+    for (const auto &error : component.errors())
+        errors += error.toString() + QLatin1Char('\n');
+    QVERIFY2(root, qPrintable(errors));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *button = root->findChild<QQuickItem *>(QStringLiteral("dashboardDutyGuide"));
+    QVERIFY(button);
+    QObject *tip = root->findChild<QObject *>(QStringLiteral("dashboardDutyGuideTip"));
+    QVERIFY(tip);
+    QVERIFY(!tip->property("visible").toBool());
+
+    // Qt drops a move to where the pointer already is (the previous row left it there).
+    QTest::mouseMove(window, QPoint(5, 5));
+    QTest::mouseMove(window, button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QTRY_VERIFY(button->property("hovered").toBool());
+    QTRY_VERIFY(tip->property("opened").toBool());
+    QCOMPARE(tip->property("text").toString(), QString::fromUtf8("在浏览器打开「新大陆见闻录」的攻略目录"));
+
+    const auto *bubble = tip->property("background").value<QObject *>();
+    auto *label = tip->property("contentItem").value<QObject *>();
+    QVERIFY(bubble && label);
+    QCOMPARE(bubble->property("color").value<QColor>(), root->property("surface").value<QColor>());
+    QCOMPARE(bubble->property("radius").toReal(), root->property("radius").toReal());
+    QCOMPARE(bubble->property("border").value<QObject *>()->property("color").value<QColor>(),
+             root->property("border").value<QColor>());
+    QCOMPARE(label->property("color").value<QColor>(), root->property("ink").value<QColor>());
+    // The surface follows the theme: a pale bubble in light, a dark one in dark.
+    const int lightness = root->property("surface").value<QColor>().lightness();
+    QVERIFY2(theme == QLatin1String("light") ? lightness > 200 : lightness < 80, qPrintable(QString::number(lightness)));
+    // Drawn in the window, above the button, so a screenshot of the page shows it.
+    auto *tipItem = qobject_cast<QQuickItem *>(label)->parentItem();
+    QVERIFY(tipItem);
+    QCOMPARE(tipItem->window(), window);
+    QVERIFY(tipItem->mapToScene(QPointF(0, tipItem->height())).y() <= button->mapToScene(QPointF(0, 0)).y());
 }
 } // namespace
 

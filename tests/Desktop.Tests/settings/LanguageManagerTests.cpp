@@ -8,6 +8,7 @@
 #include <QFontDatabase>
 #include <QFontInfo>
 #include <QDir>
+#include <QGlyphRun>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QQmlEngine>
@@ -22,6 +23,9 @@
 #include <QStandardPaths>
 #include <QTest>
 #include <QTemporaryDir>
+#include <QTextLayout>
+
+#include <memory>
 
 // 界面语言: the choice, its persistence and what a switch does to the
 // application font. The compiled catalogues live in the executable, not in the
@@ -36,6 +40,39 @@ QSettings::Status writeInstallerSeed(const QString &path, const QString &code)
     seed.setValue(QStringLiteral("Installer/Language"), code);
     seed.sync();
     return seed.status();
+}
+
+/// The faces \a text is drawn in with \a family at the macro body's size, lower-cased, in run order.
+QStringList glyphFaces(const QString &family, const QString &text)
+{
+    QFont font(family);
+    font.setPixelSize(13);
+    QTextLayout layout(text, font);
+    layout.beginLayout();
+    layout.createLine();
+    layout.endLayout();
+    QStringList faces;
+    for (const QGlyphRun &run : layout.glyphRuns())
+        faces.append(run.rawFont().familyName().toLower());
+    return faces;
+}
+
+/// Glyph indexes and positions of a one-run \a text; empty when it needed more than one face.
+QList<QPointF> latinGlyphs(const QString &family, const QString &text)
+{
+    QFont font(family);
+    font.setPixelSize(13);
+    QTextLayout layout(text, font);
+    layout.beginLayout();
+    layout.createLine();
+    layout.endLayout();
+    const QList<QGlyphRun> runs = layout.glyphRuns();
+    if (runs.size() != 1)
+        return {};
+    QList<QPointF> glyphs = runs.constFirst().positions();
+    for (const quint32 index : runs.constFirst().glyphIndexes())
+        glyphs.append(QPointF(index, 0));
+    return glyphs;
 }
 
 class LanguageManagerTests : public QObject
@@ -281,6 +318,102 @@ private Q_SLOTS:
             QCOMPARE(QFont::substitutes(QGuiApplication::font().family()), base);
             first.setLanguage("zh-CN");
         }
+    }
+
+    // 宏正文、路径与操作码用等宽字体；它缺的汉字和全角标点要取界面字体，不能交给平台回退。
+    // 离屏渲染按字母序先回退到 Microsoft JhengHei，把「，」「。」画成居中的小点（2026-11-27）。
+    void monospaceFallsBackToTheInterfaceFace()
+    {
+        QVERIFY(mr::registerBundledFonts());
+#ifdef Q_OS_WIN
+        const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+        for (const char *file : {"Fonts/msyh.ttc", "Fonts/msjh.ttc"})
+            QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
+#endif
+        const QString yahei = QStringLiteral("Microsoft YaHei UI");
+        const QString jhenghei = QStringLiteral("Microsoft JhengHei UI");
+        if (!QFontDatabase::hasFamily(yahei) || !QFontDatabase::hasFamily(jhenghei))
+            QSKIP("Needs Microsoft YaHei UI and Microsoft JhengHei UI");
+        const QFont savedFont = QGuiApplication::font();
+        const auto restoreFont = qScopeGuard([&] { QGuiApplication::setFont(savedFont); });
+        QFont baseFont;
+        baseFont.setFamilies({yahei, QStringLiteral("Microsoft YaHei")});
+        QGuiApplication::setFont(baseFont);
+        mr::LanguageManager manager(nullptr);
+        manager.initialize("zh-CN");
+
+        const QString plex = QStringLiteral("IBM Plex Mono");
+        const QString mono = manager.withInterfaceFallback(plex);
+        QVERIFY(mono != plex);
+        QCOMPARE(manager.withInterfaceFallback(plex), mono);
+        // A family the machine does not have stays as it was (Qt's generic names included).
+        QCOMPARE(manager.withInterfaceFallback(QStringLiteral("No Such Family")),
+                 QStringLiteral("No Such Family"));
+
+        // Han context, and full-width punctuation right after Latin letters.
+        QCOMPARE(glyphFaces(mono, QString::fromUtf8("两侧石像先别打，大家集中打。")),
+                 QStringList{yahei.toLower()});
+        const QStringList mixed = glyphFaces(mono, QString::fromUtf8("/p OK，go。<se.1>"));
+        QVERIFY2(!mixed.isEmpty(), "no glyph runs");
+        for (const QString &face : mixed)
+            QVERIFY2(face == yahei.toLower() || face == plex.toLower(), qPrintable(mixed.join(", ")));
+        // Latin keeps exactly the monospace glyphs and advances.
+        const QString latin = QStringLiteral("/p BOSS <se.1> 0x02F5 ijl mwm");
+        const QList<QPointF> plain = latinGlyphs(plex, latin);
+        QVERIFY(!plain.isEmpty());
+        QCOMPARE(latinGlyphs(mono, latin), plain);
+
+        // Theme.monoFamily follows a live switch: 繁體中文 draws them in its own face.
+        const QString qml = QString::fromUtf8(MR_DESKTOP_QML_DIR);
+        qmlRegisterSingletonType(QUrl::fromLocalFile(qml + "/Theme.qml"), "MentorRecorder", 1, 0, "Theme");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("Lang", &manager);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MentorRecorder\nQtObject { property string mono: Theme.monoFamily }",
+                          QUrl());
+        std::unique_ptr<QObject> probe(component.create());
+        QVERIFY2(probe, qPrintable(component.errorString()));
+        QCOMPARE(probe->property("mono").toString(), mono);
+        manager.setLanguage("zh-TW");
+        const QString traditional = probe->property("mono").toString();
+        QCOMPARE(traditional, manager.withInterfaceFallback(plex));
+        QVERIFY(traditional != mono);
+        QCOMPARE(glyphFaces(traditional, QString::fromUtf8("先别打，大家。")), QStringList{jhenghei.toLower()});
+        manager.setLanguage("zh-CN");
+        QCOMPARE(probe->property("mono").toString(), mono);
+    }
+
+    // Qt's font cache tells the engines of one face apart by how many families wait behind it,
+    // not by which: two stacks of equal length behind IBM Plex Mono would share whichever engine
+    // was built first, so a switch between two languages could keep the first one's face.
+    void monospaceStacksOfEqualLengthKeepTheirOwnFace()
+    {
+        QVERIFY(mr::registerBundledFonts());
+#ifdef Q_OS_WIN
+        const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+        for (const char *file : {"Fonts/msyh.ttc", "Fonts/msjh.ttc"})
+            QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
+#endif
+        const QString yahei = QStringLiteral("Microsoft YaHei UI");
+        const QString jhenghei = QStringLiteral("Microsoft JhengHei UI");
+        if (!QFontDatabase::hasFamily(yahei) || !QFontDatabase::hasFamily(jhenghei))
+            QSKIP("Needs Microsoft YaHei UI and Microsoft JhengHei UI");
+        const QFont savedFont = QGuiApplication::font();
+        const auto restoreFont = qScopeGuard([&] { QGuiApplication::setFont(savedFont); });
+        const QString plex = QStringLiteral("IBM Plex Mono");
+        const QString text = QString::fromUtf8("先别打，大家。");
+        // Two interface stacks of two faces each: the monospace stacks are both three long.
+        QStringList faces;
+        for (const QStringList &base : {QStringList{yahei, QStringLiteral("Microsoft YaHei")},
+                                        QStringList{jhenghei, QStringLiteral("Microsoft JhengHei")}}) {
+            QFont baseFont;
+            baseFont.setFamilies(base);
+            QGuiApplication::setFont(baseFont);
+            mr::LanguageManager manager(nullptr);
+            manager.initialize("zh-CN");
+            faces.append(glyphFaces(manager.withInterfaceFallback(plex), text).join(QLatin1Char('+')));
+        }
+        QCOMPARE(faces, (QStringList{yahei.toLower(), jhenghei.toLower()}));
     }
 
     void navigationFontAndInkFollowLiveLanguageSwitch()

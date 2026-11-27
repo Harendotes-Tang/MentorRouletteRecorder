@@ -134,6 +134,12 @@ offscreen 平台不会发现系统字体，因此**仅在 `--screenshot` 模式�
 | `Theme.figureWeight(bold)` | 保持原来的粗细 | `Font.DemiBold` |
 | `Theme.monoFamily` | Consolas 等系统等宽字体 | 优先 `IBM Plex Mono` |
 
+等宽字体不含中文。`Theme.monoFamily` 返回的是 `Lang.withInterfaceFallback()` 生成的字体别名
+（`MentorRecorder Fallback <散列>`）：拉丁字母与数字仍取上表的等宽字体，字形与间距不变；
+汉字、假名与全角标点取界面字体，随界面语言而定（简体中文与英语为 Microsoft YaHei UI，繁體中文为
+Microsoft JhengHei UI，日语为 Yu Gothic UI），与旁边列表中的同一段文字一致。
+若交给平台回退，离屏截图会落到 Microsoft JhengHei，把「，」「。」画在字格正中。
+
 IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/Desktop/resources/fonts/`，
 包括 `IBMPlexMono-Medium.ttf`、`IBMPlexMono-SemiBold.ttf` 与 `IBMPlexMono-OFL.txt`，
 与 Cinzel 使用同一个 `mr_fonts` 资源，并在同一处调用 `addApplicationFont()` 注册。
@@ -302,7 +308,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   （`UpdateController::isInstallerUrl`）；没有这样的地址时改为打开发布页，并以提示说明已改为打开发布页。
   「查看更新说明」把固定的公开发布页交给系统浏览器。「忽略此版本」只对该版本有效，升到更高的版本后会再次提示。
   不点击就不下载、不安装；采集服务从不执行它下载的文件，见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6。
-* 「当前导随」卡片标题行右端有两个紧凑按钮，不占卡片正文：「攻略目录」（`dashboardDutyGuide`，书本图标在前、外链图标 `external-link` 在后，已识别的副本有对应攻略页面时为「查看攻略」，站名写在悬停提示里；站点随界面语言：简体中文与繁體中文为新大陆见闻录，英语与日语为 Console Games Wiki）和「提醒与宏」（`dashboardDutyCommunity`）。已进入副本且本地有属于该副本的条目时，「提醒与宏」右端显示条数徽标（`dashboardDutyCommunityBadge`）。
+* 「当前导随」卡片标题行右端有两个紧凑按钮，不占卡片正文：「攻略目录」（`dashboardDutyGuide`，书本图标在前、外链图标 `external-link` 在后，已识别的副本有对应攻略页面时为「查看攻略」，站名写在悬停提示里（`components/AppToolTip.qml`，`dashboardDutyGuideTip`，与浮窗提示框同一样式）；站点随界面语言：简体中文与繁體中文为新大陆见闻录，英语与日语为 Console Games Wiki）和「提醒与宏」（`dashboardDutyCommunity`）。已进入副本且本地有属于该副本的条目时，「提醒与宏」右端显示条数徽标（`dashboardDutyCommunityBadge`）。
   「提醒与宏」打开 `dialogs/DutyCommunityDialog.qml`（1320 × 860，随窗口收窄）：标题右侧是「本地 / 公共共享库」分段切换（带条数），再右是带站名的攻略入口与关闭按钮；工具区一行：搜索框与四个多选筛选胶囊（类型、职业、区服、语言，`components/MultiFilterButton.qml`，每项后的条数为当前范围内按其他条件筛选后的数量；可输入查找的职业面板只列前 12 个匹配项，再加上排在其后、已勾选的项，其余以「还有 N 项，输入名称查找」提示）、「清除筛选」，右端在本地为「导入 ▾」「新建 ▾」（`components/ActionMenuButton.qml`，前面分别是 `file-input` 与 `plus` 图标，下拉箭头用 `AppButton` 的 `trailingIconName` 放在文字之后）。主体分三栏：左侧 232 px 为「副本目录」（`DutyCommunityRail.qml`：找副本、固定范围「全部 / 当前副本 / 收藏 / 最近用过 / 通用」、按类型展开的副本，公共库时底部为联网状态、刷新与「允许公共库联网」开关）；中间 384 px 为列表（`DutyCommunityList.qml`：表头为全选、条数、排序、紧凑行高与全部收起，副本内按 BOSS / 阶段分组，分组规则在 `DutyCommunityScope.js`，组标题吸顶并可收起，勾选后底部才出现「导出 / 投稿」或「导入到本地」）；右侧承载查看（`DutyCommunityDetail.qml`）与投稿或撤回确认（`DutyCommunitySubmission.qml`，撤回时为 `kind: "withdraw"`）；删除在右栏底部就地确认。新建与编辑（`DutyCommunityEditor.qml`）占据整个对话框：编辑期间分段切换、工具区、三栏与底栏「投稿进度」都隐藏，标题行改为「← 副本提醒与导随宏 / 新建宏」一类的返回路径，保存或离开表单后恢复。只有「来源更新对比」另以第二层模态对话框（`dutyCommunityCompare`）打开，逐项列出有变化的内容字段与许可，字段名用中文（如「标题」「关联条目」），空值写「（空）」，不显示原始 JSON 字段名；副本、区服、语言、类型、职业、游戏版本与许可的取值也按对话框的显示文字列出（副本名、「国服 CN」、「简体中文」、宏 / 提醒、职业名、版本范围、许可名称），不显示代码。查看页的属性表有「标签」一行；本地条目的「来源」显示保存的原文，只有来源为空时才写「公共共享库」或「自己写的」；「标签」与「来源」两行在 300 px 宽度内换行完整显示，不截断。保存被采集服务拒绝、而其间已经打开了另一个表单时，工具区下方出现一行红字（`dutyCommunityRefusedSave`）：「「%1」没有保存：」（%1 为条目标题）加原因，正在编辑时再加「保存或取消当前表单后可以恢复。」，右侧为「恢复」（编辑期间不可点，重新打开该表单并在其中显示原因）与「放弃」。点「关联项」会调整副本目录与筛选，使所关联的条目在列表中可见并打开它。底栏为「投稿进度」：直接输入 Issue 编号，「查看状态」的结果显示在旁边。宏用各皮肤的蓝、提醒用黄（`components/ContentTypeTag.qml`），标签同时带图标和文字。本地没有内容时主体换成用途说明与「新建宏 / 新建提醒 / 去公共共享库挑选」及常用宏示例；公共库没有缓存且联网关闭时换成说明与「允许联网并刷新」。
 * 「当前导随」卡片的**当前职业**一栏始终显示：存在职业编号时显示职业图标、职业名与职能图标，
   职业尚未识别时显示「未知」（职业报文在登录与换职业时出现，识别后该栏随记录更新）。
@@ -2005,6 +2011,7 @@ QML 界面加载失败（没有根对象，或根对象不是窗口，例如安�
   提示框是独立的小窗（`overlay/OverlayToolTip.qml`，`popupType: Popup.Window`），不受浮窗边界约束：显示在所悬停项目的上方，
   贴近屏幕顶端没有空间时改到下方；迷你条上的提示框以整条为基准，不会盖住条上的数字或按钮。
   按钮落在可悬停的条上（标题栏的拖动区、迷你条的进度行）时只显示按钮自己的提示，不同时显示条的提示。
+  气泡本身（表面色底、1 px 边框、小圆角、12 px 中等字重）来自 `components/AppToolTip.qml`，主窗口中的攻略按钮提示也使用它。
 * **副本类型色**与副本统计页的类型图例一致（`DungeonStatsModel::categoryBreakdown` 的 token，§4.3），角标为单字（迷 / 讨 / 大 / 团 / 令；
   极神只作为图例分段出现，角标为「极」），角标文字为 `dutyBadgeForeground`；
   职能色取自 `JobCatalog::tokenForRoleGroup`。累计进度来自各区服的 `achievements` 条目（`achievement_progress` 与 `goal_count`），

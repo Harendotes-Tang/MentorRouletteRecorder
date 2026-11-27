@@ -351,6 +351,7 @@ set(MR_QML_FILES
     qml/components/PanelDecoration.qml
     qml/components/PillSwitch.qml
     qml/components/ChartTip.qml
+    qml/components/AppToolTip.qml
     qml/components/PlainToolTip.qml
     qml/components/ProgressRing.qml
     qml/components/AchievementConfetti.qml

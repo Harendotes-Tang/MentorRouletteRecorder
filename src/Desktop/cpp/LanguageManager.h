@@ -94,6 +94,15 @@ public:
     /// 繁體中文 / 日本語 in their own shapes whatever the interface language).
     Q_INVOKABLE QString displayFamily(const QString &code) const;
 
+    /// An immutable alias that draws text in \a family and takes the characters it
+    /// lacks (Han, kana, full-width punctuation) from the interface's own faces, in
+    /// the language's shapes. Without it a monospace face falls back to whatever the
+    /// platform picks: offscreen that is Microsoft JhengHei, whose 「，」「。」 sit in
+    /// the middle of the cell. Latin glyphs are exactly \a family's. A family the
+    /// machine does not have is returned as it is. QML reads fontFamily in the same
+    /// binding, so the alias follows a language switch.
+    Q_INVOKABLE QString withInterfaceFallback(const QString &family) const;
+
     /// Persist (unless pinned) and apply. Unknown codes are ignored.
     Q_INVOKABLE void setLanguage(const QString &code);
 

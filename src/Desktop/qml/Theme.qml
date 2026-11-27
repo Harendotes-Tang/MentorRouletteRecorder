@@ -114,7 +114,20 @@ QtObject {
     // it Qt silently falls back to the default proportional face and a 64-character
     // hash becomes unreadable. The QML font value type has no `families` fallback list
     // (see above), so the fallback is resolved here against the installed families.
+    // The face found has no Chinese, so a macro body's Han characters and 「，」「。」
+    // come from the interface's own faces (Lang.withInterfaceFallback), as in the
+    // list beside it; left to the platform they came out in Microsoft JhengHei
+    // offscreen, with the comma and full stop centred.
     readonly property string monoFamily: {
+        const face = monoFace()
+        if (typeof Runtime.lang === "undefined" || !Runtime.lang
+                || typeof Runtime.lang.withInterfaceFallback !== "function")
+            return face
+        // Read here so a language switch re-evaluates the binding.
+        trackBindingDependency(Runtime.lang.fontFamily)
+        return Runtime.lang.withInterfaceFallback(face)
+    }
+    function monoFace() {
         // The classic style prefers the bundled IBM Plex Mono; eorzea keeps Consolas.
         const fallbacks = ["Consolas", "Cascadia Mono", "Cascadia Code", "Courier New",
                            "DejaVu Sans Mono", "Liberation Mono", "monospace"]

@@ -7,6 +7,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
+#include <QHash>
 #include <QLocale>
 #include <QQmlEngine>
 #include <QSettings>
@@ -18,6 +19,41 @@ namespace {
 constexpr char kSettingsKey[] = "ui/language";
 // Prefix for immutable, language-specific font stacks; see applyFont().
 constexpr char kFontAlias[] = "MentorRecorder Interface";
+// Prefix for a face followed by the interface stack; see withInterfaceFallback().
+constexpr char kFallbackAlias[] = "MentorRecorder Fallback";
+
+QString stackKey(const QStringList &stack)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(
+        stack.join(QChar::Null).toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+// Qt's font cache tells the engines of one face apart by how many families wait
+// behind it, not by which (QFontCache::Key::operator< in qfont_p.h). Two stacks of
+// equal length behind the same face would share the engine built first, so a switch
+// from 繁體中文 to 日本語 could keep JhengHei. A stack that would take a length
+// another stack behind its face already has gets names no font has until it is longer.
+QStringList withOwnLength(QStringList stack, const QString &key)
+{
+    static QHash<QString, QHash<qsizetype, QString>> stacksByFace;  // face -> length -> key
+    QHash<qsizetype, QString> &lengths = stacksByFace[stack.constFirst().toLower()];
+    for (int n = 1; lengths.contains(stack.size()) && lengths.value(stack.size()) != key; ++n)
+        stack.append(QStringLiteral("MentorRecorder Padding %1").arg(n));
+    lengths.insert(stack.size(), key);
+    return stack;
+}
+
+// A name no font has, fixed by the stack it stands for. Qt keys its engine cache by
+// family name, so a stack never changes behind a name already in use. \a ownLength
+// pads the stack for an alias whose first face other aliases share (see withOwnLength).
+QString stackAlias(const QString &prefix, const QStringList &stack, bool ownLength = false)
+{
+    const QString key = stackKey(stack);
+    const QString alias = prefix + QLatin1Char(' ') + key;
+    if (QFont::substitutes(alias).isEmpty())
+        QFont::insertSubstitutions(alias, ownLength ? withOwnLength(stack, key) : stack);
+    return alias;
+}
 
 // The language on screen, readable without a manager (see currentCode()).
 QString &currentCodeStorage()
@@ -153,6 +189,22 @@ QString LanguageManager::displayFamily(const QString &code) const
     return QGuiApplication::font().family();
 }
 
+QString LanguageManager::withInterfaceFallback(const QString &family) const
+{
+    // Qt resolves generic names (monospace) without listing them; leave those to Qt.
+    if (m_fontFamily.isEmpty() || !QFontDatabase::hasFamily(family))
+        return family;
+    // Qt tries an alias's substitutes in order for every character, so the face
+    // draws what it has and the interface stack the rest.
+    QStringList stack{family};
+    for (const QString &face : QFont::substitutes(m_fontFamily)) {
+        if (!stack.contains(face, Qt::CaseInsensitive))
+            stack.append(face);
+    }
+    // Every such alias leads with the same face, so each needs a length of its own.
+    return stackAlias(QString::fromLatin1(kFallbackAlias), stack, true);
+}
+
 void LanguageManager::initialize(const QString &pinnedCode,
                                  const QString &installerDefaultsPath)
 {
@@ -274,12 +326,8 @@ void LanguageManager::applyFont(const QString &code)
     // Never change a mapping used by live text/render nodes. Clearing Qt's font
     // database on each switch can leave their glyph indexes tied to another face.
     // Include the stack in the key so another manager cannot overwrite it either.
-    const QString stackKey = QString::fromLatin1(QCryptographicHash::hash(
-        substitutes.join(QChar::Null).toUtf8(), QCryptographicHash::Sha256).toHex());
-    const QString alias = aliasPrefix + QLatin1Char(' ') + code + QLatin1Char(' ') + stackKey;
+    const QString alias = stackAlias(aliasPrefix + QLatin1Char(' ') + code, substitutes);
     m_fontFamily = alias;
-    if (QFont::substitutes(alias).isEmpty())
-        QFont::insertSubstitutions(alias, substitutes);
     if (font.families() != QStringList{alias}) {
         font.setFamilies({alias});
         QGuiApplication::setFont(font);
