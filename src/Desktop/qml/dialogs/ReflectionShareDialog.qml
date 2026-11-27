@@ -461,9 +461,7 @@ MotionDialog {
                             border.color: activeFocus || drag.active ? Theme.accentStrong : Theme.borderStrong
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("拖动排序") + " · " + (Theme.dutyName(dialog.runsData[index]) || qsTr("未知副本"))
-                            ToolTip.visible: hover.hovered && dialog.dragFrom < 0
-                            ToolTip.delay: 500
-                            ToolTip.text: qsTr("拖动排序，也可按 ↑ 或 ↓ 移动")
+                            AppToolTip { visible: hover.hovered && dialog.dragFrom < 0; delay: 500; text: qsTr("拖动排序，也可按 ↑ 或 ↓ 移动") }
                             Image {
                                 anchors.centerIn: parent
                                 width: 16
@@ -491,9 +489,7 @@ MotionDialog {
                                     border.color: Theme.borderStrong
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.label
-                                    ToolTip.visible: jumpHover.hovered
-                                    ToolTip.delay: 500
-                                    ToolTip.text: modelData.label
+                                    AppToolTip { visible: jumpHover.hovered; delay: 500; text: jump.modelData.label }
                                     Image {
                                         anchors.centerIn: parent
                                         width: 16

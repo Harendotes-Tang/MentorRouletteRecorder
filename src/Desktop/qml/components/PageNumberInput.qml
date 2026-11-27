@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
@@ -52,9 +51,11 @@ RowLayout {
         Accessible.name: qsTr("跳转页码")
         color: text.length === 0 || root.validPage ? Theme.textPrimary : Theme.red
         onAccepted: root.jump()
-        ToolTip.visible: hovered || activeFocus
-        ToolTip.delay: 500
-        ToolTip.text: qsTr("输入 1～%1 页，按回车或点击跳转").arg(root.maximumPage)
+        AppToolTip {
+            visible: numberField.hovered || numberField.activeFocus
+            delay: 500
+            text: qsTr("输入 1～%1 页，按回车或点击跳转").arg(root.maximumPage)
+        }
     }
     Text {
         objectName: "pageNumberTotal"

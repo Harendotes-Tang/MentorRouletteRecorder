@@ -857,10 +857,10 @@ ApplicationWindow {
                         Layout.maximumWidth: 420
                         // A refused start explains itself in several sentences; the bar
                         // has room for the first, the rest is a hover away.
-                        PlainToolTip {
+                        AppToolTip {
                             objectName: "titleBarCollectorStatusToolTip"
                             visible: collectorStatusHover.hovered && collectorStatusLabel.truncated
-                            width: Math.min(implicitWidth, 460)
+                            maxTextWidth: 460
                             text: collectorStatusLabel.text
                         }
                         HoverHandler { id: collectorStatusHover }

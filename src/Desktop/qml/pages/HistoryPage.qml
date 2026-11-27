@@ -954,7 +954,7 @@ Item {
                             }
                         }
                         HoverHandler { id: moveRegionHover }
-                        PlainToolTip {
+                        AppToolTip {
                             objectName: "batchMoveRegionHint"
                             visible: moveRegionHover.hovered && !moveRegion.eligible
                             delay: 300
@@ -1224,19 +1224,12 @@ Item {
                                 // No room for the role glyph at the default 112 px,
                                 // so the role only shows up on hover.
                                 HoverHandler { id: jobHover }
-                                ToolTip {
+                                AppToolTip {
                                     id: jobTip
                                     visible: jobHover.hovered
                                     delay: 400
                                     text: (Theme.jobName(run) || qsTr("未知")) + " · "
                                           + Theme.roleGroupName(Runtime.jobs.roleGroup(run.job_id))
-                                    contentItem: Text {
-                                        text: jobTip.text
-                                        textFormat: Text.PlainText
-                                        font: jobTip.font
-                                        wrapMode: Text.Wrap
-                                        color: jobTip.palette.toolTipText
-                                    }
                                 }
 
                                 RowLayout {
@@ -1327,7 +1320,7 @@ Item {
                                     // What each word means, on hover: the words alone were
                                     // not understood (a tester, 2026-11-20).
                                     HoverHandler { id: marksHover }
-                                    PlainToolTip {
+                                    AppToolTip {
                                         objectName: "historyMarksTip"
                                         visible: marksHover.hovered && marksText.marks.length > 0
                                         delay: 300

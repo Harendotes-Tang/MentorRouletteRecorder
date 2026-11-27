@@ -1274,8 +1274,7 @@ MotionDialog {
                     compact: true
                     iconName: "chevron-left"
                     text: root.title
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("返回列表")
+                    tip: qsTr("返回列表")
                     onClicked: editor.cancelled()
                 }
                 Text {
@@ -1318,8 +1317,7 @@ MotionDialog {
                 implicitWidth: implicitHeight
                 iconName: "x"
                 Accessible.name: qsTr("关闭")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("关闭")
+                tip: qsTr("关闭")
                 onClicked: root.close()
             }
         }
@@ -1490,8 +1488,7 @@ MotionDialog {
                             padding: 10
                             focusPolicy: Qt.StrongFocus
                             Accessible.name: modelData.title
-                            ToolTip.visible: hovered
-                            ToolTip.text: modelData.body
+                            AppToolTip { visible: example.hovered; text: example.modelData.body }
                             onClicked: root.editExample(modelData)
                             background: InsetBox {
                                 border.width: 1

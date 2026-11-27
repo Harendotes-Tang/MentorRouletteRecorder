@@ -82,9 +82,11 @@ ColumnLayout {
                     variant: "accent"
                 }
 
-                ToolTip.visible: thumb.hovered && !!(thumb.modelData && thumb.modelData.name)
-                ToolTip.delay: 600
-                ToolTip.text: thumb.modelData && thumb.modelData.name ? thumb.modelData.name : ""
+                AppToolTip {
+                    visible: thumb.hovered && !!(thumb.modelData && thumb.modelData.name)
+                    delay: 600
+                    text: thumb.modelData && thumb.modelData.name ? thumb.modelData.name : ""
+                }
 
                 // 移除: sits on the corner so it cannot be mistaken for the picture.
                 AbstractButton {

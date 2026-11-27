@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import MentorRecorder 1.0
@@ -32,6 +34,10 @@ Button {
     // A second Lucide icon after the label, for a button that also has a leading one: the
     // external-link mark of a link with its own icon, or a menu button's chevron.
     property string trailingIconName: ""
+    // A short explanation shown while the pointer rests on the button, in the
+    // application's bubble (AppToolTip) named after the button (<objectName>Tip);
+    // empty for none. Only a button with a tip carries one.
+    property string tip: ""
     readonly property int iconSize: compact ? 12 : 14
     readonly property bool hasIcon: (overlayIcon.length > 0 && OverlayIcons.has(overlayIcon))
                                     || (iconName.length > 0 && Lucide.has(iconName))
@@ -71,6 +77,17 @@ Button {
         }
     }
     Behavior on opacity { enabled: control.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: disabledOpacityMotion; duration: control.feedbackVisible ? Theme.motionFast : 0 } }
+
+    Loader {
+        active: control.tip.length > 0
+        sourceComponent: AppToolTip {
+            // The Loader holds it; it is placed against the button.
+            parent: control
+            objectName: control.objectName.length > 0 ? control.objectName + "Tip" : ""
+            visible: control.hovered
+            text: control.tip
+        }
+    }
 
     background: Rectangle {
         scale: control.visualScale

@@ -5,11 +5,15 @@
 #include "AppController.h"
 #include "QmlRuntime.h"
 #include <QGuiApplication>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
@@ -30,6 +34,8 @@ private slots:
     void hoverFadeRestsOnTheHoverColour();
     void guideTipIsTheApplicationBubble_data();
     void guideTipIsTheApplicationBubble();
+    void onlyAButtonWithATipCarriesABubble();
+    void noTipFallsBackToTheBasicBox();
 };
 
 void ControlMotionTests::pressedControlKeepsItsHitArea_data()
@@ -262,6 +268,92 @@ ApplicationWindow {
     QVERIFY(tipItem);
     QCOMPARE(tipItem->window(), window);
     QVERIFY(tipItem->mapToScene(QPointF(0, tipItem->height())).y() <= button->mapToScene(QPointF(0, 0)).y());
+}
+
+// AppButton's `tip` is the bubble of a button: it shows while the pointer rests on the
+// button, as plain text, named <objectName>Tip. Most buttons have none and carry none, so
+// a page of buttons does not build a popup for each (2026-11-27).
+void ControlMotionTests::onlyAButtonWithATipCarriesABubble()
+{
+    mrtest::QmlComponentScene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Window
+import MentorRecorder
+Window { width: 360; height: 200; visible: true
+    AppButton { objectName: "plain"; x: 20; y: 130; text: "Plain" }
+    AppButton { objectName: "tipped"; x: 200; y: 130; text: "Tipped"; tip: "<b>Ctrl + S</b>" }
+})", QStringLiteral("/components/ControlMotionProbe.qml")), qPrintable(scene.errors));
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *plain = scene.root->findChild<QQuickItem *>(QStringLiteral("plain"));
+    auto *tipped = scene.root->findChild<QQuickItem *>(QStringLiteral("tipped"));
+    QVERIFY(plain && tipped);
+    const auto bubblesOf = [](const QObject *button) {
+        QObjectList bubbles;
+        for (QObject *child : button->findChildren<QObject *>())
+            if (child->inherits("QQuickToolTip"))
+                bubbles.append(child);
+        return bubbles;
+    };
+    QVERIFY(bubblesOf(plain).isEmpty());
+    QCOMPARE(bubblesOf(tipped).size(), 1);
+    QObject *tip = tipped->findChild<QObject *>(QStringLiteral("tippedTip"));
+    QVERIFY(tip);
+    QVERIFY(!tip->property("visible").toBool());
+
+    QTest::mouseMove(window, QPoint(5, 5));
+    QTest::mouseMove(window, tipped->mapToScene(QPointF(tipped->width() / 2, tipped->height() / 2)).toPoint());
+    QTRY_VERIFY(tip->property("opened").toBool());
+    auto *label = tip->property("contentItem").value<QQuickItem *>();
+    QVERIFY(label);
+    QCOMPARE(label->property("text").toString(), QStringLiteral("<b>Ctrl + S</b>"));
+    const auto format = label->metaObject()->property(label->metaObject()->indexOfProperty("textFormat"));
+    QCOMPARE(label->property("textFormat").toInt(), format.enumerator().keyToValue("PlainText"));
+    // Placed against the button, not the corner of the window.
+    const QRectF bubble = label->parentItem()->mapRectToScene(
+        QRectF(0, 0, label->parentItem()->width(), label->parentItem()->height()));
+    const QRectF face = tipped->mapRectToScene(QRectF(0, 0, tipped->width(), tipped->height()));
+    QVERIFY2(bubble.bottom() <= face.top() && qAbs(bubble.center().x() - face.center().x()) < 2,
+             qPrintable(QStringLiteral("bubble %1,%2 %3x%4").arg(bubble.x()).arg(bubble.y())
+                            .arg(bubble.width()).arg(bubble.height())));
+    QTest::mouseMove(window, QPoint(5, 5));
+    QTRY_VERIFY(!tip->property("visible").toBool());
+
+    // A tip given later brings its bubble; one taken away takes it along.
+    plain->setProperty("tip", QStringLiteral("Later"));
+    QCOMPARE(bubblesOf(plain).size(), 1);
+    QVERIFY(plain->findChild<QObject *>(QStringLiteral("plainTip")));
+    tipped->setProperty("tip", QString());
+    QTRY_VERIFY(bubblesOf(tipped).isEmpty());
+}
+
+// Qt's attached ToolTip and a bare ToolTip { } are the Basic style's square box with a black
+// border, in both themes. Every tip is the application's bubble - AppToolTip, AppButton's
+// `tip`, or the float's OverlayToolTip built on it - and only AppToolTip derives from ToolTip.
+void ControlMotionTests::noTipFallsBackToTheBasicBox()
+{
+    static const QRegularExpression attached(QStringLiteral("\\bToolTip\\s*\\."));
+    static const QRegularExpression bare(QStringLiteral("(^|[^A-Za-z0-9_])(ToolTip|PlainToolTip)\\s*\\{"));
+    const QDir qmlRoot(QString::fromUtf8(MR_DESKTOP_QML_DIR));
+    QDirIterator files(qmlRoot.path(), {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    int read = 0;
+    QStringList found;
+    while (files.hasNext()) {
+        QFile file(files.next());
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString relative = qmlRoot.relativeFilePath(file.fileName());
+        const QStringList lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+        ++read;
+        for (qsizetype i = 0; i < lines.size(); ++i) {
+            const QString code = lines.at(i).section(QStringLiteral("//"), 0, 0);
+            if (attached.match(code).hasMatch()
+                || (bare.match(code).hasMatch() && relative != QLatin1String("components/AppToolTip.qml")))
+                found.append(QStringLiteral("%1:%2: %3").arg(relative).arg(i + 1).arg(lines.at(i).trimmed()));
+        }
+    }
+    // Every page, dialog and component, not an empty or wrong directory.
+    QVERIFY2(read >= 80, qPrintable(QString::number(read)));
+    QVERIFY2(found.isEmpty(), qUtf8Printable(found.join(QLatin1Char('\n'))));
 }
 } // namespace
 

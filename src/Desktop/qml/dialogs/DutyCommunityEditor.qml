@@ -708,8 +708,7 @@ ColumnLayout {
             objectName: "dutyCommunityEditorSave"
             variant: "primary"
             text: qsTr("保存")
-            ToolTip.visible: hovered
-            ToolTip.text: "Ctrl + S"
+            tip: "Ctrl + S"
             onClicked: editor.save()
         }
         AppButton { objectName: "dutyCommunityEditorCancel"; text: qsTr("取消"); onClicked: editor.cancelled() }

@@ -84,8 +84,7 @@ Rectangle {
                     padding: 0
                     focusPolicy: Qt.StrongFocus
                     Accessible.name: (line.entry.label || "") + (line.isItem && line.entry.sub ? " " + line.entry.sub : "")
-                    ToolTip.visible: hovered && !!line.entry.tip
-                    ToolTip.text: line.entry.tip || ""
+                    AppToolTip { visible: pick.hovered && !!line.entry.tip; text: line.entry.tip || "" }
                     onClicked: {
                         if (line.isGroup) rail.store.toggleRailGroup(line.entry.category, true)
                         rail.store.pickScope(line.entry.key)
@@ -219,8 +218,7 @@ Rectangle {
                     implicitWidth: implicitHeight
                     iconName: "refresh-cw"
                     Accessible.name: qsTr("刷新公共库")
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("刷新公共库")
+                    tip: qsTr("刷新公共库")
                     enabled: rail.store.online && !rail.store.refreshing
                     onClicked: rail.store.loadPublic("refresh")
                 }

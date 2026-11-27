@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
@@ -23,8 +22,7 @@ Card {
         elide: Text.ElideRight
 
         HoverHandler { id: titleHover }
-        ToolTip.visible: titleHover.hovered && titleText.truncated
-        ToolTip.text: root.title
+        AppToolTip { visible: titleHover.hovered && titleText.truncated; text: root.title }
     }
 
     Text {

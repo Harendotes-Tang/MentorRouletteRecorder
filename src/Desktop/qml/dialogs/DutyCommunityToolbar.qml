@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
@@ -56,23 +55,29 @@ RowLayout {
         onSelectionEdited: value => bar.store.setFilter("job", value)
     }
     MultiFilterButton {
+        id: regionChooser
         objectName: "dutyCommunityRegionFilter"
         iconName: "globe"
         title: qsTr("区服")
         options: bar.store.regionOptions
         selection: bar.store.regionFilter
-        ToolTip.visible: hovered && bar.store.preset && bar.store.regionFilter.length > 0
-        ToolTip.text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+        AppToolTip {
+            visible: regionChooser.hovered && bar.store.preset && bar.store.regionFilter.length > 0
+            text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+        }
         onSelectionEdited: value => bar.store.setFilter("region", value)
     }
     MultiFilterButton {
+        id: languageChooser
         objectName: "dutyCommunityLanguageFilter"
         iconName: "languages"
         title: qsTr("语言")
         options: bar.store.languageOptions
         selection: bar.store.languageFilter
-        ToolTip.visible: hovered && bar.store.preset && bar.store.languageFilter.length > 0
-        ToolTip.text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+        AppToolTip {
+            visible: languageChooser.hovered && bar.store.preset && bar.store.languageFilter.length > 0
+            text: qsTr("公共库先只显示你的区服和界面语言的内容，在这里取消勾选就能看到其他的")
+        }
         onSelectionEdited: value => bar.store.setFilter("language", value)
     }
     AppButton {

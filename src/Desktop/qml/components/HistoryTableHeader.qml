@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
@@ -106,6 +105,7 @@ Rectangle {
         anchors.rightMargin: 4
 
         SelectionCheckBox {
+            id: selectPage
             objectName: "selectCurrentHistoryPage"
             x: 0
             width: 32
@@ -114,8 +114,7 @@ Rectangle {
             checked: Runtime.app.allCurrentHistoryPageChecked
             enabled: !Runtime.app.runs.loading && Runtime.app.runs.loadError.length === 0 && Runtime.app.runs.total > 0
             Accessible.name: qsTr("全选当前页")
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("全选当前页")
+            AppToolTip { visible: selectPage.hovered; text: qsTr("全选当前页") }
             onClicked: Runtime.app.setCurrentHistoryPageChecked(checked)
         }
 

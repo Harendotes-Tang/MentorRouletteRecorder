@@ -593,7 +593,7 @@ MotionDialog {
                     Layout.fillWidth: true; Layout.minimumWidth: 70
                     text: dialog.controller && dialog.controller.sourceKind === "SCREENSHOT" ? qsTr("%1 张截图 · %2 条记录").arg(dialog.controller.sourceImageCount).arg(dialog.controller.rows.length) : dialog.controller ? dialog.controller.sourceLabel : ""
                     elide: Text.ElideMiddle; color: Theme.textPrimary; font.pixelSize: Theme.fs(12)
-                    PlainToolTip { visible: toolbarSourceHover.hovered; text: dialog.controller ? dialog.controller.sourceLabel : "" }
+                    AppToolTip { visible: toolbarSourceHover.hovered; text: dialog.controller ? dialog.controller.sourceLabel : "" }
                     HoverHandler { id: toolbarSourceHover }
                 }
                 Item { id: reviewActions; Layout.preferredWidth: sourceActions.implicitWidth; Layout.preferredHeight: 30 }
@@ -606,7 +606,7 @@ MotionDialog {
             // The import result keeps its per-region baseline lines whole; a long file name while
             // recognising stays clamped, its full text a hover away (audit 2026-11-03 L2-5).
             maximumLineCount: dialog.controller && dialog.controller.phase === "complete" ? 8 : 2; elide: Text.ElideRight; wrapMode: Text.WordWrap
-            PlainToolTip { objectName: "importStatusToolTip"; visible: importStatusHover.hovered && importStatusLabel.truncated; text: importStatusLabel.text }
+            AppToolTip { objectName: "importStatusToolTip"; visible: importStatusHover.hovered && importStatusLabel.truncated; text: importStatusLabel.text }
             HoverHandler { id: importStatusHover }
         }
         Text {
@@ -615,7 +615,7 @@ MotionDialog {
             objectName: "importError"; Layout.fillWidth: true; visible: text.length > 0
             text: dialog.controller ? dialog.controller.errorText : qsTr("暂时无法导入记录，请重新打开软件后重试。")
             color: Theme.red; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
-            PlainToolTip { objectName: "importErrorToolTip"; visible: importErrorHover.hovered; text: importErrorLabel.text }
+            AppToolTip { objectName: "importErrorToolTip"; visible: importErrorHover.hovered; text: importErrorLabel.text }
             HoverHandler { id: importErrorHover }
         }
         Item {
@@ -681,7 +681,7 @@ MotionDialog {
                             objectName: "importPreviousPage"; text: ""; iconName: "chevron-left"; compact: true
                             enabled: !dialog.inputLocked && dialog.reviewPage > 0
                             Accessible.name: qsTr("上一页")
-                            ToolTip.visible: hovered; ToolTip.text: qsTr("上一页")
+                            tip: qsTr("上一页")
                             onClicked: dialog.choosePage(dialog.reviewPage - 1)
                         }
                         Text {
@@ -695,7 +695,7 @@ MotionDialog {
                             objectName: "importNextPage"; text: ""; iconName: "chevron-right"; compact: true
                             enabled: !dialog.inputLocked && dialog.reviewPage + 1 < dialog.pageCount
                             Accessible.name: qsTr("下一页")
-                            ToolTip.visible: hovered; ToolTip.text: qsTr("下一页")
+                            tip: qsTr("下一页")
                             onClicked: dialog.choosePage(dialog.reviewPage + 1)
                         }
                     }
@@ -731,7 +731,7 @@ MotionDialog {
                                 anchors.fill: parent; anchors.leftMargin: 2; anchors.rightMargin: 3; visible: parent.groupHeader
                                 text: qsTr("%1  %2 条").arg(modelData.label || "").arg(modelData.count || 0)
                                 color: Theme.textSecondary; font.pixelSize: Theme.fs(11); verticalAlignment: Text.AlignVCenter; elide: Text.ElideMiddle
-                                PlainToolTip { visible: groupHover.hovered; text: modelData.label || "" }
+                                AppToolTip { visible: groupHover.hovered; text: modelData.label || "" }
                                 HoverHandler { id: groupHover }
                             }
                             Rectangle {
@@ -751,7 +751,7 @@ MotionDialog {
                                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: importCandidate.source_recorded_at || dialog.statusLabel(importRow); color: Theme.textMuted; font.pixelSize: Theme.fs(10); elide: Text.ElideRight }
                                     }
                                 }
-                                PlainToolTip { visible: rowHover.hovered; delay: 700; text: (dialog.dutyNameOf(importCandidate) || qsTr("副本待识别")) + "\n" + dialog.statusLabel(importRow) }
+                                AppToolTip { visible: rowHover.hovered; delay: 700; text: (dialog.dutyNameOf(importCandidate) || qsTr("副本待识别")) + "\n" + dialog.statusLabel(importRow) }
                             }
                         }
                         Text { textFormat: Text.PlainText; anchors.centerIn: parent; width: parent.width - 12; visible: dialog.visibleRows.length === 0; text: qsTr("没有符合此筛选的记录"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
@@ -769,7 +769,7 @@ MotionDialog {
                         }
                         AppButton { objectName: "importPrevious"; text: qsTr("上一条"); iconName: "chevron-left"; compact: true; enabled: !dialog.inputLocked && dialog.visiblePosition() > 0; onClicked: dialog.navigateRow(-1) }
                         AppButton { objectName: "importNext"; text: qsTr("下一条"); iconName: "chevron-right"; compact: true; enabled: !dialog.inputLocked && dialog.visiblePosition() + 1 < dialog.visibleRows.length; onClicked: dialog.navigateRow(1) }
-                        AppButton { objectName: "importSelectNext"; text: qsTr("勾选并下一条"); variant: "primary"; compact: true; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && dialog.rowData.can_import === true; onClicked: dialog.checkAndNext(); ToolTip.visible: hovered; ToolTip.text: qsTr("列表聚焦时也可按 Enter") }
+                        AppButton { objectName: "importSelectNext"; text: qsTr("勾选并下一条"); variant: "primary"; compact: true; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && dialog.rowData.can_import === true; onClicked: dialog.checkAndNext(); tip: qsTr("列表聚焦时也可按 Enter") }
                     }
                     Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: dialog.navigationHint.length > 0; text: dialog.navigationHint; color: Theme.orangeText; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                     RowLayout {
@@ -1028,14 +1028,14 @@ MotionDialog {
                                     Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("来源未提供结果时按通关预填，可以修改。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("进入方式") }
                                     StyledComboBox {
+                                        id: entryModeChoice
                                         objectName: "importEntryMode"; Layout.fillWidth: true
                                         model: dialog.entryModeOptions; textRole: "text"
                                         currentIndex: dialog.entryModeIndex()
                                         displayText: currentIndex >= 0 ? model[currentIndex].text : dialog.value("joined_in_progress")
                                         onActivated: function(index) { dialog.edit("joined_in_progress", model[index].value) }
                                         Accessible.name: qsTr("进入方式")
-                                        ToolTip.visible: hovered; ToolTip.delay: 600
-                                        ToolTip.text: qsTr("未提供进入方式时保留未知，不会自动当作正常进入。")
+                                        AppToolTip { visible: entryModeChoice.hovered; delay: 600; text: qsTr("未提供进入方式时保留未知，不会自动当作正常进入。") }
                                     }
                                     FieldLabel { text: qsTr("打本心情") }
                                     StyledComboBox { objectName: "importMood"; Layout.fillWidth: true; model: dialog.moodOptions; textRole: "text"; currentIndex: dialog.optionIndex(model, "value", dialog.candidate.reflection_mood || "unknown"); onActivated: function(index) { dialog.edit("reflection_mood", model[index].value) } }
@@ -1140,7 +1140,7 @@ MotionDialog {
                         : pendingJobs > 0 ? qsTr("%1 条已勾选记录的职业待确认，确认后才能导入").arg(pendingJobs)
                         : dialog.controller && dialog.controller.previewValid ? qsTr("核对后勾选需要导入的记录") : qsTr("修改后请重新校验")
                     color: waitingForBaseline || pendingJobs > 0 ? Theme.orangeText : Theme.textMuted; font.pixelSize: Theme.fs(10); elide: Text.ElideRight
-                    PlainToolTip { visible: selectionHintHover.hovered && parent.truncated; text: parent.text }
+                    AppToolTip { visible: selectionHintHover.hovered && parent.truncated; text: parent.text }
                     HoverHandler { id: selectionHintHover }
                 }
             }
@@ -1167,7 +1167,7 @@ MotionDialog {
         parent: dialog.hasRows ? reviewActions : startActions
         anchors.fill: parent; spacing: 6
         AppButton { id: chooseInput; objectName: "importChooseFiles"; text: dialog.hasRows ? qsTr("添加文件") : qsTr("选择文件 / 多张截图"); iconName: dialog.hasRows ? "plus" : "folder-open"; variant: dialog.hasRows ? "secondary" : "primary"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.chooseFiles() } }
-        AppButton { objectName: "importPasteClipboard"; text: qsTr("粘贴截图或表格"); iconName: "clipboard-paste"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.pasteClipboard() } ToolTip.visible: hovered; ToolTip.text: qsTr("Ctrl+V（文本编辑框以外）") }
+        AppButton { objectName: "importPasteClipboard"; text: qsTr("粘贴截图或表格"); iconName: "clipboard-paste"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.pasteClipboard() } tip: qsTr("Ctrl+V（文本编辑框以外）") }
         AppButton { objectName: "importMappingOpen"; text: qsTr("列映射"); visible: dialog.canMapColumns; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); mappingDialog.open() } }
     }
     ColumnLayout {
@@ -1188,7 +1188,7 @@ MotionDialog {
                 model: dialog.timeZoneOptions; textRole: "text"; currentIndex: Theme.live(dialog.timeZoneChoiceIndex())
                 onActivated: function(index) { const zone = model[index].value; dialog.customTimeZoneSelected = zone === ""; if (zone !== "" && dialog.controller) dialog.controller.timeZone = zone }
                 Accessible.name: qsTr("截图或表格上的时间所在地区")
-                ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: qsTr("中国大陆来源通常使用北京时间，不会填补游戏进出时间。")
+                AppToolTip { visible: timeZonePreset.hovered; delay: 600; text: qsTr("中国大陆来源通常使用北京时间，不会填补游戏进出时间。") }
             }
         }
         // The region of records whose source names none. Chosen before reading; once rows are
@@ -1202,12 +1202,13 @@ MotionDialog {
                 font.pixelSize: Theme.fs(12)
             }
             StyledComboBox {
+                id: defaultRegionChoice
                 objectName: "importDefaultRegion"; Layout.preferredWidth: 200; enabled: !dialog.inputLocked
                 model: dialog.regionOptions.slice(1); textRole: "text"
                 currentIndex: Theme.live(dialog.optionIndex(model, "value", dialog.controller ? dialog.controller.defaultRegion : "CN"))
                 onActivated: function(index) { dialog.chosenRegion = model[index].value }
                 Accessible.name: qsTr("来源没有注明区服的记录归入的区服")
-                ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: qsTr("来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。")
+                AppToolTip { visible: defaultRegionChoice.hovered; delay: 600; text: qsTr("来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。") }
             }
         }
         RowLayout {
@@ -1251,7 +1252,7 @@ MotionDialog {
                 visible: text.length > 0
                 color: dialog.controller && dialog.controller.templateErrorText.length > 0 ? Theme.red : Theme.textSecondary
                 font.pixelSize: Theme.fs(12); maximumLineCount: 3; elide: Text.ElideMiddle
-                PlainToolTip { visible: templateStatusHover.hovered; text: parent.text }
+                AppToolTip { visible: templateStatusHover.hovered; text: parent.text }
                 HoverHandler { id: templateStatusHover }
             }
             ScrollView {

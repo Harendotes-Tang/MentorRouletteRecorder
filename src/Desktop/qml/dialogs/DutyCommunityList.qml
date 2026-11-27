@@ -91,8 +91,7 @@ ColumnLayout {
             implicitWidth: implicitHeight
             iconName: "rows-3"
             Accessible.name: qsTr("紧凑行高")
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("紧凑行高")
+            tip: qsTr("紧凑行高")
             onClicked: pane.store.setDense(!pane.store.dense)
         }
         AppButton {
@@ -103,8 +102,7 @@ ColumnLayout {
             implicitWidth: implicitHeight
             iconName: pane.store.anyGroupOpen ? "chevrons-down-up" : "chevrons-up-down"
             Accessible.name: pane.store.anyGroupOpen ? qsTr("全部收起") : qsTr("全部展开")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
+            tip: Accessible.name
             onClicked: pane.store.foldAll()
         }
     }
@@ -299,8 +297,7 @@ ColumnLayout {
                                 iconName: line.isRow && pane.store.openGroups[line.entry.group] ? "chevron-down" : "chevron-right"
                                 text: line.isRow && pane.store.openGroups[line.entry.group]
                                       ? qsTr("收起相似") : qsTr("另有 %1 条相似").arg(line.isRow ? line.entry.folded : 0)
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。")
+                                tip: qsTr("正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。")
                                 onClicked: pane.store.toggleGroup(line.entry.group)
                             }
                         }
@@ -314,8 +311,7 @@ ColumnLayout {
                             focusPolicy: Qt.StrongFocus
                             readonly property bool on: !!card.row && card.row.favorite === true
                             Accessible.name: on ? qsTr("取消收藏") : qsTr("收藏")
-                            ToolTip.visible: hovered
-                            ToolTip.text: on ? qsTr("取消收藏") : qsTr("收藏")
+                            AppToolTip { visible: star.hovered; text: star.on ? qsTr("取消收藏") : qsTr("收藏") }
                             onClicked: pane.store.toggleFavorite(card.row)
                             background: Rectangle {
                                 radius: Theme.radiusXs
@@ -479,8 +475,7 @@ ColumnLayout {
                 implicitWidth: implicitHeight
                 iconName: "x"
                 Accessible.name: qsTr("取消选择")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("取消选择")
+                tip: qsTr("取消选择")
                 onClicked: pane.store.basket = []
             }
         }

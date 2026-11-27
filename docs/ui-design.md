@@ -1922,7 +1922,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 
 `CollectorProcess` 的状态直接映射到标题栏的圆点与文案（`App.collectorStatusText`）。界面一律称采集服务为「后台服务」，
 不出现组件名 Collector；侧栏状态面板没有后台服务一行（§1）。文案最宽 420，放不下时省略，
-鼠标悬停时由 `components/PlainToolTip.qml`（`titleBarCollectorStatusToolTip`）显示全文：
+鼠标悬停时由 `components/AppToolTip.qml`（`titleBarCollectorStatusToolTip`，气泡最宽 460 px）显示全文：
 
 | 状态 | 文案 | 触发 |
 |---|---|---|
@@ -2011,7 +2011,7 @@ QML 界面加载失败（没有根对象，或根对象不是窗口，例如安�
   提示框是独立的小窗（`overlay/OverlayToolTip.qml`，`popupType: Popup.Window`），不受浮窗边界约束：显示在所悬停项目的上方，
   贴近屏幕顶端没有空间时改到下方；迷你条上的提示框以整条为基准，不会盖住条上的数字或按钮。
   按钮落在可悬停的条上（标题栏的拖动区、迷你条的进度行）时只显示按钮自己的提示，不同时显示条的提示。
-  气泡本身（表面色底、1 px 边框、小圆角、12 px 中等字重）来自 `components/AppToolTip.qml`，主窗口中的攻略按钮提示也使用它。
+  气泡本身（表面色底、1 px 边框、小圆角、12 px 中等字重）来自 `components/AppToolTip.qml`，主窗口的悬停提示也都使用它（§6.2）。
 * **副本类型色**与副本统计页的类型图例一致（`DungeonStatsModel::categoryBreakdown` 的 token，§4.3），角标为单字（迷 / 讨 / 大 / 团 / 令；
   极神只作为图例分段出现，角标为「极」），角标文字为 `dutyBadgeForeground`；
   职能色取自 `JobCatalog::tokenForRoleGroup`。累计进度来自各区服的 `achievements` 条目（`achievement_progress` 与 `goal_count`），
@@ -2313,6 +2313,7 @@ Collector 对同样的输入答 `ERR_TIME_ORDER`（[manual-correction.md](manual
 | `components/StatBar.qml` | 副本 / 职业统计里的 8 px `.barfill` |
 | `components/StackedResultBar.qml` | 结果分布条（12 px、2 px 间隙） |
 | `components/DialogFrame.qml` | `.dialog` + `.dialog::before` 的 2 px 渐变顶线 |
+| `components/AppToolTip.qml` | `.ov-tip`（悬停提示气泡） |
 | `components/ReflectionCard.qml` | 总览「导随心得」面板里的近期卡片 |
 | `components/ProgressRing.qml` | 成就环：`ffgold` 渐变 + r76/r96 两圈细金线；起点平头、弧头圆头（末端补一枚同渐变填充的圆片，原型为 butt 端点，2026-10-20 按产品决定改圆头） |
 
@@ -2326,6 +2327,20 @@ ghost 为透明底加 accent 字色，悬停时为 accent-100；
 divider 细边与 600 字重 accent 字色。
 筛选 chip 的内边距为 4×8，圆角 4。
 历史表行悬停时为 `insetBackground`，选中时为 accent-100 底加左侧 2 px accent 条。
+
+悬停提示一律使用 `components/AppToolTip.qml`（原型 `.ov-tip`）：`surface` 底、1 px `border` 边、`radiusS` 圆角，
+12 px 中等字重的 `textPrimary` 文字，上下内边距 8、左右 10，颜色随风格与深浅色主题变化，淡入淡出用 `motionFast`。
+文字一律按纯文本显示，不解析标记；气泡连同左右内边距最宽 360 px（标题栏后台服务状态为 460 px，浮窗为 250 px），
+文字更长时换行，较短时框宽随文字。
+按钮写 `AppButton` 的 `tip`：只有提示文字不为空的按钮才创建气泡，对象名为按钮的 `objectName` 加 `Tip`
+（如 `dashboardDutyGuideTip`），指针停在按钮上时显示。其他控件与文字在自身内声明 `AppToolTip`，
+并保留各自的显示条件，例如文字被截断时才显示、`delay` 延迟。
+界面不使用 Qt 的附加属性 `ToolTip.visible` / `ToolTip.text`，也不直接声明 `ToolTip {}`：
+程序强制 Basic 样式，两者都是直角、黑边、白底的方框，在深浅两种主题下都不协调。
+`ControlMotionTests::noTipFallsBackToTheBasicBox` 扫描 `src/Desktop/qml` 中的全部 QML 文件，防止回退；
+`ControlMotionTests::onlyAButtonWithATipCarriesABubble` 检查没有提示文字的按钮不创建气泡，
+`HistoryDateFilterTests::onlyAnUnappliedRangeExplainsItselfOnHover` 检查日期筛选的提示只在日期无效时出现。
+浮窗与结果弹窗的 `overlay/OverlayToolTip.qml` 基于同一组件，另开独立小窗显示，见 §4.9.1。
 
 带 `Behavior on color` 的颜色，静止态不得写作 `"transparent"`。
 `"transparent"` 等于 `#00000000`，而 `ColorAnimation` 按 RGBA 直线插值，

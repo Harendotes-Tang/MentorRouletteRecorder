@@ -489,9 +489,8 @@ ScrollView {
                             enabled: !!Runtime.app.dutyCommunity
                             rightPadding: communityBadge.visible ? communityBadge.width + 6 : 0
                             implicitWidth: contentItem.implicitWidth + 20 + rightPadding
-                            Accessible.name: ToolTip.text
-                            ToolTip.visible: hovered
-                            ToolTip.text: dutyCommunityDialog.currentDutyCount > 0
+                            Accessible.name: communityEntry.tip
+                            tip: dutyCommunityDialog.currentDutyCount > 0
                                 ? qsTr("%1有 %2 条提醒与宏").arg(dutyCommunityDialog.currentDutyName)
                                                             .arg(dutyCommunityDialog.currentDutyCount)
                                 : qsTr("副本提醒与导随宏")

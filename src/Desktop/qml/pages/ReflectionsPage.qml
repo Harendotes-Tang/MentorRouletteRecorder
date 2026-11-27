@@ -168,8 +168,7 @@ ColumnLayout {
             checked: !!page.controller && page.controller.currentPageSelected
             enabled: !!page.runs && !page.runs.loading && page.runs.loadError.length === 0 && page.runs.total > 0
             onToggled: page.controller.setPageSelected(checked)
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("全选当前页心得")
+            AppToolTip { visible: selectPage.hovered; text: qsTr("全选当前页心得") }
         }
         StyledTextField {
             id: search

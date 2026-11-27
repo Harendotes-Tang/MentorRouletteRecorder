@@ -8,15 +8,10 @@ AppButton {
     focusPolicy: Qt.NoFocus
     iconName: "book-open-text"
     trailingIconName: "external-link"
+    // The site's name, in the application's bubble (dashboardDutyGuideTip on the dashboard).
+    tip: guide.tip
     action: DutyGuideAction {
         id: guide
         run: root.run
-    }
-    // The application's themed tip, not Qt's square default (2026-11-27); named
-    // after the button, e.g. dashboardDutyGuideTip.
-    AppToolTip {
-        objectName: root.objectName.length > 0 ? root.objectName + "Tip" : ""
-        visible: root.hovered && text.length > 0
-        text: guide.tip
     }
 }

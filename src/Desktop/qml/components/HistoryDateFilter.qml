@@ -63,8 +63,7 @@ HistoryFilterButton {
     text: invalid ? qsTr("日期有误") : options.find(row => row.key === preset).label
     menuWidth: 292
     Accessible.name: qsTr("历史日期范围") + " · " + text
-    ToolTip.visible: hovered && invalid
-    ToolTip.text: qsTr("日期尚未应用，请检查格式与起止顺序")
+    AppToolTip { visible: control.hovered && control.invalid; text: qsTr("日期尚未应用，请检查格式与起止顺序") }
     Connections {
         target: control.menu
         function onClosed() {

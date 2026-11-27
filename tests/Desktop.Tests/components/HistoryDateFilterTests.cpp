@@ -55,6 +55,48 @@ class HistoryDateFilterTests final : public QObject
 private Q_SLOTS:
     void initTestCase() { mrtest::registerSourceQmlComponents(); }
 
+    // Dates that were not applied explain why on hover, in the application's bubble; a valid
+    // range keeps the button quiet (the tip's own condition, kept in the move off Qt's
+    // attached ToolTip, 2026-11-27).
+    void onlyAnUnappliedRangeExplainsItselfOnHover_data()
+    {
+        QTest::addColumn<QString>("end");
+        QTest::addColumn<bool>("invalid");
+        QTest::newRow("in order") << QStringLiteral("2026-11-30") << false;
+        QTest::newRow("reversed") << QStringLiteral("2026-11-01") << true;
+    }
+    void onlyAnUnappliedRangeExplainsItselfOnHover()
+    {
+        QFETCH(QString, end);
+        QFETCH(bool, invalid);
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        auto *filter = qobject_cast<QQuickItem *>(scene.filter());
+        QVERIFY(filter);
+        // Offscreen has no hover-effects hint, so a control keeping Qt's default never hovers.
+        filter->setProperty("hoverEnabled", true);
+        filter->setProperty("startText", QStringLiteral("2026-11-10"));
+        filter->setProperty("endText", end);
+        QCOMPARE(filter->property("invalid").toBool(), invalid);
+        const QString why = QString::fromUtf8("日期尚未应用，请检查格式与起止顺序");
+        QObject *tip = nullptr;
+        for (QObject *child : filter->findChildren<QObject *>())
+            if (child->inherits("QQuickToolTip") && child->property("text").toString() == why)
+                tip = child;
+        QVERIFY(tip);
+
+        QTest::mouseMove(scene.window(), QPoint(470, 350));
+        QTest::mouseMove(scene.window(), filter->mapToScene(QPointF(filter->width() / 2, filter->height() / 2)).toPoint());
+        QTRY_VERIFY(filter->property("hovered").toBool());
+        if (invalid) {
+            QTRY_VERIFY(tip->property("opened").toBool());
+        } else {
+            QTest::qWait(300);
+            QVERIFY(!tip->property("visible").toBool());
+        }
+    }
+
     void relativePresetsRollOverAtomically_data()
     {
         QTest::addColumn<QString>("key");

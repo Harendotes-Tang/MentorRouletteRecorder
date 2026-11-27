@@ -147,12 +147,12 @@ ColumnLayout {
                 Repeater {
                     model: pane.meta
                     delegate: Column {
+                        id: metaCell
                         required property var modelData
                         rightPadding: 18
                         spacing: 2
                         HoverHandler { id: over }
-                        ToolTip.visible: over.hovered && modelData.tip.length > 0
-                        ToolTip.text: modelData.tip
+                        AppToolTip { visible: over.hovered && metaCell.modelData.tip.length > 0; text: metaCell.modelData.tip }
                         Text {
                             renderType: Theme.bodyRenderType
                             text: parent.modelData.key
