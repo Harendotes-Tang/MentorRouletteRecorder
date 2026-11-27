@@ -125,6 +125,7 @@ ColumnLayout {
     readonly property bool staleVisible: (Runtime.app.maintainerToolsVisible
                                         || (notices.pathRecoveryState !== "NONE"
                                             && notices.pathRecoveryState !== "RECOVERING"))
+                                        && !(notices.chain && notices.chain.adapterOpenFailed)
                                         && !!notices.staleAdapter && !!notices.recommendedAdapter
 
     // 网卡选择 (CaptureAdapterPicker): the chain's call, except that the stale-
@@ -280,6 +281,7 @@ ColumnLayout {
     CaptureAdapterPicker {
         Layout.fillWidth: true
         visible: notices.adapterPickerVisible
+        adapterOpenFailed: !!notices.chain && notices.chain.adapterOpenFailed
     }
 
     // Nothing has to be done before login while follow-the-game is on. The Oodle

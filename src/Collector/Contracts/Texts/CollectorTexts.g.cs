@@ -501,6 +501,10 @@ public static partial class CollectorTexts
     public static UserText CaptureSettingsStopBeforeValidation() =>
         new("capture.settings.stop_before_validation", "请先停止捕获，再开启候选档案验证。");
 
+    /// <summary><c>capture.start.adapter_candidates_unavailable</c>: 自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。</summary>
+    public static UserText CaptureStartAdapterCandidatesUnavailable() =>
+        new("capture.start.adapter_candidates_unavailable", "自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。");
+
     /// <summary><c>capture.start.adapter_list_changed</c>: 网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。</summary>
     public static UserText CaptureStartAdapterListChanged() =>
         new("capture.start.adapter_list_changed", "网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。");

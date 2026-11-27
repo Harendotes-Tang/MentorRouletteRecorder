@@ -1,3 +1,6 @@
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
+
 namespace MentorRecorder.Collector.Capture;
 
 /// <summary>
@@ -5,19 +8,18 @@ namespace MentorRecorder.Collector.Capture;
 /// owns one read worker and one shared ingress budget; native resources remain owned until a
 /// successful close so failed cleanup can be retried safely.
 ///
-/// Only the selected path is required. An optional path that fails while reading -- a tunnel
-/// switched off, an adapter unplugged, sustained loss on the loopback -- is closed and left out,
-/// counted in <see cref="PathStatus"/>, and the capture carries on over the others; only the
-/// failure of the selected path, or of one that carried the game (<see cref="TreatAsRequired"/>),
-/// ends it (audit 2026-11-03, A1-2; re-review RV1-1). Loss is kept per path, so the caller can
-/// count only the paths that carried the game.
+/// Automatic startup tries the preferred binding first and keeps opening candidates after a
+/// cleanly released open failure. The first successful binding is the primary reader. A later
+/// read failure ends capture only on that reader or on a path that carried the game
+/// (<see cref="TreatAsRequired"/>). Optional paths can close independently, with loss and
+/// coverage reported per path.
 /// </summary>
 internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
 {
     private sealed record Entry(CaptureInterfaceBinding Binding, INpcapPacketReader Reader);
 
     private readonly CapturePathPlan _plan;
-    private readonly string? _requiredId;
+    private readonly string? _preferredId;
     private readonly Func<CaptureInterfaceBinding, INpcapPacketReader> _factory;
     private readonly NpcapPacketReceiver _guarded;
     private readonly List<Entry> _owned = new();
@@ -25,7 +27,7 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
     private Entry[] _pollers = Array.Empty<Entry>();
     private (CaptureInterfaceBinding Binding, long Dropped)[] _closed = Array.Empty<(CaptureInterfaceBinding, long)>();
     private CapturePathStatus _status = CapturePathStatus.Unmeasured;
-    private CaptureInterfaceBinding? _required;
+    private CaptureInterfaceBinding? _primary;
     private Func<CaptureInterfaceBinding, bool>? _essential;
     private NpcapPacketReceiver? _receive;
     private bool _receiving, _openAttempted;
@@ -35,7 +37,7 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
         Func<CaptureInterfaceBinding, INpcapPacketReader>? factory = null)
     {
         _plan = CapturePathPlan.FromOptions(options);
-        _requiredId = options.AdapterId;
+        _preferredId = options.AdapterId;
         _factory = factory ?? (binding => new NpcapPacketReader(options, binding));
         _guarded = Receive;
     }
@@ -77,15 +79,16 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
             if (!identities.Add(CapturePathPlan.NormalizeIdentity(binding.AdapterId)))
                 throw new InvalidOperationException("捕获路径含重复网卡。");
         }
-        var required = _plan.Bindings.FirstOrDefault(binding => string.IsNullOrWhiteSpace(_requiredId)
+        var preferred = _plan.Bindings.FirstOrDefault(binding => string.IsNullOrWhiteSpace(_preferredId)
             ? ReferenceEquals(binding, _plan.Bindings[0])
             : string.Equals(CapturePathPlan.NormalizeIdentity(binding.AdapterId),
-                CapturePathPlan.NormalizeIdentity(_requiredId), StringComparison.OrdinalIgnoreCase));
-        if (required is null) throw new InvalidOperationException("捕获路径未保留所选网卡。");
+                CapturePathPlan.NormalizeIdentity(_preferredId), StringComparison.OrdinalIgnoreCase));
+        if (preferred is null) throw new InvalidOperationException("捕获路径未保留所选网卡。");
 
         _openAttempted = true;
-        _required = required;
-        foreach (var binding in new[] { required }.Concat(_plan.Bindings.Where(b => !ReferenceEquals(b, required))))
+        Exception? firstOpenError = null;
+        foreach (var binding in new[] { preferred }.Concat(
+            _plan.Bindings.Where(b => _plan.Automatic && !ReferenceEquals(b, preferred))))
         {
             Entry? entry = null;
             try
@@ -93,6 +96,7 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
                 entry = new Entry(binding, _factory(binding));
                 _owned.Add(entry); // Own it before Open: a partial open may already hold a native handle.
                 entry.Reader.Open();
+                _primary ??= binding;
                 _active.Add(entry);
                 Volatile.Write(ref _pollers, _active.ToArray());
             }
@@ -108,11 +112,16 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
                 UpdateStatus();
                 if (cleanupError is not null)
                     throw new AggregateException("捕获路径启动失败且资源尚未释放，保留供重试。", openError, cleanupError);
-                if (ReferenceEquals(binding, required)) throw;
+                if (!_plan.Automatic || openError is OutOfMemoryException or StackOverflowException) throw;
+                firstOpenError ??= openError;
                 continue;
             }
             UpdateStatus();
         }
+
+        if (_primary is null)
+            throw new CollectorException(ErrorCodes.BadRequest, CollectorTexts.CaptureStartAdapterCandidatesUnavailable(),
+                field: "adapter_id", retryable: true, inner: firstOpenError);
     }
 
     // Planned and not being read: everything in the plan that has no open reader. An interface
@@ -136,7 +145,7 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
         for (var i = 0; i < pollers.Length; i++)
         {
             var entry = pollers[(first + i) % pollers.Length];
-            if (ReferenceEquals(entry.Binding, _required))
+            if (ReferenceEquals(entry.Binding, _primary))
             {
                 received |= entry.Reader.Read(receive);
                 continue;

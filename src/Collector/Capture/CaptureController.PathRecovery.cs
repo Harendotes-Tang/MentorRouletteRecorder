@@ -186,7 +186,7 @@ public sealed partial class CaptureController
             // an absent or down interface confirms that an old reader lost its binding.
             pathsUnavailable = inventoryKnown && AllBindingsUnavailable(run.PathPlan, adapters);
             var selected = adapters.FirstOrDefault(a => a.Recommended && CapturePathPlan.IsUsable(a))
-                ?? adapters.FirstOrDefault(a => a.Id == run.Adapter?.Id && CapturePathPlan.IsUsable(a));
+                ?? adapters.FirstOrDefault(a => a.Id == run.OpenedAdapter?.Id && CapturePathPlan.IsUsable(a));
             if (selected is not null) next = CapturePathPlan.Create(adapters, selected, automatic: true);
             // No interface carries the game: the title screen, or an IPv4 connection table that
             // cannot be read, which only the table itself can tell apart (re-review 2026-11-03,

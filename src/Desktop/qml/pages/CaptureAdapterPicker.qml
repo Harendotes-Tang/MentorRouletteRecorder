@@ -20,6 +20,7 @@ Card {
     id: picker
     objectName: "captureAdapterPicker"
 
+    property bool adapterOpenFailed: false
     readonly property string chosenId: String(Runtime.app.captureSettings.adapter_id || "")
     readonly property bool writable: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
 
@@ -82,6 +83,7 @@ Card {
         Text {
             objectName: "captureAdapterPickerText"
             Layout.fillWidth: true
+            visible: !picker.adapterOpenFailed
             text: qsTr("还没有确定哪张网卡承载游戏流量。开着加速器或 VPN 时，游戏流量往往走它们的网卡；选错了可以随时改回自动选择。")
             textFormat: Text.PlainText
             color: Theme.textPrimary

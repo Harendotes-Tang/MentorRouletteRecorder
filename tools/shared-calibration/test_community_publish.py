@@ -701,6 +701,48 @@ class CommunityWithdrawalTests(unittest.TestCase):
         removed = publisher.without(entries, next(iter(entries)), "2026-11-26T08:00:00Z")
         self.assertEqual("published", publisher.evaluate(fresh, removed)[0]["status"])
 
+    def test_a_withdrawn_entry_leaves_the_library_thirty_days_after_its_withdrawal(self):
+        now = publisher.dt.datetime(2026, 12, 27, 9, 30, tzinfo=publisher.dt.timezone.utc)
+        due = dict(self.published(1, 201, status="withdrawn"), updated_at="2026-11-27T09:30:00Z")
+        recent = dict(self.published(2, 201, status="withdrawn"), updated_at="2026-11-28T09:30:00Z")
+        live = dict(self.published(3, 201), updated_at="2026-01-01T00:00:00Z")
+        note = self.published(4, 300, kind="reminder", links=[due["id"]])
+        entries = {item["id"]: item for item in (due, recent, live, note)}
+        removed, revised = publisher.purge(entries, now)
+        self.assertEqual([due["id"]], removed, "exactly 30 days goes; 29 days and live entries stay")
+        self.assertEqual({recent["id"], live["id"], note["id"]}, set(revised))
+        self.assertEqual(([], 2, "2026-12-27T09:30:00Z"),
+                         (revised[note["id"]]["links"], revised[note["id"]]["revision"], revised[note["id"]]["updated_at"]))
+        self.assertEqual(([], revised), publisher.purge(revised, now), "a second sweep changes nothing")
+        self.assertIn(due["id"], entries, "the library passed in is not changed")
+        # The sweep commits the removal and records the IDs, as a maintainer's removal does.
+        calls = []
+        with patch.object(publisher, "latest_checkout"), \
+                patch.object(publisher, "load", lambda: ({"generation": 3}, {"schema_version": 1, "issues": {}}, entries)), \
+                patch.object(publisher, "record_removal", lambda *args: calls.append(args) or True):
+            self.assertEqual([due["id"]], publisher.purge_withdrawn(now))
+        self.assertEqual(([due["id"]], "Remove community entries withdrawn 30 days ago"), calls[0][4:])
+        order = []
+        with patch.object(publisher, "purge_withdrawn", lambda: order.append("purge")), \
+                patch.object(publisher, "sweep", lambda repo: order.append("sweep")):
+            publisher.scheduled("fixture")
+        self.assertEqual(["purge", "sweep"], order, "the scheduled run purges, then sweeps")
+
+    def test_the_checkout_is_reset_only_in_the_public_repositorys_workflow(self):
+        # latest_checkout hard-resets to origin/main. A test that forgot to stub it once reset a
+        # developer's clone; outside the publisher's Actions job it now refuses instead.
+        calls = []
+        with patch.object(publisher, "git", lambda *args: calls.append(args)):
+            for environment in ({}, {"CI": "true", "GITHUB_ACTIONS": "true"},
+                                {"CI": "true", "GITHUB_ACTIONS": "true", "GH_REPO": "someone/else"}):
+                with self.subTest(environment), patch.dict(publisher.os.environ, environment, clear=True), \
+                        self.assertRaises(RuntimeError):
+                    publisher.latest_checkout()
+            with patch.dict(publisher.os.environ, {"CI": "true", "GITHUB_ACTIONS": "true",
+                                                    "GH_REPO": "Harendotes-Tang/MentorRecorder-Calibrations"}, clear=True):
+                publisher.latest_checkout()
+        self.assertEqual([("fetch", "origin", "main"), ("reset", "--hard", "origin/main")], calls)
+
 
 if __name__ == "__main__":
     unittest.main()

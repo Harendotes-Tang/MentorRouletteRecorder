@@ -263,11 +263,14 @@ void verifyToolsLayoutTransitions(const PageScene &scene, CaptureBackend &backen
 /// written to CaptureSettings.adapter_id the way the stale-card notice writes
 /// it, and 改回自动选择 taking it back with null. No adapter_id and no ERR_
 /// token reaches the page.
-void verifyAdapterPickerWritesTheChoice(const PageScene &scene, CaptureBackend &backend)
+void verifyAdapterPickerWritesTheChoice(const PageScene &scene, CaptureBackend &backend, bool wifi)
 {
     QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterPicker")));
-    QTRY_COMPARE(scene.text(QStringLiteral("captureAdapterChoiceName_1")), QString::fromUtf8("以太网 2"));
-    QCOMPARE(scene.text(QStringLiteral("captureAdapterChoiceDetail_1")), QStringLiteral("TAP-Windows Adapter V9 · 10.8.0.x"));
+    QTRY_COMPARE(scene.text(QStringLiteral("captureAdapterChoiceName_1")),
+                 wifi ? QStringLiteral("Wi-Fi") : QString::fromUtf8("以太网 2"));
+    QCOMPARE(scene.text(QStringLiteral("captureAdapterChoiceDetail_1")),
+             wifi ? QStringLiteral("Wireless Network Adapter · 192.168.2.x")
+                  : QStringLiteral("TAP-Windows Adapter V9 · 10.8.0.x"));
     QVERIFY(!scene.shows(QStringLiteral("captureAdapterAutoButton")));
     QVERIFY(!scene.shows(QStringLiteral("useRecommendedAdapterButton")));
     QCOMPARE(chainSub(scene, "adapter"), QString::fromUtf8("请在下方选择网卡"));
@@ -1906,17 +1909,19 @@ private slots:
     // generic line stands, and the cards are still offered on the code alone.
     void theCollectorsRefusalSentenceReachesThePageAndOffersTheCards_data()
     {
-        QTest::addColumn<bool>("withSentence");
-        QTest::newRow("collector since 2026-11-04") << true;
-        QTest::newRow("older collector") << false;
+        QTest::addColumn<QString>("errorKey");
+        QTest::newRow("collector since 2026-11-04") << QStringLiteral("capture.start.adapter_undetermined");
+        QTest::newRow("older collector") << QString();
+        QTest::newRow("native opens exhausted") << QStringLiteral("capture.start.adapter_candidates_unavailable");
     }
 
     void theCollectorsRefusalSentenceReachesThePageAndOffersTheCards()
     {
-        QFETCH(bool, withSentence);
-        const QVariantMap ref = mrtest::textRef("capture.start.adapter_undetermined");
+        QFETCH(QString, errorKey);
+        const bool exhausted = errorKey == QLatin1String("capture.start.adapter_candidates_unavailable");
+        const QVariantMap ref = mrtest::textRef(errorKey.toLatin1().constData());
         const QString sentence = mr::collector_text::render(ref, QString());
-        QVERIFY(!sentence.isEmpty());
+        QVERIFY(errorKey.isEmpty() || !sentence.isEmpty());
         PageScene scene;
         auto *backend = scene.fake<CaptureBackend>();
         backend->acceptWrites = true;
@@ -1924,8 +1929,10 @@ private slots:
                             {"npcap_installed", true}, {"profile_status", "VERIFIED"}, {"region", "CN"},
                             {"game_build", "2026.10.06.0000.0000"}, {"adapter_id", QJsonValue(QJsonValue::Null)},
                             {"last_error_code", "ERR_BAD_REQUEST"},
-                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "UNMAPPED"}}}};
-        if (withSentence) {
+                            {"path_recovery", QJsonObject{{"state", "NONE"}}},
+                            {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                         {"kind", exhausted ? "OTHER_INTERFACE" : "UNMAPPED"}}}};
+        if (!errorKey.isEmpty()) {
             backend->capture["last_error_text"] = mr::collector_text::chinese(ref);
             backend->capture["last_error_ref"] = QJsonObject::fromVariantMap(ref);
         }
@@ -1933,25 +1940,35 @@ private slots:
                QJsonObject{{"adapter_id", "\\Device\\NPF_{HOUSE}"}, {"friendly_name", QString::fromUtf8("以太网")},
                            {"description", "Intel(R) Ethernet Connection"}, {"ipv4_addresses", QJsonArray{"192.168.1.x"}},
                            {"is_loopback", false}, {"is_up", true}, {"recommended", false}},
-               QJsonObject{{"adapter_id", "\\Device\\NPF_{TAP}"}, {"friendly_name", QString::fromUtf8("以太网 2")},
-                           {"description", "TAP-Windows Adapter V9"}, {"ipv4_addresses", QJsonArray{"10.8.0.x"}},
+               QJsonObject{{"adapter_id", "\\Device\\NPF_{TAP}"},
+                           {"friendly_name", exhausted ? QStringLiteral("Wi-Fi") : QString::fromUtf8("以太网 2")},
+                           {"description", exhausted ? "Wireless Network Adapter" : "TAP-Windows Adapter V9"},
+                           {"ipv4_addresses", QJsonArray{exhausted ? "192.168.2.x" : "10.8.0.x"}},
                            {"is_loopback", false}, {"is_up", true}, {"recommended", false}}}}};
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
         const QString hero = scene.text(QStringLiteral("captureHeroText"));
         const QString summary = scene.text(QStringLiteral("captureChainSummary"));
-        if (withSentence) {
+        if (!errorKey.isEmpty()) {
             QVERIFY2(hero.contains(sentence), qPrintable(hero));
             QVERIFY2(!hero.contains(QString::fromUtf8("无法识别")), qPrintable(hero));
-            QVERIFY2(summary.contains(QString::fromUtf8("无法确定游戏流量所在的网卡")), qPrintable(summary));
+            QVERIFY2(summary.contains(exhausted ? QString::fromUtf8("未能打开任何候选网卡")
+                                                 : QString::fromUtf8("无法确定游戏流量所在的网卡")), qPrintable(summary));
             QVERIFY2(!summary.contains(QString::fromUtf8("无法识别")), qPrintable(summary));
         } else {
             QVERIFY2(hero.contains(QString::fromUtf8("无法识别")), qPrintable(hero));
             QVERIFY2(summary.contains(QString::fromUtf8("无法识别")), qPrintable(summary));
         }
         QVERIFY2(!hero.contains(QStringLiteral("ERR_")), qPrintable(hero));
-        verifyAdapterPickerWritesTheChoice(scene, *backend);
+        const QString screenshot = qEnvironmentVariable("MR_CAPTURE_ADAPTER_FAILURE_SCREENSHOT");
+        if (exhausted && !screenshot.isEmpty()) {
+            auto *window = scene.page->window();
+            QVERIFY(window);
+            QTRY_VERIFY(scene.shows(QStringLiteral("captureAdapterUseButton_1")));
+            QVERIFY2(window->grabWindow().save(screenshot), qPrintable(screenshot));
+        }
+        verifyAdapterPickerWritesTheChoice(scene, *backend, exhausted);
     }
 
     // The TCP-table reading alone can call for a choice: the game's connections

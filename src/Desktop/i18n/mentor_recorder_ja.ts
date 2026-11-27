@@ -2989,6 +2989,11 @@ SHA256：%3</translation>
         <translation>指定したアダプターが存在しません。アダプターの一覧を更新してから選び直してください。</translation>
     </message>
     <message>
+        <source>自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。</source>
+        <comment>capture.start.adapter_candidates_unavailable</comment>
+        <translation>自動検出で候補のネットワークアダプターを開けませんでした。下から手動で選択して再試行してください。</translation>
+    </message>
+    <message>
         <source>无法确定游戏流量所在的网卡（不做猜测）。请在诊断页手动选择一张网卡后重试。</source>
         <comment>capture.start.adapter_undetermined</comment>
         <translation>ゲームの通信が流れているアダプターを特定できません（推測はしません）。診断ページでアダプターを1つ手動で選んでから再試行してください。</translation>
@@ -6011,6 +6016,14 @@ SHA256：%3</translation>
         <translation>ライセンス</translation>
     </message>
     <message>
+        <source>已移除</source>
+        <translation>削除済み</translation>
+    </message>
+    <message>
+        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <translation>公開ライブラリにはこの項目がもうありません（作者が取り下げてから 30 日後、または管理者が削除したときに消えます）。ローカルのコピーはそのまま残ります</translation>
+    </message>
+    <message>
         <source>已发布</source>
         <translation>公開中</translation>
     </message>
@@ -7233,6 +7246,10 @@ SHA256：%3</translation>
         <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリに表示されなくなります。</translation>
     </message>
     <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリで「取り下げ済み」になります。</translation>
+    </message>
+    <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
         <translation>投稿（%1 件）をクリップボードにコピーし、GitHub の投稿フォームをブラウザーで開きました。フォームが見当たらないときは、下の「フォームを開き直す」を押してください。</translation>
     </message>
@@ -7383,6 +7400,10 @@ SHA256：%3</translation>
     <message>
         <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
         <translation>選んだ内容はすべて公開ライブラリから取り下げ済みのため、投稿できません。</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>取り下げると、この %1 件は公開ライブラリで「取り下げ済み」になります。ほかの人は取り込めなくなり、すでに取り込んだ人には「取り下げ済み」と表示されます。ローカルの項目はそのまま残ります。取り下げは取り消せず、本文は公開リポジトリの履歴に残ります。もう一度公開するときは、新しい項目を作って投稿してください。</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>

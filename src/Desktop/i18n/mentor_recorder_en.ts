@@ -2989,6 +2989,11 @@ SHA256: %3</translation>
         <translation>The specified network adapter doesn&apos;t exist. Refresh the adapter list and choose again.</translation>
     </message>
     <message>
+        <source>自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。</source>
+        <comment>capture.start.adapter_candidates_unavailable</comment>
+        <translation>Automatic detection could not open any candidate network adapter. Choose an adapter below and try again.</translation>
+    </message>
+    <message>
         <source>无法确定游戏流量所在的网卡（不做猜测）。请在诊断页手动选择一张网卡后重试。</source>
         <comment>capture.start.adapter_undetermined</comment>
         <translation>Can&apos;t determine which network adapter carries game traffic (no guessing). Choose an adapter manually on the diagnostics page and try again.</translation>
@@ -6011,6 +6016,14 @@ SHA256: %3</translation>
         <translation>Licence</translation>
     </message>
     <message>
+        <source>已移除</source>
+        <translation>Removed</translation>
+    </message>
+    <message>
+        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <translation>This entry is no longer in the public library (it leaves 30 days after its author withdraws it, or when a maintainer deletes it); your local copy stays</translation>
+    </message>
+    <message>
         <source>已发布</source>
         <translation>Published</translation>
     </message>
@@ -7233,6 +7246,10 @@ SHA256: %3</translation>
         <translation>Withdrawals go through a GitHub Issue. Once processed, these items no longer appear in the public library.</translation>
     </message>
     <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>Withdrawals go through a GitHub Issue. Once processed, these items are marked Withdrawn in the public library.</translation>
+    </message>
+    <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
         <translation>The submission (%1) is on the clipboard and the GitHub submission form is open in the browser. If you do not see the form, click Reopen form below.</translation>
     </message>
@@ -7383,6 +7400,10 @@ SHA256: %3</translation>
     <message>
         <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
         <translation>Everything selected has been withdrawn from the public library and cannot be submitted again.</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>Once withdrawn, these %1 items are marked Withdrawn in the public library: nobody can import them any more, people who already imported them see Withdrawn, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>

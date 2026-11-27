@@ -149,6 +149,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "该 opcode 未被声明为不超过 512 字节的非混淆候选。", "capture.settings.research_not_eligible"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "研究白名单最多 32 项。", "capture.settings.research_too_many"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请先停止捕获，再开启候选档案验证。", "capture.settings.stop_before_validation"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。", "capture.start.adapter_candidates_unavailable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。", "capture.start.adapter_list_changed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "所选网卡没有可绑定的 IPv4 地址，抓包未启动。请刷新网卡列表并选择实际承载游戏流量的 IPv4 网卡。", "capture.start.adapter_no_ipv4"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "指定的网卡不存在，请刷新网卡列表后重新选择。", "capture.start.adapter_not_found"), .args = ""},

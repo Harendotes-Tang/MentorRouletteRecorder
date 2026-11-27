@@ -25,6 +25,10 @@ ColumnLayout {
     readonly property var publication: item && !store.remote ? store.ownPublication(item.id) : null
     // An installed copy whose public entry its author withdrew: the copy stays, and says so.
     readonly property bool sourceWithdrawn: !store.remote && !publication && !!sourceItem && sourceItem.status === "withdrawn"
+    // An installed copy whose public entry is gone from the loaded library: a maintainer removed it,
+    // or it was withdrawn 30 days ago (tools/shared-calibration/community_publish.py, purge).
+    readonly property bool sourceRemoved: !store.remote && !publication && !!row && !!row.upstream && !sourceItem
+        && store.publicRows.length > 0
     readonly property var sourceItem: store.source
     readonly property bool sourceNewer: !store.remote && !!sourceItem && !!row && !!row.upstream
         && sourceItem.status !== "withdrawn" && sourceItem.revision > row.upstream.revision
@@ -51,9 +55,10 @@ ColumnLayout {
              item.status === "verified" ? qsTr("维护者核对过内容和适用范围")
              : item.status === "community" ? qsTr("还没有人核对过，用之前自己先看一遍") : ""],
             [qsTr("许可"), store.licenseCode(license), store.licenseDetail(license)],
-            [qsTr("公共共享库"), sourceWithdrawn ? store.statusText("withdrawn") : !publication ? ""
+            [qsTr("公共共享库"), sourceRemoved ? qsTr("已移除") : sourceWithdrawn ? store.statusText("withdrawn") : !publication ? ""
                 : publication.status === "withdrawn" ? store.statusText("withdrawn") : qsTr("已发布"),
-             sourceWithdrawn ? qsTr("作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留")
+             sourceRemoved ? qsTr("公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留")
+             : sourceWithdrawn ? qsTr("作者已从公共共享库撤回这一条，别人不能再导入；你的本地副本照常保留")
              : publication ? qsTr("以 @%1 的名义公开，只有这个 GitHub 账号能撤回").arg(publication.author.login) : ""],
             [qsTr("投稿"), item.issue ? "#" + item.issue : ""],
             [qsTr("更新于"), day(item.updated_at)],

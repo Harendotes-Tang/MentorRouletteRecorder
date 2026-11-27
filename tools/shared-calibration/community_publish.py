@@ -44,17 +44,21 @@ MAX_BYTES = 1_250_000
 MAX_ISSUE = 30_000
 MAX_ENTRIES = 400
 # MAX_ENTRIES is what the app accepts in one snapshot, withdrawn entries included. Live entries
-# have their own, lower capacity so that withdrawn ones never take a submission's place; a
-# maintainer removes withdrawn entries (--status removed) before they reach MAX_ENTRIES.
+# have their own, lower capacity so that withdrawn ones never take a submission's place; the
+# sweep removes a withdrawn entry WITHDRAWN_RETENTION after its withdrawal (purge_withdrawn), and a
+# maintainer can remove one earlier (--status removed).
 MAX_LIVE_ENTRIES = 350
 # One account cannot fill the library: at most this many of its entries are live at a time, and
 # at most this many of its Issues publish something on one day (by the Issue's update date).
 MAX_ACCOUNT_ENTRIES = 40
 MAX_ACCOUNT_DAILY = 5
-# Withdrawn entries stay in the snapshot. Since authors withdraw their own, publishing and
-# withdrawing in turn could fill the snapshot for everyone; an account's entries of any status
-# are held to this many, and a maintainer removes withdrawn ones to make room.
+# Withdrawn entries stay in the snapshot for WITHDRAWN_RETENTION. Since authors withdraw their
+# own, publishing and withdrawing in turn could fill the snapshot for everyone meanwhile; an
+# account's entries of any status are held to this many.
 MAX_ACCOUNT_STORED = 60
+# How long a withdrawn entry stays in the snapshot, marked withdrawn, so that copies already
+# imported learn it was withdrawn; the sweep then deletes it as a maintainer's removal would.
+WITHDRAWN_RETENTION = dt.timedelta(days=30)
 MAX_BATCH = 20
 # Two bodies at least this alike are reported to the maintainer; the app folds them together.
 # The app computes the same number (src/Desktop/qml/dialogs/DutyCommunityMatch.js).
@@ -335,7 +339,7 @@ def validate_capacity(entries, revised, author_id):
     held = stored(revised, author_id)
     if held > MAX_ACCOUNT_STORED and held > stored(entries, author_id):
         raise Invalid(f"An account can have at most {MAX_ACCOUNT_STORED} entries in the library, withdrawn ones "
-                      "included. Ask a maintainer to remove withdrawn entries.")
+                      "included. Withdrawn entries leave the library 30 days after their withdrawal.")
     if (live(revised) > MAX_LIVE_ENTRIES and live(revised) > live(entries)) or len(revised) > MAX_ENTRIES or oversized(revised):
         raise Invalid("The current community release has reached its capacity.")
 
@@ -376,6 +380,25 @@ def without(entries, identifier, now):
         revised[key] = item
     validate_links(revised)
     return revised
+
+
+def expired_withdrawals(entries, now):
+    """The withdrawn entries whose withdrawal (their last update) is WITHDRAWN_RETENTION old, in ID
+    order. now is an aware UTC datetime."""
+    limit = now - WITHDRAWN_RETENTION
+    return sorted(identifier for identifier, item in entries.items() if item["status"] == "withdrawn"
+                  and dt.datetime.strptime(item["updated_at"], "%Y-%m-%dT%H:%M:%SZ")
+                  .replace(tzinfo=dt.timezone.utc) <= limit)
+
+
+def purge(entries, now):
+    """The expired withdrawn entries and the library without them; links to them are dropped and
+    the entries that had them get a new revision, as for a maintainer's removal."""
+    identifiers = expired_withdrawals(entries, now)
+    revised = entries
+    for identifier in identifiers:
+        revised = without(revised, identifier, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return identifiers, revised
 
 
 def withdraw(identifiers, entries, author, timestamp):
@@ -428,7 +451,8 @@ def evaluate(issue, entries, ledger=None):
         unchanged, candidates, withdrawn = set(), [], []
         for draft in data["items"]:
             if draft["id"] in ledger.get("removed", ()):
-                raise Invalid("A maintainer removed this ID from the library. Create a new ID.")
+                raise Invalid("This ID was removed from the library, by a maintainer or 30 days after it was "
+                              "withdrawn. Create a new ID.")
             current = entries.get(draft["id"])
             base = data["base_revisions"].get(draft["id"])
             if current:
@@ -635,7 +659,8 @@ def receipt(result):
             "Withdrawn from the community library. Copies already imported show the entry as withdrawn,"
             " and nobody can import it any more. Its text stays in the history of this repository.",
             "", "IDs: " + ", ".join(result["ids"]), "",
-            "A withdrawn ID is not published again. To share the text again, submit it as a new entry.",
+            "A withdrawn ID is not published again, and the entry is deleted from the library 30 days after its "
+            "withdrawal. To share the text again, submit it as a new entry.",
             "", "[Public index](../blob/main/community/v1/index.json)"])
     if status not in ("published", "duplicate"):
         return result.get("detail", "")
@@ -665,6 +690,11 @@ def receipt(result):
 
 
 def latest_checkout():
+    # A hard reset to origin/main: only the publisher's own Actions checkout may be reset this way.
+    # Anywhere else (a developer's clone, a test that forgot to stub this) it would throw work away.
+    if (os.environ.get("CI") != "true" or os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("GH_REPO") != "Harendotes-Tang/MentorRecorder-Calibrations"):
+        raise RuntimeError("latest_checkout resets the checkout; it runs only in the public repository's workflow.")
     git("fetch", "origin", "main")
     git("reset", "--hard", "origin/main")
 
@@ -763,6 +793,13 @@ def sweep(repo):
         raise RuntimeError(f"Community issues to retry: {failed}")
 
 
+def scheduled(repo):
+    """The scheduled run (and a manual run without an ID): withdrawn entries whose retention ended
+    leave the library first, then pending Issues and missing receipts are swept."""
+    purge_withdrawn()
+    sweep(repo)
+
+
 def moderate(identifier, status, expected_revision):
     if not ID.fullmatch(identifier) or expected_revision is None or status is None:
         raise Invalid("A valid ID, status and expected revision are required.")
@@ -802,19 +839,42 @@ def remove(identifier, expected_revision):
         if current is None or current["revision"] != expected_revision:
             raise Invalid("The item or its expected revision is no longer current.")
         now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        revised = without(entries, identifier, now)
-        folder = "reminders" if current["type"] == "reminder" else "macros"
-        git("rm", "-q", "--ignore-unmatch", "--", (ROOT / folder / (identifier + ".json")).as_posix())
-        index = files_for(entries, revised, index["generation"] + 1)
-        ledger["removed"] = sorted(set(ledger.get("removed", [])) | {identifier})
-        write(INDEX, index)
-        write(LEDGER, ledger)
-        git("add", "--", INDEX.as_posix(), LEDGER.as_posix())
-        git("commit", "-m", "Remove community content")
-        if subprocess.run(("git", "push", "origin", "HEAD:main"), check=False).returncode == 0:
+        if record_removal(index, ledger, entries, without(entries, identifier, now), [identifier],
+                          "Remove community content"):
             return
         time.sleep(attempt + 1)
     raise RuntimeError("main advanced during all removal attempts.")
+
+
+def purge_withdrawn(now=None):
+    """Deletes, in one commit, the withdrawn entries whose WITHDRAWN_RETENTION has ended. Called by
+    scheduled(), so it runs on the workflow's schedule. Returns the IDs it removed."""
+    for attempt in range(3):
+        latest_checkout()
+        index, ledger, entries = load()
+        identifiers, revised = purge(entries, now or dt.datetime.now(dt.timezone.utc).replace(microsecond=0))
+        if not identifiers:
+            return []
+        if record_removal(index, ledger, entries, revised, identifiers,
+                          "Remove community entries withdrawn 30 days ago"):
+            return identifiers
+        time.sleep(attempt + 1)
+    raise RuntimeError("main advanced during all purge attempts.")
+
+
+def record_removal(index, ledger, entries, revised, identifiers, message):
+    """Commits the library without these entries: their files go, their IDs are recorded in the
+    ledger so that they are never published again. Returns whether the push went through."""
+    for identifier in identifiers:
+        folder = "reminders" if entries[identifier]["type"] == "reminder" else "macros"
+        git("rm", "-q", "--ignore-unmatch", "--", (ROOT / folder / (identifier + ".json")).as_posix())
+    index = files_for(entries, revised, index["generation"] + 1)
+    ledger["removed"] = sorted(set(ledger.get("removed", [])) | set(identifiers))
+    write(INDEX, index)
+    write(LEDGER, ledger)
+    git("add", "--", INDEX.as_posix(), LEDGER.as_posix())
+    git("commit", "-m", message)
+    return subprocess.run(("git", "push", "origin", "HEAD:main"), check=False).returncode == 0
 
 
 def main():
@@ -840,7 +900,7 @@ def main():
         moderate(args.moderate, args.status, args.revision)
     else:
         latest_checkout()
-        sweep(repo)
+        scheduled(repo)
 
 
 if __name__ == "__main__":

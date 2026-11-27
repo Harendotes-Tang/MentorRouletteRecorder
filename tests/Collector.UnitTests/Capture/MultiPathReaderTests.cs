@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -43,19 +45,55 @@ public sealed class MultiPathReaderTests
     }
 
     [Fact]
-    public void RequiredFailureRefusesCaptureAndDoesNotOpenFallbacks()
+    public void FailedEthernetOpenFallsBackToWiFiAndReadsItsPackets()
     {
-        var selected = new Reader(101) { FailOpen = true };
-        var created = new List<string>();
-        using var multiplexed = new MultiplexedNpcapPacketReader(Options(), binding =>
-        { created.Add(binding.AdapterId); return selected; });
+        var ethernet = new Reader(1) { FailOpen = true };
+        var wifi = new Reader(1);
+        wifi.Packets.Enqueue(new byte[] { 42 });
+        var options = WiredAndWiFiOptions();
+        using var multiplexed = new MultiplexedNpcapPacketReader(options, binding =>
+        {
+            if (binding.AdapterId == "ethernet") return ethernet;
+            Assert.Equal(1, ethernet.Disposals);
+            return wifi;
+        });
 
-        Assert.Throws<IOException>(multiplexed.Open);
-        Assert.Equal(new[] { "selected" }, created);
-        Assert.Equal(1, selected.Disposals);
-        // Nothing was opened: every planned interface is one that is not being read.
-        Assert.Equal(new CapturePathStatus(3, 0, 1, false, false), multiplexed.PathStatus with { ClosedInterfaces = null });
-        Assert.Equal(3, multiplexed.PathStatus.ClosedInterfaces!.Count);
+        multiplexed.Open();
+
+        var received = new List<byte>();
+        Assert.True(multiplexed.Read((packet, _) => received.Add(packet[0])));
+        Assert.Equal(new byte[] { 42 }, received);
+        Assert.Equal(0, ethernet.Reads);
+        Assert.Equal(1, wifi.Opens);
+        Assert.Equal(new CapturePathStatus(2, 1, 1, false, false, new[] { "ethernet" }), multiplexed.PathStatus);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AFailedStartOnlyTriesFallbacksInAutomaticMode(bool automatic)
+    {
+        var ethernet = new Reader(1) { FailOpen = true };
+        var wifi = new Reader(1) { FailOpen = true };
+        using var multiplexed = new MultiplexedNpcapPacketReader(WiredAndWiFiOptions(automatic),
+            binding => binding.AdapterId == "ethernet" ? ethernet : wifi);
+
+        if (automatic)
+        {
+            var error = Assert.Throws<CollectorException>(multiplexed.Open);
+            Assert.Equal(ErrorCodes.BadRequest, error.Code);
+            Assert.Equal("adapter_id", error.Field);
+            Assert.Equal(CollectorTexts.CaptureStartAdapterCandidatesUnavailable().Key, error.Text?.Key);
+            Assert.Equal(new CapturePathStatus(2, 0, 2, false, false, new[] { "ethernet", "wifi" }), multiplexed.PathStatus);
+        }
+        else
+        {
+            Assert.Throws<IOException>(multiplexed.Open);
+        }
+
+        Assert.Equal(1, ethernet.Disposals);
+        Assert.Equal(automatic ? 1 : 0, wifi.Opens);
+        Assert.Equal(wifi.Opens, wifi.Disposals);
     }
 
     [Fact]
@@ -283,6 +321,14 @@ public sealed class MultiPathReaderTests
         Assert.Throws<InvalidOperationException>(multiplexed.Open);
         Assert.Equal(0, creates);
     }
+
+    private static CaptureStartOptions WiredAndWiFiOptions(bool automatic = true) =>
+        new("paths", 42, IPAddress.Parse("192.0.2.10"), "ethernet", OodleMode.LibraryTcp, null, null)
+        {
+            PathPlan = new(new[] {
+                new CaptureInterfaceBinding("ethernet", new[] { IPAddress.Parse("192.0.2.10") }, false),
+                new CaptureInterfaceBinding("wifi", new[] { IPAddress.Parse("192.0.2.11") }, false) }, automatic, false),
+        };
 
     private static CaptureStartOptions Options() => new("paths", 42, IPAddress.Parse("192.0.2.10"),
         "selected", OodleMode.LibraryTcp, null, null)

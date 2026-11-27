@@ -113,6 +113,7 @@ QtObject {
     // the Collector says loopback cannot be captured (audit 2026-11-26 K2-1).
     readonly property string pathKind: chain.capture.network_path
                                        ? String(chain.capture.network_path.kind || "") : ""
+    readonly property bool adapterOpenFailed: chain.errorRefKey === "capture.start.adapter_candidates_unavailable"
     readonly property bool pathNeedsChoice: chain.pathKind === "UNMAPPED"
         || (chain.pathKind === "LOOPBACK" && chain.capture.network_path.loopback_capture_available !== false)
     // 网卡选择 (CaptureAdapterPicker): while the game runs and the Collector
@@ -213,7 +214,7 @@ QtObject {
                 return [qsTr("当前游戏版本暂不支持自动记录"), "bad"]
             return [qsTr("还没找到适用的游戏版本支持文件，暂时不能自动记录"), "bad"]
         }
-        if (chain.adapterStale && chain.pathActionAvailable)
+        if (chain.adapterStale && chain.pathActionAvailable && !chain.adapterOpenFailed)
             return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
         if (chain.errorCode.length > 0) {
             // This build's wording for a code it knows, else the Collector's own

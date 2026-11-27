@@ -914,17 +914,18 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
     QVariantList local = qmlList(dialog->property("localRows"));
     const auto contentOf = [&](int index) { return qmlMap(local.at(index).toMap().value(contentKey)); };
     const auto idOf = [&](int index) { return contentOf(index).value(QStringLiteral("id")).toString(); };
-    // Rows 0 and 1 were written and published here; row 2 is an installed copy. 1 and 2 are withdrawn since.
+    // Rows 0 and 1 were written and published here; rows 2 and 3 are installed copies. 1 and 2 are
+    // withdrawn since; row 3's entry has left the library (purged 30 days after its withdrawal).
     QVariantList published;
-    for (int index = 0; index < 3; ++index) {
+    for (int index = 0; index < 4; ++index) {
         QVariantMap row = local.at(index).toMap(), content = contentOf(index);
         content.insert(QStringLiteral("links"), QVariantList());
         QVariantMap copy = asPublished(content, 960 + index).value(contentKey).toMap();
         copy.insert(QStringLiteral("status"), index > 0 ? QStringLiteral("withdrawn") : QStringLiteral("community"));
         row.insert(contentKey, content);
-        row.insert(QStringLiteral("upstream"), index == 2 ? QVariant(copy) : QVariant());
+        row.insert(QStringLiteral("upstream"), index >= 2 ? QVariant(copy) : QVariant());
         local.replace(index, row);
-        published << QVariantMap{{contentKey, copy}};
+        if (index < 3) published << QVariantMap{{contentKey, copy}};
     }
     dialog->setProperty("localRows", local);
     dialog->setProperty("publicRows", published);
@@ -932,10 +933,10 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
     QCOMPARE(rowIds(dialog->property("listedPublicRows")), QStringList{idOf(0)});
     const auto withdrawButton = [&] { return scene.item(QStringLiteral("dutyCommunityWithdraw"), true); };
     const auto shows = [&](const char *name, const char *line) { return visibleText(scene.item(QString::fromLatin1(name), true), s(line)); };
-    for (int index : {2, 1}) {
+    for (int index : {3, 2, 1}) {
         QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, idOf(index))));
         QTRY_VERIFY2(dialog->property("currentId").toString() == idOf(index) && !withdrawButton(), qPrintable(idOf(index)));
-        QVERIFY2(shows("dutyCommunityDetail", "已撤回"), qPrintable(idOf(index)));
+        QVERIFY2(shows("dutyCommunityDetail", index == 3 ? "已移除" : "已撤回"), qPrintable(idOf(index)));
     }
     QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, idOf(0))));
     QTRY_VERIFY(withdrawButton());

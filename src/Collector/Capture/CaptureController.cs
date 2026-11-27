@@ -420,7 +420,7 @@ public sealed partial class CaptureController : IDisposable
         lock (_gate)
         {
             pathSource = _source;
-            pathAdapterId = _run?.Adapter?.Id;
+            pathAdapterId = _run?.OpenedAdapter?.Id;
             pathGeneration = _generation;
         }
         // 系统表读取和原生源状态都在控制器锁外完成；迟到的路径结果不归给新会话。
@@ -473,9 +473,9 @@ public sealed partial class CaptureController : IDisposable
                 ProfileOrigin = profile.Origin,
                 SharedCalibrationEnabled = sharedCalibrationEnabled,
                 SharedFetchKillSwitch = sharedFetchKillSwitch,
-                AdapterId = run?.Adapter?.Id,
-                AdapterName = run?.Adapter?.FriendlyName,
-                AdapterMaskedIPv4 = run?.Adapter?.MaskedIPv4 ?? Array.Empty<string>(),
+                AdapterId = run?.OpenedAdapter?.Id,
+                AdapterName = run?.OpenedAdapter?.FriendlyName,
+                AdapterMaskedIPv4 = run?.OpenedAdapter?.MaskedIPv4 ?? Array.Empty<string>(),
                 PathRecovery = _pathRecovery.Snapshot(ProcessUptimeMs),
                 NetworkPath = pathGeneration == _generation && ReferenceEquals(pathSource, _source) &&
                     _game?.ProcessId == game.ProcessId && _game?.StartedAtUtc == game.StartedAtUtc &&
@@ -762,8 +762,7 @@ public sealed partial class CaptureController : IDisposable
                 });
         }
 
-        return Launch(adapter, targetPid, game, profile, adapterId is not null,
-            CapturePathPlan.Create(adapters, adapter, automatic: adapterId is null));
+        return Launch(adapter, adapters, targetPid, game, profile, adapterId is not null);
     }
 
     /// <summary>Stops observing. Refuses when nothing is running, rather than succeeding silently.</summary>
@@ -1004,12 +1003,13 @@ public sealed partial class CaptureController : IDisposable
 
     private CaptureDiagnosticsSnapshot Launch(
         CaptureAdapterView adapter,
+        IReadOnlyList<CaptureAdapterView> adapters,
         int processId,
         GameProcessDetection game,
         ProfileStatusSnapshot profile,
-        bool adapterWasExplicit,
-        CapturePathPlan pathPlan)
+        bool adapterWasExplicit)
     {
+        var pathPlan = CapturePathPlan.Create(adapters, adapter, automatic: !adapterWasExplicit);
         var sessionId = Guid.NewGuid().ToString("D");
         var oodle = ResolveOodleMode();
         var startedAt = UtcTimestamp.Truncate(_services.Clock.UtcNow);
@@ -1090,6 +1090,16 @@ public sealed partial class CaptureController : IDisposable
                     game.Region,
                     game.GameBuild) { PathPlan = pathPlan },
                 new Observer(this, run, queue, generation));
+
+            // The native reader may have opened another binding after the preferred one failed.
+            var closed = ReadPathStatus(source).ClosedInterfaces;
+            if (pathPlan.Automatic && closed is { Count: > 0 } &&
+                closed.Contains(CapturePathPlan.NormalizeIdentity(adapter.Id), StringComparer.OrdinalIgnoreCase))
+            {
+                var opened = pathPlan.Bindings.FirstOrDefault(binding => !closed.Contains(
+                    CapturePathPlan.NormalizeIdentity(binding.AdapterId), StringComparer.OrdinalIgnoreCase));
+                run.OpenedAdapter = AdapterEnumerator.Find(adapters, opened?.AdapterId) ?? adapter;
+            }
 
             // A source is allowed to report asynchronously as soon as Start is entered. Make
             // the Starting -> Running transition atomic with the pending-fault check so an
@@ -2392,6 +2402,7 @@ public sealed partial class CaptureController : IDisposable
             GameProcessId = game.ProcessId;
             GameStartedAtUtc = game.StartedAtUtc;
             Adapter = adapter;
+            OpenedAdapter = adapter;
             Oodle = oodle;
             ReadsGameExecutable = readsGameExecutable;
             AdapterWasExplicit = adapterWasExplicit;
@@ -2419,7 +2430,11 @@ public sealed partial class CaptureController : IDisposable
         public bool StillListed(GameProcessLocator locator) =>
             GameProcessId is not { } processId || locator.IsRunning(processId, GameStartedAtUtc);
 
+        /// <summary>The planned selection recorded when the session row is created.</summary>
         public CaptureAdapterView? Adapter { get; }
+
+        /// <summary>The primary reader actually opened at startup, published with the running session.</summary>
+        public CaptureAdapterView? OpenedAdapter { get; set; }
 
         public OodleMode Oodle { get; }
 

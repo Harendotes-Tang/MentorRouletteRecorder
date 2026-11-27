@@ -2989,6 +2989,11 @@ SHA256：%3</translation>
         <translation>指定的網路卡不存在，請重新整理網路卡清單後重新選擇。</translation>
     </message>
     <message>
+        <source>自动检测未能打开任何候选网卡。请在下方手动选择网卡后重试。</source>
+        <comment>capture.start.adapter_candidates_unavailable</comment>
+        <translation>自動偵測未能開啟任何候選網卡。請在下方手動選擇網卡後重試。</translation>
+    </message>
+    <message>
         <source>无法确定游戏流量所在的网卡（不做猜测）。请在诊断页手动选择一张网卡后重试。</source>
         <comment>capture.start.adapter_undetermined</comment>
         <translation>無法確定遊戲流量所在的網路卡（不做猜測）。請在診斷頁手動選擇一張網路卡後重試。</translation>
@@ -6011,6 +6016,14 @@ SHA256：%3</translation>
         <translation>授權</translation>
     </message>
     <message>
+        <source>已移除</source>
+        <translation>已移除</translation>
+    </message>
+    <message>
+        <source>公共共享库里已经没有这一条（作者撤回 30 天后或维护者删除后会移除），你的本地副本照常保留</source>
+        <translation>公共共享庫裡已經沒有這一筆（作者撤回 30 天後或維護者刪除後會移除），你的本機副本照常保留</translation>
+    </message>
+    <message>
         <source>已发布</source>
         <translation>已發布</translation>
     </message>
@@ -7233,6 +7246,10 @@ SHA256：%3</translation>
         <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容不再出現在公共共享庫裡。</translation>
     </message>
     <message>
+        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在公共共享库里标为「已撤回」。</source>
+        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在公共共享庫裡標為「已撤回」。</translation>
+    </message>
+    <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
         <translation>投稿內文（%1 項）已複製到剪貼簿，GitHub 投稿表單已在瀏覽器開啟；沒看到表單就點下面的「重新開啟表單」。</translation>
     </message>
@@ -7383,6 +7400,10 @@ SHA256：%3</translation>
     <message>
         <source>选中的内容都已从公共共享库撤回，不能再投稿。</source>
         <translation>選取的內容都已從公共共享庫撤回，不能再投稿。</translation>
+    </message>
+    <message>
+        <source>撤回后，这 %1 项在公共共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
+        <translation>撤回後，這 %1 項在公共共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
     </message>
     <message>
         <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
