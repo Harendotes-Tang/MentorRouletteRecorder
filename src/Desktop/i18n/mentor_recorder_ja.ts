@@ -6080,6 +6080,14 @@ SHA256：%3</translation>
         <translation>お気に入り</translation>
     </message>
     <message>
+        <source>点赞 %1</source>
+        <translation>いいね %1</translation>
+    </message>
+    <message>
+        <source>在 GitHub 上给这一条点 👍（需要登录 GitHub），点赞数大约半小时后更新</source>
+        <translation>GitHub でこの項目に 👍 を付けます（GitHub へのサインインが必要です）。いいねの数は 30 分ほどで更新されます。</translation>
+    </message>
+    <message>
         <source>宏内容</source>
         <translation>マクロの内容</translation>
     </message>
@@ -6229,6 +6237,10 @@ SHA256：%3</translation>
     <message>
         <source>最近更新</source>
         <translation>更新が新しい順</translation>
+    </message>
+    <message>
+        <source>点赞最多</source>
+        <translation>いいねが多い順</translation>
     </message>
     <message>
         <source>已核验的在前</source>
@@ -7120,6 +7132,10 @@ SHA256：%3</translation>
         <translation>本文がほぼ同じ項目をここにまとめています。効果音、空白、一部の文字だけが異なります。</translation>
     </message>
     <message>
+        <source>%1 个赞</source>
+        <translation>いいね %1 件</translation>
+    </message>
+    <message>
         <source>还有 %1 项</source>
         <translation>あと %1 件</translation>
     </message>
@@ -7244,10 +7260,6 @@ SHA256：%3</translation>
     <message>
         <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
         <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリに表示されなくなります。</translation>
-    </message>
-    <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
-        <translation>取り下げは GitHub Issue で送信され、処理が終わるとこれらの項目は公開ライブラリで「取り下げ済み」になります。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7400,10 +7412,6 @@ SHA256：%3</translation>
     <message>
         <source>选中的内容都已从共享库撤回，不能再投稿。</source>
         <translation>選んだ内容はすべて公開ライブラリから取り下げ済みのため、投稿できません。</translation>
-    </message>
-    <message>
-        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>取り下げると、この %1 件は公開ライブラリで「取り下げ済み」になります。ほかの人は取り込めなくなり、すでに取り込んだ人には「取り下げ済み」と表示されます。ローカルの項目はそのまま残ります。取り下げは取り消せず、本文は公開リポジトリの履歴に残ります。もう一度公開するときは、新しい項目を作って投稿してください。</translation>
     </message>
     <message>
         <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
@@ -16542,10 +16550,6 @@ SHA256：%3</translation>
     <message>
         <source>请使用 .png 文件名保存分享图片。</source>
         <translation>共有用画像は .png のファイル名で保存してください。</translation>
-    </message>
-    <message>
-        <source>目标文件已存在，未覆盖。请重试生成新的文件名。</source>
-        <translation>保存先のファイルがすでに存在するため、上書きしていません。再試行して新しいファイル名にしてください。</translation>
     </message>
     <message>
         <source>无法生成图片，请重新打开预览后重试。</source>

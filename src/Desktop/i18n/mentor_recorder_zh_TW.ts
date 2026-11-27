@@ -6080,6 +6080,14 @@ SHA256：%3</translation>
         <translation>收藏</translation>
     </message>
     <message>
+        <source>点赞 %1</source>
+        <translation>按讚 %1</translation>
+    </message>
+    <message>
+        <source>在 GitHub 上给这一条点 👍（需要登录 GitHub），点赞数大约半小时后更新</source>
+        <translation>在 GitHub 上為這一條按 👍（需要登入 GitHub），按讚數大約半小時後更新</translation>
+    </message>
+    <message>
         <source>宏内容</source>
         <translation>巨集內容</translation>
     </message>
@@ -6229,6 +6237,10 @@ SHA256：%3</translation>
     <message>
         <source>最近更新</source>
         <translation>最近更新</translation>
+    </message>
+    <message>
+        <source>点赞最多</source>
+        <translation>按讚最多</translation>
     </message>
     <message>
         <source>已核验的在前</source>
@@ -7120,6 +7132,10 @@ SHA256：%3</translation>
         <translation>內文幾乎相同的條目收在這裡，只是提示音、空格或個別字不同。</translation>
     </message>
     <message>
+        <source>%1 个赞</source>
+        <translation>%1 個讚</translation>
+    </message>
+    <message>
         <source>还有 %1 项</source>
         <translation>還有 %1 項</translation>
     </message>
@@ -7244,10 +7260,6 @@ SHA256：%3</translation>
     <message>
         <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
         <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容不再出現在共享庫裡。</translation>
-    </message>
-    <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
-        <translation>撤回透過 GitHub Issue 提交，處理完成後，這些內容在共享庫裡標為「已撤回」。</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7400,10 +7412,6 @@ SHA256：%3</translation>
     <message>
         <source>选中的内容都已从共享库撤回，不能再投稿。</source>
         <translation>選取的內容都已從共享庫撤回，不能再投稿。</translation>
-    </message>
-    <message>
-        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>撤回後，這 %1 項在共享庫裡標為「已撤回」：別人不能再匯入，已經匯入的人會看到「已撤回」，本機的條目照常保留。撤回不能取消，內文仍留在公開儲存庫的歷史紀錄裡；以後想再公開，需要新增一筆再投稿。</translation>
     </message>
     <message>
         <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
@@ -16542,10 +16550,6 @@ SHA256：%3</translation>
     <message>
         <source>请使用 .png 文件名保存分享图片。</source>
         <translation>請使用 .png 檔名儲存分享圖片。</translation>
-    </message>
-    <message>
-        <source>目标文件已存在，未覆盖。请重试生成新的文件名。</source>
-        <translation>目標檔案已存在，未覆寫。請重試以產生新的檔名。</translation>
     </message>
     <message>
         <source>无法生成图片，请重新打开预览后重试。</source>

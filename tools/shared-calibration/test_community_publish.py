@@ -723,10 +723,24 @@ class CommunityWithdrawalTests(unittest.TestCase):
             self.assertEqual([due["id"]], publisher.purge_withdrawn(now))
         self.assertEqual(([due["id"]], "Remove community entries withdrawn 30 days ago"), calls[0][4:])
         order = []
+
+        def failed_sweep(repo):
+            order.append("sweep")
+            raise RuntimeError("Community issues to retry: [7]")
+
         with patch.object(publisher, "purge_withdrawn", lambda: order.append("purge")), \
-                patch.object(publisher, "sweep", lambda repo: order.append("sweep")):
+                patch.object(publisher, "sweep", lambda repo: order.append("sweep")), \
+                patch.object(publisher, "refresh_likes", lambda repo: order.append("likes")):
             publisher.scheduled("fixture")
-        self.assertEqual(["purge", "sweep"], order, "the scheduled run purges, then sweeps")
+        self.assertEqual(["purge", "sweep", "likes"], order, "the scheduled run purges, sweeps, then reads likes")
+        # An Issue left to retry is still reported, after the likes were read.
+        order.clear()
+        with patch.object(publisher, "purge_withdrawn", lambda: order.append("purge")), \
+                patch.object(publisher, "sweep", failed_sweep), \
+                patch.object(publisher, "refresh_likes", lambda repo: order.append("likes")), \
+                self.assertRaises(RuntimeError):
+            publisher.scheduled("fixture")
+        self.assertEqual(["purge", "sweep", "likes"], order)
 
     def test_the_checkout_is_reset_only_in_the_public_repositorys_workflow(self):
         # latest_checkout hard-resets to origin/main. A test that forgot to stub it once reset a
@@ -742,6 +756,178 @@ class CommunityWithdrawalTests(unittest.TestCase):
                                                     "GH_REPO": "Harendotes-Tang/MentorRecorder-Calibrations"}, clear=True):
                 publisher.latest_checkout()
         self.assertEqual([("fetch", "origin", "main"), ("reset", "--hard", "origin/main")], calls)
+
+
+class CommunityLikeTests(unittest.TestCase):
+    """Each live entry gets one like comment; the 👍 on it are its likes, read into likes.json."""
+
+    def entry(self, number, *, issue, status="community"):
+        item = CommunityRepeatTests.item(None, number, f"/p {number}")
+        return dict(item, author={"id": 300, "login": "first-author"}, license="CC-BY-4.0", revision=1,
+                    updated_at="2026-11-27T10:00:00Z", status=status, issue=issue)
+
+    def bot(self, identifier, comment, node):
+        return {"id": comment, "node_id": node, "user": {"login": "github-actions[bot]", "type": "Bot"},
+                "body": publisher.like_marker(identifier) + "\nLike"}
+
+    def run_likes(self, entries, ledger, comments, reactions, *, likes_file=None):
+        """refresh_likes against stubs: `comments` per Issue, `reactions` {node: count or None}."""
+        posted, commits = [], []
+
+        def api(_repo, route, *rest):
+            if rest[:1] == ("-f",):
+                number = int(route.split("/")[1])
+                posted.append((number, rest[1]))
+                return {"id": 2_400_000_000 + len(posted), "node_id": f"IC_new{len(posted)}"}
+            found = comments.get(int(route.split("/")[1]), [])
+            if isinstance(found, Exception):
+                raise found
+            return [found]
+
+        def run(args, **kwargs):
+            if args[:3] == ("gh", "api", "graphql"):
+                ids = json.loads(kwargs["input"])["variables"]["ids"]
+                nodes = [None if reactions.get(node) is None else
+                         {"id": node, "reactions": {"totalCount": reactions[node]}} for node in ids]
+                errors = [{"type": "NOT_FOUND", "path": ["nodes", index]} for index, node in enumerate(nodes) if node is None]
+                return subprocess.CompletedProcess(args, 1 if errors else 0,
+                                                   json.dumps({"data": {"nodes": nodes}, "errors": errors}).encode())
+            return subprocess.CompletedProcess(args, 0)
+
+        with tempfile.TemporaryDirectory() as folder:
+            likes_path, ledger_path = Path(folder) / "likes.json", Path(folder) / "submissions.json"
+            if likes_file is not None:
+                likes_path.write_bytes(publisher.encode(likes_file))
+            with patch.object(publisher, "api", api), patch.object(publisher, "latest_checkout"), \
+                    patch.object(publisher, "load", lambda: ({"generation": 1}, json.loads(json.dumps(ledger)), entries)), \
+                    patch.object(publisher, "LIKES", likes_path), patch.object(publisher, "LEDGER", ledger_path), \
+                    patch.object(publisher, "git", lambda *args: commits.append(args)), \
+                    patch.object(publisher.subprocess, "run", run), patch.object(publisher.time, "sleep"):
+                self.error = None
+                try:
+                    publisher.refresh_likes("fixture")
+                except RuntimeError as error:
+                    self.error = error
+            written = (json.loads(likes_path.read_bytes()) if likes_path.exists() else None,
+                       json.loads(ledger_path.read_bytes()) if ledger_path.exists() else None)
+        return posted, [args for args in commits if args[0] == "commit"], written
+
+    def test_each_live_entry_gets_one_like_comment_and_its_count(self):
+        live, recovered, withdrawn = self.entry(1, issue=5), self.entry(2, issue=5), self.entry(3, issue=6, status="withdrawn")
+        entries = {item["id"]: item for item in (live, recovered, withdrawn)}
+        # Issue 5 holds a like comment an earlier run posted but could not record, and a player's
+        # comment that copies the marker of another entry.
+        forged = dict(self.bot(live["id"], 99, "IC_forged"), user={"login": "player", "type": "User"})
+        comments = {5: [forged, self.bot(recovered["id"], 2_400_000_777, "IC_old")]}
+        posted, commits, (likes, ledger) = self.run_likes(
+            entries, {"schema_version": 1, "issues": {}}, comments, {"IC_new1": 4, "IC_old": 12})
+        # One new comment, in the entry's Issue, naming its ID and never its title.
+        self.assertEqual([5], [number for number, _ in posted])
+        body = posted[0][1]
+        self.assertTrue(body.startswith("body=" + publisher.like_marker(live["id"]) + "\n"), body)
+        self.assertIn(live["id"], body)
+        self.assertNotIn(live["title"], body)
+        self.assertEqual({"schema_version": 1, "likes": {
+            live["id"]: {"count": 4, "issue": 5, "comment": 2_400_000_001},
+            recovered["id"]: {"count": 12, "issue": 5, "comment": 2_400_000_777}}}, likes)
+        self.assertEqual({live["id"]: {"issue": 5, "comment": 2_400_000_001, "node": "IC_new1"},
+                          recovered["id"]: {"issue": 5, "comment": 2_400_000_777, "node": "IC_old"}}, ledger["likes"])
+        self.assertTrue(publisher.valid_like_links(ledger["likes"]))
+        self.assertEqual(1, len(commits))
+
+        # The next run posts nothing and, with the same counts, commits nothing; a new 👍 is recorded.
+        posted, commits, _ = self.run_likes(entries, ledger, comments, {"IC_new1": 4, "IC_old": 12}, likes_file=likes)
+        self.assertEqual(([], []), (posted, commits))
+        posted, commits, (likes, _) = self.run_likes(entries, ledger, comments, {"IC_new1": 5, "IC_old": 12}, likes_file=likes)
+        self.assertEqual(([], 1), (posted, len(commits)))
+        self.assertEqual(5, likes["likes"][live["id"]]["count"])
+
+    def test_deleted_comments_are_forgotten_and_withdrawn_or_removed_entries_leave_the_counts(self):
+        kept, deleted, withdrawn = self.entry(1, issue=5), self.entry(2, issue=5), self.entry(3, issue=6, status="withdrawn")
+        entries = {item["id"]: item for item in (kept, deleted, withdrawn)}
+        removed = "00000000-0000-4000-8000-000000000009"
+        ledger = {"schema_version": 1, "issues": {}, "likes": {
+            kept["id"]: {"issue": 5, "comment": 11, "node": "IC_kept"},
+            deleted["id"]: {"issue": 5, "comment": 12, "node": "IC_deleted"},
+            withdrawn["id"]: {"issue": 6, "comment": 13, "node": "IC_withdrawn"},
+            removed: {"issue": 7, "comment": 14, "node": "IC_removed"}}}
+        posted, _, (likes, written) = self.run_likes(entries, ledger, {}, {"IC_kept": 2, "IC_withdrawn": 8})
+        self.assertEqual([], posted)
+        self.assertEqual({kept["id"]: {"count": 2, "issue": 5, "comment": 11}}, likes["likes"])
+        self.assertEqual({kept["id"], withdrawn["id"]}, set(written["likes"]))
+        # The deleted one is no longer known, so the next run gives the entry a new comment.
+        posted, _, _ = self.run_likes(entries, written, {}, {"IC_kept": 2, "IC_withdrawn": 8, "IC_new1": 0},
+                                      likes_file=likes)
+        self.assertEqual([5], [number for number, _ in posted])
+
+    def test_an_issue_that_cannot_be_reached_holds_no_other_entry_back(self):
+        # A deleted or hidden Issue answers 404: its entries are reported, the others still get
+        # their comment and the counts are committed first.
+        lost, live, also_lost = self.entry(1, issue=6), self.entry(2, issue=5), self.entry(3, issue=6)
+        entries = {item["id"]: item for item in (lost, live, also_lost)}
+        gone = subprocess.CalledProcessError(1, ["gh", "api"])
+        posted, commits, (likes, ledger) = self.run_likes(
+            entries, {"schema_version": 1, "issues": {}}, {6: gone}, {"IC_new1": 2})
+        self.assertEqual([5], [number for number, _ in posted])
+        self.assertEqual({live["id"]: {"count": 2, "issue": 5, "comment": 2_400_000_001}}, likes["likes"])
+        self.assertEqual([live["id"]], list(ledger["likes"]))
+        self.assertEqual(1, len(commits))
+        self.assertIsInstance(self.error, RuntimeError)
+        self.assertIn(lost["id"], str(self.error))
+        self.assertIn(also_lost["id"], str(self.error))
+
+    def test_counts_are_read_a_hundred_at_a_time_and_any_other_gap_stops_the_run(self):
+        asked = []
+
+        def run(args, **kwargs):
+            ids = json.loads(kwargs["input"])["variables"]["ids"]
+            asked.append(len(ids))
+            nodes = [{"id": node, "reactions": {"totalCount": 1}} for node in ids]
+            return subprocess.CompletedProcess(args, 0, json.dumps({"data": {"nodes": nodes}}).encode())
+
+        with patch.object(publisher.subprocess, "run", run):
+            counts, gone = publisher.thumbs_up([f"IC_{index}" for index in range(150)])
+        self.assertEqual(([100, 50], 150, set()), (asked, len(counts), gone))
+        for reply in ({"data": {"nodes": [None]}, "errors": [{"type": "FORBIDDEN", "path": ["nodes", 0]}]},
+                      {"data": {"nodes": [{"id": "IC_other", "reactions": {"totalCount": 1}}]}},
+                      {"data": {"nodes": [{"id": "IC_kept", "reactions": {"totalCount": -1}}]}}):
+            with patch.object(publisher.subprocess, "run",
+                              lambda args, reply=reply, **_: subprocess.CompletedProcess(args, 1, json.dumps(reply).encode())), \
+                    self.assertRaises(RuntimeError, msg=reply):
+                publisher.thumbs_up(["IC_kept"])
+
+    def test_load_refuses_a_ledger_whose_like_links_are_malformed(self):
+        index = {"schema_version": 1, "generation": 0, "snapshot_commit": None, "snapshot_sha256": None}
+        link = {"issue": 5, "comment": 11, "node": "IC_kept"}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "index.json").write_bytes(publisher.encode(index))
+            with patch.object(publisher, "INDEX", root / "index.json"), patch.object(publisher, "LEDGER", root / "ledger.json"), \
+                    patch.object(publisher, "SNAPSHOT", root / "snapshot.json"):
+                for likes, valid in (({"00000000-0000-4000-8000-000000000001": link}, True),
+                                     ({"00000000-0000-4000-8000-000000000001": dict(link, comment=2 ** 53)}, False),
+                                     ({"00000000-0000-4000-8000-000000000001": dict(link, node="a b")}, False)):
+                    (root / "ledger.json").write_bytes(publisher.encode({"schema_version": 1, "issues": {}, "likes": likes}))
+                    if valid:
+                        self.assertEqual(likes, publisher.load()[1]["likes"])
+                    else:
+                        with self.assertRaises(publisher.Invalid):
+                            publisher.load()
+
+    def test_a_count_github_does_not_report_stops_the_run_and_the_ledger_shape_is_checked(self):
+        entries = {"00000000-0000-4000-8000-000000000001": self.entry(1, issue=5)}
+        ledger = {"schema_version": 1, "issues": {}, "likes": {
+            "00000000-0000-4000-8000-000000000001": {"issue": 5, "comment": 11, "node": "IC_kept"}}}
+        with patch.object(publisher.subprocess, "run",
+                          lambda args, **_: subprocess.CompletedProcess(args, 1, b"")), \
+                self.assertRaises(RuntimeError):
+            publisher.thumbs_up(["IC_kept"])
+        self.assertTrue(publisher.valid_like_links(ledger["likes"]))
+        for broken in ({"x": {"issue": 5, "comment": 11, "node": "IC"}},
+                       {"00000000-0000-4000-8000-000000000001": {"issue": 0, "comment": 11, "node": "IC"}},
+                       {"00000000-0000-4000-8000-000000000001": {"issue": 5, "comment": 11, "node": "<b>"}},
+                       {"00000000-0000-4000-8000-000000000001": {"issue": 5, "comment": 11}}, []):
+            self.assertFalse(publisher.valid_like_links(broken), broken)
 
 
 if __name__ == "__main__":

@@ -2619,6 +2619,21 @@
             "generation": { "type": "integer", "minimum": 0 },
             "items": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
             "entries": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
+            "likes": {
+              "type": "object",
+              "maxProperties": 400,
+              "description": "First page of a library answer only: per listed entry ID, its 👍 count and the Issue comment that collects them (community/v1/likes.json).",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["count", "issue", "comment"],
+                "properties": {
+                  "count": { "type": "integer", "minimum": 0 },
+                  "issue": { "type": "integer", "minimum": 1 },
+                  "comment": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
             "body": { "type": "string", "maxLength": 30000 },
             "account": { "type": "object" },
             "user_code": { "type": "string", "maxLength": 32 },

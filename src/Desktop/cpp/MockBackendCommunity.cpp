@@ -279,6 +279,20 @@ QJsonArray seededPublic()
     return entries;
 }
 
+/// CommunityLibrary.LikesOf: the 👍 counts of the seeded entries. 104 has no like comment yet (it
+/// was published after the workflow's last run); the comment IDs pass 2^31, as GitHub's do.
+QJsonObject seededLikes()
+{
+    const std::pair<int, int> counts[] = {{101, 12}, {102, 3}, {103, 0}, {105, 27}, {106, 1}};
+    QJsonObject likes;
+    for (const auto &[seed, count] : counts) {
+        likes.insert(mockId(seed), QJsonObject{{QStringLiteral("count"), count},
+                                               {QStringLiteral("issue"), 128 + seed - 101},
+                                               {QStringLiteral("comment"), 2400000000.0 + seed}});
+    }
+    return likes;
+}
+
 QJsonObject status(const QString &value)
 {
     return {{QStringLiteral("status"), value}, {QStringLiteral("app_configured"), false}};
@@ -594,6 +608,7 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
         result.insert(QStringLiteral("entries"), m_communityFetched ? seededPublic() : QJsonArray());
         result.insert(QStringLiteral("next"), QJsonValue::Null);
         result.insert(QStringLiteral("generation"), 1);
+        result.insert(QStringLiteral("likes"), m_communityFetched ? seededLikes() : QJsonObject());
         return result;
     };
 

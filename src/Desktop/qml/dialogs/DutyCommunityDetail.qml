@@ -15,6 +15,8 @@ ColumnLayout {
     readonly property bool macro: !!item && item.type === "macro"
     readonly property var lines: item ? item.body.replace(/\r\n/g, "\n").replace(/\s+$/, "").split("\n") : []
     readonly property bool installed: !!item && store.remote && store.isInstalled(item.id)
+    // The shared entry's 👍 count and the GitHub comment that collects them.
+    readonly property var like: !!item && store.remote ? store.likeOf(item.id) : null
     // While entries are ticked, 导出 and 投稿 here take them, as the list's bar does: the owner
     // ticked two, pressed this 投稿 and sent the open entry alone (2026-11-23).
     readonly property int ticked: store.checkedIds.length
@@ -131,11 +133,28 @@ ColumnLayout {
                 }
                 AppButton {
                     objectName: "dutyCommunityDetailFavorite"
+                    readonly property bool on: !!pane.row && pane.row.favorite === true
                     visible: !pane.store.remote
                     compact: true
                     variant: "ghost"
-                    text: pane.row && pane.row.favorite ? "★ " + qsTr("已收藏") : "☆ " + qsTr("收藏")
+                    iconName: "star"
+                    iconFilled: on
+                    iconColor: on ? Theme.yellow : "transparent"
+                    text: on ? qsTr("已收藏") : qsTr("收藏")
                     onClicked: pane.store.toggleFavorite(pane.row)
+                }
+                // 点赞 happens on GitHub: the button opens the entry's like comment there.
+                AppButton {
+                    objectName: "dutyCommunityDetailLike"
+                    visible: !!pane.like
+                    compact: true
+                    variant: "ghost"
+                    iconName: "thumbs-up"
+                    trailingIconName: "external-link"
+                    // Grouped as the list's count is (1,234), never in exponent form.
+                    text: pane.like ? qsTr("点赞 %1").arg(Number(pane.like.count).toLocaleString(Qt.locale("en_US"), "f", 0)) : ""
+                    tip: qsTr("在 GitHub 上给这一条点 👍（需要登录 GitHub），点赞数大约半小时后更新")
+                    onClicked: pane.store.openLike(pane.item.id)
                 }
             }
 

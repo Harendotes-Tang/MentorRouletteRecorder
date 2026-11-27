@@ -10,6 +10,10 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
     TimeProvider? timeProvider = null, Func<bool>? killSwitch = null)
 {
     private const string Enabled = "community.online_enabled";
+    internal const int MaxLikesBytes = 65_536;
+    private const int MaxLikeCount = 1_000_000;
+    // The largest integer a JSON number carries exactly to the Desktop's QML.
+    private const long MaxComment = 9_007_199_254_740_991;
     private readonly Func<string, string, int, Func<byte[], bool>, CancellationToken, Task<byte[]?>> _fetch =
         fetch ?? CommunityHttp.GetPublicationAsync;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -19,6 +23,9 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
     private readonly SemaphoreSlim _refreshGate = new(1);
     private readonly object _cacheGate = new();
     private Publication? _cache;
+    // The 👍 counts read with the last refresh (community/v1/likes.json); memory only, so a
+    // restarted app shows none until the library is refreshed again.
+    private IReadOnlyDictionary<string, Like> _likes = new Dictionary<string, Like>(StringComparer.Ordinal);
     private bool _loaded;
     private DateTimeOffset _nextRefresh;
     private string _lastStatus = "not_refreshed";
@@ -40,10 +47,22 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             return Response("refreshing");
         DateTimeOffset? sentAt = null;
         string? outcome = null;
+        using var likesSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<IReadOnlyDictionary<string, Like>?>? likes = null;
         JsonObject Finish(string status)
         {
             outcome = _lastStatus = status;
             return Response(status);
+        }
+        async Task<JsonObject> Ready()
+        {
+            // Only a refresh that reached the library keeps the counts it read.
+            if (await likes!.ConfigureAwait(false) is { } read)
+            {
+                lock (_cacheGate)
+                    _likes = read;
+            }
+            return Finish("ready");
         }
         try
         {
@@ -54,8 +73,11 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             // An unusable reply from one source (a mirror that has not synchronised yet answering
             // with a placeholder, say) does not decide while the other can still deliver the file.
             sentAt = _timeProvider.GetUtcNow();
-            var index = await _fetch("main", "index.json", 4096,
-                bytes => Usable(() => ReadPointer(bytes)), cancellationToken).ConfigureAwait(false);
+            var pending = _fetch("main", "index.json", 4096,
+                bytes => Usable(() => ReadPointer(bytes)), cancellationToken);
+            // likes.json sits at main beside the index, so it is read at the same time.
+            likes = FetchLikesAsync(likesSource.Token);
+            var index = await pending.ConfigureAwait(false);
             if (index is null)
                 return Finish("not_deployed");
             var pointer = ReadPointer(index);
@@ -67,7 +89,7 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
                 if (previous.Generation != pointer.Generation)
                     return Finish("invalid_index");
                 _nextRefresh = now.AddMinutes(2);
-                return Finish("ready");
+                return await Ready().ConfigureAwait(false);
             }
 
             sentAt = _timeProvider.GetUtcNow();
@@ -86,7 +108,7 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
                 _loaded = true;
             }
             _nextRefresh = now.AddMinutes(2);
-            return Finish("ready");
+            return await Ready().ConfigureAwait(false);
         }
         catch (Exception error) when (error is JsonException or FormatException)
         {
@@ -99,10 +121,68 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
         }
         finally
         {
+            if (likes is not null)
+            {
+                // Any other outcome drops the counts; the download never throws.
+                await likesSource.CancelAsync().ConfigureAwait(false);
+                await likes.ConfigureAwait(false);
+            }
             if (sentAt is { } at)
                 RecordRequest(new(at, outcome ?? (cancellationToken.IsCancellationRequested ? "cancelled" : "failed")));
             _refreshGate.Release();
         }
+    }
+
+    /// <summary>
+    /// The 👍 counts the publishing workflow writes beside the snapshot. They change without a
+    /// new snapshot, so they are read at main on every refresh, from the same hosts and in the same
+    /// way. They only decorate the list and never decide a refresh: a missing or unreadable file
+    /// gives no counts (an empty set), a download that fails or is cancelled keeps the counts read
+    /// before (null).
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, Like>?> FetchLikesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var bytes = await _fetch("main", "likes.json", MaxLikesBytes,
+                data => Usable(() => ReadLikes(data)), cancellationToken).ConfigureAwait(false);
+            return bytes is null ? new Dictionary<string, Like>(StringComparer.Ordinal) : ReadLikes(bytes);
+        }
+        catch (Exception error) when (error is JsonException or FormatException)
+        {
+            return new Dictionary<string, Like>(StringComparer.Ordinal);
+        }
+        catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// <c>{"schema_version": 1, "likes": {ID: {"count", "issue", "comment"}}}</c>: per entry, the
+    /// number of 👍 on the comment the workflow posted for it, and where that comment is.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, Like> ReadLikes(byte[] data)
+    {
+        if (data.Length > MaxLikesBytes)
+            throw new FormatException("likes_limit");
+        var root = CommunityContent.ParseObject(data);
+        if (root.Count != 2 || CommunityContent.Integer(root, "schema_version") != 1 ||
+            root["likes"] is not JsonObject entries || entries.Count > CommunityContent.MaxEntries)
+            throw new FormatException("invalid_likes");
+        var likes = new Dictionary<string, Like>(StringComparer.Ordinal);
+        foreach (var (id, node) in entries)
+        {
+            if (!CommunityContent.IsId(id) || node is not JsonObject like || like.Count != 3)
+                throw new FormatException("invalid_likes");
+            var count = CommunityContent.Integer(like, "count");
+            var issue = CommunityContent.Integer(like, "issue");
+            var comment = CommunityContent.Integer64(like, "comment");
+            if (count is < 0 or > MaxLikeCount || issue < 1 || comment is < 1 or > MaxComment)
+                throw new FormatException("invalid_likes");
+            likes.Add(id, new(count, issue, comment));
+        }
+        return likes;
     }
 
     internal Publication? Current() => ReadCache();
@@ -137,7 +217,7 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
         var cache = ReadCache();
         var entries = new JsonArray(cache?.Entries.Values.Skip(offset).Take(CommunityContent.PageSize)
             .Select(entry => entry.DeepClone()).ToArray() ?? []);
-        return new JsonObject
+        var response = new JsonObject
         {
             ["status"] = status,
             ["online"] = Online,
@@ -146,6 +226,27 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             ["next"] = entries.Count == CommunityContent.PageSize ? offset + entries.Count : null,
             ["generation"] = cache?.Generation ?? 0,
         };
+        // The counts of the whole library ride on the first page only.
+        if (offset == 0)
+            response["likes"] = LikesOf(cache);
+        return response;
+    }
+
+    /// <summary>The counts of entries this library lists: none for withdrawn or unknown IDs.</summary>
+    private JsonObject LikesOf(Publication? cache)
+    {
+        IReadOnlyDictionary<string, Like> likes;
+        lock (_cacheGate)
+            likes = _likes;
+        var listed = new JsonObject();
+        if (cache is null)
+            return listed;
+        foreach (var (id, like) in likes.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (cache.Entries.TryGetValue(id, out var entry) && entry["status"]?.GetValue<string>() != "withdrawn")
+                listed[id] = new JsonObject { ["count"] = like.Count, ["issue"] = like.Issue, ["comment"] = like.Comment };
+        }
+        return listed;
     }
 
     private Publication? ReadCache()
@@ -254,5 +355,7 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
     /// <summary>When a community request was sent and how it ended, as a status token.</summary>
     internal sealed record RequestRecord(DateTimeOffset At, string Outcome);
     internal sealed record PublicationPointer(string? Commit, string Hash, int Generation);
+    /// <summary>An entry's 👍 count and the Issue comment that collects them.</summary>
+    internal sealed record Like(int Count, int Issue, long Comment);
     internal sealed record Publication(string Commit, string Hash, int Generation, Dictionary<string, JsonObject> Entries);
 }

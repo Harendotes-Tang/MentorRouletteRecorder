@@ -226,7 +226,7 @@ public sealed class CommunityWorkspaceTests
         Assert.Equal("ready", Status(result));
         // The diagnostics report states the request just sent and how it ended (A2b-2).
         Assert.Equal<(DateTimeOffset?, string?)>((clock.Now, "ready"), LastRequest(library));
-        Assert.Equal(new[] { ("main", "index.json"), (new string('a', 40), "snapshot.json") }, calls);
+        Assert.Equal(new[] { ("main", "index.json"), ("main", "likes.json"), (new string('a', 40), "snapshot.json") }, calls);
         Assert.Single(result["entries"]!.AsArray());
         failing = true;
         clock.Now = clock.Now.AddMinutes(5);
@@ -239,6 +239,58 @@ public sealed class CommunityWorkspaceTests
         var persisted = new CommunityLibrary(new CommunityRepository(fixture.Database),
             new SettingsRepository(fixture.Database, fixture.Clock));
         Assert.Single(persisted.Browse()["entries"]!.AsArray());
+    }
+
+    // likes.json is read at main on every refresh, also when the snapshot is unchanged. Its counts
+    // decorate the first page for listed entries only; a broken file shows none and a failed
+    // download keeps the last ones, and neither changes the library's status.
+    [Fact]
+    public async Task RefreshReadsLikesBesideTheSnapshotWithoutDependingOnThem()
+    {
+        using var fixture = new TestDatabase();
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        var withdrawn = Published(Draft(MacroId, "macro", "/p Gone"), 2);
+        withdrawn["status"] = "withdrawn";
+        var (index, bytes) = Publication(1, Published(Draft(NoteId, "reminder", "Liked text"), 1), withdrawn);
+        var clock = new TestTime();
+        JsonObject Like(int count, long comment) => new() { ["count"] = count, ["issue"] = 53, ["comment"] = comment };
+        string Likes(int count) => new JsonObject { ["schema_version"] = 1, ["likes"] = new JsonObject
+            { [NoteId] = Like(count, 2_400_000_101L), [MacroId] = Like(4, 2_400_000_102L) } }.ToJsonString();
+        object served = Likes(12);
+        var library = new CommunityLibrary(new CommunityRepository(fixture.Database), settings, (_, file, _, _, _) =>
+        {
+            if (file != "likes.json")
+                return Task.FromResult<byte[]?>(file == "index.json" ? index : bytes);
+            if (served is Exception error)
+                throw error;
+            if (served is CancellationTokenSource stop)
+                stop.Cancel();
+            return served is CancellationTokenSource cancelled ? Task.FromCanceled<byte[]?>(cancelled.Token)
+                : Task.FromResult(served is string text ? Encoding.UTF8.GetBytes(text) : null);
+        }, clock, killSwitch: () => false);
+        JsonNode? LikesOf(JsonObject result) => result["likes"];
+        async Task<JsonObject> Refresh(object reply, CancellationToken token = default)
+        {
+            served = reply;
+            clock.Now = clock.Now.AddMinutes(5);
+            var result = await library.RefreshAsync(token);
+            Assert.Equal("ready", Status(result));
+            return result;
+        }
+
+        library.SetOnline(true);
+        var first = await Refresh(Likes(12));
+        Assert.Equal($$$"""{"{{{NoteId}}}":{"count":12,"issue":53,"comment":2400000101}}""", LikesOf(first)!.ToJsonString());
+        Assert.Equal(13, LikesOf(await Refresh(Likes(13)))![NoteId]!["count"]!.GetValue<int>());
+        Assert.Equal(13, LikesOf(await Refresh(new HttpRequestException()))![NoteId]!["count"]!.GetValue<int>());
+        // Cancelled while likes.json downloads, the refresh still ends "ready" and keeps the counts.
+        using var cancel = new CancellationTokenSource();
+        Assert.Equal(13, LikesOf(await Refresh(cancel, cancel.Token))![NoteId]!["count"]!.GetValue<int>());
+        Assert.Empty(LikesOf(await Refresh("""{"schema_version":1,"likes":{"x":{}}}"""))!.AsObject());
+        Assert.Empty(LikesOf(await Refresh(Likes(-1)))!.AsObject());
+        Assert.Equal(7, LikesOf(await Refresh(Likes(7)))![NoteId]!["count"]!.GetValue<int>());
+        Assert.Empty(LikesOf(await Refresh(new object()))!.AsObject());
+        Assert.Null(library.Browse(offset: 40)["likes"]);
     }
 
     [Fact]
@@ -623,6 +675,8 @@ public sealed class CommunityWorkspaceTests
         var refused = new List<string>();
         var library = new CommunityLibrary(repository, settings, (_, file, _, accept, _) =>
         {
+            if (file == "likes.json")
+                return Task.FromResult<byte[]?>(null);
             var bytes = file == "index.json" ? served.Index : served.Bytes;
             Assert.True(accept(bytes));
             if (accept("<html>not yet mirrored</html>"u8.ToArray()))

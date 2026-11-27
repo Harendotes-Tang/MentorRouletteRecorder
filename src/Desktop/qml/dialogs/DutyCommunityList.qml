@@ -317,13 +317,37 @@ ColumnLayout {
                                 radius: Theme.radiusXs
                                 color: star.hovered || star.activeFocus ? Theme.fillStrong : "transparent"
                             }
-                            contentItem: Text {
+                            // Lucide's star: outlined, filled in yellow once collected.
+                            contentItem: Item {
+                                Image {
+                                    objectName: "dutyCommunityRowStar"
+                                    anchors.centerIn: parent
+                                    width: 15
+                                    height: 15
+                                    source: Lucide.source("star", star.on ? Theme.yellow : Theme.textSecondary, star.on)
+                                    sourceSize: Qt.size(30, 30)
+                                }
+                            }
+                        }
+                        // The entry's 👍 on GitHub (store.publicLikes); none before the workflow
+                        // has posted its like comment.
+                        RowLayout {
+                            objectName: "dutyCommunityRowLikes"
+                            readonly property var like: pane.store.remote && !!card.row ? pane.store.likeOf(card.item.id) : null
+                            visible: !!like
+                            spacing: 3
+                            Accessible.name: like ? qsTr("%1 个赞").arg(like.count) : ""
+                            Image {
+                                Layout.preferredWidth: 12
+                                Layout.preferredHeight: 12
+                                source: Lucide.source("thumbs-up", Theme.textSecondary)
+                                sourceSize: Qt.size(24, 24)
+                            }
+                            Text {
                                 renderType: Theme.bodyRenderType
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                text: star.on ? "★" : "☆"
-                                color: star.on ? Theme.yellow : Theme.textSecondary
-                                font.pixelSize: 15
+                                text: parent.like ? pane.count(parent.like.count) : ""
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fs(12)
                             }
                         }
                         Text {

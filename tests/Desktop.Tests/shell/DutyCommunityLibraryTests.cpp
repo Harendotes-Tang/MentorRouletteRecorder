@@ -1,5 +1,5 @@
-// 副本提醒与导随宏's shared library tab: entries that read alike folded under the first one
-// and the job filter.
+// 副本提醒与导随宏's shared library tab: entries that read alike folded under the first one,
+// the job filter, each entry's 👍 on GitHub, and the 收藏 star of the local tab.
 //
 // The scene is the statistics float's (StatisticsSceneFixture.h), opened on Main.qml.
 
@@ -9,10 +9,13 @@
 #include "BundledFonts.h"
 
 #include <QApplication>
+#include <QColor>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFont>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTest>
 
@@ -23,7 +26,36 @@ class DutyCommunityLibraryTests : public QObject
 private Q_SLOTS:
     void initTestCase();
     void communityPublicLibraryFoldsAndFilters();
+    void sharedLibraryShowsLikesAndSortsByThem();
+    void favoriteStarIsLucideAndFilledWhenChosen();
+public:
+    Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
+    QList<QUrl> opened;
 };
+
+QString mockId(int number)
+{
+    return QStringLiteral("00000000-0000-4000-8000-%1").arg(number, 12, 10, QLatin1Char('0'));
+}
+
+/// The SVG an Image shows from a Lucide.js data: URL.
+QString svgOf(const QQuickItem *image)
+{
+    const QString source = image->property("source").toUrl().toString();
+    return QUrl::fromPercentEncoding(source.mid(source.indexOf(QLatin1Char(',')) + 1).toUtf8());
+}
+
+/// The visible items called `name` in the visual tree under `root` (list delegates are not
+/// QObject children of the list), for rows the list's delegates repeat.
+QList<QQuickItem *> visibleNamed(QQuickItem *root, const QString &name)
+{
+    QList<QQuickItem *> out;
+    if (!root || !root->isVisible()) return out;
+    if (root->objectName() == name) out << root;
+    for (QQuickItem *child : root->childItems())
+        out << visibleNamed(child, name);
+    return out;
+}
 } // namespace
 
 void DutyCommunityLibraryTests::initTestCase()
@@ -137,6 +169,109 @@ void DutyCommunityLibraryTests::communityPublicLibraryFoldsAndFilters()
     QCOMPARE(values.size(), 13);
     QCOMPARE(values.last(), QStringLiteral("J14"));
     QCOMPARE(qmlMap(shown).value(QStringLiteral("hidden")).toInt(), 2);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// 共享库 shows each entry's 👍 on GitHub (owner, 2026-11-27): the count on its row and on the
+// detail's 点赞 button, which opens the comment the workflow posted for the entry; 点赞最多 puts
+// the most liked first. An entry the workflow has not reached yet shows neither. The counts come
+// from the mock library, as CommunityLibrary hands them over.
+void DutyCommunityLibraryTests::sharedLibraryShowsLikesAndSortsByThem()
+{
+    const auto s = [](const char *text) { return QString::fromUtf8(text); };
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "rememberUrl");
+    const auto urlGuard = qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("https")); });
+    opened.clear();
+    dialog->setProperty("tab", QStringLiteral("public"));
+    const QVariantMap online{{QStringLiteral("enabled"), true}};
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadPublic", Q_ARG(QVariant, QStringLiteral("online")),
+                                      Q_ARG(QVariant, online)));
+    QTRY_COMPARE(rowIds(dialog->property("publicRows")).size(), 6);
+    QTRY_COMPARE(qmlMap(dialog->property("publicLikes")).size(), 5);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "showEveryPlace"));
+
+    // A row shows its count; 104 has no like comment yet.
+    QQuickItem *content = scene.mainWindow()->contentItem();
+    QTRY_VERIFY(!visibleNamed(content, QStringLiteral("dutyCommunityRowLikes")).isEmpty());
+    QStringList counts;
+    for (QQuickItem *likes : visibleNamed(content, QStringLiteral("dutyCommunityRowLikes")))
+        for (QQuickItem *child : likes->childItems())
+            if (child->inherits("QQuickText")) counts << child->property("text").toString();
+    QVERIFY2(counts.contains(QStringLiteral("27")) && counts.contains(QStringLiteral("0")), qPrintable(counts.join(u',')));
+    QCOMPARE(visibleNamed(content, QStringLiteral("dutyCommunityRowLikes")).size(),
+             qmlList(dialog->property("listRows")).size() - 1);
+
+    // 点赞最多: 105 (27), 101 (12), 102 (3) in that order, the entry without a count last.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setSort", Q_ARG(QVariant, QStringLiteral("likes"))));
+    QStringList order;
+    for (const QVariant &entry : qmlList(dialog->property("listRows")))
+        order << entry.toMap().value(QStringLiteral("row")).toMap().value(QStringLiteral("content")).toMap()
+                     .value(QStringLiteral("id")).toString();
+    QVERIFY2(order.indexOf(mockId(105)) == 0 && order.indexOf(mockId(101)) < order.indexOf(mockId(102))
+                 && order.last() == mockId(104), qPrintable(order.join(u',')));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setSort", Q_ARG(QVariant, QStringLiteral("updated"))));
+
+    // The detail's 点赞 opens the like comment on GitHub; the count is on the button.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, mockId(105))));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityDetailLike"), true));
+    QCOMPARE(scene.item(QStringLiteral("dutyCommunityDetailLike"), true)->property("text").toString(), s("点赞 27"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityDetailLike")));
+    QCOMPARE(opened, (QList<QUrl>{QUrl(QStringLiteral(
+        "https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/issues/132#issuecomment-2400000105"))}));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, mockId(104))));
+    QTRY_COMPARE(dialog->property("currentId").toString(), mockId(104));
+    QVERIFY(!scene.item(QStringLiteral("dutyCommunityDetailLike"), true));
+
+    // Local entries have no 👍; the star is theirs.
+    dialog->setProperty("tab", QStringLiteral("local"));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityDetailFavorite"), true));
+    QVERIFY(!scene.item(QStringLiteral("dutyCommunityDetailLike"), true));
+    QVERIFY(visibleNamed(content, QStringLiteral("dutyCommunityRowLikes")).isEmpty());
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// 收藏 uses Lucide's star (owner, 2026-11-27), outlined until the entry is collected and then
+// filled in yellow, on the row and on the detail's button, which says 收藏 / 已收藏.
+void DutyCommunityLibraryTests::favoriteStarIsLucideAndFilledWhenChosen()
+{
+    const auto s = [](const char *text) { return QString::fromUtf8(text); };
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QVariantMap first;
+    for (const QVariant &row : qmlList(dialog->property("localRows")))
+        if (first.isEmpty() && !row.toMap().value(QStringLiteral("favorite")).toBool()) first = row.toMap();
+    QVERIFY(!first.isEmpty());
+    const QString id = qmlMap(first.value(QStringLiteral("content"))).value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(dialog, "select", Q_ARG(QVariant, id)));
+    QTRY_VERIFY(scene.item(QStringLiteral("dutyCommunityDetailFavorite"), true));
+    QQuickItem *button = scene.item(QStringLiteral("dutyCommunityDetailFavorite"), true);
+    const auto icon = [&] { return button->findChild<QQuickItem *>(QStringLiteral("buttonIcon")); };
+    QCOMPARE(button->property("iconName").toString(), QStringLiteral("star"));
+    QCOMPARE(button->property("text").toString(), s("收藏"));
+    QVERIFY2(svgOf(icon()).contains(QStringLiteral("fill=\"none\"")), qPrintable(svgOf(icon())));
+    // The row's star shows on hover, on the open row and once collected. The rows are rebuilt
+    // when the list answers, so they are looked up again each time.
+    const auto stars = [&](bool filled) {
+        int n = 0;
+        for (QQuickItem *star : visibleNamed(scene.mainWindow()->contentItem(), QStringLiteral("dutyCommunityRowStar"))) {
+            const QString svg = svgOf(star);
+            n += svg.contains(QStringLiteral("M11.525 2.295")) && svg.contains(QStringLiteral("fill=\"none\"")) != filled;
+        }
+        return n;
+    };
+    QTRY_VERIFY(stars(false) >= 1);
+    const int filledBefore = stars(true);
+
+    QVERIFY(QMetaObject::invokeMethod(dialog, "toggleFavorite", Q_ARG(QVariant, first)));
+    QTRY_COMPARE(button->property("text").toString(), s("已收藏"));
+    QVERIFY(button->property("iconFilled").toBool());
+    const QString yellow = button->property("iconColor").value<QColor>().name(QColor::HexRgb);
+    QTRY_VERIFY2(svgOf(icon()).contains(QStringLiteral("fill=\"") + yellow + u'"'), qPrintable(svgOf(icon())));
+    QTRY_COMPARE(stars(true), filledBefore + 1);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

@@ -26,6 +26,13 @@ ROOT = Path("community/v1")
 INDEX = ROOT / "index.json"
 SNAPSHOT = ROOT / "snapshot.json"
 LEDGER = ROOT / "submissions.json"
+# The 👍 count of each live entry, read by the app beside the snapshot (likes()). Not part of the
+# snapshot or its hash: counts change without a new generation.
+LIKES = ROOT / "likes.json"
+# Like comments posted in one run at most; the rest follow on the next runs.
+MAX_LIKE_POSTS = 20
+LIKE_HEADER = re.compile(r"<!-- mr-community-like:([0-9a-f-]{36}) -->")
+LIKE_NODE = re.compile(r"[A-Za-z0-9_=-]{1,100}")
 RESULT_LABELS = {"published": "community-published", "failed": "community-failed",
                  "conflict": "community-classification", "duplicate": "community-duplicate",
                  "withdrawn": "community-withdrawn"}
@@ -552,10 +559,12 @@ def write(path, value):
 def load():
     index = decode(INDEX.read_bytes())
     ledger = decode(LEDGER.read_bytes())
-    # "daily" (the per-account publishing tally) and "removed" (IDs a maintainer removed) are
-    # added the first time they are needed, so a ledger without them is valid.
+    # "daily" (the per-account publishing tally), "removed" (IDs a maintainer removed) and "likes"
+    # (each entry's like comment) are added the first time they are needed, so a ledger without
+    # them is valid.
     if not isinstance(ledger, dict) or not {"schema_version", "issues"} <= set(ledger) <= \
-            {"schema_version", "issues", "daily", "removed"} or ledger["schema_version"] != 1 or \
+            {"schema_version", "issues", "daily", "removed", "likes"} or ledger["schema_version"] != 1 or \
+            not valid_like_links(ledger.get("likes", {})) or \
             not isinstance(ledger["issues"], dict) or not isinstance(ledger.get("daily", {}), dict) or \
             not isinstance(ledger.get("removed", []), list) or not all(isinstance(days, dict) and all(integer(count, 1) for count in days.values())
                     for days in ledger.get("daily", {}).values()) or \
@@ -759,6 +768,165 @@ def missing_receipts(repo, expected):
     return missing
 
 
+# Likes. Each live entry gets one comment in its Issue; the 👍 reactions on that comment are the
+# entry's likes, so one Issue that published several entries still counts them apart. Players
+# react on GitHub, signed in there; the app only reads likes.json.
+MAX_COMMENT = 9_007_199_254_740_991
+MAX_LIKES = 1_000_000
+LIKES_QUERY = ("query($ids: [ID!]!) { nodes(ids: $ids) "
+               "{ ... on IssueComment { id reactions(content: THUMBS_UP) { totalCount } } } }")
+
+
+def like_marker(identifier):
+    return f"<!-- mr-community-like:{identifier} -->"
+
+
+def like_text(item):
+    """The comment that collects an entry's 👍. Like a receipt it names the ID, never submitted text."""
+    kind, kind_zh = ("macro", "宏") if item["type"] == "macro" else ("reminder", "提醒")
+    return "\n".join([
+        like_marker(item["id"]),
+        f"👍 Like this {kind} (`{item['id']}`): react to this comment with 👍."
+        " MentorRecorder shows the count in its shared library.",
+        "",
+        f"给这条{kind_zh}（`{item['id']}`）点赞：在这条评论上点 👍，导随记录器的共享库会显示点赞数。"])
+
+
+def valid_like_links(links):
+    """The ledger's "likes": entry ID -> {"issue", "comment", "node"} of its like comment."""
+    return isinstance(links, dict) and all(
+        isinstance(identifier, str) and ID.fullmatch(identifier) and isinstance(link, dict)
+        and set(link) == {"issue", "comment", "node"} and integer(link["issue"], 1)
+        and integer(link["comment"], 1, MAX_COMMENT) and isinstance(link["node"], str)
+        and LIKE_NODE.fullmatch(link["node"]) is not None
+        for identifier, link in links.items())
+
+
+def like_comments(repo, number):
+    """The like comments the workflow posted in Issue `number`, the first one per entry ID."""
+    found = {}
+    for page in api(repo, f"issues/{number}/comments?per_page=100", "--paginate", "--slurp"):
+        for comment in page:
+            match = LIKE_HEADER.fullmatch(bot_comment_header(comment) or "")
+            if match and match.group(1) not in found and LIKE_NODE.fullmatch(comment.get("node_id") or ""):
+                found[match.group(1)] = {"issue": number, "comment": comment["id"], "node": comment["node_id"]}
+    return found
+
+
+def post_like(repo, item):
+    comment = api(repo, f"issues/{item['issue']}/comments", "-f", "body=" + like_text(item))
+    return {"issue": item["issue"], "comment": comment["id"], "node": comment["node_id"]}
+
+
+def thumbs_up(nodes):
+    """Returns ({node: 👍 count}, {nodes of comments that no longer exist}), 100 nodes a query.
+    GitHub answers a deleted comment with null and a NOT_FOUND error beside the others; any other
+    gap stops the run, so that a passing failure never makes a like comment look deleted."""
+    counts, gone = {}, set()
+    for start in range(0, len(nodes), 100):
+        batch = nodes[start:start + 100]
+        reply = subprocess.run(("gh", "api", "graphql", "--input", "-"), check=False, stdout=subprocess.PIPE,
+                               input=encode({"query": LIKES_QUERY, "variables": {"ids": batch}}))
+        try:
+            data = json.loads(reply.stdout or b"null") or {}
+        except ValueError:
+            data = {}
+        found = (data.get("data") or {}).get("nodes") if isinstance(data, dict) else None
+        if not isinstance(found, list) or len(found) != len(batch):
+            raise RuntimeError("GitHub did not report the like counts.")
+        missing = {tuple(error.get("path") or ()) for error in data.get("errors") or []
+                   if isinstance(error, dict) and error.get("type") == "NOT_FOUND"}
+        for position, (node_id, node) in enumerate(zip(batch, found)):
+            total = ((node or {}).get("reactions") or {}).get("totalCount") if isinstance(node, dict) else None
+            if isinstance(node, dict) and node.get("id") == node_id and integer(total, 0, MAX_COMMENT):
+                counts[node_id] = min(total, MAX_LIKES)
+            elif node is None and ("nodes", position) in missing:
+                gone.add(node_id)
+            else:
+                raise RuntimeError("GitHub did not report the like counts.")
+    return counts, gone
+
+
+def likes_file(entries, links, counts):
+    """likes.json: the count of every live entry whose like comment was read."""
+    return {"schema_version": 1, "likes": {
+        identifier: {"count": counts[link["node"]], "issue": link["issue"], "comment": link["comment"]}
+        for identifier, link in sorted(links.items())
+        if entries[identifier]["status"] != "withdrawn" and link["node"] in counts}}
+
+
+def new_like_links(repo, entries, known):
+    """The like comments of live entries that have none recorded: one an earlier run posted but
+    did not record, or a new one (at most MAX_LIKE_POSTS a run, a second apart, as GitHub asks of
+    requests that create content). Returns (links, IDs whose Issue could not be read or commented
+    on). Such an entry is skipped, so one deleted or hidden Issue holds no other entry back."""
+    links, failed, in_issue, unreachable, posts = {}, [], {}, set(), 0
+    for identifier, item in sorted(entries.items()):
+        if identifier in known or item["status"] == "withdrawn":
+            continue
+        if item["issue"] in unreachable:
+            failed.append(identifier)
+            continue
+        try:
+            if item["issue"] not in in_issue:
+                in_issue[item["issue"]] = like_comments(repo, item["issue"])
+            link = in_issue[item["issue"]].get(identifier)
+            if link is None and posts < MAX_LIKE_POSTS:
+                if posts:
+                    time.sleep(1)
+                posts += 1
+                link = post_like(repo, item)
+        except subprocess.CalledProcessError:
+            unreachable.add(item["issue"])
+            failed.append(identifier)
+            continue
+        if link is None:
+            continue
+        # What GitHub answered goes into the ledger only in the shape load() accepts.
+        if valid_like_links({identifier: link}):
+            links[identifier] = link
+        else:
+            failed.append(identifier)
+    return links, failed
+
+
+def refresh_likes(repo):
+    """Scheduled: gives live entries without one a like comment in their Issue (new_like_links),
+    reads the 👍 on every like comment, and commits likes.json with the ledger's "likes" when
+    they changed. A withdrawn entry keeps its comment and leaves likes.json; a removed one loses
+    both. A like comment that was deleted is forgotten, so the next run posts a new one. Entries
+    whose Issue could not be reached are reported after the counts were committed."""
+    latest_checkout()
+    _, ledger, entries = load()
+    posted, failed = new_like_links(repo, entries, ledger.get("likes", {}))
+    for attempt in range(3):
+        if attempt:
+            time.sleep(attempt)
+        latest_checkout()
+        _, ledger, entries = load()
+        links = {identifier: link for identifier, link in {**ledger.get("likes", {}), **posted}.items()
+                 if identifier in entries}
+        counts, gone = thumbs_up([link["node"] for link in links.values()])
+        links = {identifier: link for identifier, link in links.items() if link["node"] not in gone}
+        likes = likes_file(entries, links, counts)
+        if links == ledger.get("likes", {}) and LIKES.exists() and decode(LIKES.read_bytes()) == likes:
+            break
+        if links:
+            ledger["likes"] = links
+        else:
+            ledger.pop("likes", None)
+        write(LIKES, likes)
+        write(LEDGER, ledger)
+        git("add", "--", LIKES.as_posix(), LEDGER.as_posix())
+        git("commit", "-m", "Record community likes")
+        if subprocess.run(("git", "push", "origin", "HEAD:main"), check=False).returncode == 0:
+            break
+    else:
+        raise RuntimeError("main advanced during all like attempts.")
+    if failed:
+        raise RuntimeError(f"Like comments to retry, their Issue could not be read or commented on: {failed}")
+
+
 def sweep(repo):
     failed = []
     expected = {}
@@ -795,9 +963,13 @@ def sweep(repo):
 
 def scheduled(repo):
     """The scheduled run (and a manual run without an ID): withdrawn entries whose retention ended
-    leave the library first, then pending Issues and missing receipts are swept."""
+    leave the library first, then pending Issues and missing receipts are swept, and last the
+    likes are read. An Issue the sweep could not process does not hold the likes back."""
     purge_withdrawn()
-    sweep(repo)
+    try:
+        sweep(repo)
+    finally:
+        refresh_likes(repo)
 
 
 def moderate(identifier, status, expected_revision):

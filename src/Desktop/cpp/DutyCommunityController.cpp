@@ -212,12 +212,16 @@ bool DutyCommunityController::copy(const QString &value) const
     return clipboard->text() == value;
 }
 
-bool DutyCommunityController::openGitHub(const QString &target, int issue) const
+bool DutyCommunityController::openGitHub(const QString &target, int issue, qint64 comment) const
 {
     if (target == QLatin1String("device"))
         return QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/login/device")));
     if (target == QLatin1String("issue") && issue > 0)
         return QDesktopServices::openUrl(QUrl(QString::fromLatin1(Repo) + QStringLiteral("/issues/") + QString::number(issue)));
+    // An entry's like comment: the player gives it a 👍 on GitHub, signed in there.
+    if (target == QLatin1String("like") && issue > 0 && comment > 0)
+        return QDesktopServices::openUrl(QUrl(QString::fromLatin1(Repo) + QStringLiteral("/issues/") + QString::number(issue)
+                                              + QStringLiteral("#issuecomment-") + QString::number(comment)));
     // A submission ("fallback") and an author's withdrawal go into the same Issue form; only the
     // title tells them apart for readers of the public repository.
     const bool withdrawal = target == QLatin1String("withdrawal");

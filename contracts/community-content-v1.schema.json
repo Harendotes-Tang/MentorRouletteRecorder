@@ -457,6 +457,53 @@
       ],
       "additionalProperties": false
     },
+    "Likes": {
+      "description": "community/v1/likes.json, written by the publishing workflow beside the snapshot: per live entry ID, the number of thumbs-up reactions on the Issue comment the workflow posted for that entry.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "likes": {
+          "type": "object",
+          "maxProperties": 400,
+          "propertyNames": {
+            "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "issue": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "comment": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "count",
+              "issue",
+              "comment"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "likes"
+      ],
+      "additionalProperties": false
+    },
     "File": {
       "type": "object",
       "properties": {

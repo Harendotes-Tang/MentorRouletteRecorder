@@ -109,6 +109,7 @@ var icons = {
     "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>",
     "swords": "<path d=\"m13 19 6-6\"/><path d=\"M14.5 17.5 3.586 6.586A2 2 0 013 5.172V3h2.172a2 2 0 011.414.586L17.5 14.5\"/><path d=\"m14.828 6.172 2.586-2.586A2 2 0 0118.828 3H21v2.172a2 2 0 01-.586 1.414l-2.586 2.586\"/><path d=\"m16 16 4 4\"/><path d=\"m19 21 2-2\"/><path d=\"m5 14 4 4\"/><path d=\"m5 21-2-2\"/><path d=\"M7.5 16.5 4 20\"/>",
     "target": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><circle cx=\"12\" cy=\"12\" r=\"6\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/>",
+    "thumbs-up": "<path d=\"M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z\"/><path d=\"M7 10v12\"/>",
     "timer": "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/>",
     "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><path d=\"M16 3.128a4 4 0 0 1 0 7.744\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/>",
     "x": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>"
@@ -119,24 +120,29 @@ function has(name) {
 }
 
 // The whole SVG with `color` (a QML color or a #rrggbb / #aarrggbb string) as the stroke.
-function svg(name, color) {
+// `filled` paints the inside in the same colour as well, as Lucide suggests for a chosen
+// star: fill="currentColor" on the same drawing.
+function svg(name, color, filled) {
     if (!has(name))
         return ""
     var text = String(color)
-    var opacity = ""
+    var alpha = ""
     if (text.length === 9) {
-        // QML writes a translucent colour as #aarrggbb; SVG wants rgb + stroke-opacity.
-        opacity = ' stroke-opacity="' + (parseInt(text.substr(1, 2), 16) / 255).toFixed(3) + '"'
+        // QML writes a translucent colour as #aarrggbb; SVG wants rgb + an opacity.
+        alpha = (parseInt(text.substr(1, 2), 16) / 255).toFixed(3)
         text = "#" + text.substr(3)
     }
+    var fill = filled ? ' fill="' + text + '"' + (alpha ? ' fill-opacity="' + alpha + '"' : "")
+                      : ' fill="none"'
     return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"'
-           + ' fill="none" stroke="' + text + '"' + opacity
+           + fill + ' stroke="' + text + '"' + (alpha ? ' stroke-opacity="' + alpha + '"' : "")
            + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
            + icons[name] + '</svg>'
 }
 
-// An Image source for `name` drawn in `color`; empty when the icon is not bundled.
-function source(name, color) {
-    var text = svg(name, color)
+// An Image source for `name` drawn in `color` (filled when `filled`); empty when the icon
+// is not bundled.
+function source(name, color, filled) {
+    var text = svg(name, color, filled)
     return text ? "data:image/svg+xml;utf8," + encodeURIComponent(text) : ""
 }

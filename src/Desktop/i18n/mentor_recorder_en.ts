@@ -6080,6 +6080,14 @@ SHA256: %3</translation>
         <translation>Favorites</translation>
     </message>
     <message>
+        <source>点赞 %1</source>
+        <translation>Like (%1)</translation>
+    </message>
+    <message>
+        <source>在 GitHub 上给这一条点 👍（需要登录 GitHub），点赞数大约半小时后更新</source>
+        <translation>Give this entry a 👍 on GitHub (you need to be signed in there). The count updates in about half an hour.</translation>
+    </message>
+    <message>
         <source>宏内容</source>
         <translation>Macro text</translation>
     </message>
@@ -6229,6 +6237,10 @@ SHA256: %3</translation>
     <message>
         <source>最近更新</source>
         <translation>Recently updated</translation>
+    </message>
+    <message>
+        <source>点赞最多</source>
+        <translation>Most liked</translation>
     </message>
     <message>
         <source>已核验的在前</source>
@@ -7120,6 +7132,10 @@ SHA256: %3</translation>
         <translation>Entries with almost the same text are grouped here; they differ only in sound cues, spacing or a few characters.</translation>
     </message>
     <message>
+        <source>%1 个赞</source>
+        <translation>%1 likes</translation>
+    </message>
+    <message>
         <source>还有 %1 项</source>
         <translation>%1 more</translation>
     </message>
@@ -7244,10 +7260,6 @@ SHA256: %3</translation>
     <message>
         <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容不再出现在共享库里。</source>
         <translation>Withdrawals go through a GitHub Issue. Once processed, these items no longer appear in the public library.</translation>
-    </message>
-    <message>
-        <source>撤回通过 GitHub Issue 提交，处理完成后，这些内容在共享库里标为「已撤回」。</source>
-        <translation>Withdrawals go through a GitHub Issue. Once processed, these items are marked Withdrawn in the public library.</translation>
     </message>
     <message>
         <source>投稿正文（%1 项）已复制到剪贴板，GitHub 投稿表单已在浏览器打开；没看到表单就点下面的「重新打开表单」。</source>
@@ -7400,10 +7412,6 @@ SHA256: %3</translation>
     <message>
         <source>选中的内容都已从共享库撤回，不能再投稿。</source>
         <translation>Everything selected has been withdrawn from the public library and cannot be submitted again.</translation>
-    </message>
-    <message>
-        <source>撤回后，这 %1 项在共享库里标为「已撤回」：别人不能再导入，已经导入的人会看到「已撤回」，本地的条目照常保留。撤回不能取消，正文仍留在公开仓库的历史记录里；以后想再公开，需要新建一条再投稿。</source>
-        <translation>Once withdrawn, these %1 items are marked Withdrawn in the public library: nobody can import them any more, people who already imported them see Withdrawn, and your local items stay as they are. A withdrawal cannot be undone, and the text stays in the history of the public repository; to share it again later, create a new item and submit that.</translation>
     </message>
     <message>
         <source>选中的内容共享库里都已经有了，不需要再投稿。</source>
@@ -16542,10 +16550,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>请使用 .png 文件名保存分享图片。</source>
         <translation>Save the share image with a .png file name.</translation>
-    </message>
-    <message>
-        <source>目标文件已存在，未覆盖。请重试生成新的文件名。</source>
-        <translation>The target file already exists and wasn&apos;t overwritten. Try again to get a new file name.</translation>
     </message>
     <message>
         <source>无法生成图片，请重新打开预览后重试。</source>

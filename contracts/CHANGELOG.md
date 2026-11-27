@@ -1,5 +1,15 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-27 · 「提醒与宏」共享库的点赞数
+
+- `DutyCommunity` 的共享库应答（`browse`、`refresh`、`online`）在第一页（`offset` 为 0）新增 `likes`（只增不删）：已列出条目的
+  ID → `{"count", "issue", "comment"}`，即该条目在 GitHub 上的 👍 数，以及收集它们的 Issue 编号与评论编号（评论编号可能超过
+  2^31）。已撤回、不在缓存中或还没有点赞评论的条目不出现。点赞数只在内存中，软件重启后到下一次刷新前为空对象。旧桌面端忽略该字段。
+- `community-content-v1.schema.json` 新增 `Likes`：公开仓库的 `community/v1/likes.json`
+  （`{"schema_version": 1, "likes": {ID: {"count", "issue", "comment"}}}`），由发布工作流写入，不属于快照，也不进入 `index.json`
+  的校验值。采集服务在每次成功刷新后从 `main` 读取它；文件缺失或格式不对时 `likes` 为空，读取失败时沿用上次读到的数字，
+  都不影响 `status`。旧采集服务不读取该文件。
+
 ## 2026-11-26 · 「提醒与宏」作者撤回已发布的条目
 
 - `DutyCommunity` 新增动作 `prepare_withdrawal`（只增不删）：`withdraw` 为 1 至 20 个不重复的稳定 ID，应答与 `prepare_issue`

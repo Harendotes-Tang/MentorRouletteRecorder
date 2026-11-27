@@ -27,6 +27,10 @@ Button {
     // A Lucide icon (components/Lucide.js) drawn before the label in the label's
     // colour; empty for a text-only button. `iconAfterText` puts it after.
     property string iconName: ""
+    // The leading Lucide icon filled as well as stroked, and in its own colour instead of the
+    // label's when iconColor is set: 提醒与宏's 已收藏 star.
+    property bool iconFilled: false
+    property color iconColor: "transparent"
     // One of the float's own icons (components/OverlayIcons.js) instead; the
     // result popup's answers use these.
     property string overlayIcon: ""
@@ -247,7 +251,8 @@ Button {
                                 Math.round(control.iconSize * control.pixelRatio))
             source: !control.hasIcon ? ""
                     : control.overlayIcon.length > 0 ? OverlayIcons.source(control.overlayIcon, control.foreground)
-                    : Lucide.source(control.iconName, control.foreground)
+                    : Lucide.source(control.iconName, control.iconColor.a > 0 ? control.iconColor : control.foreground,
+                                    control.iconFilled)
             fillMode: Image.PreserveAspectFit
             smooth: true
         }

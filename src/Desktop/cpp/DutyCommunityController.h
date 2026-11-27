@@ -32,7 +32,8 @@ public:
     Q_INVOKABLE QString exportFile(const QVariantList &items) const;
     Q_INVOKABLE QVariantMap pickImport() const;
     Q_INVOKABLE bool copy(const QString &value) const;
-    Q_INVOKABLE bool openGitHub(const QString &target, int issue = 0) const;
+    /// "like" opens the comment `comment` of Issue `issue`, the one whose 👍 count an entry shows.
+    Q_INVOKABLE bool openGitHub(const QString &target, int issue = 0, qint64 comment = 0) const;
 
 signals:
     void answered(int ticket, const QVariantMap &result, const QString &error);

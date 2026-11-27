@@ -32,6 +32,18 @@ MotionDialog {
     // What the public library lists. A withdrawn entry cannot be imported any more, so it is not
     // shown there; publicRows keeps it for the status of local copies and for links.
     readonly property var listedPublicRows: publicRows.filter(row => row.content.status !== "withdrawn")
+    /// The 👍 counts of the shared library, { id: { count, issue, comment } }: the comment the
+    /// workflow posted for an entry in its Issue, whose thumbs-up reactions are the count. An
+    /// entry published after the workflow's last run has none yet.
+    property var publicLikes: ({})
+    function likeOf(id) {
+        const like = publicLikes[id]
+        return like && typeof like.count === "number" ? like : null
+    }
+    function openLike(id) {
+        const like = likeOf(id)
+        if (like) service.openGitHub("like", like.issue, like.comment)
+    }
     property var basket: []
     property var callbacks: ({})
     property int serial: 0
@@ -108,8 +120,8 @@ MotionDialog {
     property var recent: ({})
     readonly property string sortKey: activeScope === "recent" ? "used" : remote ? sortPublic : sortLocal
     readonly property var sortOptions: remote
-        ? [{ value: "updated", label: qsTr("最近更新") }, { value: "verified", label: qsTr("已核验的在前") },
-           { value: "title", label: qsTr("按标题") }]
+        ? [{ value: "updated", label: qsTr("最近更新") }, { value: "likes", label: qsTr("点赞最多") },
+           { value: "verified", label: qsTr("已核验的在前") }, { value: "title", label: qsTr("按标题") }]
         : [{ value: "updated", label: qsTr("最近更新") }, { value: "used", label: qsTr("最近用过") },
            { value: "title", label: qsTr("按标题") }]
     function setSort(value) {
@@ -126,7 +138,7 @@ MotionDialog {
             return allowed.filter(entry => saved.includes(entry))
         }
         sortLocal = ["updated", "used", "title"].includes(view.sortLocal) ? view.sortLocal : "updated"
-        sortPublic = ["updated", "verified", "title"].includes(view.sortPublic) ? view.sortPublic : "updated"
+        sortPublic = ["updated", "likes", "verified", "title"].includes(view.sortPublic) ? view.sortPublic : "updated"
         dense = view.dense === true
         recent = view.recent && typeof view.recent === "object" ? view.recent : ({})
         publicPreset = view.publicPreset !== false
@@ -231,9 +243,11 @@ MotionDialog {
         const stable = (a, b) => at.get(a) - at.get(b)
         const byUpdated = (a, b) => (remote ? later(updated, a, b) : 0) || stable(a, b)
         const verified = row => row.content.status === "verified" ? 1 : 0
+        const likes = row => (likeOf(row.content.id) || { count: -1 }).count
         const compare = order === "used" ? (a, b) => later(used, a, b) || byUpdated(a, b)
                       : order === "title" ? (a, b) => String(a.content.title).localeCompare(String(b.content.title)) || byUpdated(a, b)
                       : order === "verified" ? (a, b) => verified(b) - verified(a) || byUpdated(a, b)
+                      : order === "likes" ? (a, b) => likes(b) - likes(a) || byUpdated(a, b)
                       : byUpdated
         list = list.slice().sort(compare)
         return key === "recent" ? list.slice(0, 30) : list
@@ -838,6 +852,7 @@ MotionDialog {
         publicAction = action
         pages(action, args || ({}), (entries, result) => {
             publicRows = entries.map(content => ({ content: content }))
+            publicLikes = result.likes || ({})
             online = result.online
             libraryStatus = result.status
             if (action === "online" && online) loadPublic("refresh")
