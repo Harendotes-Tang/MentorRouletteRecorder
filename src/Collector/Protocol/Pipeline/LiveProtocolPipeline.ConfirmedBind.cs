@@ -298,7 +298,8 @@ public sealed partial class LiveProtocolPipeline
                 {
                     case CardWaitKind.Message when entry.Message is { } message:
                         var parsedBefore = parser.GetParserStats().ParseOk;
-                        ParseAndPublish(parser, message, replayed: now - message.Mono > FreshMatchAge);
+                        ParseAndPublish(parser, message, replayed: now - message.Mono > FreshMatchAge,
+                            partialCombatHistory: true);
                         NoteProfileConnection(message, parsedBefore, parser.GetParserStats().ParseOk);
                         break;
                     case CardWaitKind.EventsDropped:

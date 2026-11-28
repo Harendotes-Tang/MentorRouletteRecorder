@@ -257,6 +257,11 @@ public sealed partial class LiveProtocolPipeline
                         // character that logged in there, not to whoever logged in last.
                         MatchingFrom(entry.ConnectionKey, () =>
                             ApplyAndPublish(() => sink.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge));
+                        if (_dutyStage is KeeperOfLakeDutyStage keeper && entry.StartAnchor is { } anchor)
+                        {
+                            keeper.ObserveStartAnchor(anchor, replayed: true);
+                        }
+
                         if (entry.ConnectionKey is { } connectionKey)
                         {
                             NoteProfileConnection(connectionKey, entry.Direction);
@@ -645,6 +650,9 @@ public sealed partial class LiveProtocolPipeline
             _sessionCarried = processor.Machine.Memory;
             _parser = null;
             _processor = null;
+            _dutyStage = null;
+            _dutyStageProfile = null;
+            _dutyStageConnection = null;
             _boundSink = null;
             _dutyClear = null;
             _dutyStart = null;

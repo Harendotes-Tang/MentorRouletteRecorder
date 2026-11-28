@@ -11,9 +11,9 @@ namespace MentorRecorder.Collector.Protocol.Pipeline;
 /// The rule is scoped to CN 2026.11.03 and is tied to the active run and its director
 /// connection. It does not record a result or require an ACT log to run.
 /// </summary>
-internal sealed class HolminsterDutyStage
+internal sealed class HolminsterDutyStage : IDutyStage
 {
-    public const string ClientBuild = "2026.11.03.0000.0000";
+    public const string ClientBuild = CnDutyCombatPackets.ClientBuild;
     public const ushort Territory = 837;
     public const ushort Opcode = 0x00a9;
     private const ushort Director = 72;
@@ -58,11 +58,11 @@ internal sealed class HolminsterDutyStage
             && BinaryPrimitives.ReadUInt16LittleEndian(body[6..]) == DutyClearSignal.DirectorType;
     }
 
-    /// <summary>Observes a checked carrier for the active run and reports a stage change.</summary>
+    /// <summary>Observes a carrier for the active run and reports a stage change.</summary>
     public bool Observe(DecodedMessage message)
     {
         if (_connection is null || _connection != message.ConnectionKey ||
-            message.Epoch <= 0 || message.Epoch < _lastVerifiedEpoch)
+            message.Epoch <= 0 || message.Epoch < _lastVerifiedEpoch || !IsCarrier(message))
         {
             return false;
         }

@@ -13,7 +13,7 @@ namespace MentorRecorder.Collector.Capture;
 /// </summary>
 internal sealed class CaptureDutyPhaseProbe
 {
-    public const string ClientBuild = "2026.11.03.0000.0000";
+    public const string ClientBuild = CnDutyCombatPackets.ClientBuild;
     public const int FormatVersion = 1;
     public const int MaxMessageRows = 100_000;
     private const int MaxObservationRows = 15_000;
@@ -22,19 +22,7 @@ internal sealed class CaptureDutyPhaseProbe
     private const ushort NpcSpawn = 0x0176;
     private const ushort BossSpawn = 0x02fd;
     private const ushort ActorCast = 0x0160;
-    private const ushort ActorControl = 0x02df;
     private const ushort ActorControlSelf = 0x00a9;
-    private const ushort DeathCategory = 0x0006;
-
-    // Offsets are relative to the body after the IPC header. See the CN 7.58 tables and
-    // Machina ActionEffect structures cited in docs/live-validation-guide.md.
-    private const int EffectSequenceOffset = 12;
-    private const int EffectCountOffset = 33;
-    private const int EffectsOffset = 42;
-    private const int EffectsPerTarget = 8;
-    private const int EffectSize = 8;
-    private const int TargetIdSize = 8;
-    private const int TargetListBase = 48;
 
     private readonly Dictionary<(string Connection, uint Actor), int> _aliases = new();
     private readonly Dictionary<string, long> _counts = new(StringComparer.Ordinal);
@@ -68,8 +56,7 @@ internal sealed class CaptureDutyPhaseProbe
             // Only the segment header is measured for this optional carrier.
             (BossSpawn, > 0) => "boss_spawn_candidate",
             (ActorCast, 32) => "cast",
-            (ActorControl, 24) when BinaryPrimitives.ReadUInt16LittleEndian(payload) == DeathCategory
-                => "defeat",
+            _ when CnDutyCombatPackets.IsDefeat(message.Opcode, payload) => "defeat",
             (ActorControlSelf, DutyClearSignal.Length) when DutyClearSignal.Matches(message) => "duty_clear",
             (ActorControlSelf, DutyStartSignal.Length)
                 when DutyStartSignal.TryMatch(message, out var start, out _) &&
@@ -131,27 +118,17 @@ internal sealed class CaptureDutyPhaseProbe
 
     private JsonObject? Action(DecodedMessage message, ReadOnlySpan<byte> payload)
     {
-        var capacity = (message.Opcode, payload.Length) switch
-        {
-            (0x0190, 124) => 1,
-            (0x0233, 636) => 8,
-            (0x0119, 1212) => 16,
-            (0x039c, 1788) => 24,
-            (0x00dd, 2364) => 32,
-            _ => 0,
-        };
-        if (capacity == 0 || payload[EffectCountOffset] is 0 || payload[EffectCountOffset] > capacity)
+        var action = CnDutyCombatPackets.ReadAction(message.Opcode, payload);
+        if (action.Count == 0)
         {
             return null;
         }
 
         var source = Alias(message.ConnectionKey, message.SourceActor);
         JsonArray? targets = null;
-        var targetList = TargetListBase + capacity * EffectsPerTarget * EffectSize;
-        for (var index = 0; index < payload[EffectCountOffset]; index++)
+        for (var index = 0; index < action.Count; index++)
         {
-            var actor = BinaryPrimitives.ReadUInt32LittleEndian(payload[(targetList + TargetIdSize * index)..]);
-            var target = Alias(message.ConnectionKey, actor);
+            var target = Alias(message.ConnectionKey, action.TargetActor(index));
             if (source is null && target is null)
             {
                 continue;
@@ -161,36 +138,21 @@ internal sealed class CaptureDutyPhaseProbe
             {
                 ["index"] = index,
                 ["npc"] = target,
-                ["damage_candidate"] = HasDamage(payload, index),
+                ["damage_candidate"] = action.HasDamage(index),
             });
         }
 
         return targets is null ? null : new JsonObject
         {
             ["source_npc"] = source,
-            ["effect_sequence"] = BinaryPrimitives.ReadUInt32LittleEndian(payload[EffectSequenceOffset..]),
+            ["effect_sequence"] = action.Sequence,
             ["targets"] = targets,
         };
     }
 
-    private static bool HasDamage(ReadOnlySpan<byte> payload, int targetIndex)
-    {
-        var first = EffectsOffset + targetIndex * EffectsPerTarget * EffectSize;
-        for (var index = 0; index < EffectsPerTarget; index++)
-        {
-            // Damage, blocked damage, parried damage. The amount and action ID stay in memory.
-            if (payload[first + index * EffectSize] is 0x03 or 0x05 or 0x06)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private int? Alias(string connection, uint actor)
     {
-        if ((actor & 0xf0000000u) != 0x40000000u)
+        if (!CnDutyCombatPackets.IsNpc(actor))
         {
             return null;
         }

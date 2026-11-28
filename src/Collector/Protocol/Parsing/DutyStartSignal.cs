@@ -15,6 +15,10 @@ public enum DutyStartSignalKind
     TimeRemaining,
 }
 
+/// <summary>Validated start metadata that can outlive its packet in shared staging.</summary>
+internal readonly record struct DutyStartAnchor(
+    ushort Opcode, ushort Director, DutyStartSignalKind Kind, string ConnectionKey, TimeSpan Mono, long Epoch);
+
 /// <summary>
 /// The two CN director messages that say whether a duty was already under way when the player
 /// entered it, recognised by their content and never by their opcode.
@@ -128,6 +132,17 @@ public static class DutyStartSignal
 
         parameter = (int)value;
         return true;
+    }
+
+    /// <summary>Retains only the fields needed to scope a staged start to one director and connection.</summary>
+    internal static DutyStartAnchor? ReadAnchor(DecodedMessage message)
+    {
+        if (message.Epoch <= 0 || !TryMatch(message, out var kind, out _))
+            return null;
+
+        return new DutyStartAnchor(message.Opcode,
+            BinaryPrimitives.ReadUInt16LittleEndian(message.Payload.Span[4..]), kind,
+            message.ConnectionKey, message.Mono, message.Epoch);
     }
 
     /// <summary>The same test on a decoded message, for code that holds messages rather than spans.</summary>

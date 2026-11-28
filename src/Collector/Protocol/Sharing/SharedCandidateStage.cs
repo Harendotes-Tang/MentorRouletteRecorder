@@ -39,9 +39,11 @@ internal enum StagedEntryKind
 /// direction, for <see cref="StagedEntryKind.Event"/> and <see cref="StagedEntryKind.DirectionDamaged"/>.
 /// </param>
 /// <param name="Direction">The direction that message travelled in, or the direction lost.</param>
+/// <param name="StartAnchor">Validated director metadata on a staged duty-start observation.</param>
 internal sealed record StagedEntry(
     StagedEntryKind Kind, DateTimeOffset AtUtc, TimeSpan Mono, SemanticEvent? Event = null, long DroppedCount = 0,
-    string? ConnectionKey = null, MessageDirection Direction = MessageDirection.Inbound);
+    string? ConnectionKey = null, MessageDirection Direction = MessageDirection.Inbound,
+    DutyStartAnchor? StartAnchor = null);
 
 /// <summary>
 /// A candidate parser and its bounded staging list for one capture session.
@@ -158,10 +160,16 @@ internal sealed class SharedCandidateStage
 
         public Sink(SharedCandidateStage stage) => _stage = stage;
 
-        public void Accept(SemanticEvent semanticEvent) =>
+        public void Accept(SemanticEvent semanticEvent)
+        {
+            var message = _stage._parsing;
+            var anchor = (semanticEvent is DutyCommenced or DutyTimeRemaining) && message is not null
+                ? DutyStartSignal.ReadAnchor(message) : null;
             _stage.Add(new StagedEntry(
                 StagedEntryKind.Event, semanticEvent.ObservedAtUtc, semanticEvent.Mono, semanticEvent,
-                ConnectionKey: _stage._parsing?.ConnectionKey,
-                Direction: _stage._parsing?.Direction ?? MessageDirection.Inbound));
+                ConnectionKey: message?.ConnectionKey,
+                Direction: message?.Direction ?? MessageDirection.Inbound,
+                StartAnchor: anchor));
+        }
     }
 }

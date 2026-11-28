@@ -223,7 +223,10 @@ public sealed partial class LiveProtocolPipeline :
     private ProfileSelection _selection;
     private CountingSink _counting = new();
     private ProfileMessageParser? _parser;
-    private HolminsterDutyStage? _dutyStage;
+    private IDutyStage? _dutyStage;
+    // Only the bound CN build supplies the supplemental encounter signals.
+    private ProtocolProfile? _dutyStageProfile;
+    private string? _dutyStageConnection;
     private SemanticEventProcessor? _processor;
 
     /// <summary>
@@ -496,7 +499,7 @@ public sealed partial class LiveProtocolPipeline :
             var elapsed = runId is null || _runTimer is null
                 ? (long?)null
                 : Math.Max(0, (long)_runTimerOffset.TotalMilliseconds + _runTimer.ElapsedMilliseconds);
-            var phase = state == RunState.EnteredDuty && HolminsterDutyStage.Supports(run) ? _dutyStage?.Phase : null;
+            var phase = state == RunState.EnteredDuty ? _dutyStage?.Phase : null;
             return new LiveRunSnapshot(state, run, elapsed, phase);
         }
     }
@@ -586,6 +589,8 @@ public sealed partial class LiveProtocolPipeline :
             _parser = null;
             _processor = null;
             _dutyStage = null;
+            _dutyStageProfile = null;
+            _dutyStageConnection = null;
             _boundSink = null;
             _dutyClear = null;
             _dutyStart = null;
@@ -680,9 +685,10 @@ public sealed partial class LiveProtocolPipeline :
             : null;
         _boundSink = (ISemanticEventSink?)_dutyStart ?? afterClear;
         _parser = new ProfileMessageParser(profile, _boundSink);
-        _dutyStage = profile.Region == Region.Cn && profile.GameBuild == HolminsterDutyStage.ClientBuild &&
-            !profile.IsObfuscated(HolminsterDutyStage.Opcode)
-            ? new HolminsterDutyStage() : null;
+        _dutyStageProfile = profile.Region == Region.Cn && profile.GameBuild == CnDutyCombatPackets.ClientBuild
+            ? profile : null;
+        _dutyStage = null;
+        _dutyStageConnection = null;
         _boundProfileId = profile.ProfileId;
         // Kept only for a parser bound by a confirmation, and only until one is bound by any path.
         ForgetCardWait();
@@ -975,30 +981,49 @@ public sealed partial class LiveProtocolPipeline :
     public static readonly TimeSpan FreshMatchAge = TimeSpan.FromSeconds(5);
 
     /// <summary>Only verified semantic events can change a run. Unrelated packets still update parser diagnostics.</summary>
-    private void ParseAndPublish(ProfileMessageParser parser, DecodedMessage message, bool replayed = false)
+    private void ParseAndPublish(ProfileMessageParser parser, DecodedMessage message, bool replayed = false,
+        bool partialCombatHistory = false)
     {
         if (parser.ParseEvent(message) is { } semanticEvent)
         {
             MatchingFrom(message.ConnectionKey, () =>
                 ApplyAndPublish(() => parser.DeliverVerified(semanticEvent, message), replayed));
         }
-        ObserveDutyStage(message);
+        if (partialCombatHistory && _dutyStage is KeeperOfLakeDutyStage keeper)
+        {
+            if (DutyStartSignal.ReadAnchor(message) is { } anchor)
+                keeper.ObserveStartAnchor(anchor, replayed: true);
+        }
+        else
+        {
+            ObserveDutyStage(message);
+        }
     }
 
     /// <summary>Updates the optional in-memory overlay projection for one active supported run.</summary>
     private void ObserveDutyStage(DecodedMessage message)
     {
-        if (_dutyStage is not { } stage ||
-            _processor?.Machine is not { State: RunState.EnteredDuty, CurrentRunId: { } runId } ||
-            !HolminsterDutyStage.IsCarrier(message) || !HolminsterDutyStage.Supports(_runs.Get(runId)))
-        {
-            return;
-        }
-
-        if (stage.Observe(message))
+        if (_dutyStage?.Observe(message) == true)
         {
             _liveEvents.Publish(LiveEventKind.RunPhaseChanged, static _ => { });
         }
+    }
+
+    /// <summary>Selects the tracker from the verified entry, off the packet hot path.</summary>
+    private IDutyStage? CreateDutyStage(MentorRun? run)
+    {
+        if (_dutyStageProfile is not { } profile || _dutyStageConnection is not { Length: > 0 } connection)
+            return null;
+
+        if (KeeperOfLakeDutyStage.Supports(run, profile))
+            return new KeeperOfLakeDutyStage(connection);
+
+        if (!HolminsterDutyStage.Supports(run) || profile.IsObfuscated(HolminsterDutyStage.Opcode))
+            return null;
+
+        var stage = new HolminsterDutyStage();
+        stage.Reset(connection);
+        return stage;
     }
 
     /// <summary>Applies one step to the state machine and publishes what it changed.</summary>
@@ -1022,9 +1047,11 @@ public sealed partial class LiveProtocolPipeline :
 
         var afterState = machine.State;
         var afterId = machine.CurrentRunId;
-        if (beforeState != afterState || beforeId != afterId)
+        var stateChanged = beforeState != afterState || beforeId != afterId;
+        if (stateChanged)
         {
-            _dutyStage?.Reset(afterState == RunState.EnteredDuty ? _matchingConnection : null);
+            _dutyStage = null;
+            _dutyStageConnection = afterState == RunState.EnteredDuty ? _matchingConnection : null;
         }
         UpdateRunTimer(machine);
 
@@ -1049,7 +1076,11 @@ public sealed partial class LiveProtocolPipeline :
             // observed THIS match, and the desktop speaks only for an observed one. Every other
             // state it publishes stays inferred, because every other state still is.
             var observed = afterState == RunState.MentorMatched && machine.MatchObserved;
-            _liveEvents.PublishState(afterState, afterId is null ? null : _runs.Get(afterId),
+            var currentRun = afterId is null ? null : _runs.Get(afterId);
+            if (stateChanged && afterState == RunState.EnteredDuty)
+                _dutyStage = CreateDutyStage(currentRun);
+
+            _liveEvents.PublishState(afterState, currentRun,
                 replayed && afterState == RunState.MentorMatched ? null : machine.MatchFromQueue && !observed,
                 afterState == RunState.MentorMatched ? machine.MatchOffers : null);
         }
@@ -1063,6 +1094,12 @@ public sealed partial class LiveProtocolPipeline :
             // entry, job and territory changes still invalidate the client's cached views.
             if (updated is not null && updated != beforeRun)
             {
+                if (!stateChanged && afterState == RunState.EnteredDuty &&
+                    (updated.TerritoryId != beforeRun?.TerritoryId || updated.ContentId != beforeRun?.ContentId))
+                {
+                    _dutyStage = CreateDutyStage(updated);
+                }
+
                 _liveEvents.PublishRun(LiveEventKind.RunUpdated, updated);
                 changed = true;
             }
