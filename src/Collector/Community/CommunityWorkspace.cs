@@ -10,11 +10,12 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
 {
     internal JsonObject List(int offset)
     {
-        var items = repository.List(offset);
+        var (items, generation) = repository.ListPage(offset);
         return new JsonObject
         {
             ["status"] = "ready",
             ["items"] = items,
+            ["generation"] = generation,
             ["next"] = items.Count == CommunityContent.PageSize ? offset + items.Count : null,
         };
     }
@@ -89,7 +90,7 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         var row = repository.Get(id, tx);
         if (row is null || Revision(row) != CommunityContent.Integer(payload, "revision"))
             return Result("local_conflict");
-        foreach (var node in repository.List(transaction: tx))
+        foreach (var node in repository.ListAll(tx))
         {
             var linked = node!["content"]!.AsObject();
             var links = linked["links"]!.AsArray();
@@ -104,52 +105,52 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         return Result("deleted");
     }
 
-    private JsonObject Install(IReadOnlyList<JsonObject> items, SqliteTransaction tx)
+    private JsonObject Install(IReadOnlyList<RemoteEntry> items, SqliteTransaction tx)
     {
-        if (items.Count == 0 || Inactive(items[0]))
+        if (items.Count == 0)
             return Result("source_unavailable");
-        if (repository.Get(Id(items[0]), tx) is not null)
+        if (repository.Get(Id(items[0].Source), tx) is not null)
             return Result("already_installed");
         return AddMissing(items, tx);
     }
 
-    private JsonObject AddMissing(IReadOnlyList<JsonObject> items, SqliteTransaction tx)
+    private JsonObject AddMissing(IReadOnlyList<RemoteEntry> items, SqliteTransaction tx)
     {
-        var missing = items.Where(item => repository.Get(Id(item), tx) is null).ToArray();
+        var missing = items.Where(item => repository.Get(Id(item.Source), tx) is null).ToArray();
         if (!repository.HasRoom(missing.Length, tx))
             return Result("local_limit");
         foreach (var item in items)
         {
-            var existing = repository.Get(Id(item), tx);
+            var existing = repository.Get(Id(item.Source), tx);
             if (existing is null)
                 continue;
             // A personal draft published from here has no upstream. Reuse it as a dependency
             // only when the published draft matches exactly; its local row stays untouched.
             var compatible = existing["upstream"] is JsonObject upstream
-                ? JsonNode.DeepEquals(upstream["author"]!["id"], item["author"]!["id"])
-                : JsonNode.DeepEquals(existing["content"], CommunityContent.Draft(item));
+                ? JsonNode.DeepEquals(upstream["author"]!["id"], item.Source["author"]!["id"])
+                : JsonNode.DeepEquals(existing["content"], CommunityContent.Draft(item.Source));
             if (!compatible)
                 return Result("local_conflict");
         }
-        var installing = items.Select(item => Id(item)).ToHashSet(StringComparer.Ordinal);
+        var installing = items.Select(item => Id(item.Source)).ToHashSet(StringComparer.Ordinal);
         // Save in reverse so the selected entry appears above its newly installed links.
         // Enumerable.Reverse, not missing.Reverse(): from C# 14 an array binds to the in-place
         // MemoryExtensions.Reverse(Span<T>), which returns nothing.
         foreach (var item in Enumerable.Reverse(missing))
         {
-            var draft = CommunityContent.Draft(item);
+            var draft = CommunityContent.Draft(item.Source);
             var links = InstalledLinks(item, installing, tx);
             draft["links"] = links;
-            repository.Save(Row(draft, 1, 0, false, item), tx, sourceLinks: links);
+            repository.Save(Row(draft, 1, 0, false, item.Source), tx, sourceLinks: links);
         }
         return Result("installed");
     }
 
-    private JsonObject Apply(JsonObject payload, IReadOnlyList<JsonObject> items, SqliteTransaction tx)
+    private JsonObject Apply(JsonObject payload, IReadOnlyList<RemoteEntry> items, SqliteTransaction tx)
     {
-        if (items.Count == 0 || Inactive(items[0]))
+        if (items.Count == 0)
             return Result("source_unavailable");
-        var remote = items[0];
+        var remote = items[0].Source;
         var sourceId = Id(remote);
         var localId = payload["local_id"] is null ? sourceId : Id(payload, "local_id");
         var old = repository.Get(localId, tx);
@@ -167,6 +168,11 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         var mode = CommunityContent.String(payload, "mode", 8);
         if (mode is not ("keep" or "replace"))
             throw new FormatException("invalid_mode");
+        var installed = AddMissing(items.Skip(1).ToArray(), tx);
+        if (installed["status"]!.GetValue<string>() != "installed")
+            return installed;
+        var sourceLinks = InstalledLinks(items[0], null, tx);
+        draft["links"] = sourceLinks;
         if (mode == "keep")
         {
             var adoptedLinks = repository.SourceLinks(localId, tx) ?? basis["links"];
@@ -176,11 +182,6 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
                     draft[key] = local[key]?.DeepClone();
             }
         }
-        var installed = AddMissing(items.Skip(1).ToArray(), tx);
-        if (installed["status"]!.GetValue<string>() != "installed")
-            return installed;
-        var sourceLinks = InstalledLinks(remote, null, tx);
-        draft["links"] = InstalledLinks(draft, null, tx);
         repository.Save(Row(draft, Revision(old) + 1, CommunityContent.Integer(old, "position"),
             CommunityContent.Boolean(old, "favorite"), remote), tx, sourceLinks: sourceLinks);
         return Result("updated");
@@ -238,31 +239,32 @@ internal sealed class CommunityWorkspace(CommunityRepository repository, Communi
         return Result("installed");
     }
 
+    private sealed record RemoteEntry(JsonObject Source, string[] AvailableLinks);
+
     // The selected entry first, then the entries it links to directly that are still available.
     // A withdrawn link target is left out instead of blocking the install or the update, and the
     // links of a linked entry are not followed further: only what the user chose comes along.
-    private IReadOnlyList<JsonObject> GetRemoteSet(string id)
+    private IReadOnlyList<RemoteEntry> GetRemoteSet(string id)
     {
         var publication = library.Current();
-        var entry = publication?.Entries.GetValueOrDefault(id);
-        if (entry is null || Inactive(entry))
+        if (publication is null || !publication.Entries.TryGetValue(id, out var entry) || Inactive(entry))
             return [];
-        var items = new List<JsonObject> { entry };
-        foreach (var link in entry["links"]!.AsArray())
-        {
-            var target = publication!.Entries.GetValueOrDefault(link!.GetValue<string>());
-            if (target is not null && !Inactive(target))
-                items.Add(target);
-        }
+        RemoteEntry Project(JsonObject source) => new(source, source["links"]!.AsArray()
+            .Select(link => link!.GetValue<string>())
+            .Where(link => publication.Entries.TryGetValue(link, out var target) && !Inactive(target)).ToArray());
+
+        var root = Project(entry);
+        var items = new List<RemoteEntry> { root };
+        foreach (var link in root.AvailableLinks)
+            items.Add(Project(publication.Entries[link]));
         return items;
     }
 
     // An installed draft links only to entries this machine has (or is installing in the same
     // change), so that saving it later never fails on a link that was left out.
-    private JsonArray InstalledLinks(JsonObject draft, IReadOnlySet<string>? installing, SqliteTransaction tx)
+    private JsonArray InstalledLinks(RemoteEntry entry, IReadOnlySet<string>? installing, SqliteTransaction tx)
     {
-        var links = draft["links"]!.AsArray().Select(link => link!.GetValue<string>())
-            .Where(link => installing?.Contains(link) == true || repository.Get(link, tx) is not null)
+        var links = entry.AvailableLinks.Where(link => installing?.Contains(link) == true || repository.Get(link, tx) is not null)
             .Select(link => (JsonNode?)JsonValue.Create(link)).ToArray();
         return new JsonArray(links);
     }

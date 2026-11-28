@@ -2021,6 +2021,10 @@ public static partial class CollectorTexts
     public static UserText SharingImportUserRejected() =>
         new("sharing.import.user_rejected", "当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。");
 
+    /// <summary><c>sharing.rejection.write_failed</c>: 本次已停用共享校准，但选择尚未保存。请确认校准记录文件可写，然后点「重试保存」，以便下次启动时继续使用本机校准。</summary>
+    public static UserText SharingRejectionWriteFailed() =>
+        new("sharing.rejection.write_failed", "本次已停用共享校准，但选择尚未保存。请确认校准记录文件可写，然后点「重试保存」，以便下次启动时继续使用本机校准。");
+
     /// <summary><c>sharing.share_code.local_unusable</c>: 本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。</summary>
     public static UserText SharingShareCodeLocalUnusable() =>
         new("sharing.share_code.local_unusable", "本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。");

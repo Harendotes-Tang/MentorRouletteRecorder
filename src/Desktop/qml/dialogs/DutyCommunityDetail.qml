@@ -30,7 +30,7 @@ ColumnLayout {
     // An installed copy whose public entry is gone from the loaded library: a maintainer removed it,
     // or it was withdrawn 30 days ago (tools/shared-calibration/community_publish.py, purge).
     readonly property bool sourceRemoved: !store.remote && !publication && !!row && !!row.upstream && !sourceItem
-        && store.publicRows.length > 0
+        && store.publicSnapshotCached
     readonly property var sourceItem: store.source
     readonly property bool sourceNewer: !store.remote && !!sourceItem && !!row && !!row.upstream
         && sourceItem.status !== "withdrawn" && sourceItem.revision > row.upstream.revision

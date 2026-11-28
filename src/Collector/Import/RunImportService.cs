@@ -15,7 +15,7 @@ namespace MentorRecorder.Collector.Import;
 public sealed partial class RunImportService
 {
     private sealed record Preview(string Id, string Kind, string? Name, DateTimeOffset Created,
-        IReadOnlyList<ImportCandidate> Candidates, JsonObject? FrozenRender = null, int? PageSize = null, int FrozenBytes = 0);
+        IReadOnlyList<ImportCandidate> Candidates, IReadOnlySet<string> LegacyBlankKeys, JsonObject? FrozenRender = null, int? PageSize = null, int FrozenBytes = 0);
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
     private readonly RunRepository _runs;
@@ -93,6 +93,52 @@ public sealed partial class RunImportService
         // (audit 2026-10-20 H2-1). Hash the bounded parsed values, never reread a file that could change.
         // The key a row got before (whole parsed snapshot + row number) is still checked, so a file imported
         // by an earlier version and its purge tombstones keep matching.
+        var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        var blankKeys = new HashSet<string>(StringComparer.Ordinal);
+        if (rows is not null)
+        {
+            lock (_gate)
+                foreach (var cached in _previews.Values.Where(p => p.Kind == sourceKind && p.Name == sourceName
+                             && now - p.Created <= PreviewLifetime))
+                    blankKeys.UnionWith(cached.LegacyBlankKeys);
+        }
+        var legacyKeys = AssignSourceKeys(parsed, blankKeys, cancellationToken);
+        var previousDutyNames = SnapshotPreviousDutyNameFingerprints(now, cancellationToken);
+        var candidates = parsed.Select(row =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var candidate = RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now,
+                legacyKeys.GetValueOrDefault(row.RowNumber));
+            // The normalizer produces these only for an inferred preferred duty. An
+            // explicit id can have exactly the same facts hash and must not inherit them.
+            if (candidate.Run?.ImportMetadata is not { } metadata) return candidate;
+            var blank = candidate.BlankIdentity;
+            return candidate with
+            {
+                PreviousDutyNameFingerprints = WithCachedNames(metadata.SourceFingerprint, candidate.PreviousDutyNameFingerprints!),
+                BlankIdentity = blank is null ? null : blank with
+                { PreviousDutyNameFingerprints = WithCachedNames(blank.Fingerprint, blank.PreviousDutyNameFingerprints) },
+            };
+        }).ToArray();
+        IReadOnlyList<string> WithCachedNames(string fingerprint, IReadOnlyList<string> current) =>
+            current.Count > 0 && previousDutyNames.TryGetValue(fingerprint, out var cached)
+                ? cached.Concat(current).Distinct(StringComparer.Ordinal).Take(MaxPreviousDutyNameFingerprints).ToArray()
+                : current;
+        // Classify all rows against one WAL snapshot. The live writer can keep recording
+        // until commit rechecks the selected rows against the current database.
+        var (preview, rendered) = _database.ReadSnapshot((snapshot, transaction) =>
+        {
+            var reader = new RunImportService(snapshot, _clock);
+            var retained = reader.AssignLegacyBlankMatches(candidates, transaction, cancellationToken);
+            var session = new Preview(Guid.NewGuid().ToString("D"), sourceKind, sourceName, now, candidates, retained);
+            return (session, reader.Render(session, transaction, cancellationToken));
+        }, cancellationToken);
+        return FreezeAndCache(preview, rendered, pageSize, cancellationToken);
+    }
+
+    private static Dictionary<int, string> AssignSourceKeys(IReadOnlyList<ImportSourceRow> parsed, IReadOnlySet<string> blankKeys,
+        CancellationToken cancellationToken)
+    {
         var snapshot = new JsonArray(parsed.Select(row => (JsonNode)row.Values.DeepClone()).ToArray());
         var legacyInputFingerprint = RunImportCandidateNormalizer.Hash(snapshot.ToJsonString(Wire.JsonOptions));
         var legacyKeys = new Dictionary<int, string>();
@@ -100,42 +146,54 @@ public sealed partial class RunImportService
         foreach (var row in parsed)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (row.Values["run_id"] is null && row.Values["source_key"] is null)
+            var runId = row.Values["run_id"];
+            var key = row.Values["source_key"];
+            if (!IsBlankIdentity(runId)) continue;
+            if (IsBlankIdentity(key))
             {
                 var own = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values));
                 var occurrence = occurrences[own] = occurrences.GetValueOrDefault(own) + 1;
                 row.Values["source_key"] = own + ":" + occurrence.ToString(CultureInfo.InvariantCulture);
-                legacyKeys[row.RowNumber] = legacyInputFingerprint + ":" + row.RowNumber.ToString(CultureInfo.InvariantCulture);
+                legacyKeys[row.RowNumber] = runId is null && key is null
+                    ? legacyInputFingerprint + ":" + row.RowNumber.ToString(CultureInfo.InvariantCulture) : string.Empty;
             }
+            else if (key is JsonValue supplied && supplied.TryGetValue<string>(out var value) && blankKeys.Contains(value))
+                legacyKeys[row.RowNumber] = string.Empty;
         }
-        var now = UtcTimestamp.Truncate(_clock.UtcNow);
-        var previousDutyNames = SnapshotPreviousDutyNameFingerprints(now, cancellationToken);
-        var preview = new Preview(Guid.NewGuid().ToString("D"), sourceKind, sourceName, now,
-            parsed.Select(row =>
+        return legacyKeys;
+    }
+
+    // Distinct rows (for example, different builds) can have the same historical facts.
+    // An extant modern row or tombstone already accounts for its occurrence after a reorder.
+    private HashSet<string> AssignLegacyBlankMatches(ImportCandidate[] candidates, SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var retained = new HashSet<string>(StringComparer.Ordinal);
+        var groups = Enumerable.Range(0, candidates.Length).Where(i => candidates[i].BlankIdentity is not null)
+            .GroupBy(i => candidates[i].BlankIdentity!.Fingerprint);
+        foreach (var group in groups)
+        {
+            var claimed = false;
+            var multiple = group.Count() > 1;
+            foreach (var index in group)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var candidate = RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now,
-                    legacyKeys.GetValueOrDefault(row.RowNumber));
-                // The normalizer produces these only for an inferred preferred duty. An
-                // explicit id can have exactly the same facts hash and must not inherit them.
-                if (candidate.PreviousDutyNameFingerprints is { Count: > 0 } current
-                    && candidate.Run?.ImportMetadata is { } metadata
-                    && previousDutyNames.TryGetValue(metadata.SourceFingerprint, out var cached))
+                var candidate = candidates[index];
+                var ownIdentity = candidate with { BlankIdentity = null };
+                if (!claimed && candidate.Errors.Count == 0
+                    && (!multiple || Classify(ownIdentity, transaction).Status is not ("duplicate" or "conflict")))
                 {
-                    candidate = candidate with
-                    {
-                        PreviousDutyNameFingerprints = cached.Concat(current).Distinct(StringComparer.Ordinal)
-                            .Take(MaxPreviousDutyNameFingerprints).ToArray(),
-                    };
+                    retained.Add(candidate.Input["source_key"]!.GetValue<string>());
+                    claimed = true;
                 }
-                return candidate;
-            }).ToArray());
-        // Classify all rows against one WAL snapshot. The live writer can keep recording
-        // until commit rechecks the selected rows against the current database.
-        var rendered = _database.ReadSnapshot((snapshot, transaction) =>
-            new RunImportService(snapshot, _clock).Render(preview, transaction, cancellationToken), cancellationToken);
-        return FreezeAndCache(preview, rendered, pageSize, cancellationToken);
+                else candidates[index] = ownIdentity;
+            }
+        }
+        return retained;
     }
+
+    private static bool IsBlankIdentity(JsonNode? node) =>
+        node is null || node is JsonValue value && value.TryGetValue<string>(out var text) && string.IsNullOrWhiteSpace(text);
 
     /// <summary>
     /// Keeps server-computed pre-preference identities through unchanged candidate rechecks.
@@ -155,20 +213,26 @@ public sealed partial class RunImportService
                 foreach (var candidate in preview.Candidates)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (candidate.PreviousDutyNameFingerprints is not { Count: > 0 } fingerprints
-                        || candidate.Run?.ImportMetadata is not { } metadata)
-                        continue;
-                    if (!snapshot.TryGetValue(metadata.SourceFingerprint, out var known))
-                        snapshot.Add(metadata.SourceFingerprint, known = new List<string>());
-                    foreach (var fingerprint in fingerprints)
-                    {
-                        if (known.Count >= MaxPreviousDutyNameFingerprints) break;
-                        if (!known.Contains(fingerprint, StringComparer.Ordinal)) known.Add(fingerprint);
-                    }
+                    if (candidate.Run?.ImportMetadata is not { } metadata) continue;
+                    Remember(metadata.SourceFingerprint, candidate.PreviousDutyNameFingerprints);
+                    if (candidate.BlankIdentity is { } blank)
+                        Remember(blank.Fingerprint, blank.PreviousDutyNameFingerprints);
                 }
             }
         }
         return snapshot;
+
+        void Remember(string identity, IReadOnlyList<string>? fingerprints)
+        {
+            if (fingerprints is not { Count: > 0 }) return;
+            if (!snapshot.TryGetValue(identity, out var known))
+                snapshot.Add(identity, known = new List<string>());
+            foreach (var fingerprint in fingerprints)
+            {
+                if (known.Count >= MaxPreviousDutyNameFingerprints) break;
+                if (!known.Contains(fingerprint, StringComparer.Ordinal)) known.Add(fingerprint);
+            }
+        }
     }
 
     /// <summary>Rechecks all selected identities under the write transaction; conflicts never overwrite local data.</summary>
@@ -422,20 +486,14 @@ public sealed partial class RunImportService
     private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction transaction)
     {
         var incoming = candidate.Run!;
-        var previousDutyNames = candidate.PreviousDutyNameFingerprints ?? Array.Empty<string>();
+        var previous = candidate.PreviousFingerprints();
         if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction)
-            || candidate.LegacyFingerprint is { } purgedBefore && _idempotency.IsPurgedRun(incoming.RunId, purgedBefore, transaction)
-            || candidate.PreAliasFingerprint is { } purgedPreAlias && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAlias, transaction)
-            || candidate.PreAliasKeyFingerprint is { } purgedPreAliasKey && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAliasKey, transaction)
-            || previousDutyNames.Any(fingerprint => _idempotency.IsPurgedRun(incoming.RunId, fingerprint, transaction)))
+            || previous.Any(fingerprint => _idempotency.IsPurgedRun(incoming.RunId, fingerprint, transaction)))
             return ("conflict", incoming.RunId);
         if (candidate.HasStableId && _runs.GetInternal(incoming.RunId, transaction) is { } local)
             return (RunImportCandidateNormalizer.SameProvidedFacts(candidate, local) ? "duplicate" : "conflict", local.RunId);
         if ((_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction)
-            ?? (candidate.LegacyFingerprint is { } before ? _imports.FindFingerprint(before, transaction) : null)
-            ?? (candidate.PreAliasFingerprint is { } preAlias ? _imports.FindFingerprint(preAlias, transaction) : null)
-            ?? (candidate.PreAliasKeyFingerprint is { } preAliasKey ? _imports.FindFingerprint(preAliasKey, transaction) : null)
-            ?? previousDutyNames.Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
+            ?? previous.Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
                 .FirstOrDefault(runId => runId is not null)) is { } exact)
             return ("duplicate", exact);
         // The row may be one an earlier import stored under another region: a region-less row that got a region in
@@ -443,7 +501,8 @@ public sealed partial class RunImportService
         // or one 1.8.0 imported without a region that schema 13 made a CN record. It is offered as a possible
         // duplicate, never merged (audit 2026-11-03 H2-4, re-review RV2-2).
         string? regionalMatch = null;
-        foreach (var fingerprint in candidate.RegionalFingerprints ?? Array.Empty<string>())
+        var regions = candidate.RegionalFingerprints ?? [];
+        foreach (var fingerprint in candidate.BlankIdentity is { } blank ? regions.Concat(blank.RegionalFingerprints) : regions)
         {
             if (_imports.FindFingerprint(fingerprint, transaction) is not { } regional)
                 continue;

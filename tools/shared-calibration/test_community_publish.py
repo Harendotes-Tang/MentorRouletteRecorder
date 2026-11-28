@@ -704,7 +704,8 @@ class CommunityWithdrawalTests(unittest.TestCase):
     def test_a_withdrawn_entry_leaves_the_library_thirty_days_after_its_withdrawal(self):
         now = publisher.dt.datetime(2026, 12, 27, 9, 30, tzinfo=publisher.dt.timezone.utc)
         due = dict(self.published(1, 201, status="withdrawn"), updated_at="2026-11-27T09:30:00Z")
-        recent = dict(self.published(2, 201, status="withdrawn"), updated_at="2026-11-28T09:30:00Z")
+        recent = dict(self.published(2, 201, status="withdrawn", kind="reminder", links=[due["id"]]),
+                      updated_at="2026-11-28T09:30:00Z")
         live = dict(self.published(3, 201), updated_at="2026-01-01T00:00:00Z")
         note = self.published(4, 300, kind="reminder", links=[due["id"]])
         entries = {item["id"]: item for item in (due, recent, live, note)}
@@ -713,6 +714,9 @@ class CommunityWithdrawalTests(unittest.TestCase):
         self.assertEqual({recent["id"], live["id"], note["id"]}, set(revised))
         self.assertEqual(([], 2, "2026-12-27T09:30:00Z"),
                          (revised[note["id"]]["links"], revised[note["id"]]["revision"], revised[note["id"]]["updated_at"]))
+        self.assertEqual(([], 2, recent["updated_at"]),
+                         (revised[recent["id"]]["links"], revised[recent["id"]]["revision"], revised[recent["id"]]["updated_at"]))
+        self.assertEqual([recent["id"]], publisher.purge(revised, now + publisher.dt.timedelta(days=1))[0])
         self.assertEqual(([], revised), publisher.purge(revised, now), "a second sweep changes nothing")
         self.assertIn(due["id"], entries, "the library passed in is not changed")
         # The sweep commits the removal and records the IDs, as a maintainer's removal does.
@@ -827,9 +831,8 @@ class CommunityLikeTests(unittest.TestCase):
         self.assertTrue(body.startswith("body=" + publisher.like_marker(live["id"]) + "\n"), body)
         self.assertIn(live["id"], body)
         self.assertNotIn(live["title"], body)
-        self.assertEqual({"schema_version": 1, "likes": {
-            live["id"]: {"count": 4, "issue": 5, "comment": 2_400_000_001},
-            recovered["id"]: {"count": 12, "issue": 5, "comment": 2_400_000_777}}}, likes)
+        fixture = testsupport.REPO / "tests/Fixtures/shared-calibration/community-likes.json"
+        self.assertEqual(json.loads(fixture.read_text(encoding="utf-8")), likes)
         self.assertEqual({live["id"]: {"issue": 5, "comment": 2_400_000_001, "node": "IC_new1"},
                           recovered["id"]: {"issue": 5, "comment": 2_400_000_777, "node": "IC_old"}}, ledger["likes"])
         self.assertTrue(publisher.valid_like_links(ledger["likes"]))

@@ -173,11 +173,64 @@ function Remove-IfExists([string]$Path) {
     }
 }
 
+function Invoke-WithPackageOutputLock([string]$Directory, [scriptblock]$Build) {
+    # All versions share _collector_publish. A create-new file in the actual output directory
+    # also excludes runs using different spellings or a junction to the same directory.
+    [IO.Directory]::CreateDirectory($Directory) | Out-Null
+    $lockPath = Join-Path $Directory '.mentorrecorder-package.lock'
+    try {
+        $handle = [IO.FileStream]::new($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write,
+            [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
+    }
+    catch [IO.IOException] {
+        $code = $_.Exception.GetBaseException().HResult -band 0xffff
+        if ($code -in 32, 80, 183) {
+            throw ("打包输出目录已被占用：{0}。请等待当前打包完成，或指定其他 -OutputDir。" -f $Directory)
+        }
+        throw
+    }
+    try {
+        & $Build
+    }
+    finally {
+        $handle.Dispose()
+    }
+}
+
 function Assert-ReplaceAllowed([string[]]$Paths) {
     $existing = @($Paths | Where-Object { Test-Path -LiteralPath $_ })
     if ($existing.Count -gt 0 -and -not $Force) {
         throw ("输出已存在；请换一个 -OutputDir，或显式使用 -Force 只替换以下目标:`n{0}" -f
             ($existing -join [Environment]::NewLine))
+    }
+}
+
+function Copy-TrackedDocumentation([string]$Repository, [string]$Destination, [switch]$AllowManifestFallback) {
+    # Use the index for membership and the working tree for each file's contents.
+    # The three developer-only directories stay excluded even if a file is force-added.
+    $paths = $null
+    if (Get-Command git -CommandType Application -ErrorAction SilentlyContinue) {
+        $index = & git -C $Repository ls-files -z --error-unmatch -- docs/ ':(exclude,icase)docs/diagrams/**' `
+            ':(exclude,icase)docs/plans/**' ':(exclude,icase)docs/reviews/**' 2>$null
+        if ($LASTEXITCODE -eq 0) { $paths = $index -split "`0" }
+    }
+    if ($null -eq $paths) {
+        if (-not $AllowManifestFallback) {
+            throw '无法从 Git 读取受控文档清单。显式使用 -AllowReusedVersion 的本地打包可采用源码附带的文档清单。'
+        }
+        $manifest = Join-Path $Repository 'scripts/package-docs.txt'
+        $paths = [IO.File]::ReadAllLines($manifest)
+        Write-Warning 'Git 索引不可读，本地打包使用 scripts/package-docs.txt 中列出的文档。'
+    }
+    foreach ($relative in $paths) {
+        if (-not $relative) { continue }
+        # Require a repository-relative docs path without empty, dot or parent components.
+        if ($relative -notlike 'docs/*' -or $relative -match '[:\\]|(^|/)\.{0,2}(/|$)|^docs/(diagrams|plans|reviews)(/|$)') {
+            throw ("文档清单包含禁止打包的路径：{0}" -f $relative)
+        }
+        $target = Join-Path $Destination $relative
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+        [IO.File]::Copy((Join-Path $Repository $relative), $target, $true)
     }
 }
 
@@ -808,553 +861,550 @@ if ($reusedVersionRefusal) {
     Write-Host ("  按 -AllowReusedVersion 继续：{0}" -f $reusedVersionRefusal) -ForegroundColor Yellow
 }
 
-# The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
-# unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
-# commit by another session in between would otherwise leave a clean source_commit beside
-# binaries built from another tree.
-$verificationResult = $null
+Invoke-WithPackageOutputLock -Directory $OutputRoot -Build {
+    # The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
+    # unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
+    # commit by another session in between would otherwise leave a clean source_commit beside
+    # binaries built from another tree.
+    $verificationResult = $null
 
-# verify.ps1, build.ps1 and the scripts they run read their CMake directory from MR_BUILD_DIR:
-# point them at this run's $BuildDir, and give the caller's value back however the steps end.
-$callerBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
-$env:MR_BUILD_DIR = $BuildDir
-try {
-    if (-not $SkipVerify) {
-        Write-Head '预验证 / Preflight verify'
-        # -Distribution: the whole chain (verify -> test -> build) builds and tests the
-        # distribution flavour of the Desktop, which is the binary packaged below
-        # (docs/build-and-package.md section 3.7).
-        & $VerifyScript -Configuration $Configuration -Distribution -Result ([ref]$verificationResult)
+    # verify.ps1, build.ps1 and the scripts they run read their CMake directory from MR_BUILD_DIR:
+    # point them at this run's $BuildDir, and give the caller's value back however the steps end.
+    $callerBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
+    $env:MR_BUILD_DIR = $BuildDir
+    try {
+        if (-not $SkipVerify) {
+            Write-Head '预验证 / Preflight verify'
+            # -Distribution: the whole chain (verify -> test -> build) builds and tests the
+            # distribution flavour of the Desktop, which is the binary packaged below
+            # (docs/build-and-package.md section 3.7).
+            & $VerifyScript -Configuration $Configuration -Distribution -Result ([ref]$verificationResult)
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
+        } else {
+            Write-Head '预验证 / Preflight verify'
+            Write-Host '按 -SkipVerify 跳过；该产物只适合本地快速联调。' -ForegroundColor Yellow
+        }
+
+        Write-Head '补构建 / Ensure build outputs'
+        & $BuildScript -Configuration $Configuration -NoRestore -Distribution
         if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
         }
-    } else {
-        Write-Head '预验证 / Preflight verify'
-        Write-Host '按 -SkipVerify 跳过；该产物只适合本地快速联调。' -ForegroundColor Yellow
+    } finally {
+        # $null removes the variable again; [Environment]::SetEnvironmentVariable would get ''.
+        $env:MR_BUILD_DIR = $callerBuildDir
     }
 
-    Write-Head '补构建 / Ensure build outputs'
-    & $BuildScript -Configuration $Configuration -NoRestore -Distribution
+    Assert-File $DesktopExe '缺少 Desktop 可执行文件'
+    Assert-DesktopExecutable $DesktopExe
+
+    Write-Head '准备目录 / Prepare staging directories'
+    # The same-version installer and its checksum are outputs of this run even when the installer
+    # step will not run (-NoInstaller, or no ISCC here): left in place, an earlier run's setup.exe
+    # would sit beside the new zip and pass for its installer.
+    Assert-ReplaceAllowed @($StageDir, $CollectorStage, $ZipPath, $ZipHashPath, $InstallerPath, $InstallerHashPath)
+    Remove-IfExists $StageDir
+    Remove-IfExists $CollectorStage
+    if (Test-Path -LiteralPath $ZipPath) {
+        Remove-Item -LiteralPath $ZipPath -Force
+    }
+    if (Test-Path -LiteralPath $ZipHashPath) {
+        Remove-Item -LiteralPath $ZipHashPath -Force
+    }
+    Remove-IfExists $InstallerPath
+    Remove-IfExists $InstallerHashPath
+    New-Item -ItemType Directory -Path $StageDir | Out-Null
+    New-Item -ItemType Directory -Path $CollectorStage | Out-Null
+
+    Write-Head '发布 Collector / Publish Collector'
+    # Self-contained: the installer promises no dependencies to install by hand, and the .NET
+    # runtime is the only dependency this project may redistribute. Npcap is not (see the .iss).
+    $publishSymbolOptions = @()
+    if ($Configuration -eq 'Debug') {
+        # Isolate this publish so the developer's normal Debug build keeps its portable PDB.
+        $publishSymbolOptions = @('--artifacts-path', (Join-Path $BuildDir 'collector-publish-artifacts'),
+            '-p:DebugType=embedded', "-p:PathMap=$RepoRoot=/_/")
+    }
+    & dotnet publish $CollectorProject @publishSymbolOptions `
+        -c $Configuration `
+        -r win-x64 `
+        --self-contained true `
+        -p:NuGetAudit=true `
+        -p:NuGetAuditMode=all `
+        -o $CollectorStage
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-} finally {
-    # $null removes the variable again; [Environment]::SetEnvironmentVariable would get ''.
-    $env:MR_BUILD_DIR = $callerBuildDir
-}
 
-Assert-File $DesktopExe '缺少 Desktop 可执行文件'
-Assert-DesktopExecutable $DesktopExe
-
-Write-Head '准备目录 / Prepare staging directories'
-New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
-# The same-version installer and its checksum are outputs of this run even when the installer
-# step will not run (-NoInstaller, or no ISCC here): left in place, an earlier run's setup.exe
-# would sit beside the new zip and pass for its installer.
-Assert-ReplaceAllowed @($StageDir, $CollectorStage, $ZipPath, $ZipHashPath, $InstallerPath, $InstallerHashPath)
-Remove-IfExists $StageDir
-Remove-IfExists $CollectorStage
-if (Test-Path -LiteralPath $ZipPath) {
-    Remove-Item -LiteralPath $ZipPath -Force
-}
-if (Test-Path -LiteralPath $ZipHashPath) {
-    Remove-Item -LiteralPath $ZipHashPath -Force
-}
-Remove-IfExists $InstallerPath
-Remove-IfExists $InstallerHashPath
-New-Item -ItemType Directory -Path $StageDir | Out-Null
-New-Item -ItemType Directory -Path $CollectorStage | Out-Null
-
-Write-Head '发布 Collector / Publish Collector'
-# Self-contained: the installer promises no dependencies to install by hand, and the .NET
-# runtime is the only dependency this project may redistribute. Npcap is not (see the .iss).
-$publishSymbolOptions = @()
-if ($Configuration -eq 'Debug') {
-    # Isolate this publish so the developer's normal Debug build keeps its portable PDB.
-    $publishSymbolOptions = @('--artifacts-path', (Join-Path $BuildDir 'collector-publish-artifacts'),
-        '-p:DebugType=embedded', "-p:PathMap=$RepoRoot=/_/")
-}
-& dotnet publish $CollectorProject @publishSymbolOptions `
-    -c $Configuration `
-    -r win-x64 `
-    --self-contained true `
-    -p:NuGetAudit=true `
-    -p:NuGetAuditMode=all `
-    -o $CollectorStage
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-Write-Head '组装发布目录 / Assemble staged layout'
-Copy-Item -Path (Join-Path $CollectorStage '*') -Destination $StageDir -Recurse -Force
-Copy-Item -LiteralPath $DesktopExe -Destination (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
-# The manifest is inside the executable (Assert-DesktopExecutable). The side file Qt's CMake
-# used to generate beside it carried a placeholder identity; one left in an older build tree
-# is not shipped.
-if (Test-Path -LiteralPath $DesktopManifest) {
-    Write-Host ("  不随包：构建目录中旧的外部清单 {0}" -f $DesktopManifest) -ForegroundColor Yellow
-}
-Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StageDir
-foreach ($document in $PackagedRootDocs) {
-    Copy-Item -LiteralPath (Join-Path $RepoRoot $document) -Destination $StageDir
-}
-Copy-Item -LiteralPath (Join-Path $RepoRoot 'THIRD_PARTY_NOTICES.md') -Destination $StageDir
-Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs') -Destination (Join-Path $StageDir 'docs') -Recurse -Force
-Install-OcrRuntime -DestinationDirectory $StageDir -RepoRoot $RepoRoot
-$qtGraphsContext = Get-QtGraphsContextFromBuild -BuildDirectory $BuildDir -RepoRoot $RepoRoot
-$qtPrivateRuntime = Read-QtPrivateRuntime -BuildDirectory $BuildDir
-
-# The development output carries synthetic profiles for replay tests. They must not reach the
-# live selector in an installed build, even though their fake game-build marker keeps them
-# fail-closed on real clients.
-$SyntheticProfiles = Join-Path $StageDir 'protocol-profiles\synthetic'
-Remove-IfExists $SyntheticProfiles
-
-# docs/ is copied whole so new user-facing documents ship without editing this list. The
-# directories below are developer working material kept out of the repository by .gitignore;
-# a local checkout may still have them and a package must not.
-foreach ($localOnlyDocs in @('docs\diagrams', 'docs\plans', 'docs\reviews')) {
-    Remove-IfExists (Join-Path $StageDir $localOnlyDocs)
-}
-
-@(
-    '# Source Code Availability'
-    ''
-    'This package was produced from the MentorRecorder source tree.'
-    'Complete corresponding source code for the packaged revision (see source_commit in'
-    'BUILD-METADATA.json): https://github.com/Harendotes-Tang/MentorRouletteRecorder'
-    'Licence: GPL-3.0-or-later (LICENSE); third-party notices: THIRD_PARTY_NOTICES.md.'
-    'Project-specific QtGraphs corresponding source, patch and build recipe: docs/licenses/qtgraphs/README.md.'
-) | Set-Content -LiteralPath $SourceNotePath -Encoding utf8
-
-# A git that fails (not a repository, "dubious ownership", not installed) prints nothing, and
-# an empty `git status` must not pass for a clean tree: Get-SourceTreeState reports it as a
-# problem, which blocks the distribution claim below.
-$sourceState = Get-SourceTreeState -RepoRoot $RepoRoot
-if ($sourceStateBeforeVerify.Commit -ne $sourceState.Commit -or
-    $sourceStateBeforeVerify.Dirty -ne $sourceState.Dirty -or
-    [bool]$sourceStateBeforeVerify.Problem -ne [bool]$sourceState.Problem) {
-    $describeSource = {
-        param($state)
-        if ($state.Problem) { return [string]$state.Problem }
-        '提交 {0}（{1}）' -f $state.Commit, $(if ($state.Dirty) { '有未提交改动' } else { '工作区干净' })
+    Write-Head '组装发布目录 / Assemble staged layout'
+    Copy-Item -Path (Join-Path $CollectorStage '*') -Destination $StageDir -Recurse -Force
+    Copy-Item -LiteralPath $DesktopExe -Destination (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
+    # The manifest is inside the executable (Assert-DesktopExecutable). The side file Qt's CMake
+    # used to generate beside it carried a placeholder identity; one left in an older build tree
+    # is not shipped.
+    if (Test-Path -LiteralPath $DesktopManifest) {
+        Write-Host ("  不随包：构建目录中旧的外部清单 {0}" -f $DesktopManifest) -ForegroundColor Yellow
     }
-    throw ("源码在打包过程中发生了变化：验证与构建开始时为{0}，现在为{1}。产物中的程序无法确定来自哪一份源码；请在工作区不再变动时重新打包。" -f
-        (& $describeSource $sourceStateBeforeVerify), (& $describeSource $sourceState))
-}
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StageDir
+    foreach ($document in $PackagedRootDocs) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $document) -Destination $StageDir
+    }
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'THIRD_PARTY_NOTICES.md') -Destination $StageDir
+Copy-TrackedDocumentation -Repository $RepoRoot -Destination $StageDir -AllowManifestFallback:$AllowReusedVersion
+    Install-OcrRuntime -DestinationDirectory $StageDir -RepoRoot $RepoRoot
+    $qtGraphsContext = Get-QtGraphsContextFromBuild -BuildDirectory $BuildDir -RepoRoot $RepoRoot
+    $qtPrivateRuntime = Read-QtPrivateRuntime -BuildDirectory $BuildDir
 
-Write-Head '读取构建自述 / Read build self-report'
-# Exit code 1 from --capture-doctor means this machine could not capture right now (no Npcap,
-# no game). That says nothing about the artifact and is accepted; only a crash or a non-JSON
-# answer is a failure.
-$stagedDoctor = Invoke-StagedCollectorJson -TargetDir $StageDir `
-    -CollectorArgs @('--capture-doctor', '--json') -AllowedExitCodes @(0, 1) -Label 'staged-capture-doctor'
-$stagedProfiles = Invoke-StagedCollectorJson -TargetDir $StageDir `
-    -CollectorArgs @('--list-profiles', '--json') -AllowedExitCodes @(0, 1) -Label 'staged-list-profiles'
+    # The development output carries synthetic profiles for replay tests. They must not reach the
+    # live selector in an installed build, even though their fake game-build marker keeps them
+    # fail-closed on real clients.
+    $SyntheticProfiles = Join-Path $StageDir 'protocol-profiles\synthetic'
+    Remove-IfExists $SyntheticProfiles
 
-# @() so a single VERIFIED profile is still an array: Set-StrictMode Latest refuses
-# .Count on the bare string PowerShell would otherwise unwrap it to.
-$verifiedProfileIds = @(Get-PackagedVerifiedProfileIds $stagedProfiles)
-$packagedProfileStatus = Format-PackagedProfileStatus $verifiedProfileIds
-$liveCaptureStatus = [string]$stagedDoctor.live_capture_status
+    @(
+        '# Source Code Availability'
+        ''
+        'This package was produced from the MentorRecorder source tree.'
+        'Complete corresponding source code for the packaged revision (see source_commit in'
+        'BUILD-METADATA.json): https://github.com/Harendotes-Tang/MentorRouletteRecorder'
+        'Licence: GPL-3.0-or-later (LICENSE); third-party notices: THIRD_PARTY_NOTICES.md.'
+        'Project-specific QtGraphs corresponding source, patch and build recipe: docs/licenses/qtgraphs/README.md.'
+    ) | Set-Content -LiteralPath $SourceNotePath -Encoding utf8
 
-# The status of the profile set in the source tree is declared in one place,
-# protocol-profiles/README.md, and read from there rather than repeated here.
-$ProfilesReadme = Join-Path $RepoRoot 'protocol-profiles\README.md'
-Assert-File $ProfilesReadme '缺少协议档案 README'
-$sourceProfileMatch = [regex]::Match(
-    (Get-Content -LiteralPath $ProfilesReadme -Raw -Encoding UTF8),
-    'PROTOCOL_PROFILE_STATUS\s*=\s*([A-Z0-9_]+)')
-if (-not $sourceProfileMatch.Success) {
-    throw ("protocol-profiles/README.md 里找不到 PROTOCOL_PROFILE_STATUS = <状态>: {0}" -f $ProfilesReadme)
-}
-$sourceProfileStatus = $sourceProfileMatch.Groups[1].Value
-
-# public_distribution_ready is a claim about this artifact, so every blocker below must hold.
-# The first two are declarations, not findings: compile-time constants read back out of the
-# staged binary (see Invoke-StagedCollectorJson), recorded with a *_source field saying so and
-# kept only so a build whose declared status regressed cannot ship. The last three carry the
-# gate: whether the package carries a VERIFIED protocol profile, whether its source is a
-# clean commit that git can name, and whether verification was skipped.
-$distributionBlockers = @()
-if (-not $stagedDoctor.public_distribution_ready) {
-    $distributionBlockers += '打包的 Collector 自述 public_distribution_ready=false（编译期常量）'
-}
-if ($liveCaptureStatus -ne 'VERIFIED_POP_TO_EXIT') {
-    $distributionBlockers += ("live_capture_status={0}（编译期常量，应为 VERIFIED_POP_TO_EXIT）" -f $liveCaptureStatus)
-}
-if ($verifiedProfileIds.Count -eq 0) {
-    $distributionBlockers += '包内没有任何 VERIFIED 协议档案'
-}
-if ($sourceState.Problem) {
-    $distributionBlockers += ("无法确定源码提交与工作区状态：{0}" -f $sourceState.Problem)
-}
-elseif ($sourceState.Dirty) {
-    $distributionBlockers += '源码工作区有未提交改动（source_worktree_dirty）'
-}
-if ($SkipVerify) {
-    $distributionBlockers += '按 -SkipVerify 跳过了验证关卡'
-}
-elseif ($null -eq $verificationResult -or -not $verificationResult.Succeeded -or -not $verificationResult.Complete) {
-    $distributionBlockers += '预验证只完成部分验证或未返回完整结果（verification_complete=false）'
-}
-if (-not $Verify) {
-    # docs/release-checklist.md requires the unpack-and-run check of the archive (M-2).
-    $distributionBlockers += '未按 -Verify 解包并运行产物（unpack_verified=false）'
-}
-if ($IsPrerelease) {
-    # A beta is a test build by definition: the number says the work is not released yet,
-    # so the artifact must never be offered as one. Packaging still succeeds - producing
-    # the test build is the whole point - but the claim is false and says why.
-    $distributionBlockers += ("版本 {0} 是先行版（测试包），按定义不作为正式发布分发" -f $Version)
-}
-$publicDistributionReady = $distributionBlockers.Count -eq 0
-
-Write-Host ("  live_capture_status              = {0}  (打包二进制中的编译期常量)" -f $liveCaptureStatus)
-Write-Host ("  packaged_verified_profile_status = {0}  (由包内档案实际得出)" -f $packagedProfileStatus)
-Write-Host ("  public_distribution_ready        = {0}" -f $publicDistributionReady)
-foreach ($blocker in $distributionBlockers) {
-    Write-Host ("    - {0}" -f $blocker) -ForegroundColor Yellow
-}
-
-[ordered]@{
-    product = 'MentorRecorder'
-    version = $Version
-    # True when `version` carries a prerelease suffix (1.4.0-beta.1): a test build, never
-    # published as "latest". A reader that cannot parse the suffix can read this instead.
-    prerelease = $IsPrerelease
-    configuration = $Configuration
-    runtime = 'win-x64'
-    framework_dependent = $false
-    # Both null when git could not answer; public_distribution_blockers then says why.
-    source_commit = $sourceState.Commit
-    source_worktree_dirty = $sourceState.Dirty
-    live_capture_status = $liveCaptureStatus
-    # Where each status came from, so a reader never has to guess whether a field is a
-    # finding or a declaration: live_capture_status is a constant, not evidence that this
-    # build was run against live game traffic.
-    live_capture_status_source = 'CaptureDiagnostics constant in the staged binary'
-    source_protocol_profile_status = $sourceProfileStatus
-    packaged_verified_profile_status = $packagedProfileStatus
-    packaged_verified_profile_status_source = 'staged --list-profiles over the packaged profile files'
-    # Whether this run unpacks the archive and runs both executables from it (-Verify). That
-    # check runs after this file is written; a failure there fails the packaging run and
-    # deletes this file, the archive and its checksum.
-    unpack_verified = [bool]$Verify
-    unpack_verified_source = 'package.ps1 -Verify; the unpack-and-run check follows this file and fails the run when it fails'
-    public_distribution_ready = $publicDistributionReady
-    public_distribution_ready_source = 'staged CaptureDiagnostics constant, packaged profiles, git worktree state, -SkipVerify and -Verify'
-    public_distribution_blockers = @($distributionBlockers)
-    qtgraphs_runtime = $(if ($null -ne $qtGraphsContext) { Assert-QtGraphsCachedRuntime -Context $qtGraphsContext } else { $null })
-    qt_private_runtime = $qtPrivateRuntime
-    produced_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
-} | ConvertTo-Json | Set-Content -LiteralPath $BuildMetadataPath -Encoding utf8
-
-Write-Head '部署 Qt 运行时 / Deploy Qt runtime'
-# The MinGW SDK supplies release Qt DLLs even for a Debug build of our application.
-# Let windeployqt inspect the imports of the staged executable.
-$qtDeploymentArguments = @()
-if ($null -ne $qtGraphsContext) {
-    $qtDeploymentArguments = @(Get-QtGraphsDeploymentArguments -Context $qtGraphsContext)
-}
-# --no-ffmpeg / --exclude-plugins: online speech only plays WAV files, which the Windows
-# multimedia backend handles; see $ForbiddenMediaPatterns.
-& $Windeployqt `
-    --compiler-runtime `
-    --no-translations `
-    --no-ffmpeg `
-    --exclude-plugins ffmpegmediaplugin `
-    @qtDeploymentArguments `
-    --qmldir $QmlSourceDir `
-    (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-# Private Qt layouts require the exact DLL bytes recorded when configuring the build.
-Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $StageDir
-# windeployqt copies the SDK's original DLL; restore and verify the reviewed patch afterwards.
-if ($null -ne $qtGraphsContext) {
-    Install-QtGraphsRuntime -Context $qtGraphsContext -DestinationDirectory $StageDir | Out-Null
-}
-
-Add-MinGwRuntime $StageDir
-Add-OffscreenPlatformPlugin $StageDir
-
-Write-Head '禁止内容核对 / Forbidden content assertions'
-Assert-NoForbiddenPayload $StageDir
-Assert-NoLocalPathLeak $StageDir
-Assert-MultimediaLayout $StageDir
-
-Write-Head '生成校验和 / Generate checksums'
-$hashLines = foreach ($file in Get-ChildItem -LiteralPath $StageDir -Recurse -File | Sort-Object FullName) {
-    $relative = [System.IO.Path]::GetRelativePath($StageDir, $file.FullName)
-    $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    '{0}  {1}' -f $hash, ($relative -replace '\\', '/')
-}
-$hashLines | Set-Content -LiteralPath $HashPath -Encoding utf8
-
-# Runs here, not with the forbidden-content check: SHA256SUMS.txt is one of the files it
-# requires and the line above is what creates it.
-Write-Head '必需内容核对 / Required content assertions'
-Assert-RequiredContent $StageDir
-
-Write-Head '版本一致性核对 / Version consistency assertions'
-Assert-StagedVersion $StageDir
-Assert-ReleasedChangelogSectionsUnchanged
-
-Write-Head '升级残留核对 / Upgrade leftover assertions'
-Assert-InstallDeleteCoverage $StageDir
-
-Write-Head '压缩 / Zip artifact'
-Compress-Archive -LiteralPath $StageDir -DestinationPath $ZipPath -CompressionLevel Optimal
-$zipHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-("{0}  {1}" -f $zipHash, (Split-Path -Leaf $ZipPath)) |
-    Set-Content -LiteralPath $ZipHashPath -Encoding ascii
-
-if ($Verify) {
-    Write-Head '解包验证 / Unpack and run'
-
-    # This step uses nothing from the workspace: the archive is expanded elsewhere and both
-    # executables are run from there, so a runtime dependency that is only satisfied by a
-    # stray PATH entry or a file left in the build tree fails here, not on a user's machine.
-    $verifyRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mr-pkg-verify-{0}" -f ([guid]::NewGuid().ToString('N')))
-    try {
-        New-Item -ItemType Directory -Path $verifyRoot -Force | Out-Null
-        Expand-Archive -LiteralPath $ZipPath -DestinationPath $verifyRoot -Force
-
-        $unpacked = Join-Path $verifyRoot (Split-Path -Leaf $StageDir)
-        Assert-File $unpacked '解包后找不到发布目录'
-        Write-Host ("  解包目录: {0}" -f $unpacked)
-
-        # The unpacked tree must satisfy the same content rules as the staging tree; a zip
-        # that silently dropped or added a file is a broken artifact.
-        Assert-NoForbiddenPayload $unpacked
-        Assert-NoLocalPathLeak $unpacked
-        Assert-MultimediaLayout $unpacked
-        Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $unpacked
-        if ($null -ne $qtGraphsContext) {
-            Assert-InstalledQtGraphsRuntime -DestinationDirectory $unpacked -Context $qtGraphsContext | Out-Null
+    # A git that fails (not a repository, "dubious ownership", not installed) prints nothing, and
+    # an empty `git status` must not pass for a clean tree: Get-SourceTreeState reports it as a
+    # problem, which blocks the distribution claim below.
+    $sourceState = Get-SourceTreeState -RepoRoot $RepoRoot
+    if ($sourceStateBeforeVerify.Commit -ne $sourceState.Commit -or
+        $sourceStateBeforeVerify.Dirty -ne $sourceState.Dirty -or
+        [bool]$sourceStateBeforeVerify.Problem -ne [bool]$sourceState.Problem) {
+        $describeSource = {
+            param($state)
+            if ($state.Problem) { return [string]$state.Problem }
+            '提交 {0}（{1}）' -f $state.Commit, $(if ($state.Dirty) { '有未提交改动' } else { '工作区干净' })
         }
-        Assert-RequiredContent $unpacked
-        Assert-StagedVersion $unpacked
+        throw ("源码在打包过程中发生了变化：验证与构建开始时为{0}，现在为{1}。产物中的程序无法确定来自哪一份源码；请在工作区不再变动时重新打包。" -f
+            (& $describeSource $sourceStateBeforeVerify), (& $describeSource $sourceState))
+    }
+
+    Write-Head '读取构建自述 / Read build self-report'
+    # Exit code 1 from --capture-doctor means this machine could not capture right now (no Npcap,
+    # no game). That says nothing about the artifact and is accepted; only a crash or a non-JSON
+    # answer is a failure.
+    $stagedDoctor = Invoke-StagedCollectorJson -TargetDir $StageDir `
+        -CollectorArgs @('--capture-doctor', '--json') -AllowedExitCodes @(0, 1) -Label 'staged-capture-doctor'
+    $stagedProfiles = Invoke-StagedCollectorJson -TargetDir $StageDir `
+        -CollectorArgs @('--list-profiles', '--json') -AllowedExitCodes @(0, 1) -Label 'staged-list-profiles'
+
+    # @() so a single VERIFIED profile is still an array: Set-StrictMode Latest refuses
+    # .Count on the bare string PowerShell would otherwise unwrap it to.
+    $verifiedProfileIds = @(Get-PackagedVerifiedProfileIds $stagedProfiles)
+    $packagedProfileStatus = Format-PackagedProfileStatus $verifiedProfileIds
+    $liveCaptureStatus = [string]$stagedDoctor.live_capture_status
+
+    # The status of the profile set in the source tree is declared in one place,
+    # protocol-profiles/README.md, and read from there rather than repeated here.
+    $ProfilesReadme = Join-Path $RepoRoot 'protocol-profiles\README.md'
+    Assert-File $ProfilesReadme '缺少协议档案 README'
+    $sourceProfileMatch = [regex]::Match(
+        (Get-Content -LiteralPath $ProfilesReadme -Raw -Encoding UTF8),
+        'PROTOCOL_PROFILE_STATUS\s*=\s*([A-Z0-9_]+)')
+    if (-not $sourceProfileMatch.Success) {
+        throw ("protocol-profiles/README.md 里找不到 PROTOCOL_PROFILE_STATUS = <状态>: {0}" -f $ProfilesReadme)
+    }
+    $sourceProfileStatus = $sourceProfileMatch.Groups[1].Value
+
+    # public_distribution_ready is a claim about this artifact, so every blocker below must hold.
+    # The first two are declarations, not findings: compile-time constants read back out of the
+    # staged binary (see Invoke-StagedCollectorJson), recorded with a *_source field saying so and
+    # kept only so a build whose declared status regressed cannot ship. The last three carry the
+    # gate: whether the package carries a VERIFIED protocol profile, whether its source is a
+    # clean commit that git can name, and whether verification was skipped.
+    $distributionBlockers = @()
+    if (-not $stagedDoctor.public_distribution_ready) {
+        $distributionBlockers += '打包的 Collector 自述 public_distribution_ready=false（编译期常量）'
+    }
+    if ($liveCaptureStatus -ne 'VERIFIED_POP_TO_EXIT') {
+        $distributionBlockers += ("live_capture_status={0}（编译期常量，应为 VERIFIED_POP_TO_EXIT）" -f $liveCaptureStatus)
+    }
+    if ($verifiedProfileIds.Count -eq 0) {
+        $distributionBlockers += '包内没有任何 VERIFIED 协议档案'
+    }
+    if ($sourceState.Problem) {
+        $distributionBlockers += ("无法确定源码提交与工作区状态：{0}" -f $sourceState.Problem)
+    }
+    elseif ($sourceState.Dirty) {
+        $distributionBlockers += '源码工作区有未提交改动（source_worktree_dirty）'
+    }
+    if ($SkipVerify) {
+        $distributionBlockers += '按 -SkipVerify 跳过了验证关卡'
+    }
+    elseif ($null -eq $verificationResult -or -not $verificationResult.Succeeded -or -not $verificationResult.Complete) {
+        $distributionBlockers += '预验证只完成部分验证或未返回完整结果（verification_complete=false）'
+    }
+    if (-not $Verify) {
+        # docs/release-checklist.md requires the unpack-and-run check of the archive (M-2).
+        $distributionBlockers += '未按 -Verify 解包并运行产物（unpack_verified=false）'
+    }
+    if ($IsPrerelease) {
+        # A beta is a test build by definition: the number says the work is not released yet,
+        # so the artifact must never be offered as one. Packaging still succeeds - producing
+        # the test build is the whole point - but the claim is false and says why.
+        $distributionBlockers += ("版本 {0} 是先行版（测试包），按定义不作为正式发布分发" -f $Version)
+    }
+    $publicDistributionReady = $distributionBlockers.Count -eq 0
+
+    Write-Host ("  live_capture_status              = {0}  (打包二进制中的编译期常量)" -f $liveCaptureStatus)
+    Write-Host ("  packaged_verified_profile_status = {0}  (由包内档案实际得出)" -f $packagedProfileStatus)
+    Write-Host ("  public_distribution_ready        = {0}" -f $publicDistributionReady)
+    foreach ($blocker in $distributionBlockers) {
+        Write-Host ("    - {0}" -f $blocker) -ForegroundColor Yellow
+    }
+
+    Write-Head '部署 Qt 运行时 / Deploy Qt runtime'
+    # The MinGW SDK supplies release Qt DLLs even for a Debug build of our application.
+    # Let windeployqt inspect the imports of the staged executable.
+    $qtDeploymentArguments = @()
+    if ($null -ne $qtGraphsContext) {
+        $qtDeploymentArguments = @(Get-QtGraphsDeploymentArguments -Context $qtGraphsContext)
+    }
+    # --no-ffmpeg / --exclude-plugins: online speech only plays WAV files, which the Windows
+    # multimedia backend handles; see $ForbiddenMediaPatterns.
+    & $Windeployqt `
+        --compiler-runtime `
+        --no-translations `
+        --no-ffmpeg `
+        --exclude-plugins ffmpegmediaplugin `
+        @qtDeploymentArguments `
+        --qmldir $QmlSourceDir `
+        (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    # Private Qt layouts require the exact DLL bytes recorded when configuring the build.
+    Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $StageDir
+    # windeployqt copies the SDK's original DLL; restore and verify the reviewed patch afterwards.
+    if ($null -ne $qtGraphsContext) {
+        Install-QtGraphsRuntime -Context $qtGraphsContext -DestinationDirectory $StageDir | Out-Null
+    }
+
+    Add-MinGwRuntime $StageDir
+    Add-OffscreenPlatformPlugin $StageDir
+
+    function Test-UnpackedPackage {
+        Write-Head '解包验证 / Unpack and run'
+
+        # This step uses nothing from the workspace: the archive is expanded elsewhere and both
+        # executables are run from there, so a runtime dependency that is only satisfied by a
+        # stray PATH entry or a file left in the build tree fails here, not on a user's machine.
+        $verifyRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mr-pkg-verify-{0}" -f ([guid]::NewGuid().ToString('N')))
+        try {
+            New-Item -ItemType Directory -Path $verifyRoot -Force | Out-Null
+            Expand-Archive -LiteralPath $ZipPath -DestinationPath $verifyRoot -Force
+
+            $unpacked = Join-Path $verifyRoot (Split-Path -Leaf $StageDir)
+            Assert-File $unpacked '解包后找不到发布目录'
+            Write-Host ("  解包目录: {0}" -f $unpacked)
+
+            # The unpacked tree must satisfy the same content rules as the staging tree; a zip
+            # that silently dropped or added a file is a broken artifact.
+            Assert-NoForbiddenPayload $unpacked
+            Assert-NoLocalPathLeak $unpacked
+            Assert-MultimediaLayout $unpacked
+            Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $unpacked
+            if ($null -ne $qtGraphsContext) {
+                Assert-InstalledQtGraphsRuntime -DestinationDirectory $unpacked -Context $qtGraphsContext | Out-Null
+            }
+            Assert-RequiredContent $unpacked
+            Assert-StagedVersion $unpacked
+            Assert-ReleasedChangelogSectionsUnchanged
+
+            $collector = Join-Path $unpacked 'MentorRecorder.Collector.exe'
+            $desktop = Join-Path $unpacked 'MentorRecorder.Desktop.exe'
+            Assert-File $collector '解包目录缺少 Collector'
+            Assert-File $desktop '解包目录缺少 Desktop'
+            Assert-DesktopExecutable $desktop
+            Test-OcrRuntime -RuntimeDirectory (Join-Path $unpacked 'ocr') -RepoRoot $RepoRoot | Out-Null
+
+            function Invoke-Unpacked([string]$Exe, [string[]]$PackageArgs, [int[]]$AllowedExitCodes, [string]$Label,
+                                     [switch]$Offscreen) {
+                $out = Join-Path $verifyRoot ("{0}.out" -f $Label)
+                $err = Join-Path $verifyRoot ("{0}.err" -f $Label)
+                $startInfo = New-IsolatedPackageStartInfo -Executable $Exe -Arguments $PackageArgs `
+                    -WorkingDirectory $unpacked -Offscreen:$Offscreen
+                # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3, 8.4, 8.7).
+                $startInfo.get_EnvironmentVariables()['MR_DISABLE_SHARED_FETCH'] = '1'
+                $startInfo.get_EnvironmentVariables()['MR_DISABLE_ONLINE_SPEECH'] = '1'
+                $startInfo.get_EnvironmentVariables()['MR_DISABLE_UPDATE_CHECK'] = '1'
+                $startInfo.get_EnvironmentVariables()['MR_DISABLE_DUTY_COMMUNITY'] = '1'
+                $result = Invoke-PackageVerificationProcess -StartInfo $startInfo -TimeoutSeconds 60
+                $processExit = $result.ExitCode
+                $stdout = $result.Stdout
+                $stderr = $result.Stderr
+                Set-Content -LiteralPath $out -Value $stdout -Encoding UTF8
+                Set-Content -LiteralPath $err -Value $stderr -Encoding UTF8
+
+                if ($result.TimedOut) {
+                    throw ("{0} exceeded the 60-second package verification timeout; see {1} and {2}." -f $Label, $out, $err)
+                }
+
+                if ($AllowedExitCodes -notcontains $processExit) {
+                    throw ("{0} 退出码 {1}（允许 {2}）:`n{3}`n{4}" -f
+                        $Label, $processExit, ($AllowedExitCodes -join ','), $stdout.Trim(), $stderr.Trim())
+                }
+
+                Write-Host ("  [ok] {0} (exit {1})" -f $Label, $processExit) -ForegroundColor Green
+                return $stdout
+            }
+
+            # Not $version: PowerShell variables are case-insensitive and $Version (from
+            # Directory.Build.props) is still needed by the installer step below.
+            $versionBanner = Invoke-Unpacked $collector @('--version') @(0) 'collector-version'
+            $bannerMatch = [regex]::Match($versionBanner.Trim(),
+                '^MentorRecorder\.Collector (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \(ipc v\d+\)$')
+            if (-not $bannerMatch.Success -or $bannerMatch.Groups[1].Value -ne $Version) {
+                throw ("--version 横幅与 Directory.Build.props 的 {0} 不一致: {1}" -f $Version, $versionBanner.Trim())
+            }
+            Write-Host ("       {0}" -f $versionBanner.Trim())
+
+            # The assertion is independent of the machine it runs on.
+            #
+            # --capture-doctor exits 0 when this machine could capture right now and 1 when it
+            # could not (no Npcap, no game client, no suitable adapter). Both are accepted; only
+            # a crash or a non-JSON answer is a failure. The three boundary tokens asserted below
+            # are compile-time constants in src/Collector/Capture/CaptureDiagnostics.cs
+            # (LiveCaptureStatus, MonitorType, InjectedHookEnabled), describing what the build is
+            # allowed to do rather than what the machine has installed, so a CI runner without
+            # Npcap must produce the same three values as a developer machine.
+            $doctor = Invoke-Unpacked $collector @('--capture-doctor', '--json') @(0, 1) 'collector-doctor'
+            $report = $doctor | ConvertFrom-Json
+            if ($report.live_capture_status -ne 'VERIFIED_POP_TO_EXIT') {
+                throw ("--capture-doctor 报告 live_capture_status = {0}，应为 VERIFIED_POP_TO_EXIT。" -f $report.live_capture_status)
+            }
+            if ($report.boundary.injected_hook_enabled) {
+                throw '--capture-doctor 报告注入式钩子已启用；这是硬边界违规。'
+            }
+            if ($report.boundary.monitor_type -ne 'WinPCap') {
+                throw ("--capture-doctor 报告 monitor_type = {0}，应为 WinPCap。" -f $report.boundary.monitor_type)
+            }
+            Write-Host ("       live_capture_status={0} monitor_type={1} injected_hook={2}" -f
+                $report.live_capture_status, $report.boundary.monitor_type, $report.boundary.injected_hook_enabled)
+
+            # BUILD-METADATA.json is what a downloader reads to tell a release from a local
+            # experiment. Its status fields are checked against the unpacked build's own answers
+            # and the distribution claim against its preconditions.
+            #
+            # The live_capture_status comparison proves only that the metadata and the packaged
+            # binary came from the same build: both sides are the same compile-time constant. The
+            # comparisons that can actually disagree are the profile status (read from the
+            # packaged files) and the worktree state.
+            $metadata = (Get-Content -LiteralPath (Join-Path $unpacked 'BUILD-METADATA.json') -Raw -Encoding UTF8) |
+                ConvertFrom-Json
+            $unpackedProfiles = Invoke-StagedCollectorJson -TargetDir $unpacked `
+                -CollectorArgs @('--list-profiles', '--json') -AllowedExitCodes @(0, 1) -Label 'unpacked-list-profiles'
+            $unpackedVerifiedIds = @(Get-PackagedVerifiedProfileIds $unpackedProfiles)
+            $unpackedProfileStatus = Format-PackagedProfileStatus $unpackedVerifiedIds
+
+            if ($metadata.live_capture_status -ne $report.live_capture_status) {
+                throw ("BUILD-METADATA.json 的 live_capture_status = {0}，但解包后的 Collector 报告 {1}。" -f
+                    $metadata.live_capture_status, $report.live_capture_status)
+            }
+            if ($metadata.packaged_verified_profile_status -ne $unpackedProfileStatus) {
+                throw ("BUILD-METADATA.json 的 packaged_verified_profile_status = {0}，但包内实际是 {1}。" -f
+                    $metadata.packaged_verified_profile_status, $unpackedProfileStatus)
+            }
+
+            if ($metadata.public_distribution_ready) {
+                $verifyBlockers = @()
+                if ($metadata.source_worktree_dirty) {
+                    $verifyBlockers += '源码工作区有未提交改动：产物无法与任何提交对应'
+                }
+                if (-not $metadata.source_commit) {
+                    $verifyBlockers += 'BUILD-METADATA.json 没有记录 source_commit：产物无法与任何提交对应'
+                }
+                # The same reading as at packaging time: a git that fails is not a clean tree.
+                $verifySourceState = Get-SourceTreeState -RepoRoot $RepoRoot
+                if ($verifySourceState.Problem) {
+                    $verifyBlockers += ("无法确定源码工作区状态：{0}" -f $verifySourceState.Problem)
+                }
+                elseif ($verifySourceState.Dirty) {
+                    $verifyBlockers += '打包后源码工作区又出现了未提交改动'
+                }
+                if ($unpackedVerifiedIds.Count -eq 0) {
+                    $verifyBlockers += '包内没有任何 VERIFIED 协议档案'
+                }
+                if ($report.live_capture_status -ne 'VERIFIED_POP_TO_EXIT') {
+                    $verifyBlockers += ("live_capture_status = {0}" -f $report.live_capture_status)
+                }
+                if ($verifyBlockers.Count -gt 0) {
+                    throw ("BUILD-METADATA.json 声称 public_distribution_ready = true，但:`n{0}" -f
+                        (($verifyBlockers | ForEach-Object { '  - ' + $_ }) -join [Environment]::NewLine))
+                }
+            }
+            Write-Host ("  [ok] BUILD-METADATA.json 与包内实际一致（{0}，public_distribution_ready={1}）。" -f
+                $unpackedProfileStatus, $metadata.public_distribution_ready) -ForegroundColor Green
+
+            # The Desktop needs the whole Qt runtime, the QML modules and the offscreen platform
+            # plugin; rendering a screenshot exercises all three.
+            $shot = Join-Path $verifyRoot 'unpacked-smoke.png'
+            Invoke-Unpacked $desktop @('--screenshot', $shot, '--page', '1', '--theme', 'dark',
+                '--screenshot-delay', '400') @(0) 'desktop-screenshot' -Offscreen | Out-Null
+
+            Assert-File $shot '解包后的 Desktop 没有产出截图'
+            $shotBytes = (Get-Item -LiteralPath $shot).Length
+            if ($shotBytes -lt 4096) {
+                throw ("截图只有 {0} 字节，看起来不是一张真的界面。" -f $shotBytes)
+            }
+            Write-Host ("  [ok] 截图 {0} 字节" -f $shotBytes) -ForegroundColor Green
+
+            # Online speech plays through QSoundEffect and the only multimedia backend in the
+            # package. Exit 6 means this machine has no audio output device, which says nothing
+            # about the artifact; anything else but 0 is a missing or broken runtime.
+            $silentWave = Join-Path $verifyRoot 'speech-selftest.wav'
+            New-SilentWave $silentWave
+            $selftest = Invoke-Unpacked $desktop @('--speech-selftest', $silentWave) @(0, 6) 'desktop-speech-selftest'
+            Write-Host ("       {0}" -f (($selftest -split "`r?`n" | Where-Object { $_ }) -join ' | '))
+
+            # Nothing the run just did may have written a database or a log into the artifact.
+            Assert-NoForbiddenPayload $unpacked
+            Write-Host '  解包验证通过：运行时依赖完整。' -ForegroundColor Green
+        }
+        finally {
+            Remove-Item -LiteralPath $verifyRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    try {
+        [ordered]@{
+            product = 'MentorRecorder'
+            version = $Version
+            # True when `version` carries a prerelease suffix (1.4.0-beta.1): a test build, never
+            # published as "latest". A reader that cannot parse the suffix can read this instead.
+            prerelease = $IsPrerelease
+            configuration = $Configuration
+            runtime = 'win-x64'
+            framework_dependent = $false
+            # Both null when git could not answer; public_distribution_blockers then says why.
+            source_commit = $sourceState.Commit
+            source_worktree_dirty = $sourceState.Dirty
+            live_capture_status = $liveCaptureStatus
+            # Where each status came from, so a reader never has to guess whether a field is a
+            # finding or a declaration: live_capture_status is a constant, not evidence that this
+            # build was run against live game traffic.
+            live_capture_status_source = 'CaptureDiagnostics constant in the staged binary'
+            source_protocol_profile_status = $sourceProfileStatus
+            packaged_verified_profile_status = $packagedProfileStatus
+            packaged_verified_profile_status_source = 'staged --list-profiles over the packaged profile files'
+            # Whether this run unpacks the archive and runs both executables from it (-Verify). That
+            # replay and every intervening check share the failure cleanup below.
+            unpack_verified = [bool]$Verify
+            unpack_verified_source = 'package.ps1 -Verify; the unpack-and-run check follows this file and fails the run when it fails'
+            public_distribution_ready = $publicDistributionReady
+            public_distribution_ready_source = 'staged CaptureDiagnostics constant, packaged profiles, git worktree state, -SkipVerify and -Verify'
+            public_distribution_blockers = @($distributionBlockers)
+            qtgraphs_runtime = $(if ($null -ne $qtGraphsContext) { Assert-QtGraphsCachedRuntime -Context $qtGraphsContext } else { $null })
+            qt_private_runtime = $qtPrivateRuntime
+            produced_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
+        } | ConvertTo-Json | Set-Content -LiteralPath $BuildMetadataPath -Encoding utf8
+
+        Write-Head '禁止内容核对 / Forbidden content assertions'
+        Assert-NoForbiddenPayload $StageDir
+        Assert-NoLocalPathLeak $StageDir
+        Assert-MultimediaLayout $StageDir
+
+        Write-Head '生成校验和 / Generate checksums'
+        $hashLines = foreach ($file in Get-ChildItem -LiteralPath $StageDir -Recurse -File | Sort-Object FullName) {
+            $relative = [System.IO.Path]::GetRelativePath($StageDir, $file.FullName)
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            '{0}  {1}' -f $hash, ($relative -replace '\\', '/')
+        }
+        $hashLines | Set-Content -LiteralPath $HashPath -Encoding utf8
+
+        # Runs here, not with the forbidden-content check: SHA256SUMS.txt is one of the files it
+        # requires and the line above is what creates it.
+        Write-Head '必需内容核对 / Required content assertions'
+        Assert-RequiredContent $StageDir
+
+        Write-Head '版本一致性核对 / Version consistency assertions'
+        Assert-StagedVersion $StageDir
         Assert-ReleasedChangelogSectionsUnchanged
 
-        $collector = Join-Path $unpacked 'MentorRecorder.Collector.exe'
-        $desktop = Join-Path $unpacked 'MentorRecorder.Desktop.exe'
-        Assert-File $collector '解包目录缺少 Collector'
-        Assert-File $desktop '解包目录缺少 Desktop'
-        Assert-DesktopExecutable $desktop
-        Test-OcrRuntime -RuntimeDirectory (Join-Path $unpacked 'ocr') -RepoRoot $RepoRoot | Out-Null
+        Write-Head '升级残留核对 / Upgrade leftover assertions'
+        Assert-InstallDeleteCoverage $StageDir
 
-        function Invoke-Unpacked([string]$Exe, [string[]]$PackageArgs, [int[]]$AllowedExitCodes, [string]$Label,
-                                 [switch]$Offscreen) {
-            $out = Join-Path $verifyRoot ("{0}.out" -f $Label)
-            $err = Join-Path $verifyRoot ("{0}.err" -f $Label)
-            $startInfo = New-IsolatedPackageStartInfo -Executable $Exe -Arguments $PackageArgs `
-                -WorkingDirectory $unpacked -Offscreen:$Offscreen
-            # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3, 8.4, 8.7).
-            $startInfo.get_EnvironmentVariables()['MR_DISABLE_SHARED_FETCH'] = '1'
-            $startInfo.get_EnvironmentVariables()['MR_DISABLE_ONLINE_SPEECH'] = '1'
-            $startInfo.get_EnvironmentVariables()['MR_DISABLE_UPDATE_CHECK'] = '1'
-            $startInfo.get_EnvironmentVariables()['MR_DISABLE_DUTY_COMMUNITY'] = '1'
-            $result = Invoke-PackageVerificationProcess -StartInfo $startInfo -TimeoutSeconds 60
-            $processExit = $result.ExitCode
-            $stdout = $result.Stdout
-            $stderr = $result.Stderr
-            Set-Content -LiteralPath $out -Value $stdout -Encoding UTF8
-            Set-Content -LiteralPath $err -Value $stderr -Encoding UTF8
+        Write-Head '压缩 / Zip artifact'
+        Compress-Archive -LiteralPath $StageDir -DestinationPath $ZipPath -CompressionLevel Optimal
+        $zipHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        ("{0}  {1}" -f $zipHash, (Split-Path -Leaf $ZipPath)) |
+            Set-Content -LiteralPath $ZipHashPath -Encoding ascii
 
-            if ($result.TimedOut) {
-                throw ("{0} exceeded the 60-second package verification timeout; see {1} and {2}." -f $Label, $out, $err)
-            }
-
-            if ($AllowedExitCodes -notcontains $processExit) {
-                throw ("{0} 退出码 {1}（允许 {2}）:`n{3}`n{4}" -f
-                    $Label, $processExit, ($AllowedExitCodes -join ','), $stdout.Trim(), $stderr.Trim())
-            }
-
-            Write-Host ("  [ok] {0} (exit {1})" -f $Label, $processExit) -ForegroundColor Green
-            return $stdout
-        }
-
-        # Not $version: PowerShell variables are case-insensitive and $Version (from
-        # Directory.Build.props) is still needed by the installer step below.
-        $versionBanner = Invoke-Unpacked $collector @('--version') @(0) 'collector-version'
-        $bannerMatch = [regex]::Match($versionBanner.Trim(),
-            '^MentorRecorder\.Collector (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \(ipc v\d+\)$')
-        if (-not $bannerMatch.Success -or $bannerMatch.Groups[1].Value -ne $Version) {
-            throw ("--version 横幅与 Directory.Build.props 的 {0} 不一致: {1}" -f $Version, $versionBanner.Trim())
-        }
-        Write-Host ("       {0}" -f $versionBanner.Trim())
-
-        # The assertion is independent of the machine it runs on.
-        #
-        # --capture-doctor exits 0 when this machine could capture right now and 1 when it
-        # could not (no Npcap, no game client, no suitable adapter). Both are accepted; only
-        # a crash or a non-JSON answer is a failure. The three boundary tokens asserted below
-        # are compile-time constants in src/Collector/Capture/CaptureDiagnostics.cs
-        # (LiveCaptureStatus, MonitorType, InjectedHookEnabled), describing what the build is
-        # allowed to do rather than what the machine has installed, so a CI runner without
-        # Npcap must produce the same three values as a developer machine.
-        $doctor = Invoke-Unpacked $collector @('--capture-doctor', '--json') @(0, 1) 'collector-doctor'
-        $report = $doctor | ConvertFrom-Json
-        if ($report.live_capture_status -ne 'VERIFIED_POP_TO_EXIT') {
-            throw ("--capture-doctor 报告 live_capture_status = {0}，应为 VERIFIED_POP_TO_EXIT。" -f $report.live_capture_status)
-        }
-        if ($report.boundary.injected_hook_enabled) {
-            throw '--capture-doctor 报告注入式钩子已启用；这是硬边界违规。'
-        }
-        if ($report.boundary.monitor_type -ne 'WinPCap') {
-            throw ("--capture-doctor 报告 monitor_type = {0}，应为 WinPCap。" -f $report.boundary.monitor_type)
-        }
-        Write-Host ("       live_capture_status={0} monitor_type={1} injected_hook={2}" -f
-            $report.live_capture_status, $report.boundary.monitor_type, $report.boundary.injected_hook_enabled)
-
-        # BUILD-METADATA.json is what a downloader reads to tell a release from a local
-        # experiment. Its status fields are checked against the unpacked build's own answers
-        # and the distribution claim against its preconditions.
-        #
-        # The live_capture_status comparison proves only that the metadata and the packaged
-        # binary came from the same build: both sides are the same compile-time constant. The
-        # comparisons that can actually disagree are the profile status (read from the
-        # packaged files) and the worktree state.
-        $metadata = (Get-Content -LiteralPath (Join-Path $unpacked 'BUILD-METADATA.json') -Raw -Encoding UTF8) |
-            ConvertFrom-Json
-        $unpackedProfiles = Invoke-StagedCollectorJson -TargetDir $unpacked `
-            -CollectorArgs @('--list-profiles', '--json') -AllowedExitCodes @(0, 1) -Label 'unpacked-list-profiles'
-        $unpackedVerifiedIds = @(Get-PackagedVerifiedProfileIds $unpackedProfiles)
-        $unpackedProfileStatus = Format-PackagedProfileStatus $unpackedVerifiedIds
-
-        if ($metadata.live_capture_status -ne $report.live_capture_status) {
-            throw ("BUILD-METADATA.json 的 live_capture_status = {0}，但解包后的 Collector 报告 {1}。" -f
-                $metadata.live_capture_status, $report.live_capture_status)
-        }
-        if ($metadata.packaged_verified_profile_status -ne $unpackedProfileStatus) {
-            throw ("BUILD-METADATA.json 的 packaged_verified_profile_status = {0}，但包内实际是 {1}。" -f
-                $metadata.packaged_verified_profile_status, $unpackedProfileStatus)
-        }
-
-        if ($metadata.public_distribution_ready) {
-            $verifyBlockers = @()
-            if ($metadata.source_worktree_dirty) {
-                $verifyBlockers += '源码工作区有未提交改动：产物无法与任何提交对应'
-            }
-            if (-not $metadata.source_commit) {
-                $verifyBlockers += 'BUILD-METADATA.json 没有记录 source_commit：产物无法与任何提交对应'
-            }
-            # The same reading as at packaging time: a git that fails is not a clean tree.
-            $verifySourceState = Get-SourceTreeState -RepoRoot $RepoRoot
-            if ($verifySourceState.Problem) {
-                $verifyBlockers += ("无法确定源码工作区状态：{0}" -f $verifySourceState.Problem)
-            }
-            elseif ($verifySourceState.Dirty) {
-                $verifyBlockers += '打包后源码工作区又出现了未提交改动'
-            }
-            if ($unpackedVerifiedIds.Count -eq 0) {
-                $verifyBlockers += '包内没有任何 VERIFIED 协议档案'
-            }
-            if ($report.live_capture_status -ne 'VERIFIED_POP_TO_EXIT') {
-                $verifyBlockers += ("live_capture_status = {0}" -f $report.live_capture_status)
-            }
-            if ($verifyBlockers.Count -gt 0) {
-                throw ("BUILD-METADATA.json 声称 public_distribution_ready = true，但:`n{0}" -f
-                    (($verifyBlockers | ForEach-Object { '  - ' + $_ }) -join [Environment]::NewLine))
-            }
-        }
-        Write-Host ("  [ok] BUILD-METADATA.json 与包内实际一致（{0}，public_distribution_ready={1}）。" -f
-            $unpackedProfileStatus, $metadata.public_distribution_ready) -ForegroundColor Green
-
-        # The Desktop needs the whole Qt runtime, the QML modules and the offscreen platform
-        # plugin; rendering a screenshot exercises all three.
-        $shot = Join-Path $verifyRoot 'unpacked-smoke.png'
-        Invoke-Unpacked $desktop @('--screenshot', $shot, '--page', '1', '--theme', 'dark',
-            '--screenshot-delay', '400') @(0) 'desktop-screenshot' -Offscreen | Out-Null
-
-        Assert-File $shot '解包后的 Desktop 没有产出截图'
-        $shotBytes = (Get-Item -LiteralPath $shot).Length
-        if ($shotBytes -lt 4096) {
-            throw ("截图只有 {0} 字节，看起来不是一张真的界面。" -f $shotBytes)
-        }
-        Write-Host ("  [ok] 截图 {0} 字节" -f $shotBytes) -ForegroundColor Green
-
-        # Online speech plays through QSoundEffect and the only multimedia backend in the
-        # package. Exit 6 means this machine has no audio output device, which says nothing
-        # about the artifact; anything else but 0 is a missing or broken runtime.
-        $silentWave = Join-Path $verifyRoot 'speech-selftest.wav'
-        New-SilentWave $silentWave
-        $selftest = Invoke-Unpacked $desktop @('--speech-selftest', $silentWave) @(0, 6) 'desktop-speech-selftest'
-        Write-Host ("       {0}" -f (($selftest -split "`r?`n" | Where-Object { $_ }) -join ' | '))
-
-        # Nothing the run just did may have written a database or a log into the artifact.
-        Assert-NoForbiddenPayload $unpacked
-        Write-Host '  解包验证通过：运行时依赖完整。' -ForegroundColor Green
+        if ($Verify) { Test-UnpackedPackage }
     }
     catch {
-        # The archive, its checksum and the stage's BUILD-METADATA.json were written before this
-        # check and say unpack_verified = true; a failed check must not leave them behind (RV4-6).
-        $verifyFailure = $_
+        # Keep the staged binaries for diagnosis. The metadata, manifests and any partial archive
+        # from this attempt cannot be distributed until the archive checks finish.
+        $packageFailure = $_
         $removed = @()
         $notRemoved = @()
-        foreach ($claimant in @($ZipPath, $ZipHashPath, $BuildMetadataPath)) {
+        foreach ($claimant in @($ZipPath, $ZipHashPath, $BuildMetadataPath, $HashPath)) {
             if (-not (Test-Path -LiteralPath $claimant)) { continue }
             Remove-Item -LiteralPath $claimant -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $claimant) { $notRemoved += $claimant } else { $removed += $claimant }
         }
-        $lines = @($verifyFailure.Exception.Message)
+        $lines = @($packageFailure.Exception.Message)
         if ($removed.Count -gt 0) {
-            $lines += ('解包验证未通过，已删除验证前写出、记录 unpack_verified = true 的产物：{0}' -f ($removed -join ', '))
+            $lines += ('打包未完成，已清除本次写出的元数据、压缩包或校验文件：{0}' -f ($removed -join ', '))
         }
         if ($notRemoved.Count -gt 0) {
             $lines += ('以下产物未能删除，请手动删除，不要分发：{0}' -f ($notRemoved -join ', '))
         }
         throw ($lines -join [Environment]::NewLine)
     }
-    finally {
-        Remove-Item -LiteralPath $verifyRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
 
-if (-not $NoInstaller) {
-    Write-Head '安装器 / Installer'
-    if (-not $Iscc) {
-        Write-Host '  未找到 Inno Setup 6（ISCC.exe），跳过安装器。安装: winget install JRSoftware.InnoSetup' -ForegroundColor Yellow
-    } else {
-        Assert-File $InstallerScript '缺少安装器脚本'
-        if (Test-Path -LiteralPath $InstallerPath) { Remove-IfExists $InstallerPath }
-        # Two defines, because the two cannot be the same on a prerelease: AppVersion is what
-        # the user sees in "Apps & features" and in the wizard, AppVersionNumeric is the
-        # setup executable's own VERSIONINFO resource, which only holds numbers.
-        $isccArgs = @('/Q', ("/DAppVersion={0}" -f $Version), ("/DAppVersionNumeric={0}" -f $VersionNumeric),
-            ("/DStageDir={0}" -f $StageDir), ("/DOutputDir={0}" -f $OutputRoot), $InstallerScript)
-        Write-Host ("  ISCC {0}" -f ($isccArgs -join ' '))
-        & $Iscc @isccArgs
-        if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+    if (-not $NoInstaller) {
+        Write-Head '安装器 / Installer'
+        if (-not $Iscc) {
+            Write-Host '  未找到 Inno Setup 6（ISCC.exe），跳过安装器。安装: winget install JRSoftware.InnoSetup' -ForegroundColor Yellow
+        } else {
+            Assert-File $InstallerScript '缺少安装器脚本'
+            if (Test-Path -LiteralPath $InstallerPath) { Remove-IfExists $InstallerPath }
+            # Two defines, because the two cannot be the same on a prerelease: AppVersion is what
+            # the user sees in "Apps & features" and in the wizard, AppVersionNumeric is the
+            # setup executable's own VERSIONINFO resource, which only holds numbers.
+            $isccArgs = @('/Q', ("/DAppVersion={0}" -f $Version), ("/DAppVersionNumeric={0}" -f $VersionNumeric),
+                ("/DStageDir={0}" -f $StageDir), ("/DOutputDir={0}" -f $OutputRoot), $InstallerScript)
+            Write-Host ("  ISCC {0}" -f ($isccArgs -join ' '))
+            & $Iscc @isccArgs
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
+            Assert-File $InstallerPath '安装器未生成'
+            $setupHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            ("{0}  {1}" -f $setupHash, (Split-Path -Leaf $InstallerPath)) |
+                Set-Content -LiteralPath $InstallerHashPath -Encoding ascii
+            Write-Host ("  安装器: {0} ({1:N0} 字节)" -f $InstallerPath, (Get-Item -LiteralPath $InstallerPath).Length) -ForegroundColor Green
         }
-        Assert-File $InstallerPath '安装器未生成'
-        $setupHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        ("{0}  {1}" -f $setupHash, (Split-Path -Leaf $InstallerPath)) |
-            Set-Content -LiteralPath $InstallerHashPath -Encoding ascii
-        Write-Host ("  安装器: {0} ({1:N0} 字节)" -f $InstallerPath, (Get-Item -LiteralPath $InstallerPath).Length) -ForegroundColor Green
     }
-}
 
-Write-Host ''
-Write-Host ("发布目录: {0}" -f $StageDir) -ForegroundColor Green
-Write-Host ("ZIP: {0}" -f $ZipPath) -ForegroundColor Green
-Write-Host ("ZIP SHA256: {0}" -f $ZipHashPath) -ForegroundColor Green
-if ($Iscc -and -not $NoInstaller) { Write-Host ("安装器: {0}" -f $InstallerPath) -ForegroundColor Green }
-Write-Host ("VERSION                   = {0}{1}" -f
-    $Version, $(if ($IsPrerelease) { '  (先行版 / prerelease)' } else { '' })) -ForegroundColor Green
-Write-Host ("PUBLIC_DISTRIBUTION_READY = {0}" -f $publicDistributionReady.ToString().ToLowerInvariant()) `
-    -ForegroundColor $(if ($publicDistributionReady) { 'Green' } else { 'Yellow' })
-# Repeated at the end, not only where it was computed: this is the line a maintainer reads
-# after a long packaging run, and "false" without its reason invites guessing.
-foreach ($blocker in $distributionBlockers) {
-    Write-Host ("    - {0}" -f $blocker) -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host ("发布目录: {0}" -f $StageDir) -ForegroundColor Green
+    Write-Host ("ZIP: {0}" -f $ZipPath) -ForegroundColor Green
+    Write-Host ("ZIP SHA256: {0}" -f $ZipHashPath) -ForegroundColor Green
+    if ($Iscc -and -not $NoInstaller) { Write-Host ("安装器: {0}" -f $InstallerPath) -ForegroundColor Green }
+    Write-Host ("VERSION                   = {0}{1}" -f
+        $Version, $(if ($IsPrerelease) { '  (先行版 / prerelease)' } else { '' })) -ForegroundColor Green
+    Write-Host ("PUBLIC_DISTRIBUTION_READY = {0}" -f $publicDistributionReady.ToString().ToLowerInvariant()) `
+        -ForegroundColor $(if ($publicDistributionReady) { 'Green' } else { 'Yellow' })
+    # Repeated at the end, not only where it was computed: this is the line a maintainer reads
+    # after a long packaging run, and "false" without its reason invites guessing.
+    foreach ($blocker in $distributionBlockers) {
+        Write-Host ("    - {0}" -f $blocker) -ForegroundColor Yellow
+    }
+    Write-Host ("LIVE_CAPTURE_STATUS       = {0}" -f $liveCaptureStatus) -ForegroundColor Green
+    Write-Host ("PACKAGED_PROFILE_STATUS   = {0}" -f $packagedProfileStatus) -ForegroundColor Green
 }
-Write-Host ("LIVE_CAPTURE_STATUS       = {0}" -f $liveCaptureStatus) -ForegroundColor Green
-Write-Host ("PACKAGED_PROFILE_STATUS   = {0}" -f $packagedProfileStatus) -ForegroundColor Green
 
 exit 0

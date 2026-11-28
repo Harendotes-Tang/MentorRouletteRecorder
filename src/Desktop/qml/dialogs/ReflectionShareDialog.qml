@@ -122,7 +122,7 @@ MotionDialog {
         reorder()
         return true
     }
-    /// Top of the row  entry occupies, in the coordinates of the preview's content.
+    /// Top of the row \a entry occupies, in the coordinates of the preview's content.
     function rowTopOf(entry: Item): real {
         if (!entry) return 0
         return collection && entry.parent ? (entry.parent.y + entry.y) * combined.templateScale : entry.y

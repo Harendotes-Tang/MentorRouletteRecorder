@@ -9,22 +9,35 @@ internal sealed class CommunityRepository(SqliteDatabase database)
     private const int MaxItems = 400;
     internal const int KeptReceipts = 500;
 
-    internal JsonArray List(int offset = 0, SqliteTransaction? transaction = null) => database.Read(_ =>
+    internal (JsonArray Items, long Generation) ListPage(int offset) =>
+        database.ReadSnapshot((snapshot, transaction) =>
+        {
+            // Each accepted change and its receipt commit together. Pruning keeps the newest receipt.
+            using var version = snapshot.CreateCommand();
+            version.Transaction = transaction;
+            version.CommandText = "SELECT COALESCE(MAX(rowid), 0) FROM community_receipts";
+            var generation = (long)version.ExecuteScalar()!;
+            return (ReadItems(transaction, offset, CommunityContent.PageSize), generation);
+        });
+
+    internal JsonArray ListAll(SqliteTransaction transaction) => ReadItems(transaction, 0, MaxItems);
+
+    private static JsonArray ReadItems(SqliteTransaction transaction, int offset, int limit)
     {
-        using var command = database.CreateCommand();
+        using var command = transaction.Connection!.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             SELECT revision, position, favorite, content_json, upstream_json
             FROM community_local ORDER BY edit_sequence DESC, position, id LIMIT $limit OFFSET $offset
             """;
-        command.Parameters.AddWithValue("$limit", transaction is null ? CommunityContent.PageSize : MaxItems);
+        command.Parameters.AddWithValue("$limit", limit);
         command.Parameters.AddWithValue("$offset", offset);
         using var reader = command.ExecuteReader();
         var items = new JsonArray();
         while (reader.Read())
             items.Add(ReadItem(reader));
         return items;
-    });
+    }
 
     internal JsonObject Change(string requestId, string fingerprint, Func<SqliteTransaction, JsonObject> change)
     {

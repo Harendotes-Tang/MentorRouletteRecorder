@@ -119,7 +119,7 @@ QDate sourceCalendarDay(const QJsonObject &run)
 /// RunRepository.Query: ORDER BY (field IS NULL), field <direction>, run_id -
 /// a missing value sorts last whichever way the list runs, and run_id breaks
 /// ties (review OJ-6). A date-only record sorts from the first instant of its
-/// day in  zone, the 显示时区 the Desktop sent (RunFilterSql.HistorySortDateExpression).
+/// day in \a zone, the 显示时区 the Desktop sent (RunFilterSql.HistorySortDateExpression).
 bool sortsBefore(const QJsonObject &a, const QJsonObject &b, const QString &field, bool ascending,
                  const QTimeZone &zone)
 {

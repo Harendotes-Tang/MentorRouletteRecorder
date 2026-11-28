@@ -23,8 +23,7 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[2]
-PACKAGE = REPO / "scripts" / "package.ps1"
-HELPERS = REPO / "scripts" / "package-version.ps1"
+AST_FIXTURE = Path(__file__).with_name("package-script-ast.ps1").resolve()
 DESKTOP_MANIFEST = REPO / "src" / "Desktop" / "resources" / "app" / "MentorRecorder.Desktop.manifest"
 # The flavour stamp src/Desktop/cpp/transport/BuildFlavour.cpp compiles in (docs/build-and-package.md
 # section 3.7): a NUL-terminated narrow string, one of exactly two values.
@@ -73,50 +72,6 @@ FAILING_GIT = (
     "exit /b 128\r\n"
 )
 
-PRELUDE = r"""
-$ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
-[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
-. {helpers}
-$source = [IO.File]::ReadAllText({package}, [Text.Encoding]::UTF8)
-$tokens = $null
-$errors = $null
-$ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
-if ($errors.Count) {{ throw 'Cannot parse package.ps1' }}
-$statements = @($ast.EndBlock.Statements)
-
-function Get-StatementRange([string]$From, [string]$Until, [switch]$Inclusive) {{
-    # Top-level statements from the first whose text matches $From up to the first later one
-    # matching $Until (excluded unless -Inclusive).
-    $start = -1
-    for ($i = 0; $i -lt $statements.Count; $i++) {{
-        if ($statements[$i].Extent.Text -match $From) {{ $start = $i; break }}
-    }}
-    if ($start -lt 0) {{ throw "No statement matches $From" }}
-    for ($j = $start + 1; $j -lt $statements.Count; $j++) {{
-        if ($statements[$j].Extent.Text -match $Until) {{
-            $end = if ($Inclusive) {{ $j }} else {{ $j - 1 }}
-            return ($statements[$start..$end] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
-        }}
-    }}
-    throw "No statement after $From matches $Until"
-}}
-
-function Get-Assignments([string[]]$Names) {{
-    # Top-level assignments to the named variables, in script order.
-    return (@($statements | Where-Object {{
-        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
-        $_.Left.Extent.Text -in $Names
-    }}) | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
-}}
-
-function Get-FunctionDefinitions([string[]]$Names) {{
-    return (@($statements | Where-Object {{
-        $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in $Names
-    }}) | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
-}}
-"""
-
 
 def ps_literal(value):
     return "'" + str(value).replace("'", "''") + "'"
@@ -153,8 +108,7 @@ class PackageScriptTests(unittest.TestCase):
     def run_package_statements(self, body, *, failing_git=False):
         path_line = (f"$env:PATH = {ps_literal(self.shim)} + ';' + $env:PATH"
                      if failing_git else "")
-        script = (PRELUDE.format(helpers=ps_literal(HELPERS), package=ps_literal(PACKAGE))
-                  + path_line + "\n" + body)
+        script = f". {ps_literal(AST_FIXTURE)}\n{path_line}\n{body}"
         path = self.directory / "statements.ps1"
         path.write_text(script, encoding="utf-8-sig")
         completed = subprocess.run(
@@ -189,7 +143,9 @@ $verifyRoot = {ps_literal(unpacked)}
 Invoke-Expression (Get-Assignments @('$PackagedRootDocs'))
 Invoke-Expression (Get-StatementRange '^foreach \(\$document in \$PackagedRootDocs\)' '^Copy-Item .*THIRD_PARTY_NOTICES')
 Invoke-Expression (Get-FunctionDefinitions @('Assert-RequiredContent'))
-Invoke-Expression (Get-StatementRange '^Compress-Archive ' '^\$zipHash =')
+$compress = $ast.Find({{ param($n) $n -is [Management.Automation.Language.CommandAst] -and
+    $n.GetCommandName() -eq 'Compress-Archive' }}, $true)
+Invoke-Expression $compress.Extent.Text
 Expand-Archive -LiteralPath $ZipPath -DestinationPath $verifyRoot
 $unpacked = Join-Path $verifyRoot (Split-Path -Leaf $StageDir)
 Remove-Item -LiteralPath (Join-Path $StageDir 'README.ja.md')
@@ -208,6 +164,72 @@ $missing | ConvertTo-Json -Compress
                 self.assertEqual(expected - {omitted}, {file.name for file in folder.iterdir()})
                 for name in expected - {omitted}:
                     self.assertEqual((REPO / name).read_bytes(), (folder / name).read_bytes())
+
+    def test_stage_copies_only_tracked_distributable_documentation(self):
+        published = ["docs/指南 [简中]/安装 说明.md", "docs/licenses/sub/LICENSE.txt"]
+        developer = [f"docs/{name}/internal.md" for name in ("diagrams", "plans", "reviews")]
+        private = ["docs/私有 笔记.md", "docs/ignored/working.md"]
+        (self.repository / ".gitignore").write_text("/docs/ignored/\n", encoding="utf-8")
+        for name in published + developer + private:
+            source = self.repository / name
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(name, encoding="utf-8")
+        git("--literal-pathspecs", "add", "--", *published, *developer, cwd=self.repository)
+        # A local build still includes working edits to an already tracked user document.
+        (self.repository / published[0]).write_text("已修改", encoding="utf-8")
+        stage = self.directory / "stage"
+        self.run_package_statements(rf"""
+$RepoRoot = {ps_literal(self.repository)}
+$StageDir = {ps_literal(stage)}
+$AllowReusedVersion = $true
+Invoke-Expression (Get-FunctionDefinitions @('Copy-TrackedDocumentation'))
+Invoke-Expression (Get-StatementRange '^Copy-TrackedDocumentation ' '^Install-OcrRuntime ')
+$true | ConvertTo-Json
+""")
+        self.assertEqual(set(published), {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()})
+        for name in published:
+            self.assertEqual((self.repository / name).read_bytes(), (stage / name).read_bytes())
+
+    def copy_docs_from_source_snapshot(self, paths, *, allow=True, missing_git=False):
+        manifest = self.repository / "scripts/package-docs.txt"
+        manifest.parent.mkdir(exist_ok=True)
+        manifest.write_text("\n".join(paths) + "\n", encoding="utf-8")
+        stage = self.directory / "stage"
+        outcome = self.run_package_statements(rf"""
+$RepoRoot = {ps_literal(self.repository)}
+$StageDir = {ps_literal(stage)}
+$AllowReusedVersion = ${str(allow).lower()}
+{"$env:PATH = ''" if missing_git else ""}
+Invoke-Expression (Get-FunctionDefinitions @('Copy-TrackedDocumentation'))
+$refusal = $null
+try {{ Invoke-Expression (Get-StatementRange '^Copy-TrackedDocumentation ' '^Install-OcrRuntime ') 3>$null }}
+catch {{ $refusal = $_.Exception.Message }}
+@{{ message = [string]$refusal }} | ConvertTo-Json -Compress
+""", failing_git=not missing_git)
+        return outcome["message"], {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()}
+
+    def test_explicit_source_snapshot_packaging_uses_only_manifest_documents(self):
+        approved = "docs/指南 [简中]/安装 说明.md"
+        for name in (approved, "docs/untracked.md", "docs/reviews/private.md"):
+            file = self.repository / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(name, encoding="utf-8")
+        for missing_git in (False, True):
+            with self.subTest(missing_git=missing_git):
+                message, copied = self.copy_docs_from_source_snapshot([approved], missing_git=missing_git)
+                self.assertEqual("", message)
+                self.assertEqual({approved}, copied)
+                shutil.rmtree(self.directory / "stage")
+
+    def test_source_snapshot_manifest_requires_the_override_and_enforces_document_paths(self):
+        message, copied = self.copy_docs_from_source_snapshot(["docs/permitted.md"], allow=False)
+        self.assertIn("-AllowReusedVersion", message)
+        self.assertEqual(set(), copied)
+        for path in ("docs/../src/private.txt", "docs/REVIEWS/private.txt", "secrets.txt"):
+            with self.subTest(path=path):
+                message, copied = self.copy_docs_from_source_snapshot([path])
+                self.assertIn("禁止打包", message)
+                self.assertEqual(set(), copied)
 
     # ----------------------------------------------- public_distribution_ready
 
@@ -565,9 +587,9 @@ $calls = @($ast.FindAll({
         ($node.GetCommandName() -in $names -or $node.CommandElements[0].Extent.Text -eq '$Windeployqt')
 }, $true) | Sort-Object { $_.Extent.StartOffset })
 $verifyBlock = @($statements | Where-Object {
-    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$Verify'
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Test-UnpackedPackage'
 })
-if ($verifyBlock.Count -ne 1) { throw 'The -Verify block was not found' }
+if ($verifyBlock.Count -ne 1) { throw 'The unpack verification function was not found' }
 $block = $verifyBlock[0].Extent
 @($calls | ForEach-Object {
     $name = if ($_.CommandElements[0].Extent.Text -eq '$Windeployqt') { 'windeployqt' } else { $_.GetCommandName() }
@@ -610,7 +632,8 @@ $BuildMetadataPath = {ps_literal(metadata)}
 $write = $ast.Find({{
     param($node)
     $node -is [Management.Automation.Language.PipelineAst] -and
-    $node.Extent.Text -match 'Set-Content -LiteralPath \\$BuildMetadataPath'
+    $node.PipelineElements[-1] -is [Management.Automation.Language.CommandAst] -and
+    $node.PipelineElements[-1].Extent.Text -match '^Set-Content -LiteralPath \\$BuildMetadataPath'
 }}, $true)
 if (-not $write) {{ throw 'The BUILD-METADATA.json writer was not found' }}
 . ([scriptblock]::Create($write.Extent.Text))
@@ -622,53 +645,78 @@ if (-not $write) {{ throw 'The BUILD-METADATA.json writer was not found' }}
         self.assertIs(True, self.build_metadata(verify=True)["unpack_verified"])
         self.assertIs(False, self.build_metadata(verify=False)["unpack_verified"])
 
-    def failed_unpack_check(self):
-        stage = self.directory / "artifacts" / "MentorRecorder-9.9.9-win-x64"
+    def failed_archive_step(self, step):
+        stage = self.directory / step / "MentorRecorder-9.9.9-win-x64"
         stage.mkdir(parents=True)
-        return self.run_package_statements(f"""
+        (stage / "payload.txt").write_text("retained for diagnosis", encoding="ascii")
+        deploy = self.directory / "deploy.ps1"
+        deploy.write_text("exit " + ("17" if step == "deploy" else "0"), encoding="ascii")
+        return self.run_package_statements(rf"""
 $StageDir = {ps_literal(stage)}
 $ZipPath = $StageDir + '.zip'
 $ZipHashPath = $ZipPath + '.sha256'
 $BuildMetadataPath = Join-Path $StageDir 'BUILD-METADATA.json'
+$HashPath = Join-Path $StageDir 'SHA256SUMS.txt'
+$Version = '9.9.9'
+$Configuration = 'Release'
+$IsPrerelease = $false
+$sourceState = [ordered]@{{ Commit = ('a' * 40); Dirty = $false }}
+$liveCaptureStatus = 'VERIFIED_POP_TO_EXIT'
+$sourceProfileStatus = $packagedProfileStatus = 'VERIFIED'
 $Verify = [switch]$true
-Set-Content -LiteralPath $ZipPath -Value 'archive'
-Set-Content -LiteralPath $ZipHashPath -Value 'checksum'
-Set-Content -LiteralPath $BuildMetadataPath -Value '{{"unpack_verified": true}}'
-Set-Content -LiteralPath (Join-Path $StageDir 'SHA256SUMS.txt') -Value 'sums'
-. ([scriptblock]::Create((Get-FunctionDefinitions @('Write-Head'))))
-# The check's first step fails, as a timed-out screenshot or a refused claim would later on.
+$publicDistributionReady = $true
+$distributionBlockers = @()
+$QmlSourceDir = $StageDir
+$qtGraphsContext = $qtPrivateRuntime = $null
+$Windeployqt = {ps_literal(deploy)}
+$step = {ps_literal(step)}
+function Write-Head {{}}
+function Assert-QtPrivateRuntime {{}}
+function Add-MinGwRuntime {{}}
+function Add-OffscreenPlatformPlugin {{}}
+function Assert-NoForbiddenPayload {{}}
+function Assert-NoLocalPathLeak {{}}
+function Assert-MultimediaLayout {{}}
+function Assert-RequiredContent {{ if ($step -eq 'layout') {{ throw 'simulated layout failure' }} }}
+function Assert-StagedVersion {{}}
+function Assert-ReleasedChangelogSectionsUnchanged {{}}
+function Assert-InstallDeleteCoverage {{}}
+function Compress-Archive([string]$LiteralPath, [string]$DestinationPath, [string]$CompressionLevel) {{
+    Set-Content -LiteralPath $DestinationPath -Value 'partial zip'
+    if ($step -eq 'compress') {{ throw 'simulated compress failure' }}
+}}
 function Expand-Archive {{ throw 'simulated unpack failure' }}
-$check = @($statements | Where-Object {{
-    $_ -is [Management.Automation.Language.IfStatementAst] -and
-    $_.Clauses[0].Item1.Extent.Text -eq '$Verify'
-}})
-if ($check.Count -ne 1) {{ throw 'The -Verify block was not found' }}
+
+# Invoke the production sequence as a child script so a native deploy failure can exit with its own code.
+$steps = Get-StatementRange '^Write-Host .*packaged_verified_profile_status' '^if \(-not \$NoInstaller\)'
+$scriptFile = {ps_literal(self.directory / "archive-steps.ps1")}
+Set-Content -LiteralPath $scriptFile -Value $steps -Encoding utf8
 $refusal = $null
-try {{ . ([scriptblock]::Create($check[0].Extent.Text)) 6>$null }} catch {{ $refusal = $_.Exception.Message }}
+try {{ & $scriptFile 6>$null }} catch {{ $refusal = $_.Exception.Message }}
 [ordered]@{{
-    refused = [bool]$refusal
+    exit_code = $LASTEXITCODE
     message = [string]$refusal
     zip_left = Test-Path -LiteralPath $ZipPath
-    checksum_left = Test-Path -LiteralPath $ZipHashPath
+    zip_hash_left = Test-Path -LiteralPath $ZipHashPath
     metadata_left = Test-Path -LiteralPath $BuildMetadataPath
-    stage_left = Test-Path -LiteralPath (Join-Path $StageDir 'SHA256SUMS.txt')
+    manifest_left = Test-Path -LiteralPath $HashPath
+    payload_left = Test-Path -LiteralPath (Join-Path $StageDir 'payload.txt')
 }} | ConvertTo-Json -Compress
 """)
 
-    def test_a_failed_unpack_check_leaves_no_artifact_claiming_it_passed(self):
-        # RV4-6 (audit 2026-10-20): the zip, its .sha256 and BUILD-METADATA.json are written
-        # before the -Verify check and say unpack_verified = true; a failed check used to leave
-        # all three on disk, and the release asset BUILD-METADATA.json comes from the stage.
-        outcome = self.failed_unpack_check()
-        self.assertTrue(outcome["refused"])
-        self.assertIn("simulated unpack failure", outcome["message"])
-        self.assertIn("MentorRecorder-9.9.9-win-x64.zip", outcome["message"])
-        self.assertIn("unpack_verified", outcome["message"])
-        self.assertFalse(outcome["zip_left"])
-        self.assertFalse(outcome["checksum_left"])
-        self.assertFalse(outcome["metadata_left"])
-        # The rest of the stage stays for diagnosis; nothing in it claims a verified archive.
-        self.assertTrue(outcome["stage_left"])
+    def test_failed_deploy_layout_compression_or_unpack_leave_no_claim_or_checksum(self):
+        for step in ("deploy", "layout", "compress", "unpack"):
+            with self.subTest(step=step):
+                outcome = self.failed_archive_step(step)
+                if step == "deploy":
+                    self.assertEqual(17, outcome["exit_code"])
+                else:
+                    self.assertIn(f"simulated {step} failure", outcome["message"])
+                self.assertFalse(outcome["zip_left"])
+                self.assertFalse(outcome["zip_hash_left"])
+                self.assertFalse(outcome["metadata_left"])
+                self.assertFalse(outcome["manifest_left"])
+                self.assertTrue(outcome["payload_left"])
 
     # ------------------------------------------- the source identity, before and after
 
@@ -748,6 +796,52 @@ try {{ . ([scriptblock]::Create($check.Extent.Text)) }} catch {{ $refusal = $_.E
         self.assertIn("source_commit", outcome["message"])
 
     # ---------------------------------------------------- replaced outputs
+
+    def test_competing_output_owner_cannot_replace_finished_or_in_progress_files(self):
+        output = self.directory / "outputs"
+        output.mkdir()
+        archive = output / "previous.zip"
+        archive.write_bytes(b"previous completed archive")
+        outcome = self.run_package_statements(rf"""
+$root = {ps_literal(output)}
+$child = {ps_literal(self.directory / "output-lock.ps1")}
+$pwsh = {ps_literal(self.shell)}
+$definition = Get-FunctionDefinitions @('Invoke-WithPackageOutputLock')
+. ([scriptblock]::Create($definition))
+# Use the lock invocation of the actual entry point with a small output-producing callback.
+$entry = $ast.EndBlock.Statements | Where-Object {{ $_.Extent.Text -match '^Invoke-WithPackageOutputLock ' }}
+$body = $entry.PipelineElements[0].CommandElements[-1].ScriptBlock
+if ($body.Extent.Text -notmatch 'Assert-ReplaceAllowed @' -or
+    $body.Extent.Text -notmatch 'if \(\$Verify\) {{ Test-UnpackedPackage }}' -or
+    $body.Extent.Text -notmatch 'Set-Content -LiteralPath \$InstallerHashPath') {{ throw 'Unprotected output production' }}
+$call = $entry.Extent.Text.Substring(0, $body.Extent.StartOffset - $entry.Extent.StartOffset)
+$action = @'
+{{
+    if ($mode -eq 'replace') {{ Set-Content -LiteralPath (Join-Path $OutputRoot 'previous.zip') -Value 'overwritten' }}
+    if ($mode -eq 'throw') {{ throw 'simulated owner failure' }}
+    if ($mode -eq 'exit') {{ exit 17 }}
+}}
+'@
+$scriptText = 'param($OutputRoot, $mode)' + [Environment]::NewLine + $definition + [Environment]::NewLine + $call + $action
+Set-Content -LiteralPath $child -Value $scriptText -Encoding utf8
+# The second process names the same directory through a different path.
+$result = Invoke-WithPackageOutputLock -Directory $root -Build {{
+    $failure = & $pwsh -NoProfile -NonInteractive -File $child (Join-Path $root '.') 'replace' 2>&1
+    [ordered]@{{ code = $LASTEXITCODE; message = ($failure | Out-String) }}
+}}
+try {{ . $child $root 'throw' }} catch {{ $ownerError = $_.Exception.Message }}
+& $child $root 'exit'
+$exitCode = $LASTEXITCODE
+& $child $root 'probe'
+[ordered]@{{ contention = $result; ownerError = $ownerError; exitCode = $exitCode
+    remaining = @(Get-ChildItem -LiteralPath $root -Force -Name) }} | ConvertTo-Json -Compress
+""")
+        self.assertNotEqual(0, outcome["contention"]["code"])
+        self.assertIn("打包输出目录已被占用", outcome["contention"]["message"])
+        self.assertEqual("simulated owner failure", outcome["ownerError"])
+        self.assertEqual(17, outcome["exitCode"])
+        self.assertEqual(["previous.zip"], outcome["remaining"])
+        self.assertEqual(b"previous completed archive", archive.read_bytes())
 
     def replace_outputs(self, *, force):
         output = self.directory / "artifacts"

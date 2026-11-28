@@ -67,9 +67,9 @@ public:
 
     /// Complete the reply. Calling either twice is a no-op.
     void succeed(const QJsonObject &payload);
-    ///  messageRef is the error's `message_ref`; when this build can render
+    /// \a messageRef is the error's `message_ref`; when this build can render
     /// it, errorMessage() is that sentence in the interface language and
-    ///  message (the Collector's Simplified Chinese) is the fallback.
+    /// \a message (the Collector's Simplified Chinese) is the fallback.
     void fail(const QString &code, const QString &message, const QJsonObject &details = {},
               const QJsonObject &messageRef = {});
     /// Fails a request that never left this process - no connection, a write
@@ -355,7 +355,7 @@ public:
 
     // -- 显示时区 -----------------------------------------------------------
     /// $defs/SetDisplayTimeZoneRequest: the zone the Collector cuts calendar days
-    /// in.  ianaId "" follows the computer's zone (time_zone: null).
+    /// in. \a ianaId "" follows the computer's zone (time_zone: null).
     BackendReply *setDisplayTimeZone(const QString &ianaId);
 
     // -- 导入记录 -----------------------------------------------------------

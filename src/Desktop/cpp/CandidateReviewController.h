@@ -112,7 +112,7 @@ public:
     QVariantMap roundExportResult() const { return m_roundExportResult; }
     QString roundExportError() const { return m_roundExportError.text(); }
     QVariantMap roundAnswers() const { return m_roundAnswers; }
-    /// Research-eligible opcodes of  hypotheses ($defs/CandidateHypothesis rows), every group,
+    /// Research-eligible opcodes of \a hypotheses ($defs/CandidateHypothesis rows), every group,
     /// in declaration order: what the player's round asks the Collector to keep the content of.
     Q_INVOKABLE QVariantList eligibleOpcodes(const QVariantList &hypotheses) const;
     /// Tests replace the shell hand-off of openExportFolder().
@@ -129,7 +129,7 @@ public Q_SLOTS:
     /// Hands over the round's four answers before the first finish attempt.
     void setRoundAnswers(const QVariantMap &answers);
     /// The player's 国际服候选验证 round (EvidenceCandidateRound.qml): candidate validation on and
-    /// every eligible hypothesis of  hypotheses whitelisted, in one UpdateCaptureSettings.
+    /// every eligible hypothesis of \a hypotheses whitelisted, in one UpdateCaptureSettings.
     void startRound(const QVariantList &hypotheses);
     /// Stops the player round and exports its evidence. Repeated attempts reuse its ID and answers.
     void finishRound();

@@ -4854,6 +4854,11 @@ SHA256：%3</translation>
         <translation>這份校準碼未通過檢查，已停用。請改用其他校準碼；如需重新嘗試，請先點「清空校準進度」，再「手動匯入校準碼」。</translation>
     </message>
     <message>
+        <source>本次已停用共享校准，但选择尚未保存。请确认校准记录文件可写，然后点「重试保存」，以便下次启动时继续使用本机校准。</source>
+        <comment>sharing.rejection.write_failed</comment>
+        <translation>這次已停用共享校準，但選擇尚未儲存。請確認校準記錄檔可寫入，然後點「重試儲存」，以便下次啟動時繼續使用本機校準。</translation>
+    </message>
+    <message>
         <source>当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。</source>
         <comment>sharing.import.user_rejected</comment>
         <translation>目前的遊戲版本已選擇只用「本機校準」，暫時不能「手動匯入校準碼」。如需使用共享校準，請先點「清空校準進度」，再「手動匯入校準碼」。</translation>
@@ -13973,6 +13978,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>SharedCalibrationSection</name>
+    <message>
+        <source>重试保存</source>
+        <translation>重試儲存</translation>
+    </message>
     <message>
         <source>共享校准</source>
         <translation>共享校準</translation>

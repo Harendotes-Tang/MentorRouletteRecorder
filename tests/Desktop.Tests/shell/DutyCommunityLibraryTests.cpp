@@ -5,6 +5,7 @@
 
 #include "DesktopTestRunner.h"
 #include "DutyCommunitySceneFixture.h"
+#include "MockBackendTestSupport.h"
 #include "TestCollectorGuard.h"
 #include "BundledFonts.h"
 
@@ -29,6 +30,10 @@ private Q_SLOTS:
     void initTestCase();
     void communityPublicLibraryFoldsAndFilters();
     void sharedLibraryShowsLikesAndSortsByThem();
+    void emptySnapshotMarksInstalledSourceRemoved();
+    void reopeningKeepsTheActiveRefresh();
+    void changedLocalPageIsReadAgainFromTheStart();
+    void localPageAcceptsOnlyValidOffsets();
     void favoriteStarIsLucideAndFilledWhenChosen();
     void floatingNotesFollowTheEnteredDutyAndItsPhases();
     void floatingNotesEmptyStateOpensTheCommunityDialog();
@@ -564,6 +569,79 @@ void DutyCommunityLibraryTests::communityPublicLibraryFoldsAndFilters()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
+void DutyCommunityLibraryTests::reopeningKeepsTheActiveRefresh()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QObject *service = dialog->property("service").value<QObject *>();
+    QVERIFY(service);
+    scene.backend.setReplyDelay(10000, QStringLiteral("DutyCommunity"));
+    dialog->setProperty("online", true);
+    dialog->setProperty("tab", QStringLiteral("public"));
+    QCOMPARE(dialog->property("publicAction").toString(), QStringLiteral("refresh"));
+    const int ticket = dialog->property("serial").toInt();
+    const int generation = dialog->property("publicRequest").toInt();
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "openFor"));
+    QTRY_VERIFY(dialog->property("opened").toBool());
+    dialog->setProperty("tab", QStringLiteral("public"));
+    QCOMPARE(dialog->property("publicRequest").toInt(), generation);
+
+    const auto row = publicEntry(48, "macro", "/p ready", "", 0).value(QStringLiteral("content")).toMap();
+    const QVariantMap snapshot{{QStringLiteral("status"), QStringLiteral("ready")}, {QStringLiteral("online"), true},
+                               {QStringLiteral("cached"), true}, {QStringLiteral("entries"), QVariantList{row}}};
+    const auto reply = [&](int id, const QVariantMap &result) {
+        return QMetaObject::invokeMethod(service, "answered", Q_ARG(int, id), Q_ARG(QVariantMap, result),
+                                         Q_ARG(QString, QString()));
+    };
+    QVERIFY(reply(ticket, snapshot));
+    QTRY_COMPARE(rowIds(dialog->property("publicRows")), QStringList{row.value(QStringLiteral("id")).toString()});
+    QVERIFY(!dialog->property("refreshing").toBool());
+
+    // An explicit switch-off supersedes another network refresh, even if that refresh answers last.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "refreshPublic"));
+    const int superseded = dialog->property("serial").toInt();
+    const QVariantMap disable{{QStringLiteral("enabled"), false}};
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadPublic", Q_ARG(QVariant, QStringLiteral("online")),
+                                      Q_ARG(QVariant, disable)));
+    auto offline = snapshot;
+    offline.insert(QStringLiteral("online"), false);
+    offline.insert(QStringLiteral("status"), QStringLiteral("offline"));
+    QVERIFY(reply(dialog->property("serial").toInt(), offline));
+    QVERIFY(reply(superseded, snapshot));
+    QVERIFY(!dialog->property("online").toBool());
+    QCOMPARE(dialog->property("libraryStatus").toString(), QStringLiteral("offline"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityLibraryTests::emptySnapshotMarksInstalledSourceRemoved()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    auto installed = publicEntry(42, "macro", "/p ready", "", 0);
+    installed.insert(QStringLiteral("upstream"), installed.value(QStringLiteral("content")));
+    dialog->setProperty("localRows", QVariantList{installed});
+    const auto removed = [&] {
+        return visibleText(scene.item(QStringLiteral("dutyCommunityDetail"), true), QStringLiteral("已移除"));
+    };
+    QTRY_COMPARE(dialog->property("currentId").toString(),
+                 installed.value(QStringLiteral("content")).toMap().value(QStringLiteral("id")).toString());
+    // No snapshot was fetched at startup. The same empty list from a valid cache is authoritative.
+    QVERIFY(!removed());
+    scene.backend.holdCommunityBrowse = true;
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadPublic", Q_ARG(QVariant, QStringLiteral("browse")),
+                                      Q_ARG(QVariant, QVariantMap{})));
+    QTRY_COMPARE(scene.backend.pendingCommunityBrowse.size(), 1);
+    scene.backend.pendingCommunityBrowse.takeFirst()->succeed({
+        {QStringLiteral("status"), QStringLiteral("offline")}, {QStringLiteral("online"), false},
+        {QStringLiteral("cached"), true}, {QStringLiteral("entries"), QJsonArray()}});
+    QTRY_VERIFY(removed());
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
 // 共享库 shows each entry's 👍 on GitHub (owner, 2026-11-27): the count on its row and on the
 // detail's 点赞 button, which opens the comment the workflow posted for the entry; 点赞最多 puts
 // the most liked first. An entry the workflow has not reached yet shows neither. The counts come
@@ -623,6 +701,45 @@ void DutyCommunityLibraryTests::sharedLibraryShowsLikesAndSortsByThem()
     QVERIFY(!scene.item(QStringLiteral("dutyCommunityDetailLike"), true));
     QVERIFY(visibleNamed(content, QStringLiteral("dutyCommunityRowLikes")).isEmpty());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityLibraryTests::localPageAcceptsOnlyValidOffsets()
+{
+    mr::MockBackend backend;
+    const auto list = [&](QJsonValue offset) {
+        return mrtest::ask(backend, QStringLiteral("DutyCommunity"),
+                           {{QStringLiteral("action"), QStringLiteral("list")}, {QStringLiteral("offset"), offset}}).payload;
+    };
+    const auto first = list(QJsonValue::Undefined);
+    QCOMPARE(first.value(QStringLiteral("status")).toString(), QStringLiteral("ready"));
+    QCOMPARE(list(QJsonValue::Null), first);
+    QCOMPARE(list(0), first);
+    const auto items = QStringLiteral("items");
+    auto rows = first.value(items).toArray();
+    QVERIFY(rows.size() > 1);
+    rows.removeFirst();
+    QCOMPARE(list(1).value(items), QJsonValue(rows));
+    QCOMPARE(list(400).value(items), QJsonValue(QJsonArray()));
+    for (const auto &invalid : QJsonArray{QStringLiteral("1"), true, 0.5, 2147483648LL, -1, 401})
+        QCOMPARE(list(invalid).value(QStringLiteral("status")).toString(), QStringLiteral("invalid_offset"));
+}
+
+void DutyCommunityLibraryTests::changedLocalPageIsReadAgainFromTheStart()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY(dialog);
+    const auto page = [](int item, int generation, QJsonValue next) {
+        const QJsonObject row = QJsonObject::fromVariantMap(publicEntry(item, "macro", "/p Test", "", 0));
+        return QJsonObject{{QStringLiteral("status"), QStringLiteral("ready")},
+                           {QStringLiteral("items"), QJsonArray{row}}, {QStringLiteral("next"), next},
+                           {QStringLiteral("generation"), generation}};
+    };
+    scene.backend.communityListPages = {page(1, 10, 1), page(2, 11, QJsonValue::Null),
+                                        page(3, 11, 1), page(4, 11, QJsonValue::Null)};
+    QVERIFY(QMetaObject::invokeMethod(dialog, "loadLocal"));
+    QTRY_COMPARE(rowIds(dialog->property("localRows")), (QStringList{mockId(3), mockId(4)}));
+    QCOMPARE(scene.backend.requestedCommunityOffsets, (QList<int>{0, 1, 0, 1}));
 }
 
 // 收藏 uses Lucide's star (owner, 2026-11-27), outlined until the entry is collected and then

@@ -42,7 +42,24 @@ internal sealed record ImportCandidate(int RowNumber, JsonObject Input, MentorRu
     bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings,
     string? LegacyFingerprint = null, string? PreAliasFingerprint = null,
     IReadOnlyList<string>? PreviousDutyNameFingerprints = null, IReadOnlyList<string>? RegionalFingerprints = null,
-    string? PreAliasKeyFingerprint = null);
+    string? PreAliasKeyFingerprint = null, BlankImportIdentity? BlankIdentity = null)
+{
+    internal IEnumerable<string> PreviousFingerprints()
+    {
+        if (LegacyFingerprint is { } legacy) yield return legacy;
+        if (PreAliasFingerprint is { } preAlias) yield return preAlias;
+        if (PreAliasKeyFingerprint is { } preAliasKey) yield return preAliasKey;
+        foreach (var value in PreviousDutyNameFingerprints ?? []) yield return value;
+        if (BlankIdentity is not { } blank) yield break;
+        yield return blank.Fingerprint;
+        if (blank.PreAliasFingerprint is { } oldJob) yield return oldJob;
+        foreach (var value in blank.PreviousDutyNameFingerprints) yield return value;
+    }
+}
+
+/// <summary>Historical identities shared by rows with an explicitly blank ID. Only one occurrence may claim them.</summary>
+internal sealed record BlankImportIdentity(string Fingerprint, string? PreAliasFingerprint,
+    IReadOnlyList<string> PreviousDutyNameFingerprints, IReadOnlyList<string> RegionalFingerprints);
 
 /// <summary>
 /// One sentence of a preview row (<c>rows[].errors</c> / <c>rows[].warnings</c>): the Simplified Chinese the row has
@@ -222,6 +239,8 @@ internal static class RunImportCandidateNormalizer
             var key = Text(input, "source_key", 500);
             var identity = string.Join('\n', sourceKind, recordSourceName ?? string.Empty, stable ? id : key ?? string.Empty);
             var fingerprint = Hash(identity + '\n' + signature);
+            var hadBlankIdentity = !stable && legacySourceKey == string.Empty;
+            if (hadBlankIdentity) legacySourceKey = null;
             var regionalFingerprints = RegionalFingerprints(run, dutyName, hasExplicitContentId, suppliedTerritoryId,
                 suppliedDutyCategory, identity, jobBeforeAliases);
             var legacyFingerprint = stable || legacySourceKey is null ? null
@@ -236,9 +255,21 @@ internal static class RunImportCandidateNormalizer
             // A GLOBAL name matched only loosely ("The …", a hyphen for the en dash) resolved to no duty before
             // audit 2026-11-26 H2-2, so its earlier imports carry the identity of the exact-name scan as well.
             var looselyNamed = named is not null && !string.Equals(named.LocalizedName, dutyName, StringComparison.Ordinal);
-            var previousDutyNameFingerprints = !hasExplicitContentId && (duty?.PreferredForNameMatching == true || looselyNamed)
-                ? PreviousDutyNameFingerprints(input, run, stable, key, legacySourceKey, jobBeforeAliases)
-                : Array.Empty<string>();
+            var previousDuty = !hasExplicitContentId && (duty?.PreferredForNameMatching == true || looselyNamed)
+                ? PreviouslyNamedRun(input, run) : null;
+            var previousDutyNameFingerprints = PreviousDutyNameFingerprints(previousDuty, stable ? id : key,
+                stable ? null : legacySourceKey, jobBeforeAliases);
+            BlankImportIdentity? blankIdentity = null;
+            if (hadBlankIdentity)
+            {
+                var oldIdentity = string.Join('\n', sourceKind, recordSourceName ?? string.Empty, string.Empty);
+                var oldJobHash = jobBeforeAliases == jobId ? null
+                    : Hash(oldIdentity + '\n' + Facts(run with { JobId = (int?)jobBeforeAliases }));
+                blankIdentity = new(Hash(oldIdentity + '\n' + signature), oldJobHash,
+                    PreviousDutyNameFingerprints(previousDuty, string.Empty, null, jobBeforeAliases),
+                    RegionalFingerprints(run, dutyName, hasExplicitContentId, suppliedTerritoryId, suppliedDutyCategory,
+                        oldIdentity, jobBeforeAliases));
+            }
             run = run with { ImportMetadata = metadata with { SourceFingerprint = fingerprint } };
             // Canonical editable values; generated local UUID stays absent when the source had none.
             var canonical = Wire.Run(run);
@@ -270,7 +301,7 @@ internal static class RunImportCandidateNormalizer
                 if (moodText is not null) input["reflection_mood"] = ReflectionText.Format(mood);
             }
             return new ImportCandidate(row.RowNumber, input, run, stable, comparedFields, errors, warnings, legacyFingerprint,
-                preAliasFingerprint, previousDutyNameFingerprints, regionalFingerprints, preAliasKeyFingerprint);
+                preAliasFingerprint, previousDutyNameFingerprints, regionalFingerprints, preAliasKeyFingerprint, blankIdentity);
         }
         catch (Exception failure) when (failure is CollectorException or FormatException or ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
@@ -316,8 +347,7 @@ internal static class RunImportCandidateNormalizer
     /// Both source-key generations and the pre-alias job form are checked, so upgrading never
     /// recreates a stored or permanently erased row merely because its name is now resolvable.
     /// </summary>
-    private static IReadOnlyList<string> PreviousDutyNameFingerprints(JsonObject input, MentorRun run,
-        bool stable, string? sourceKey, string? legacySourceKey, long? jobBeforeAliases)
+    private static MentorRun? PreviouslyNamedRun(JsonObject input, MentorRun run)
     {
         var matches = DutyCatalog.Default.Documents.SelectMany(document => document.Rows.Values)
             .Where(row => string.Equals(row.LocalizedName, run.DutyName, StringComparison.Ordinal))
@@ -325,22 +355,27 @@ internal static class RunImportCandidateNormalizer
         int? previousId = matches.Length == 1 ? matches[0] : null;
         if (previousId == run.ContentId)
         {
-            return Array.Empty<string>();
+            return null;
         }
 
         var previousDuty = DutyCatalog.Default.Find(previousId, run.Region);
-        var previous = run with
+        return run with
         {
             ContentId = previousId,
             TerritoryId = Int(input, "territory_id") ?? previousDuty?.TerritoryId,
             DutyCategory = Text(input, "duty_category", 200) ?? previousDuty?.DutyCategory,
         };
-        var keys = stable ? new[] { run.RunId }
-            : new[] { sourceKey ?? string.Empty, legacySourceKey }.OfType<string>().Distinct(StringComparer.Ordinal);
-        var jobs = run.JobId == jobBeforeAliases ? new[] { run.JobId }
-            : new[] { run.JobId, jobBeforeAliases is null ? null : (int?)jobBeforeAliases };
-        return keys.SelectMany(key => jobs.Select(job => Hash(string.Join('\n', run.ImportMetadata!.SourceKind,
-                run.ImportMetadata.SourceName ?? string.Empty, key, Facts(previous with { JobId = job })))))
+    }
+
+    private static IReadOnlyList<string> PreviousDutyNameFingerprints(MentorRun? previous, string? sourceKey,
+        string? legacySourceKey, long? jobBeforeAliases)
+    {
+        if (previous is null) return [];
+        var keys = new[] { sourceKey ?? string.Empty, legacySourceKey }.OfType<string>().Distinct(StringComparer.Ordinal);
+        var jobs = previous.JobId == jobBeforeAliases ? new[] { previous.JobId }
+            : new[] { previous.JobId, (int?)jobBeforeAliases };
+        return keys.SelectMany(key => jobs.Select(job => Hash(string.Join('\n', previous.ImportMetadata!.SourceKind,
+                previous.ImportMetadata.SourceName ?? string.Empty, key, Facts(previous with { JobId = job })))))
             .Distinct(StringComparer.Ordinal).ToArray();
     }
 

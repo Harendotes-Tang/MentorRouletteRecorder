@@ -117,6 +117,7 @@ private Q_SLOTS:
         QVERIFY(image.open(QIODevice::WriteOnly));
         image.write("fixture");
         image.close();
+        QVERIFY(QFile::setPermissions(image.fileName(), QFileDevice::ReadOwner | QFileDevice::ReadUser));
         CleanupBackend backend;
         mr::HistoryImageCleanupController controller(&backend);
         controller.setStore(&store);

@@ -47,7 +47,7 @@ public:
 
     BackendReply *request(const QString &messageType,
                           const QJsonObject &payload = {}) override;
-    /// Like request(), under  requestId, the way the Collector keys its mutations
+    /// Like request(), under \a requestId, the way the Collector keys its mutations
     /// (RunMutationService.Apply): a mutation resent under the id of one already applied is
     /// answered from that first outcome, flagged as a replay and applied once, and the same
     /// id for a different request is refused with ERR_IDEMPOTENCY_CONFLICT.
@@ -300,7 +300,7 @@ private:
     /// the reply's message_ref. Returns an empty result.
     QJsonObject refuseWith(QString *errorCode, QString *errorMessage, const QString &code,
                            const char *key, const QVariantMap &args = {});
-    /// Answers  reply on the next event-loop turn, or after setReplyDelay()'s delay.
+    /// Answers \a reply on the next event-loop turn, or after setReplyDelay()'s delay.
     void deliver(BackendReply *reply, const QJsonObject &result, const QString &errorCode,
                  const QString &errorMessage, const QJsonObject &errorDetails,
                  const QJsonObject &errorRef);
@@ -583,6 +583,7 @@ private:
     bool m_updateAvailable = false;
     bool m_updateDownloadSupported = true;
     QJsonArray m_communityLocal;
+    qint64 m_communityGeneration = 0;
     bool m_communitySeeded = false;
     bool m_communityOnline = false;
     bool m_communityFetched = false;

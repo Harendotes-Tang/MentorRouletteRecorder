@@ -928,6 +928,7 @@ void DutyCommunitySubmissionTests::communityAuthorWithdrawsPublishedEntries()
         if (index < 3) published << QVariantMap{{contentKey, copy}};
     }
     dialog->setProperty("localRows", local);
+    dialog->setProperty("publicSnapshotCached", true);
     dialog->setProperty("publicRows", published);
     // The public library lists only what can still be imported: the two withdrawn entries are hidden.
     QCOMPARE(rowIds(dialog->property("listedPublicRows")), QStringList{idOf(0)});

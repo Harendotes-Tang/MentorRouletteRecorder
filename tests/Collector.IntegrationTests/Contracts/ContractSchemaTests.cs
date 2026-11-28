@@ -621,6 +621,22 @@ public sealed class ContractSchemaTests
     }
 
     [Fact]
+    public void PublishedLikesMatchTheCommunityContentRootSchema()
+    {
+        var schema = JsonSchema.FromText(File.ReadAllText(RepositoryFiles.Find("contracts", "community-content-v1.schema.json")));
+        var document = JsonNode.Parse(File.ReadAllText(RepositoryFiles.Find(
+            "tests", "Fixtures", "shared-calibration", "community-likes.json")))!;
+        Assert.True(schema.Evaluate(document).IsValid);
+
+        var likes = document["likes"]!.AsObject();
+        likes.First().Value!["count"] = -1;
+        Assert.False(schema.Evaluate(document).IsValid);
+
+        likes.Clear();
+        Assert.True(schema.Evaluate(document).IsValid);
+    }
+
+    [Fact]
     public void ContractDeclaresAResponseSchemaForEveryBusinessMessage() =>
         Assert.Equal(
             ContractSchema.BusinessMessageTypes.OrderBy(name => name, StringComparer.Ordinal),

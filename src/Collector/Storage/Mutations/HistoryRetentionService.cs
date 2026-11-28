@@ -131,16 +131,25 @@ public sealed class HistoryRetentionService : IDisposable
         using var responses = _database.CreateCommand();
         responses.Transaction = tx;
         responses.CommandText = """
-            WITH purged_ids(id) AS MATERIALIZED (SELECT value FROM json_each($ids))
-            SELECT receipt.request_id, receipt.message_type, receipt.response_json, imported.preview_id
-            FROM ipc_idempotency AS receipt
-            LEFT JOIN run_import_batches AS imported ON imported.request_id = receipt.request_id
-            WHERE EXISTS (SELECT 1 FROM json_tree(receipt.response_json)
-                          WHERE type = 'text' AND value IN (SELECT id FROM purged_ids))
-            UNION ALL
-            SELECT request_id, 'CommitRunImport', selection_fingerprint, preview_id FROM run_import_batches
-            WHERE EXISTS (SELECT 1 FROM json_tree(response_json)
-                          WHERE type = 'text' AND value IN (SELECT id FROM purged_ids));
+            WITH purged_ids(id) AS MATERIALIZED (SELECT value FROM json_each($ids)),
+            receipts(request_id, message_type, original, preview_id, payload) AS (
+                SELECT receipt.request_id, receipt.message_type, receipt.response_json, imported.preview_id,
+                       CASE receipt.message_type
+                           WHEN 'BatchMutateRuns' THEN COALESCE(receipt.response_json -> '$.outcome', receipt.response_json)
+                           WHEN 'CommitRunImport' THEN COALESCE(receipt.response_json -> '$.response', receipt.response_json)
+                           ELSE receipt.response_json
+                       END
+                FROM ipc_idempotency AS receipt
+                LEFT JOIN run_import_batches AS imported ON imported.request_id = receipt.request_id
+                UNION ALL
+                SELECT request_id, 'CommitRunImport', selection_fingerprint, preview_id, response_json FROM run_import_batches
+            )
+            SELECT request_id, message_type, original, preview_id FROM receipts
+            WHERE json_extract(payload, '$.run_id') IN (SELECT id FROM purged_ids)
+               OR EXISTS (SELECT 1 FROM json_each(payload, '$.run_ids') WHERE value IN (SELECT id FROM purged_ids))
+               OR (message_type = 'CommitRunImport' AND EXISTS (
+                   SELECT 1 FROM json_each(payload, '$.rows') AS row
+                   WHERE json_extract(row.value, '$.run_id') IN (SELECT id FROM purged_ids)));
             """;
         responses.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(runs.Select(run => run.RunId)));
         var receipts = new List<(string Request, string Type, string Fingerprint, string? Preview)>();

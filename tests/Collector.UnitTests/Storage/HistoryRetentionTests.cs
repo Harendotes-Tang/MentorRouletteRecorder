@@ -156,6 +156,22 @@ public sealed class HistoryRetentionTests
     }
 
     [Fact]
+    public void PurgingAnIdMentionedInAnotherRunsNotePreservesItsReplay()
+    {
+        using var f = new Fixture();
+        var removed = f.Create();
+        var command = f.NewCommand() with { Note = removed.RunId };
+        var other = f.Mutations.CreateManualRun(command).Run!;
+
+        f.Batch("purge", f.Delete(removed));
+
+        var replay = f.Mutations.CreateManualRun(command);
+        Assert.True(replay.IdempotentReplay);
+        Assert.Equal(other.RunId, replay.Run!.RunId);
+        Assert.Equal(removed.RunId, replay.Run.Note);
+    }
+
+    [Fact]
     public void OrdinaryRevisionDeletionAndPurgedStableIdReinsertRemainForbidden()
     {
         using var f = new Fixture(); var run = f.Create();

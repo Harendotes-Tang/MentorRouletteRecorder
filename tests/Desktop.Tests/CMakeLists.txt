@@ -247,9 +247,9 @@ endforeach()
 # CapturePage: 捕获诊断 in shipping QML - title row, 链路, 解析, player vocabulary.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopCalibrationTests
-    SUITES Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview EvidenceSubmission
+    SUITES Calibration SharedCalibration SharedCalibrationCard ProtocolProfileCard CapturePage CandidateReview EvidenceSubmission
            EvidencePage EvidenceIdentity EvidenceCandidateRound CaptureValidationController)
-foreach(suite IN ITEMS Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview
+foreach(suite IN ITEMS Calibration SharedCalibration SharedCalibrationCard ProtocolProfileCard CapturePage CandidateReview
                        EvidenceSubmission EvidencePage EvidenceIdentity EvidenceCandidateRound
                        CaptureValidationController)
     mr_desktop_suite_test(MentorRecorderDesktopCalibrationTests ${suite})

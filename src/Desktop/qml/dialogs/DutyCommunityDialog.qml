@@ -29,6 +29,7 @@ MotionDialog {
     property string mode: "view"
     property var localRows: []
     property var publicRows: []
+    property bool publicSnapshotCached: false
     // What the public library lists. A withdrawn entry cannot be imported any more, so it is not
     // shown there; publicRows keeps it for the status of local copies and for links.
     readonly property var listedPublicRows: publicRows.filter(row => row.content.status !== "withdrawn")
@@ -53,6 +54,7 @@ MotionDialog {
     property int publicRequest: 0
     property string publicAction: ""
     readonly property bool refreshing: publicAction.length > 0
+    readonly property bool publicUpdatePending: publicAction === "refresh" || publicAction === "online"
     property string libraryStatus: ""
     property string note: ""
     property string selectedId: ""
@@ -817,7 +819,7 @@ MotionDialog {
             if (result.app_configured !== undefined) root.configured = result.app_configured
             // A build without a GitHub App offers the browser route alone.
             if (result.status === "app_not_configured") root.configured = false
-            request.done(error ? { status: "transport_error" } : result)
+            request.done(error ? { status: "transport_error", message: error } : result)
         }
     }
 
@@ -833,11 +835,21 @@ MotionDialog {
 
     function pages(action, args, done, failed, isCurrent) {
         const all = []
+        let retried = false
         function fetchPage(action, args, first) {
             call(action, args, result => {
                 const batchRows = result.items || result.entries
                 if (!batchRows) { failed(result); return }
-                if (first && result.generation !== first.generation) { failed({ status: "source_changed" }); return }
+                if (first && result.generation !== first.generation) {
+                    if (action === "list" && !retried) {
+                        retried = true
+                        all.length = 0
+                        fetchPage("list", {}, null)
+                    } else {
+                        failed({ status: "source_changed" })
+                    }
+                    return
+                }
                 const start = first || result
                 all.push(...batchRows)
                 if (result.next === null || result.next === undefined) done(all, start)
@@ -850,11 +862,14 @@ MotionDialog {
         const request = ++publicRequest
         publicAction = action
         pages(action, args || ({}), (entries, result) => {
+            publicSnapshotCached = result.cached === true
             publicRows = entries.map(content => ({ content: content }))
             publicLikes = result.likes || ({})
             online = result.online
             libraryStatus = result.status
-            if (action === "online" && online) loadPublic("refresh")
+            // A first visit can reach the shared tab while browse is still reading the saved switch.
+            if (online && (action === "online" || (action === "browse" && visible && !exiting && remote)))
+                loadPublic("refresh")
             else publicAction = ""
         }, result => {
             publicAction = ""
@@ -875,14 +890,18 @@ MotionDialog {
             if (wanted && !editing) reveal(wanted)
         }, result => { favoriteBusy = false; report(result) }, () => request === localRequest)
     }
-    function reload() { loadLocal(); loadPublic("browse") }
+    function reload() {
+        loadLocal()
+        // A refresh or preference change already returns a snapshot. Reopening must keep its reply.
+        if (!publicUpdatePending) loadPublic("browse")
+    }
     /// The one click the offline state offers: the player allows the public library and
     /// asks for it in the same gesture.
     function goOnline() { loadPublic("online", { enabled: true }) }
     /// 共享库 refreshes each time it is opened once the player allowed it online (owner,
     /// 2026-11-23). The Collector answers from its cache within 30 s of its last check (2 min after
     /// a successful one), so switching back and forth does not reach GitHub every time.
-    function refreshPublic() { if (online && publicAction !== "refresh" && publicAction !== "online") loadPublic("refresh") }
+    function refreshPublic() { if (online && !publicUpdatePending) loadPublic("refresh") }
     onOpened: reload()
     onDutyKeyChanged: if (visible && activeScope === "cur") { selectedId = ""; compare.close() }
     onTabChanged: { selectedId = ""; basket = []; mode = "view"; confirmingDelete = false; if (tab === "public") refreshPublic() }
@@ -1005,13 +1024,12 @@ MotionDialog {
         call(action, args, result => {
             report(result)
             if (!["saved", "installed", "deleted", "updated"].includes(result.status)) {
-                // A refused save comes back into the form with the reason in it. When the player
-                // has opened another form meanwhile, it is offered back instead of being dropped.
+                // Reopen the refused draft only while the dialog is still available for editing.
+                // Its recovery action also survives closing and reopening the dialog.
                 if (action === "save") {
-                    const reason = result.status === "transport_error" ? (note || statusText(result.status))
-                                                                       : statusText(result.status)
-                    if (editing) {
-                        refusedSave = { args: args, reason: reason }
+                    const reason = result.message || statusText(result.status)
+                    if (mode !== "view" || !visible || exiting || refusedSave) {
+                        refusedSaves = refusedSaves.concat([{ args: args, reason: reason }])
                     } else {
                         startEdit(args)
                         editor.refusal = reason
@@ -1028,13 +1046,14 @@ MotionDialog {
             loadLocal()
         })
     }
-    /// A save refused while another form was open, { args, reason }: kept until the player
-    /// restores or drops it (audit 2026-11-26 RE-7).
-    property var refusedSave: null
+    /// Preserve each refused draft until its own recovery action, in reply order.
+    property var refusedSaves: []
+    readonly property var refusedSave: refusedSaves.length ? refusedSaves[0] : null
+    function dismissRefused() { refusedSaves = refusedSaves.slice(1) }
     function restoreRefused() {
         const refused = refusedSave
         if (!refused || editing) return
-        refusedSave = null
+        dismissRefused()
         startEdit(refused.args)
         editor.refusal = refused.reason
     }
@@ -1388,7 +1407,7 @@ MotionDialog {
                 compact: true
                 variant: "ghost"
                 text: qsTr("放弃")
-                onClicked: root.refusedSave = null
+                onClicked: root.dismissRefused()
             }
         }
 

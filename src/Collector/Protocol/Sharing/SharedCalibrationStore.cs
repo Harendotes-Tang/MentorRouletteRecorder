@@ -293,8 +293,8 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
         lock (Gate)
         {
             var (state, writable) = ReadState(directory);
-            return writable &&
-                   WriteAtomically(StatePath(directory), state.WithUserRejection(nowUtc).Serialize(region, gameBuild));
+            return writable && (state.UserRejectedAtUtc is not null ||
+                   WriteAtomically(StatePath(directory), state.WithUserRejection(nowUtc).Serialize(region, gameBuild)));
         }
     }
 

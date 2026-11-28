@@ -10,18 +10,16 @@ planted, empty MentorRecorder.Desktop.exe must no longer make a foreign folder p
 earlier installation: that is now recognised by the uninstall entry Setup writes for its AppId
 under HKLM, which only an administrator can create.
 
-A folder under one of the cleared names is no way round this (RV4-4): [InstallDelete] ignores a
-failed delete and Setup takes no ownership first, so a folder an ordinary user created as, say,
-{app}\\qml with an ACL that grants Administrators nothing would stay with its creator's owner and
-ACL, and [Files] would write Qt's QML modules into it. ProtectInstallDirectory therefore deletes
-those folders itself and stops Setup when one is left.
-
-Setup cannot be run here, so these tests read installer/MentorRecorder.iss as text. What only a
-real installation can show is in the install matrix of the 2026-10-03 audit (section 5 item 3).
+A folder under a package name must be moved out of the way before new code is copied.
+Check that every earlier application entry can be restored if staging or installation fails.
 """
 
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 try:
@@ -336,160 +334,133 @@ class UnknownTopLevelFolderTests(unittest.TestCase):
         self.assertNotRegex(installer_text(), r"(?i)loads?\s+nothing")
 
 
-class ClearedFolderRemovalTests(unittest.TestCase):
-    """RV4-4: a folder under a cleared name that Setup cannot delete stops Setup."""
-
+class UpgradeTransactionTests(unittest.TestCase):
     def setUp(self):
         self.code = pascal_code()
-        self.protect = routine(self.code, "ProtectInstallDirectory")
-        self.removal = routine(self.code, "RemoveClearedDirectories")
+        self.stage = routine(self.code, "StagePreviousPayload")
+        self.finish = routine(self.code, "DeinitializeSetup")
 
-    def test_the_folders_are_cleared_after_setup_closed_the_application_and_before_install_delete(self):
-        # Setup closes the running application (Restart Manager, as chosen on the Preparing page)
-        # when the installation process starts: after CurStepChanged(ssInstall) and right before
-        # [InstallDelete] (PerformInstall in the Inno Setup source). The Desktop holds the Qt
-        # plugins in these folders, so the sweep must run after that close - from the BeforeInstall
-        # of the first [InstallDelete] entry - and never from ssInstall, where 1.8.0-beta.1 ran it
-        # and stopped on imageformats on every upgrade with the Desktop running (2026-10-21). The
-        # guard, the note-images grant and the top-level files still come first, at ssInstall.
-        self.assertIn("ProtectInstallDirectory(ExpandConstant('{app}'))",
-                      install_step_branch(self.code))
-        for name in ("RemoveClearedDirectories", "ClearCodeDirectories"):
-            with self.subTest(name=name):
-                self.assertNotIn(name, self.protect)
-                self.assertNotIn(name, install_step_branch(self.code))
-        entries = install_delete_entries()
-        self.assertEqual("ClearCodeDirectories", entries[0].get("beforeinstall"))
-        self.assertEqual("filesandordirs", entries[0].get("type", "").lower())
-        for entry in entries[1:]:
-            with self.subTest(entry=entry.get("name")):
-                self.assertNotIn("beforeinstall", entry)
-                self.assertNotIn("afterinstall", entry)
-        clear = routine(self.code, "ClearCodeDirectories")
-        self.assertRegex(clear, r"StopReason\s*:=\s*RemoveClearedDirectories\(ExpandConstant\('\{app\}'\)\);")
-        self.assertEqual(1, len(re.findall(r"\bRemoveClearedDirectories\(ExpandConstant", self.code)),
-                         "called once, from ClearCodeDirectories only")
-        self.assertEqual([], re.findall(r"\bRemoveClearedDirectories\(Dir\)", self.code))
+    def test_restart_manager_precedes_backup_and_early_path_queries_are_read_only(self):
+        first = install_delete_entries()[0]
+        self.assertEqual(("dirifempty", "{code:StagePreviousPayload}", "ArmUpgradeBackup"),
+                         (first["type"], first["name"], first["beforeinstall"]))
+        self.assertIn("if not BackupArmed then Exit", self.stage)
+        self.assertIn("BackupArmed := True", routine(self.code, "ArmUpgradeBackup"))
+        self.assertLess(self.stage.index("BackupArmed := False"), self.stage.index("CreateDir(Backup)"))
+        self.assertNotIn("ArmUpgradeBackup", install_step_branch(self.code))
 
-    def test_a_stop_after_the_close_takes_setups_cancel_path_with_the_files_check_as_fallback(self):
-        # Setup swallows an exception raised by a BeforeInstall procedure (NotifyInstallEntry in the
-        # Inno Setup source) and would go on copying, so the stop goes through Setup's own cancel
-        # path: WizardForm.Close, the "exit Setup?" question waived in CancelButtonClick, and the
-        # abort flag honoured right after [InstallDelete] (ProcessEvents), before [Files]. Where
-        # the wizard is hidden (/VERYSILENT) or Cancel disabled (/NOCANCEL), the [Files] Check
-        # raises instead - an exception from a Check function propagates (EvalCheck) - before any
-        # file is written. The message is shown first, suppressibly, in every case.
-        clear = routine(self.code, "ClearCodeDirectories")
-        self.assertRegex(clear, r"if\s+StopReason\s*<>\s*''\s+then\s+begin\s+Log\([^;]*StopReason\);\s*"
-                                r"SuppressibleMsgBox\(StopReason,[^;]*\);\s*WizardForm\.Close;\s*end")
-        self.assertNotIn("Abort", clear)
-        cancel = routine(self.code, "CancelButtonClick")
-        self.assertRegex(cancel, r"if\s+StopReason\s*<>\s*''\s+then\s+begin\s+"
-                                 r"CancelArmed\s*:=\s*True;\s*Confirm\s*:=\s*False;\s*end")
-        self.assertNotIn("Cancel :=", cancel.replace("CancelArmed", ""))
-        check = routine(self.code, "CodeFoldersCleared")
-        self.assertRegex(check, r"Result\s*:=\s*StopReason\s*=\s*'';\s*"
-                                r"if\s*\(not\s+Result\)\s*and\s*\(not\s+CancelArmed\)\s*then\s+"
-                                r"RaiseException\(StopReason\);")
-        files = files_entries()
-        self.assertEqual(1, len(files))
-        self.assertEqual("CodeFoldersCleared", files[0].get("check"))
-        setup = {line.split("=", 1)[0].strip().lower()
-                 for line in installer_sections()["setup"] if "=" in line}
-        self.assertNotIn("allowcancelduringinstall", setup,
-                         "the cancel path needs Inno's default (yes)")
-        # The application is never ended behind the user's back.
-        for name in ("ClearCodeDirectories", "CancelButtonClick", "CodeFoldersCleared",
-                     "RemoveClearedDirectories"):
-            body = routine(self.code, name)
-            for call in ("TerminateProcess", "taskkill", "Exec", "RmShutdown", "Kill"):
-                with self.subTest(routine=name, call=call):
-                    self.assertNotRegex(body, rf"\b{call}\w*\(")
+    def test_only_runtime_entries_are_moved_and_the_backup_is_new_and_protected(self):
+        self.assertIn("IsClearedDirectoryName(FindRec.Name)", self.stage)
+        self.assertIn("IsUpgradeFile(FindRec.Name)", self.stage)
+        names = installer_text().split("function IsUpgradeFile(", 1)[1].split("#define PayloadHandle", 1)[0]
+        self.assertIn("IsRemovedByInstallDelete(Name)", names)
+        self.assertIn("installer-language.ini", names)
+        self.assertIn("manifest", names)
+        self.assertIn("IncludeLooseFile", installer_text())
+        self.assertLess(self.stage.index("if not CreateDir(Backup)"), self.stage.index("UpgradeBackup := Backup"))
+        self.assertLess(self.stage.index("ApplyDacl(Backup, UpgradeBackupSddl)"), self.stage.index("RenameFile("))
+        self.assertNotIn("DelTree(", self.stage)
+        self.assertIn("RaiseException(FmtMessage(CustomMessage('UpgradeMoveFailed')", self.stage)
+        self.assertLess(self.stage.index("if not RenameFile("), self.stage.index("MovedCount := I + 1"))
 
-    def test_every_folder_install_delete_clears_is_deleted_and_note_images_never(self):
-        # The folders are read from {app}'s own listing, so a name in any letter case is found,
-        # and each one whose name is on the cleared list is deleted - the list the guard reads,
-        # which the first test above keeps equal to the filesandordirs names of [InstallDelete].
-        self.assertIn("FindFirst(AddBackslash(Dir) + '*', FindRec)", self.removal)
-        self.assertIn("FILE_ATTRIBUTE_DIRECTORY", self.removal)
-        self.assertIn("IsClearedDirectoryName(FindRec.Name)", self.removal)
-        self.assertRegex(self.removal, r"Target\s*:=\s*AddBackslash\(Dir\)\s*\+\s*FindRec\.Name;")
-        self.assertRegex(routine(self.code, "IsClearedDirectoryName"),
-                         r"Result\s*:=\s*Pos\('\|'\s*\+\s*Lowercase\(Name\)\s*\+\s*'\|',\s*"
-                         r"ClearedDirectoryNames\)\s*>\s*0;")
-        cleared = string_constant(self.code, "ClearedDirectoryNames")
+    def test_cleared_names_can_be_files_and_native_wildcards_cannot_delete_unstaged_names(self):
+        self.assertRegex(self.stage, r"if IsClearedDirectoryName\(FindRec.Name\) or\s+"
+                         r"\(\(\(FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY\) = 0\) "
+                         r"and IsUpgradeFile\(FindRec.Name\)\) then\s+UpgradeNames.Add")
+        for entry in install_delete_entries():
+            if entry["name"].startswith("{app}\\"):
+                self.assertEqual("RegisterUpgradeTargets", entry.get("check"), entry)
+        self.assertIn("Result := not BackupStaged", routine(self.code, "RegisterUpgradeTargets"))
+        self.assertRegex(self.stage, r"if UpgradeNames.Count = 0 then\s+begin\s+BackupStaged := True;")
 
-        def deleted(name):
-            return ("|" + name.lower() + "|") in cleared
+    def test_rollback_restores_only_originals_and_preserves_unrecovered_backups(self):
+        commit = routine(self.code, "CurStepChanged")
+        self.assertRegex(commit, r"if CurStep = ssPostInstall then\s+begin\s+UpgradeCommitted := True")
+        self.assertIn("if UpgradeCommitted then", self.finish)
+        self.assertIn("for I := MovedCount - 1 downto 0", self.finish)
+        self.assertIn("if BackupStaged and FindFirst(Target, FindRec)", self.finish)
+        self.assertIn("if not RenameFile(Saved, Target)", self.finish)
+        self.assertIn("if Recovered then Recovered := RemoveDir(UpgradeBackup)", self.finish)
+        self.assertEqual(1, self.finish.count("DelTree(UpgradeBackup,"))
+        self.assertNotIn("WizardSilent", self.finish)
+        self.assertNotIn("WizardForm.Close", self.stage)
+        for key in ("upgrademovefailed", "upgradebackupremaining"):
+            for language in ("english", "chinesesimplified", "chinesetraditional", "japanese"):
+                self.assertIn("%1", custom_messages()[f"{language}.{key}"])
 
-        folders = install_delete_folders()
-        self.assertTrue(folders)
-        for folder in folders:
-            for spelling in (folder, folder.upper(), folder.title()):
-                with self.subTest(folder=spelling):
-                    self.assertTrue(deleted(spelling))
-        for name in (NOTE_IMAGES, "Note-Images", "QtQuick", "platformthemes"):
-            with self.subTest(name=name):
-                self.assertFalse(deleted(name))
-        # note-images is user data: never named, never deleted here.
-        self.assertNotIn("NoteImagesDirName", self.removal)
-        self.assertNotIn(NOTE_IMAGES, self.removal.lower())
 
-    def test_a_link_is_removed_itself_and_never_followed(self):
-        # DelTree with IsDir set removes a folder that is a reparse point (a junction or symbolic
-        # link) without deleting anything inside what it points to (Inno Setup help, Pascal
-        # Scripting: DelTree, Remarks). Nothing else here deletes, re-owns or builds a path below
-        # the folder.
-        self.assertEqual(["Target, True, True, True"],
-                         re.findall(r"\bDelTree\(([^)]*)\)", self.removal))
-        for call in ("DeleteFile", "RemoveDir", "RunIcacls", "ApplyDacl", "Exec", "Rename"):
-            with self.subTest(call=call):
-                self.assertNotRegex(self.removal, rf"\b{call}\w*\(")
-        self.assertNotRegex(self.removal, r"Target\s*\+")
-
-    def test_a_folder_left_after_the_delete_stops_setup_and_names_it(self):
-        # The verdict is what {app}'s listing still shows after the delete, not DelTree's answer:
-        # the listing also shows a folder whose own ACL lets Administrators read nothing, and a
-        # link whose target is gone (DirExists would follow the link).
-        delete = self.removal.index("DelTree(")
-        check = self.removal.index("FirstClearedDirectory(Dir)")
-        self.assertLess(delete, check)
-        self.assertEqual(1, self.removal.count("CustomMessage('InstallDirFolderNotRemoved')"))
-        self.assertRegex(self.removal[check:],
-                         r"FirstClearedDirectory\(Dir\);\s*"
-                         r"if\s+Left\s*<>\s*''\s+then\s+Result\s*:=\s*"
-                         r"FmtMessage\(CustomMessage\('InstallDirFolderNotRemoved'\),\s*"
-                         r"\[AddBackslash\(Dir\)\s*\+\s*Left\]\);")
-        self.assertRegex(self.removal, r"Left\s*:=\s*FirstClearedDirectory\(Dir\);")
-        first = routine(self.code, "FirstClearedDirectory")
-        self.assertIn("FindFirst(AddBackslash(Dir) + '*', FindRec)", first)
-        self.assertIn("FILE_ATTRIBUTE_DIRECTORY", first)
-        self.assertIn("IsClearedDirectoryName(FindRec.Name)", first)
-        self.assertIn("FindClose(FindRec)", first)
-        self.assertNotIn("DirExists", first)
-
-    def test_a_silent_install_stops_the_same_way(self):
-        # The message box is suppressible (/SUPPRESSMSGBOXES answers it), the Abort is not: a
-        # silent install ends at the same point, with the reason in the Setup log.
-        self.assertRegex(install_step_branch(self.code),
-                         r"Failure\s*:=\s*ProtectInstallDirectory\(ExpandConstant\('\{app\}'\)\);\s*"
-                         r"if\s+Failure\s*<>\s*''\s+then\s+begin\s+Log\([^;]*Failure\);\s*"
-                         r"SuppressibleMsgBox\(Failure,[^;]*\);\s*Abort;\s*end")
-        clear = routine(self.code, "ClearCodeDirectories")
-        self.assertIn("SuppressibleMsgBox(StopReason, mbCriticalError, MB_OK, IDOK)", clear)
-        for body in (self.protect, self.removal, clear):
-            self.assertNotIn("WizardSilent", body)
-
-    def test_the_stop_message_names_the_folder_in_plain_words(self):
-        messages = custom_messages()
-        for language in ("chinesesimplified", "english"):
-            with self.subTest(language=language):
-                self.assertIn("%1", messages[f"{language}.installdirfoldernotremoved"])
-        chinese = messages["chinesesimplified.installdirfoldernotremoved"]
-        self.assertIn("安装已停止", chinese)
-        self.assertIn("删除", chinese)
-        self.assertIn("重新运行安装程序", chinese)
-        self.assertIsNone(re.search(r"[A-Za-z]{2,}", chinese.replace("%n", " ")), chinese)
+class IsolatedUpgradeTests(unittest.TestCase):
+    def test_file_to_directory_upgrade_rolls_back_and_unrelated_long_names_survive(self):
+        # Exercise Inno's real [InstallDelete], name expansion and rollback sequence. The
+        # harness has no uninstaller, registry entries, shared shortcuts or elevated process.
+        candidates = [shutil.which("ISCC.exe")] + [
+            str(Path(os.environ.get(name, "")) / suffix / "ISCC.exe")
+            for name, suffix in (("LOCALAPPDATA", "Programs/Inno Setup 6"),
+                                 ("ProgramFiles(x86)", "Inno Setup 6"))]
+        compiler = next((name for name in candidates if name and Path(name).is_file()), None)
+        if not compiler or os.name != "nt":
+            self.skipTest("Inno Setup compiler required for the isolated Windows installer")
+        source = installer_text()
+        declarations = re.search(r"  BackupArmed,.*?  MovedCount: Integer;", source, re.S)[0]
+        code = source[source.index("function IsClearedDirectoryName("):
+                      source.index("// The install folder must not be writable")]
+        loose_files = routine(pascal_code(), "IsRemovedByInstallDelete")
+        deletes = [line for line in installer_sections()["installdelete"] if "{group}" not in line]
+        with tempfile.TemporaryDirectory(prefix="mr-inno-rollback-") as directory:
+            root = Path(directory)
+            stage = root / "stage"
+            (stage / "docs").mkdir(parents=True)
+            (stage / "docs" / "new.txt").write_bytes(b"new docs")
+            (stage / "desktop.exe").write_bytes(b"new executable")
+            script = root / "sandbox.iss"
+            script.write_text(
+                f'#define StageDir "{stage}"\n#define AppExe "desktop.exe"\n'
+                "[Setup]\nAppName=Upgrade test\nAppVersion=1\nPrivilegesRequired=lowest\n"
+                f"DefaultDirName={root / 'default'}\nOutputDir={root}\nOutputBaseFilename=fixture\n"
+                "Uninstallable=no\nCreateUninstallRegKey=no\nUsePreviousAppDir=no\nCloseApplications=no\n"
+                "[InstallDelete]\n" + "\n".join(deletes) + "\n[Files]\n" +
+                "\n".join(installer_sections()["files"]) +
+                '\n[INI]\nFilename: "{code:AfterFiles}"; Section: "test"; Key: "state"; String: "done"\n'
+                "[CustomMessages]\nUpgradeMoveFailed=Cannot move %1\nUpgradeBackupRemaining=Backup at %1\n"
+                "[Code]\nconst\n  ClearedDirectoryNames = '|qml|docs|';\n"
+                "  UpgradeBackupName = '.mr-upgrade-previous';\n  UpgradeBackupSddl = '';\nvar\n"
+                + declarations + "\nfunction ApplyDacl(const Path, Sddl: String): Integer;\n"
+                "begin Result := 0; end;\n" + loose_files + ";\n" + code +
+                "function AfterFiles(Param: String): String;\nbegin\n"
+                "  if FileExists(ExpandConstant('{app}\\fail-after-copy')) then RaiseException('fixture post-copy stop');\n"
+                "  Result := ExpandConstant('{app}\\fixture.ini');\nend;\n"
+                "procedure CurStepChanged(CurStep: TSetupStep);\n"
+                "begin if CurStep = ssPostInstall then UpgradeCommitted := True; end;\n",
+                encoding="utf-8-sig")
+            subprocess.run([compiler, "/Q", str(script)], check=True, timeout=60)
+            for failed in (True, False):
+                with self.subTest(failed=failed):
+                    app = root / ("failure" if failed else "success")
+                    (app / "qml").mkdir(parents=True)
+                    # docs used to be a regular file. This long extension can have a .DLL
+                    # short name on NTFS, but the file belongs to neither installation.
+                    old = {"docs": b"old docs file", "qml/old.txt": b"retired qml",
+                           "desktop.exe": b"old executable", "local-notes.dll-backup": b"user file"}
+                    if failed:
+                        old["fail-after-copy"] = b""
+                    for name, contents in old.items():
+                        (app / name).write_bytes(contents)
+                    log = root / (app.name + ".log")
+                    result = subprocess.run([str(root / "fixture.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES",
+                                             "/NOCANCEL", "/NORESTART", "/DIR=" + str(app), "/LOG=" + str(log)],
+                                            timeout=60)
+                    if failed:
+                        self.assertEqual(4, result.returncode)
+                        self.assertIn("fixture post-copy stop", log.read_text(encoding="utf-8-sig"))
+                        restored = {file.relative_to(app).as_posix(): file.read_bytes()
+                                    for file in app.rglob("*") if file.is_file()}
+                        self.assertEqual(old, restored)
+                    else:
+                        self.assertEqual(0, result.returncode)
+                        self.assertEqual(b"new docs", (app / "docs" / "new.txt").read_bytes())
+                        self.assertFalse((app / "qml").exists())
+                        self.assertEqual(b"user file", (app / "local-notes.dll-backup").read_bytes())
+                    self.assertFalse((app / ".mr-upgrade-previous").exists())
 
 
 class EarlierInstallationTests(unittest.TestCase):

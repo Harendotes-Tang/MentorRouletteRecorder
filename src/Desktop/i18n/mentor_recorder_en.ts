@@ -4854,6 +4854,11 @@ SHA256: %3</translation>
         <translation>This calibration code failed the checks and has been turned off. Use a different calibration code; to try again, click “Clear calibration progress” first, then “Import code manually”.</translation>
     </message>
     <message>
+        <source>本次已停用共享校准，但选择尚未保存。请确认校准记录文件可写，然后点「重试保存」，以便下次启动时继续使用本机校准。</source>
+        <comment>sharing.rejection.write_failed</comment>
+        <translation>Shared calibration is off for this session, but your choice could not be saved. Make sure the calibration records file is writable, then select “Retry saving” to keep using local calibration after restarting.</translation>
+    </message>
+    <message>
         <source>当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。</source>
         <comment>sharing.import.user_rejected</comment>
         <translation>You chose to use only “Local calibration” for the current game version, so you can&apos;t use “Import code manually” for now. To use a shared calibration, click “Clear calibration progress” first, then “Import code manually”.</translation>
@@ -13973,6 +13978,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
 </context>
 <context>
     <name>SharedCalibrationSection</name>
+    <message>
+        <source>重试保存</source>
+        <translation>Retry saving</translation>
+    </message>
     <message>
         <source>共享校准</source>
         <translation>Shared calibrations</translation>

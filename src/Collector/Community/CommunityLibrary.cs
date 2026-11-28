@@ -72,35 +72,31 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
             _nextRefresh = now.AddSeconds(30);
             // An unusable reply from one source (a mirror that has not synchronised yet answering
             // with a placeholder, say) does not decide while the other can still deliver the file.
+            var previous = ReadCache();
             sentAt = _timeProvider.GetUtcNow();
             var pending = _fetch("main", "index.json", 4096,
-                bytes => Usable(() => ReadPointer(bytes)), cancellationToken);
+                bytes => Usable(() => ReadPointer(bytes), pointer => PointerProblem(pointer, previous) is null),
+                cancellationToken);
             // likes.json sits at main beside the index, so it is read at the same time.
             likes = FetchLikesAsync(likesSource.Token);
             var index = await pending.ConfigureAwait(false);
             if (index is null)
                 return Finish("not_deployed");
             var pointer = ReadPointer(index);
-            if (pointer.Commit is null)
-                return Finish(ReadCache() is null ? "empty" : "invalid_index");
-            var previous = ReadCache();
-            if (previous?.Commit == pointer.Commit && previous.Hash == pointer.Hash)
+            if (PointerProblem(pointer, previous) is { } problem)
+                return Finish(problem);
+            if (previous?.Generation == pointer.Generation)
             {
-                if (previous.Generation != pointer.Generation)
-                    return Finish("invalid_index");
                 _nextRefresh = now.AddMinutes(2);
                 return await Ready().ConfigureAwait(false);
             }
 
             sentAt = _timeProvider.GetUtcNow();
-            var bundle = await _fetch(pointer.Commit, "snapshot.json", CommunityContent.MaxSnapshotBytes,
+            var bundle = await _fetch(pointer.Commit!, "snapshot.json", CommunityContent.MaxSnapshotBytes,
                 bytes => Usable(() => ReadPublication(pointer, bytes)), cancellationToken).ConfigureAwait(false);
             if (bundle is null)
                 return Finish("temporarily_unavailable");
             var result = ReadPublication(pointer, bundle);
-            // A lagging mirror must never roll back an already installed source.
-            if (previous is not null && result.Generation <= previous.Generation)
-                return Finish("stale_mirror");
             lock (_cacheGate)
             {
                 repository.SaveCache(index, bundle);
@@ -121,15 +117,20 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
         }
         finally
         {
-            if (likes is not null)
+            try
             {
-                // Any other outcome drops the counts; the download never throws.
-                await likesSource.CancelAsync().ConfigureAwait(false);
-                await likes.ConfigureAwait(false);
+                if (likes is not null)
+                {
+                    await likesSource.CancelAsync().ConfigureAwait(false);
+                    await likes.ConfigureAwait(false);
+                }
             }
-            if (sentAt is { } at)
-                RecordRequest(new(at, outcome ?? (cancellationToken.IsCancellationRequested ? "cancelled" : "failed")));
-            _refreshGate.Release();
+            finally
+            {
+                if (sentAt is { } at)
+                    RecordRequest(new(at, outcome ?? (cancellationToken.IsCancellationRequested ? "cancelled" : "failed")));
+                _refreshGate.Release();
+            }
         }
     }
 
@@ -336,12 +337,25 @@ internal sealed class CommunityLibrary(CommunityRepository repository, SettingsR
         return new(pointer.Commit, pointer.Hash, pointer.Generation, byId);
     }
 
-    private static bool Usable(Action read)
+    // A source can win the race with the cached publication or a newer one. If both replies
+    // are unusable, the caller applies the same rule to the retained reply for diagnostics.
+    private static string? PointerProblem(PublicationPointer pointer, Publication? previous)
+    {
+        if (pointer.Commit is null)
+            return previous is null ? "empty" : "invalid_index";
+        if (previous is null)
+            return null;
+        if (previous.Commit == pointer.Commit && previous.Hash == pointer.Hash)
+            return previous.Generation == pointer.Generation ? null : "invalid_index";
+        return pointer.Generation > previous.Generation ? null : "stale_mirror";
+    }
+
+    private static bool Usable<T>(Func<T> read, Func<T, bool>? accept = null)
     {
         try
         {
-            read();
-            return true;
+            var parsed = read();
+            return accept is null || accept(parsed);
         }
         catch (Exception error) when (error is JsonException or FormatException)
         {

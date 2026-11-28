@@ -104,8 +104,8 @@ coverage.*.xml
 #   docs/plans/             implementation plans for past batches of work
 #   docs/reviews/           point-in-time review transcripts
 #   docs/diagrams/          generated architecture diagram plus the drawing tool's receipts
-# scripts/package.ps1 removes the docs/ entries from the staging directory as well, so a
-# package built from a local checkout matches one built from a fresh clone.
+# scripts/package.ps1 selects tracked docs before copying. An explicitly permitted local
+# package without a readable Git index uses scripts/package-docs.txt. Both exclude these folders.
 .claude/
 .superpowers/
 openspec/

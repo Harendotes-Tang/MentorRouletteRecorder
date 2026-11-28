@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -129,6 +130,44 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         Assert.False(_bed.Store.IsUserRejected(Region.Cn, Bed.Build));
         Assert.False(restarted.CalibrationStatus().Shared.UserRejected);
         Assert.Equal(SharedImportOutcome.Applied, restarted.ImportCalibrationCode(truth.Code).Outcome);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LockedStateStopsSharingImmediatelyAndOffersToSaveTheRefusalAgain(bool inUse)
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var pipeline = inUse ? await _bed.BoundAndStillWatchedAsync(code) : await _bed.ReadyPipelineAsync();
+        Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+        using (_bed.HoldStateFile(FileShare.Read))
+        {
+            var failure = Assert.Throws<CollectorException>(() => pipeline.RejectSharedCalibration());
+            Assert.Equal(ErrorCodes.CalibrationNotReady, failure.Code);
+            Assert.True(failure.Retryable);
+            await Bed.Idle(pipeline);
+            var shared = pipeline.CalibrationStatus().Shared;
+            Assert.Empty(shared.Candidates);
+            Assert.Null(shared.ProfileId);
+            Assert.True(shared.UserRejected);
+            Assert.Equal("USER_REJECTION_NOT_SAVED", shared.LastRefusal);
+            Assert.False(File.Exists(_bed.SharedProfilePath));
+            Assert.Equal(SharedCalibrationSession.UserRejectedReason, pipeline.ImportCalibrationCode(code.Code).Reason);
+            Assert.Equal(SharedCheckOutcome.NotNeeded, pipeline.CheckSharedCalibrationNow());
+        }
+
+        Assert.False(_bed.Store.IsUserRejected(Region.Cn, Bed.Build));
+        Assert.Equal(0, pipeline.RejectSharedCalibration().DroppedCandidates);
+        Assert.Equal(SharedCalibrationSession.UserRejectedReason, pipeline.CalibrationStatus().Shared.LastRefusal);
+        using (_bed.HoldStateFile(FileShare.Read))
+        {
+            Assert.Equal(0, pipeline.RejectSharedCalibration().DroppedCandidates);
+            Assert.True(pipeline.CalibrationStatus().Shared.UserRejected);
+        }
+        var restarted = await _bed.ReadyPipelineAsync();
+        Assert.True(restarted.CalibrationStatus().Shared.UserRejected);
+        Assert.Empty(restarted.CalibrationStatus().Shared.Candidates);
     }
 
     [Fact]

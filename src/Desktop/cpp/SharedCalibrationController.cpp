@@ -151,6 +151,8 @@ void SharedCalibrationController::refreshFromCaptureStatus(const QVariantMap &ca
     Inputs next;
     next.available = raw.isValid() && !raw.isNull() && !shared.isEmpty();
     next.userRejected = shared.value(QStringLiteral("user_rejected")).toBool();
+    next.rejectionNeedsSaving = next.userRejected
+        && shared.value(QStringLiteral("last_refusal")).toString() == QLatin1String("USER_REJECTION_NOT_SAVED");
     const QVariantList candidates = shared.value(QStringLiteral("candidates")).toList();
     next.manualOnly = allManual(candidates);
     next.provenance = provenanceOf(candidates);
@@ -261,6 +263,8 @@ QString SharedCalibrationController::headline() const
         return tr("暂时没有当前游戏版本的共享校准，将继续本机校准。");
     if (current == QLatin1String("disabled"))
         return tr("自动获取共享校准已关闭，将继续本机校准。");
+    if (rejectionNeedsSaving())
+        return collector_text::render(collector_text::textRef("sharing.rejection.write_failed"));
     if (current == QLatin1String("user_rejected"))
         return tr("已改为本机校准，当前游戏版本不再使用共享校准。");
     return {};
@@ -297,7 +301,7 @@ QString SharedCalibrationController::detail() const
         return tr("本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。");
     if (current == QLatin1String("disabled"))
         return tr("想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。");
-    if (current == QLatin1String("user_rejected") && calibrating())
+    if (current == QLatin1String("user_rejected") && !rejectionNeedsSaving() && calibrating())
         return tr("想重新使用共享校准，点「清空校准进度」。本机尚未完成的校准进度也会一起清空。");
     if (current == QLatin1String("none") && canImport())
         return tr("有其他玩家发来的校准码，可以在「其他方式」中手动导入。通过检查后才会使用。");
@@ -602,6 +606,7 @@ void SharedCalibrationController::reject()
         end();
         if (!ok) {
             Q_EMIT notice(message.isEmpty() ? tr("没能改为本机校准，请稍后重试。") : message);
+            Q_EMIT refreshRequested();
             return;
         }
         // The withdrawn profile id and the count are diagnostics; the sentence only says

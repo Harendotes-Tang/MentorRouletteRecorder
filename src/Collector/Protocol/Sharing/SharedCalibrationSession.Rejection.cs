@@ -1,3 +1,5 @@
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 
 namespace MentorRecorder.Collector.Protocol.Sharing;
@@ -19,6 +21,12 @@ internal sealed partial class SharedCalibrationSession
             return SharedRejectResult.Nothing;
         }
 
+        // The live gate closes even when the store is locked. Keep that build refused in memory
+        // until the write succeeds or the player explicitly asks to use shared calibrations again.
+        var saved = Attempt(() => _services.SharedCalibrations.RecordUserRejection(target.Region, target.Build, _clock.UtcNow));
+        if (saved) _unsavedRejections.Remove(target);
+        else _unsavedRejections.Add(target);
+
         CancelFetch();
         var dropped = _candidates.Count;
         foreach (var candidate in _candidates.ToArray())
@@ -28,7 +36,6 @@ internal sealed partial class SharedCalibrationSession
 
         _binding = null;
         _userRejection = (target.Region, target.Build, true);
-        Attempt(() => _services.SharedCalibrations.RecordUserRejection(target.Region, target.Build, _clock.UtcNow));
         var withdrawn = _bound?.ProfileId;
         if (_bound is not null)
         {
@@ -40,6 +47,10 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.SharedCalibrationChanged();
+        if (!saved)
+            throw new CollectorException(ErrorCodes.CalibrationNotReady, CollectorTexts.SharingRejectionWriteFailed(),
+                retryable: true);
+
         return new SharedRejectResult(withdrawn, dropped);
     }
 
@@ -78,6 +89,7 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     private bool? UserRejection(Region region, string build)
     {
+        if (_unsavedRejections.Contains((region, build))) return true;
         if (_userRejection is { } memo && memo.Region == region && string.Equals(memo.Build, build, StringComparison.Ordinal))
         {
             return memo.Rejected;
@@ -96,6 +108,9 @@ internal sealed partial class SharedCalibrationSession
 
         return rejected;
     }
+
+    /// <summary>Whether the running build's refusal still needs a successful write.</summary>
+    private bool RejectionNeedsSaving() => RefusalScope() is { } scope && _unsavedRejections.Contains(scope);
 
     /// <summary>
     /// Whether the refusal the store shows stands for the build it would be kept for right now (<see cref="RefusalScope"/>):

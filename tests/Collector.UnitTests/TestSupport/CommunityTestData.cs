@@ -58,4 +58,10 @@ internal static class CommunityTestData
         };
         return (Encoding.UTF8.GetBytes(index.ToJsonString()), bytes);
     }
+
+    internal sealed class TestTime : TimeProvider
+    {
+        internal DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 }

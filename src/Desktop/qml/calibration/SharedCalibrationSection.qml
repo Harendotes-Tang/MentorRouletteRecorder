@@ -24,7 +24,7 @@ Card {
     property bool headlineShownByCard: false
     readonly property bool offersSomething: !!section.shared
         && (section.shared.canCheck || section.shared.canImport
-            || section.shared.canReject || section.shared.canShare)
+            || section.shared.canReject || section.shared.canShare || section.shared.rejectionNeedsSaving)
     readonly property bool hasOtherWays: !!section.shared
         && (section.shared.canImport || section.shared.canReject)
     // 停用正在记录的共享校准会把进行中的记录按停止捕获收尾，等于让玩家白打这一把；
@@ -186,6 +186,15 @@ Card {
             text: section.shared ? section.shared.shareButtonText : ""
             enabled: !!section.shared && !section.shared.busy
             onClicked: section.shared.share()
+        }
+
+        AppButton {
+            objectName: "sharedRetryRejectionButton"
+            visible: !!section.shared && section.shared.rejectionNeedsSaving
+            variant: "primary"
+            text: qsTr("重试保存")
+            enabled: !!section.shared && !section.shared.busy
+            onClicked: section.shared.reject()
         }
 
         AppButton {

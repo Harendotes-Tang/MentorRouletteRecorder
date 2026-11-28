@@ -92,7 +92,7 @@ public:
     void clearCheckedRuns();
     void mutateCheckedRuns(const QString &action, const QString &reason);
     /// BatchMutateRuns assign_profile over the checked rows, live and deleted alike:
-    /// files them under  profileId, or under no character profile for 0. Same
+    /// files them under \a profileId, or under no character profile for 0. Same
     /// confirmation, feedback, refresh and batchSucceeded("assign_profile", ids) path
     /// as mutateCheckedRuns().
     void assignCheckedRunsToProfile(int profileId, const QString &reason);
@@ -150,7 +150,7 @@ private:
     /// 显示时区 changed: the applied (and a proposed) date range keeps its days,
     /// whose UTC bounds are recomputed for the new zone.
     void rebaseFilterDays();
-    /// Sends one batch over the checked rows;  profileId is used by assign_profile only.
+    /// Sends one batch over the checked rows; \a profileId is used by assign_profile only.
     void sendCheckedBatch(const QString &action, int profileId, const QString &reason,
                           const QJsonObject &migration = {});
     QJsonArray checkedBatchTargets() const;

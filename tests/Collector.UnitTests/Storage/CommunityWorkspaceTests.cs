@@ -112,24 +112,34 @@ public sealed class CommunityWorkspaceTests
         var legacyOrder = new[] { legacyIds[1], legacyIds[0] }.Concat(legacyIds.Skip(2)).ToArray();
         Assert.Equal(legacyOrder, ReadPagedLocalRows(workspace).Select(LocalRowId));
 
+        long Generation(int offset) => workspace.List(offset)["generation"]!.GetValue<long>();
+        var firstGeneration = Generation(0);
         var editRequest = Guid.NewGuid().ToString();
         var edit = Save(Draft(legacyIds[^1], "reminder", "Edited text"), 1);
         Assert.Equal("saved", Status(workspace.Change("save", editRequest, edit)));
+        Assert.NotEqual(firstGeneration, Generation(CommunityContent.PageSize));
         Assert.Equal(legacyIds[^1], LocalRowId(ReadPagedLocalRows(workspace)[0]));
         Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(),
             Save(Draft(MacroId, "macro", "/p New macro"), 0))));
+        var beforeFavorite = Generation(0);
         var favorite = Save(Draft(legacyIds[1], "reminder", "Legacy text"), 1, favorite: true);
         favorite["position"] = -2;
         Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(), favorite)));
 
         fixture.Reopen();
         workspace = Open(fixture);
+        var afterFavorite = Generation(CommunityContent.PageSize);
+        Assert.NotEqual(beforeFavorite, afterFavorite);
         Assert.Equal("saved", Status(workspace.Change("save", editRequest, edit)));
+        Assert.Equal(afterFavorite, Generation(0));
         var rows = ReadPagedLocalRows(workspace);
         Assert.Equal(new[] { MacroId, legacyIds[^1] }.Concat(legacyOrder[..^1]), rows.Select(LocalRowId));
         Assert.Equal(2, rows[1]["revision"]!.GetValue<int>());
         Assert.Equal(-2, rows[2]["position"]!.GetValue<int>());
         Assert.True(rows[2]["favorite"]!.GetValue<bool>());
+        Assert.Equal("deleted", Status(workspace.Change("delete", Guid.NewGuid().ToString(),
+            new JsonObject { ["id"] = MacroId, ["revision"] = 1 })));
+        Assert.NotEqual(afterFavorite, Generation(0));
     }
 
     [Fact]
@@ -239,58 +249,6 @@ public sealed class CommunityWorkspaceTests
         var persisted = new CommunityLibrary(new CommunityRepository(fixture.Database),
             new SettingsRepository(fixture.Database, fixture.Clock));
         Assert.Single(persisted.Browse()["entries"]!.AsArray());
-    }
-
-    // likes.json is read at main on every refresh, also when the snapshot is unchanged. Its counts
-    // decorate the first page for listed entries only; a broken file shows none and a failed
-    // download keeps the last ones, and neither changes the library's status.
-    [Fact]
-    public async Task RefreshReadsLikesBesideTheSnapshotWithoutDependingOnThem()
-    {
-        using var fixture = new TestDatabase();
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        var withdrawn = Published(Draft(MacroId, "macro", "/p Gone"), 2);
-        withdrawn["status"] = "withdrawn";
-        var (index, bytes) = Publication(1, Published(Draft(NoteId, "reminder", "Liked text"), 1), withdrawn);
-        var clock = new TestTime();
-        JsonObject Like(int count, long comment) => new() { ["count"] = count, ["issue"] = 53, ["comment"] = comment };
-        string Likes(int count) => new JsonObject { ["schema_version"] = 1, ["likes"] = new JsonObject
-            { [NoteId] = Like(count, 2_400_000_101L), [MacroId] = Like(4, 2_400_000_102L) } }.ToJsonString();
-        object served = Likes(12);
-        var library = new CommunityLibrary(new CommunityRepository(fixture.Database), settings, (_, file, _, _, _) =>
-        {
-            if (file != "likes.json")
-                return Task.FromResult<byte[]?>(file == "index.json" ? index : bytes);
-            if (served is Exception error)
-                throw error;
-            if (served is CancellationTokenSource stop)
-                stop.Cancel();
-            return served is CancellationTokenSource cancelled ? Task.FromCanceled<byte[]?>(cancelled.Token)
-                : Task.FromResult(served is string text ? Encoding.UTF8.GetBytes(text) : null);
-        }, clock, killSwitch: () => false);
-        JsonNode? LikesOf(JsonObject result) => result["likes"];
-        async Task<JsonObject> Refresh(object reply, CancellationToken token = default)
-        {
-            served = reply;
-            clock.Now = clock.Now.AddMinutes(5);
-            var result = await library.RefreshAsync(token);
-            Assert.Equal("ready", Status(result));
-            return result;
-        }
-
-        library.SetOnline(true);
-        var first = await Refresh(Likes(12));
-        Assert.Equal($$$"""{"{{{NoteId}}}":{"count":12,"issue":53,"comment":2400000101}}""", LikesOf(first)!.ToJsonString());
-        Assert.Equal(13, LikesOf(await Refresh(Likes(13)))![NoteId]!["count"]!.GetValue<int>());
-        Assert.Equal(13, LikesOf(await Refresh(new HttpRequestException()))![NoteId]!["count"]!.GetValue<int>());
-        // Cancelled while likes.json downloads, the refresh still ends "ready" and keeps the counts.
-        using var cancel = new CancellationTokenSource();
-        Assert.Equal(13, LikesOf(await Refresh(cancel, cancel.Token))![NoteId]!["count"]!.GetValue<int>());
-        Assert.Empty(LikesOf(await Refresh("""{"schema_version":1,"likes":{"x":{}}}"""))!.AsObject());
-        Assert.Empty(LikesOf(await Refresh(Likes(-1)))!.AsObject());
-        Assert.Equal(7, LikesOf(await Refresh(Likes(7)))![NoteId]!["count"]!.GetValue<int>());
-        Assert.Empty(LikesOf(await Refresh(new object()))!.AsObject());
-        Assert.Null(library.Browse(offset: 40)["likes"]);
     }
 
     [Fact]
@@ -662,38 +620,6 @@ public sealed class CommunityWorkspaceTests
         Assert.Equal("invalid_title", Assert.Throws<FormatException>(() => CommunityContent.Validate(title)).Message);
     }
 
-    [Fact]
-    public async Task RefreshNeverRollsBackToAnOlderGenerationAndTellsTheSourceWhichRepliesAreUsable()
-    {
-        using var fixture = new TestDatabase();
-        var repository = new CommunityRepository(fixture.Database);
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        var clock = new TestTime();
-        var newer = Publication(2, Published(Draft(NoteId, "reminder", "Newer text"), 2));
-        var older = Publication(1, Published(Draft(NoteId, "reminder", "Older text"), 1));
-        var served = newer;
-        var refused = new List<string>();
-        var library = new CommunityLibrary(repository, settings, (_, file, _, accept, _) =>
-        {
-            if (file == "likes.json")
-                return Task.FromResult<byte[]?>(null);
-            var bytes = file == "index.json" ? served.Index : served.Bytes;
-            Assert.True(accept(bytes));
-            if (accept("<html>not yet mirrored</html>"u8.ToArray()))
-                refused.Add(file);
-            return Task.FromResult<byte[]?>(bytes);
-        }, clock, killSwitch: () => false);
-        library.SetOnline(true);
-        Assert.Equal("ready", Status(await library.RefreshAsync(CancellationToken.None)));
-        served = older;
-        clock.Now = clock.Now.AddMinutes(5);
-        var result = await library.RefreshAsync(CancellationToken.None);
-        Assert.Equal("stale_mirror", Status(result));
-        Assert.Equal(2, result["generation"]!.GetValue<int>());
-        Assert.Equal("Newer text", result["entries"]![0]!["body"]!.GetValue<string>());
-        Assert.Empty(refused);
-    }
-
     // GitCode can answer before it has synchronised a new commit; its reply must not hide GitHub's.
     [Theory]
     [InlineData("unusable")]
@@ -762,6 +688,43 @@ public sealed class CommunityWorkspaceTests
         // The edited entry can be saved again: none of its links points at something missing.
         Assert.Equal("saved", Status(workspace.Change("save", Guid.NewGuid().ToString(),
             Save(updated["content"]!.AsObject(), 2))));
+    }
+
+    [Theory]
+    [InlineData("keep", true)]
+    [InlineData("replace", false)]
+    public void WithdrawnSourceLinkAlreadyInstalledIsUsedOnlyWhenKeptAsALocalEdit(string mode, bool kept)
+    {
+        using var fixture = new TestDatabase();
+        var repository = new CommunityRepository(fixture.Database);
+        var macro = Published(Draft(MacroId, "macro", "/p Former macro"), 1);
+        Cache(repository, 1, macro);
+        var workspace = Open(fixture);
+        string Change(string action, JsonObject payload) =>
+            Status(workspace.Change(action, Guid.NewGuid().ToString(), payload));
+        JsonObject Note() => workspace.List(0)["items"]!.AsArray()
+            .Single(row => LocalRowId(row) == NoteId)!["content"]!.AsObject();
+        Assert.Equal("installed", Change("install", new() { ["id"] = MacroId }));
+
+        macro["status"] = "withdrawn";
+        var note = Draft(NoteId, "reminder", "A note");
+        note["links"] = new JsonArray(MacroId);
+        Cache(repository, 2, Published(note, 1), macro);
+        workspace = Open(fixture);
+        Assert.Equal("installed", Change("install", new() { ["id"] = NoteId }));
+        Assert.Empty(Note()["links"]!.AsArray());
+
+        var edited = Note().DeepClone().AsObject();
+        edited["links"] = new JsonArray(MacroId);
+        Assert.Equal("saved", Change("save", Save(edited, 1)));
+        note["body"] = "A new revision";
+        Cache(repository, 3, Published(note, 2), macro);
+        workspace = Open(fixture);
+        Assert.Equal("updated", Change("apply", new()
+        {
+            ["id"] = NoteId, ["revision"] = 2, ["source_revision"] = 2, ["mode"] = mode,
+        }));
+        Assert.True(JsonNode.DeepEquals(Note()["links"], kept ? new JsonArray(MacroId) : new JsonArray()));
     }
 
     [Fact]
@@ -976,12 +939,6 @@ public sealed class CommunityWorkspaceTests
         public byte[] Unprotect(byte[] ciphertext) => Protect(ciphertext);
     }
 
-    private sealed class TestTime : TimeProvider
-    {
-        internal DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
-
     private static string Status(JsonObject result) => result["status"]!.GetValue<string>();
 
     private static string LocalRowId(JsonNode? row) => row!["content"]!["id"]!.GetValue<string>();
@@ -993,6 +950,7 @@ public sealed class CommunityWorkspaceTests
         Assert.Equal(CommunityContent.PageSize, first["next"]!.GetValue<int>());
         var second = workspace.List(first["next"]!.GetValue<int>());
         Assert.Null(second["next"]);
+        Assert.Equal(first["generation"]!.GetValue<long>(), second["generation"]!.GetValue<long>());
         return first["items"]!.AsArray().Concat(second["items"]!.AsArray()).Select(row => row!).ToArray();
     }
 

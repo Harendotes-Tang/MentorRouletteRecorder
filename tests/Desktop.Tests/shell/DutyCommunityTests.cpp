@@ -39,6 +39,8 @@ private Q_SLOTS:
     void communityEditorFollowsTheDesign();
     void communityEditorSaysWhyASaveIsRefused();
     void communityLateRepliesKeepThePlayersPlace();
+    void closedDialogRetainsRefusedDraft();
+    void consecutiveRefusalsPreserveBothDrafts();
     void communityAuthorizationIgnoresSupersededReplies();
     void withdrawalRequiresOnePublishingAccount();
     void communityDirectorySetsTheRangeAndGroupsTheList();
@@ -89,6 +91,8 @@ void DutyCommunityTests::withdrawalRequiresOnePublishingAccount()
 void DutyCommunityTests::dashboardOpensTheCommunityLibrary()
 {
     Scene scene;
+    scene.backend.holdCommunityBrowse = true;
+    scene.backend.setCommunityLibraryFetched(true);
     QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.mainWindow()));
     QTRY_VERIFY(scene.item(QStringLiteral("dashboardDutyCommunity"), true));
@@ -103,10 +107,16 @@ void DutyCommunityTests::dashboardOpensTheCommunityLibrary()
     QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
                                       Q_ARG(QVariant, QVariant())));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
-    dialog->setProperty("online", true);
+    QTRY_COMPARE(scene.backend.pendingCommunityBrowse.size(), 1);
+    QVERIFY(!dialog->property("online").toBool());
     dialog->setProperty("tab", QStringLiteral("public"));
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
-    QVERIFY(dialog->property("remote").toBool() && dialog->property("refreshing").toBool());
+    // The saved networking preference arrives after the tab switch. Only refresh can fill these rows.
+    scene.backend.pendingCommunityBrowse.takeFirst()->succeed({
+        {QStringLiteral("status"), QStringLiteral("not_refreshed")}, {QStringLiteral("online"), true},
+        {QStringLiteral("cached"), false}, {QStringLiteral("entries"), QJsonArray()}});
+    QTRY_VERIFY(!rowIds(dialog->property("publicRows")).isEmpty());
+    QTRY_VERIFY(!dialog->property("refreshing").toBool());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -597,6 +607,76 @@ void DutyCommunityTests::communityLateRepliesKeepThePlayersPlace()
     QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
     QCOMPARE(scene.item(QStringLiteral("dutyCommunityEditorHeading"), true)->property("text").toString(),
              QString::fromUtf8("新建提醒"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityTests::closedDialogRetainsRefusedDraft()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    QVariantMap stale = qmlList(dialog->property("localRows")).constFirst().toMap();
+    stale.insert(QStringLiteral("revision"), stale.value(QStringLiteral("revision")).toInt() + 1);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "startEdit", Q_ARG(QVariant, stale)));
+    const auto titleField = [&] { return scene.item(QStringLiteral("dutyCommunityEditorTitle"), true); };
+    QTRY_VERIFY(titleField());
+    const auto title = QStringLiteral("关闭后仍可恢复的草稿");
+    titleField()->setProperty("text", title);
+    scene.backend.setReplyDelay(800, QStringLiteral("DutyCommunity"));
+    QQuickItem *editor = scene.item(QStringLiteral("dutyCommunityEditor"), true);
+    QVERIFY(editor);
+    QVERIFY(QMetaObject::invokeMethod(editor, "save"));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    QTRY_VERIFY(!qmlMap(dialog->property("refusedSave")).isEmpty());
+    scene.backend.setReplyDelay(0, QStringLiteral("DutyCommunity"));
+    QVERIFY(scene.click(QStringLiteral("dashboardDutyCommunity")));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityRestoreRefused")));
+    QTRY_VERIFY(titleField());
+    QCOMPARE(titleField()->property("text").toString(), title);
+    auto *reason = scene.item(QStringLiteral("dutyCommunityEditorRefusal"), true);
+    QVERIFY(reason && reason->property("text").toString().contains(QStringLiteral("本地有同一条目")));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityTests::consecutiveRefusalsPreserveBothDrafts()
+{
+    Scene scene;
+    QObject *dialog = openCommunityDialog(scene);
+    QVERIFY2(dialog, qPrintable(scene.errors));
+    auto *service = dialog->property("service").value<QObject *>();
+    QVERIFY(service);
+    // Both replies arrive after a third editor opened. Deliver them explicitly in reverse order.
+    scene.backend.setReplyDelay(10000, QStringLiteral("DutyCommunity"));
+    const auto rows = qmlList(dialog->property("localRows"));
+    const auto first = rows[0].toMap(), second = rows[1].toMap();
+    const auto send = [&](const QVariantMap &row) {
+        return QMetaObject::invokeMethod(dialog, "mutate", Q_ARG(QVariant, QStringLiteral("save")),
+                                         Q_ARG(QVariant, row), Q_ARG(QVariant, QVariant()));
+    };
+    QVERIFY(send(first));
+    const int firstTicket = dialog->property("serial").toInt();
+    QVERIFY(send(second));
+    const int secondTicket = dialog->property("serial").toInt();
+    QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
+                                      Q_ARG(QVariant, QVariant())));
+    const QVariantMap refusal{{QStringLiteral("status"), QStringLiteral("local_conflict")}};
+    for (int ticket : {secondTicket, firstTicket})
+        QVERIFY(QMetaObject::invokeMethod(service, "answered", Q_ARG(int, ticket),
+                                          Q_ARG(QVariantMap, refusal), Q_ARG(QString, QString())));
+    const auto pending = [&] {
+        return qmlMap(dialog->property("refusedSave")).value(QStringLiteral("args")).toMap();
+    };
+    QCOMPARE(pending().value(QStringLiteral("content")), second.value(QStringLiteral("content")));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityDropRefused")));
+    QCOMPARE(pending().value(QStringLiteral("content")), first.value(QStringLiteral("content")));
+    dialog->setProperty("mode", QStringLiteral("view"));
+    QVERIFY(scene.click(QStringLiteral("dutyCommunityRestoreRefused")));
+    auto *title = scene.item(QStringLiteral("dutyCommunityEditorTitle"), true);
+    QVERIFY(title);
+    QCOMPARE(title->property("text"), first.value(QStringLiteral("content")).toMap().value(QStringLiteral("title")));
+    QVERIFY(pending().isEmpty());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

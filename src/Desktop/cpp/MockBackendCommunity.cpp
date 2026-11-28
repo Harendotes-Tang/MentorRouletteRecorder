@@ -359,7 +359,9 @@ QJsonArray installedLinks(const QJsonArray &local, const QJsonObject &draft, con
 {
     QJsonArray kept;
     for (const QJsonValue &link : draft.value(QStringLiteral("links")).toArray()) {
-        if (installing.contains(link.toString()) || rowIndex(local, link.toString()) >= 0)
+        const auto target = publishedEntry(link.toString());
+        if (!target.isEmpty() && !withdrawn(target)
+            && (installing.contains(link.toString()) || rowIndex(local, link.toString()) >= 0))
             kept.append(link);
     }
     return kept;
@@ -566,6 +568,11 @@ QJsonObject communityChange(QJsonArray &local, bool fetched, const QString &acti
         return refuse(QStringLiteral("invalid_mode"));
     QJsonObject draft = draftOf(remote);
     draft.insert(QStringLiteral("id"), localId);
+    if (const QJsonObject installed = addMissing(local, items.mid(1));
+        installed.value(QStringLiteral("status")).toString() != QLatin1String("installed"))
+        return installed;
+    const auto sourceLinks = installedLinks(local, remote, {});
+    draft.insert(QStringLiteral("links"), sourceLinks);
     if (mode == QLatin1String("keep")) {
         // What the player changed since adopting the source stays theirs.
         const QJsonObject content = old.value(QStringLiteral("content")).toObject();
@@ -577,12 +584,8 @@ QJsonObject communityChange(QJsonArray &local, bool fetched, const QString &acti
                 draft.insert(key, content.value(key));
         }
     }
-    if (const QJsonObject installed = addMissing(local, items.mid(1));
-        installed.value(QStringLiteral("status")).toString() != QLatin1String("installed"))
-        return installed;
     QJsonObject row = old;
-    row.insert(QStringLiteral("source_links"), installedLinks(local, remote, {}));
-    draft.insert(QStringLiteral("links"), installedLinks(local, draft, {}));
+    row.insert(QStringLiteral("source_links"), sourceLinks);
     row.insert(QStringLiteral("content"), draft);
     row.insert(QStringLiteral("revision"), revision + 1);
     row.insert(QStringLiteral("upstream"), remote);
@@ -614,15 +617,21 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
 
     if (action == QLatin1String("list")) {
         QJsonObject result = status("ready");
+        constexpr int pageSize = 40;
+        const auto requestedOffset = payload.value(QStringLiteral("offset"));
+        int offset = 0;
+        if (!requestedOffset.isUndefined() && !requestedOffset.isNull()
+            && (!integerValue(requestedOffset, &offset) || offset < 0 || offset > MaxLocalEntries))
+            return status("invalid_offset");
         QJsonArray items;
-        for (const auto &value : m_communityLocal) {
-            auto row = value.toObject();
+        for (int i = offset; i < m_communityLocal.size() && items.size() < pageSize; ++i) {
+            auto row = m_communityLocal.at(i).toObject();
             row.remove(QStringLiteral("source_links"));
             items.append(row);
         }
         result.insert(QStringLiteral("items"), items);
-        result.insert(QStringLiteral("next"), QJsonValue::Null);
-        result.insert(QStringLiteral("generation"), 1);
+        result.insert(QStringLiteral("next"), items.size() == pageSize ? QJsonValue(offset + pageSize) : QJsonValue::Null);
+        result.insert(QStringLiteral("generation"), m_communityGeneration);
         return result;
     }
     if (action == QLatin1String("browse"))
@@ -652,6 +661,8 @@ QJsonObject MockBackend::dutyCommunity(const QJsonObject &payload)
         }
         bool thrown = false;
         const QJsonObject result = communityChange(m_communityLocal, m_communityFetched, action, id, payload, &thrown);
+        if (!thrown)
+            ++m_communityGeneration;
         if (!requestId.isEmpty() && !thrown) {
             m_appliedRequests.insert(requestId, AppliedRequest{.messageType = QStringLiteral("DutyCommunity"),
                                                                .fingerprint = m_requestFingerprint,

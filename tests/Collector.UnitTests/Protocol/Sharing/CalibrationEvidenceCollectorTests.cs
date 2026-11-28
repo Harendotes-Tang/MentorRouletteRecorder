@@ -53,7 +53,7 @@ public sealed class CalibrationEvidenceCollectorTests
     {
         using var bed = new Bed();
         var source = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
-        var pipeline = bed.Pipeline(bed.Services(fetch: false));
+        var pipeline = bed.Pipeline(bed.Services(fetch: false) with { SharedCalibrations = bed.Store });
         pipeline.Refresh(Bed.Game());
         SharedCode? last = null;
         for (var index = 0; index <= CalibrationObserver.MaxCandidates; index++)

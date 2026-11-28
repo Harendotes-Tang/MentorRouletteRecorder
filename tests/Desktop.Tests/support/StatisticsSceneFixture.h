@@ -72,6 +72,8 @@ public:
     QList<QPointer<mr::BackendReply>> pendingRows;
     QJsonObject currentRunOverride;
     QJsonValue communityListOverride;
+    QList<QJsonObject> communityListPages;
+    QList<int> requestedCommunityOffsets;
     QJsonObject lastCommunityCopy;
     QJsonObject lastCommunitySubmission;
     bool holdCommunitySubmission = false;
@@ -86,6 +88,12 @@ public:
             const QString action = payload.value(QStringLiteral("action")).toString();
             if (action == QLatin1String("copy"))
                 lastCommunityCopy = payload;
+            if (action == QLatin1String("list") && !communityListPages.isEmpty()) {
+                requestedCommunityOffsets.append(payload.value(QStringLiteral("offset")).toInt());
+                auto *reply = new mr::BackendReply(QStringLiteral("fixture-paged-list"), messageType, this);
+                QTimer::singleShot(0, reply, [reply, page = communityListPages.takeFirst()] { reply->succeed(page); });
+                return reply;
+            }
             if (action == QLatin1String("list") && communityListOverride.isArray()) {
                 auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-list"), messageType, this);
                 const QJsonObject snapshot{{QStringLiteral("status"), QStringLiteral("ready")},

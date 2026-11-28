@@ -40,6 +40,14 @@ bool isInside(const QString &ancestorPath, const QString &candidatePath)
     return candidate.startsWith(base + QLatin1Char('/'), Qt::CaseInsensitive);
 }
 
+// A sync client can mark an owned copy read-only after it was saved.
+bool removeOwnedFile(const QString &path)
+{
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                | QFileDevice::ReadUser | QFileDevice::WriteUser);
+    return QFile::remove(path);
+}
+
 const QStringList &clipboardImageFormats()
 {
     static const QStringList formats{QStringLiteral("image/png"), QStringLiteral("image/jpeg"),
@@ -343,7 +351,7 @@ QVariantMap NoteImageStore::cleanupRun(const QString &runId)
         const QFileInfo fresh(entry.absoluteFilePath());
         if (!runFolderIsGenuine(directory) || fresh.isJunction() || fresh.isSymbolicLink()
             || QFileInfo(fresh.canonicalFilePath()).absolutePath().compare(resolved, Qt::CaseInsensitive) != 0
-            || !QFile::remove(fresh.absoluteFilePath()))
+            || !removeOwnedFile(fresh.absoluteFilePath()))
             return refused(tr("部分图片未能删除，清理任务已保留，之后会重试。"));
     }
     if (!runFolderIsGenuine(directory) || !QDir(m_root).rmdir(QFileInfo(directory).fileName()))
@@ -466,11 +474,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
             failures.append(QCoreApplication::translate("mr::NoteImageStore", "无法确认图片在这条记录的文件夹内，尚未删除：%1").arg(nativePath(path)));
             continue;
         }
-        // A sync client or the player may have flagged the copy read-only since;
-        // that must not make it undeletable from the UI.
-        QFile::setPermissions(absolute, QFileDevice::ReadOwner | QFileDevice::WriteOwner
-                                            | QFileDevice::ReadUser | QFileDevice::WriteUser);
-        if (QFile::remove(absolute)) {
+        if (removeOwnedFile(absolute)) {
             removed.append(path);
             continue;
         }

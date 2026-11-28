@@ -96,6 +96,7 @@ internal sealed partial class SharedCalibrationSession
     private string? _lastRefusal;
     private (Region Region, string Build, DateTimeOffset At)? _consent;
     private (Region Region, string Build, bool Rejected)? _userRejection;
+    private readonly HashSet<(Region Region, string Build)> _unsavedRejections = new();
     private DateTimeOffset? _lastSentAtUtc;
     private SharedFetchStatus? _lastSentStatus;
     private SharedRecheckRecord? _recheck;
@@ -258,6 +259,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         Attempt(() => _services.SharedCalibrations.ClearRejections(scope.Region, scope.Build));
+        _unsavedRejections.Remove(scope);
         _userRejection = (scope.Region, scope.Build, false);
         _rejected.Clear();
         _rejectedSummaries.Clear();
@@ -806,7 +808,8 @@ internal sealed partial class SharedCalibrationSession
         summaries.AddRange(_candidates.Select(candidate => Summary(candidate, ConsensusOf(consensus, candidate))));
         summaries.AddRange(_rejectedSummaries);
         return new SharedCalibrationSnapshot(
-            Phase(), summaries, _lastFetchStatus, _lastAttempts, _bound?.ProfileId, _bound?.BoundAtUtc, _lastRefusal)
+            Phase(), summaries, _lastFetchStatus, _lastAttempts, _bound?.ProfileId, _bound?.BoundAtUtc,
+            RejectionNeedsSaving() ? "USER_REJECTION_NOT_SAVED" : _lastRefusal)
         {
             UserRejected = UserRejectedNow(),
             AuditPending = _bound is { Proven: false, Verification.AuditPending: true },
@@ -822,7 +825,7 @@ internal sealed partial class SharedCalibrationSession
         var consensus = Consensus();
         return string.Join(",",
             Phase(), _lastFetchStatus, _bound?.ProfileId, _bound?.Sha, _bound?.Provenance, _bound?.Proven,
-            _bound?.Verification?.AuditPending, _rejectedSummaries.Count, UserRejectedNow(),
+            _bound?.Verification?.AuditPending, _rejectedSummaries.Count, UserRejectedNow(), RejectionNeedsSaving(),
             string.Join(";", _candidates.Select(candidate =>
                 candidate.Sha[..12] + ":" + candidate.Provenance + ":" + candidate.Status + ":" + candidate.Verification?.Verdict + ":" +
                 ConsensusOf(consensus, candidate).Preferred + ":" + ConsensusOf(consensus, candidate).Disputed.Count)));

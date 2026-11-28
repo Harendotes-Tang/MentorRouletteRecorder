@@ -98,7 +98,7 @@ LicenseFile={#StageDir}\LICENSE
 ; installation process starts - after CurStepChanged(ssInstall), right before [InstallDelete]
 ; (PerformInstall in the Inno Setup source) - so nothing that needs them gone may run at
 ; ssInstall; the code folders are cleared from the first [InstallDelete] entry instead
-; (ClearCodeDirectories), where a user who kept the application running is told to close it.
+; (StagePreviousPayload), where a user who kept the application running is told to close it.
 CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
@@ -140,7 +140,8 @@ chinesesimplified.InstallDirCreateFailed=无法创建安装文件夹“%1”，�
 chinesesimplified.InstallDirProtectFailed=无法为安装文件夹“%1”设置访问权限（错误码 %2），安装已停止。%n%n安装程序必须把该文件夹设为只有管理员可以修改，否则本机的其他用户可以篡改程序文件。该位置可能不在本机的 NTFS 磁盘上（例如 U 盘、FAT32 或 exFAT 分区、网络位置）。请重新运行安装程序，选择本机 NTFS 磁盘上的文件夹。
 chinesesimplified.InstallDirFileIsLink=安装文件夹中的文件“%1”是指向别处文件的链接（硬链接或符号链接），或者安装程序无法确认它不是链接，安装已停止。%n%n安装程序会把安装文件夹中原有的文件设为只有管理员可以修改；如果这个文件是链接，这项改动就会落到与它相连的另一个文件上。请删除这个文件（如果它是链接，与它相连的文件不受影响），然后重新运行安装程序。
 chinesesimplified.InstallDirUnknownFolder=安装文件夹中的“%1”不是本软件的文件夹，安装已停止。%n%n程序运行时可能会从安装文件夹里的子文件夹加载组件。这个文件夹可能是其他人在安装之前放进来的，安装程序无法确认其中的内容是否安全，也不会自行删除它。如果你不认识它，请删除它；如果里面是你自己的文件，请把它移到别处。然后重新运行安装程序。
-chinesesimplified.InstallDirFolderNotRemoved=无法删除安装文件夹中的“%1”，安装已停止。%n%n安装程序要先删除这个文件夹，再放入新版本的文件。删除失败，可能是因为本软件仍在运行，也可能是其他人在安装之前建立了这个文件夹并禁止删除它。程序运行时会使用这个文件夹中的内容，所以安装程序不会把文件放进一个删不掉的文件夹。%n%n请关闭本软件后重新运行安装程序。如果仍然停在这里，请删除这个文件夹（提示没有权限时，先在它的“属性 → 安全 → 高级”中把所有者改为自己），然后重新运行安装程序。
+chinesesimplified.UpgradeMoveFailed=无法保留旧版本的文件或文件夹“%1”，安装已停止。请关闭正在使用它的程序，确认有移动权限后重新运行安装程序。
+chinesesimplified.UpgradeBackupRemaining=未能完成旧版本备份的清理或恢复。保留的旧文件位于“%1”。请保留该文件夹，查看安装日志。
 chinesesimplified.NoteImagesIsLink=安装文件夹中的“%1”是一个链接（联接点或符号链接），而不是普通文件夹，安装已停止。%n%n安装程序会允许本机所有用户在这个文件夹中保存备注图片；如果它是链接，这项写入权限就会落到链接所指的位置。请删除这个链接（链接所指的文件夹不受影响），然后重新运行安装程序。
 chinesesimplified.NoteImagesGrantFailed=无法为安装文件夹中的“%1”设置访问权限（错误码 %2），安装已停止。%n%n这个文件夹用来保存备注图片，安装程序需要允许本机所有用户在其中保存和删除图片，但没有设置成功。请重新运行安装程序。
 chinesesimplified.LaunchAfterInstall=启动 {#AppName}
@@ -161,7 +162,8 @@ english.InstallDirCreateFailed=The installation folder "%1" could not be created
 english.InstallDirProtectFailed=The access permissions of the installation folder "%1" could not be set (error code %2), so Setup has stopped.%n%nSetup must make this folder modifiable by administrators only; otherwise other users of this computer could tamper with the program files. The location may not be on a local NTFS disk (for example a USB drive, a FAT32 or exFAT partition, or a network location). Please run Setup again and choose a folder on a local NTFS disk.
 english.InstallDirFileIsLink=The file "%1" in the installation folder is a link to a file elsewhere (a hard link or a symbolic link), or Setup could not confirm that it is not one, so Setup has stopped.%n%nSetup makes the files already in the installation folder modifiable by administrators only; if this file is a link, that change would land on the other file it is linked to. Please delete this file (if it is a link, the file it is linked to is not affected), then run Setup again.
 english.InstallDirUnknownFolder=The folder "%1" in the installation folder does not belong to this application, so Setup has stopped.%n%nThe program may load components from folders inside its installation folder. This folder may have been placed there by someone else before Setup ran; Setup cannot tell whether what it holds is safe, and does not delete it on its own. If you do not recognise it, delete it; if it holds files of your own, move it elsewhere. Then run Setup again.
-english.InstallDirFolderNotRemoved=The folder "%1" in the installation folder could not be deleted, so Setup has stopped.%n%nSetup deletes this folder before it puts the new version's files in place. The delete failed, perhaps because the application is still running, or because someone else created this folder before Setup ran and made it impossible to delete. The program uses what this folder holds, so Setup does not put files into a folder it cannot delete.%n%nClose the application and run Setup again. If Setup stops here again, delete this folder (if Windows says you lack permission, first make yourself its owner under Properties > Security > Advanced), then run Setup again.
+english.UpgradeMoveFailed=Setup could not set aside the old file or folder "%1". Close any application using it, check permission to move it, then run Setup again.
+english.UpgradeBackupRemaining=Setup could not finish cleaning up or restoring the previous version. Its remaining files are in "%1". Keep that folder and check the Setup log.
 english.NoteImagesIsLink=The "%1" folder in the installation folder is a link (a junction or symbolic link), not an ordinary folder, so Setup has stopped.%n%nSetup lets every user of this computer save note images in this folder; if it were a link, that write access would land wherever it points. Please delete the link (the folder it points to is not affected), then run Setup again.
 english.NoteImagesGrantFailed=The access permissions of "%1" in the installation folder could not be set (error code %2), so Setup has stopped.%n%nThis folder holds note images, and Setup must allow every user of this computer to save and delete images in it, but could not. Please run Setup again.
 english.LaunchAfterInstall=Launch {#AppNameEn}
@@ -183,7 +185,8 @@ chinesetraditional.InstallDirCreateFailed=無法建立安裝資料夾「%1」，
 chinesetraditional.InstallDirProtectFailed=無法設定安裝資料夾「%1」的存取權限（錯誤碼 %2），安裝已停止。%n%n安裝程式必須將該資料夾設為僅系統管理員可以修改，否則這台電腦上的其他使用者可以竄改程式檔案。該位置可能不在本機的 NTFS 磁碟上（例如隨身碟、FAT32 或 exFAT 分割區、網路位置）。請重新執行安裝程式，選擇本機 NTFS 磁碟上的資料夾。
 chinesetraditional.InstallDirFileIsLink=安裝資料夾中的檔案「%1」是指向其他位置檔案的連結（硬式連結或符號連結），或安裝程式無法確認它不是連結，因此安裝已停止。%n%n安裝程式會將安裝資料夾中原有的檔案設為僅系統管理員可以修改；如果此檔案是連結，這項變更就會影響與它連結的另一個檔案。請刪除此檔案（若它是連結，與它連結的檔案不受影響），然後重新執行安裝程式。
 chinesetraditional.InstallDirUnknownFolder=安裝資料夾中的「%1」不是本軟體的資料夾，安裝已停止。%n%n程式執行時可能會從安裝資料夾內的子資料夾載入元件。這個資料夾可能是其他人在安裝前放入的，安裝程式無法確認其中的內容是否安全，也不會自行刪除。如果您不認識它，請將它刪除；如果其中有您自己的檔案，請將它移至其他位置。然後重新執行安裝程式。
-chinesetraditional.InstallDirFolderNotRemoved=無法刪除安裝資料夾中的「%1」，安裝已停止。%n%n安裝程式必須先刪除此資料夾，再放入新版本的檔案。刪除失敗的原因可能是本軟體仍在執行，也可能是其他人在安裝前建立了此資料夾，並禁止刪除。程式執行時會使用此資料夾中的內容，因此安裝程式不會將檔案放入無法刪除的資料夾。%n%n請關閉本軟體後重新執行安裝程式。如果仍停在這裡，請刪除此資料夾（若提示沒有權限，請先在「內容 → 安全性 → 進階」中將擁有者改為自己），然後重新執行安裝程式。
+chinesetraditional.UpgradeMoveFailed=無法保留舊版本的檔案或資料夾「%1」，安裝已停止。請關閉正在使用它的程式，確認有移動權限後重新執行安裝程式。
+chinesetraditional.UpgradeBackupRemaining=無法完成舊版本備份的清理或還原。保留的舊檔案位於「%1」。請保留該資料夾並查看安裝記錄。
 chinesetraditional.NoteImagesIsLink=安裝資料夾中的「%1」是一個連結（接合點或符號連結），而非一般資料夾，安裝已停止。%n%n安裝程式會允許這台電腦上的所有使用者在此資料夾中儲存備註圖片；如果它是連結，這項寫入權限就會套用到連結指向的位置。請刪除此連結（連結指向的資料夾不受影響），然後重新執行安裝程式。
 chinesetraditional.NoteImagesGrantFailed=無法設定安裝資料夾中「%1」的存取權限（錯誤碼 %2），安裝已停止。%n%n此資料夾用來儲存備註圖片，安裝程式必須允許這台電腦上的所有使用者在其中儲存及刪除圖片，但設定失敗。請重新執行安裝程式。
 chinesetraditional.LaunchAfterInstall=啟動 {#AppName}
@@ -204,7 +207,8 @@ japanese.InstallDirCreateFailed=インストールフォルダー「%1」を作�
 japanese.InstallDirProtectFailed=インストールフォルダー「%1」のアクセス権を設定できなかったため（エラーコード %2）、セットアップを停止しました。%n%nこのフォルダーは管理者のみが変更できるようにする必要があります。そうしないと、このコンピューターの他のユーザーがプログラムファイルを改ざんできます。指定した場所は、ローカルの NTFS ディスク上にない可能性があります（例：USB ドライブ、FAT32 または exFAT パーティション、ネットワーク上の場所）。セットアップを再実行し、ローカルの NTFS ディスク上のフォルダーを選択してください。
 japanese.InstallDirFileIsLink=インストールフォルダー内のファイル「%1」が、別の場所にあるファイルへのリンク（ハードリンクまたはシンボリックリンク）であるか、リンクではないことを確認できなかったため、セットアップを停止しました。%n%nセットアップは、インストールフォルダーにすでに存在するファイルを管理者のみが変更できるようにします。このファイルがリンクの場合、その変更はリンクでつながった別のファイルにも及びます。このファイルを削除してから（リンクの場合、リンクでつながったファイルには影響しません）、セットアップを再実行してください。
 japanese.InstallDirUnknownFolder=インストールフォルダー内の「%1」は本ソフトウェアのフォルダーではないため、セットアップを停止しました。%n%nプログラムは、インストールフォルダー内のサブフォルダーからコンポーネントを読み込む場合があります。このフォルダーはセットアップの実行前に他の人が置いた可能性があり、セットアップでは内容の安全性を確認できません。また、自動では削除しません。見覚えがなければ削除し、ご自身のファイルが入っている場合は別の場所に移動してください。その後、セットアップを再実行してください。
-japanese.InstallDirFolderNotRemoved=インストールフォルダー内の「%1」を削除できなかったため、セットアップを停止しました。%n%nセットアップは、このフォルダーを削除してから新しいバージョンのファイルを配置します。削除できない原因として、本ソフトウェアがまだ動作しているか、セットアップの実行前に他の人がこのフォルダーを作成し、削除を禁止したことが考えられます。プログラムはこのフォルダーの内容を使用するため、セットアップは削除できないフォルダーにはファイルを配置しません。%n%n本ソフトウェアを終了してからセットアップを再実行してください。それでもこの画面で停止する場合は、このフォルダーを削除してからセットアップを再実行してください。アクセス権がないと表示される場合は、先に「プロパティ → セキュリティ → 詳細設定」で所有者をご自身に変更してください。
+japanese.UpgradeMoveFailed=旧バージョンのファイルまたはフォルダー「%1」を退避できなかったため、セットアップを停止しました。使用中のアプリケーションを終了し、移動する権限を確認してからセットアップを再実行してください。
+japanese.UpgradeBackupRemaining=旧バージョンの復元またはバックアップの削除を完了できませんでした。残りのファイルは「%1」にあります。このフォルダーを保管し、セットアップのログを確認してください。
 japanese.NoteImagesIsLink=インストールフォルダー内の「%1」は、通常のフォルダーではなくリンク（ジャンクションまたはシンボリックリンク）であるため、セットアップを停止しました。%n%nセットアップは、このコンピューターのすべてのユーザーがこのフォルダーにメモ画像を保存できるようにします。リンクの場合、その書き込み権限はリンク先に適用されます。このリンクを削除してから（リンク先のフォルダーには影響しません）、セットアップを再実行してください。
 japanese.NoteImagesGrantFailed=インストールフォルダー内の「%1」のアクセス権を設定できなかったため（エラーコード %2）、セットアップを停止しました。%n%nこのフォルダーはメモ画像の保存に使用します。セットアップは、このコンピューターのすべてのユーザーに画像の保存と削除を許可する必要がありますが、設定できませんでした。セットアップを再実行してください。
 japanese.LaunchAfterInstall={#AppNameEn} を起動する
@@ -234,26 +238,29 @@ Type: files; Name: "{app}\installer-language.ini"
 ; %LOCALAPPDATA%\MentorRecorder and are never touched by an upgrade.
 ; These folder names are also the only ones, besides note-images, that Setup lets stay in the
 ; install folder (ClearedDirectoryNames in [Code], which must list exactly the same names). The
-; BeforeInstall procedure of the first entry deletes them all just before this section runs - once
-; Setup has closed the running application, which it does only after ssInstall - and stops Setup
-; on one it could not delete, a failure this section would silently skip (ClearCodeDirectories).
-Type: filesandordirs; Name: "{app}\protocol-profiles"; BeforeInstall: ClearCodeDirectories
-Type: filesandordirs; Name: "{app}\qml"
-Type: filesandordirs; Name: "{app}\ocr"
-Type: filesandordirs; Name: "{app}\plugins"
-Type: filesandordirs; Name: "{app}\docs"
-Type: filesandordirs; Name: "{app}\generic"
-Type: filesandordirs; Name: "{app}\iconengines"
-Type: filesandordirs; Name: "{app}\imageformats"
-Type: filesandordirs; Name: "{app}\multimedia"
-Type: filesandordirs; Name: "{app}\networkinformation"
-Type: filesandordirs; Name: "{app}\platforminputcontexts"
-Type: filesandordirs; Name: "{app}\platforms"
-Type: filesandordirs; Name: "{app}\qmltooling"
-Type: filesandordirs; Name: "{app}\styles"
-Type: filesandordirs; Name: "{app}\texttospeech"
-Type: filesandordirs; Name: "{app}\tls"
-Type: filesandordirs; Name: "{app}\vectorimageformats"
+; first entry arms the backup only during installation. Its name is expanded immediately
+; afterwards, following Restart Manager and before any deletion. It resolves to {app},
+; which always contains at least note-images, so the dirifempty entry deletes nothing.
+; RegisterUpgradeTargets exposes the targets to Restart Manager during preflight. Once old
+; names are staged, native wildcard deletion must not also match an unrelated 8.3 alias.
+Type: dirifempty; Name: "{code:StagePreviousPayload}"; BeforeInstall: ArmUpgradeBackup
+Type: filesandordirs; Name: "{app}\protocol-profiles"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\qml"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\ocr"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\plugins"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\docs"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\generic"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\iconengines"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\imageformats"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\multimedia"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\networkinformation"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\platforminputcontexts"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\platforms"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\qmltooling"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\styles"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\texttospeech"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\tls"; Check: RegisterUpgradeTargets
+Type: filesandordirs; Name: "{app}\vectorimageformats"; Check: RegisterUpgradeTargets
 ; A DLL loose in {app}, or a planted qt.conf or qt6.conf, is loaded by the Desktop and the
 ; Collector from their own directory (DLL search order; Qt's settings file - Qt 6 reads qt6.conf
 ; there and prefers it to qt.conf when both exist, Qt documentation "Using qt.conf"). The package
@@ -266,12 +273,12 @@ Type: filesandordirs; Name: "{app}\vectorimageformats"
 ; this way and are handled by ProtectInstallDirectory (ownership), so they are not
 ; blanket-deleted here - that would also catch the uninstaller's own unins*.exe. The settings
 ; files are listed before *.dll only for readability; [InstallDelete] order does not matter.
-Type: files; Name: "{app}\qt.conf"
-Type: files; Name: "{app}\qt6.conf"
-Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\qt.conf"; Check: RegisterUpgradeTargets
+Type: files; Name: "{app}\qt6.conf"; Check: RegisterUpgradeTargets
+Type: files; Name: "{app}\*.dll"; Check: RegisterUpgradeTargets
 ; 1.5.0 and earlier installed the application manifest as a side file. It is embedded in the
 ; executable now and no longer shipped, so an upgrade removes the old copy.
-Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"
+Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"; Check: RegisterUpgradeTargets
 ; Remove the uninstall shortcut names shipped in earlier installers. These are the
 ; UninstallProgram messages of the four supported installer languages with AppName inserted.
 ; Keep these historical names even if a translation changes. [Icons] creates today's name.
@@ -281,9 +288,7 @@ Type: files; Name: "{group}\解除安裝 {#AppName}.lnk"
 Type: files; Name: "{group}\{#AppName} をアンインストールする.lnk"
 
 [Files]
-; The Check is the second line of defence of ClearCodeDirectories (see [Code]): it stops the copy
-; when the code folders could not be cleared and Setup's cancel path could not end Setup first.
-Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: CodeFoldersCleared
+Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
 ; Note images are user data stored beside the application. The rest of {app} is writable by
@@ -320,12 +325,11 @@ const
   // The subfolder of {app} that holds note images (see [Dirs]): the only part of the
   // install folder ordinary users may write to.
   NoteImagesDirName = 'note-images';
+  UpgradeBackupName = '.mr-upgrade-previous';
   // The folders [InstallDelete] removes whole before [Files] recreates them, in lower case and
   // each between bars. Keep it equal to the filesandordirs names there (checked by
   // tools/package-verification/test_installer_directories.py); with note-images they are the
-  // only folders Setup lets stay in {app} (RefuseUnknownTopLevelDirectories). Setup deletes them
-  // itself right before [InstallDelete] runs, once the application is closed, and stops on one
-  // that is left (ClearCodeDirectories, RemoveClearedDirectories).
+  // only folders Setup lets stay in {app} (RefuseUnknownTopLevelDirectories).
   ClearedDirectoryNames = '|protocol-profiles|qml|ocr|plugins|docs|generic|iconengines|imageformats|multimedia|networkinformation|platforminputcontexts|platforms|qmltooling|styles|texttospeech|tls|vectorimageformats|';
   // Ownership and per-file resets, applied by ProtectInstallDirectory and ProtectTopLevelFiles.
   // Accounts are named by well-known SID, never by name, because Windows localises the names
@@ -342,6 +346,7 @@ const
   // execute (0x1200a9) in {app}, modify (0x1301bf, the mask Inno's own "users-modify" grants) in
   // note-images. Well-known SID aliases, so no account name is localised.
   AppDirSddl = 'D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;BU)';
+  UpgradeBackupSddl = 'D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)';
   NoteImagesSddl = 'D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;BU)';
   // SDDL_REVISION_1 (sddl.h); DACL_SECURITY_INFORMATION (4) combined with
   // PROTECTED_DACL_SECURITY_INFORMATION ($80000000) (winnt.h).
@@ -418,10 +423,10 @@ var
   DownloadPage: TDownloadWizardPage;
   NpcapHandled: Boolean;
   UninstallUserDataDir: String;
-  // Set by ClearCodeDirectories when Setup must stop during the installation process, and read
-  // by CancelButtonClick and CodeFoldersCleared; see ClearCodeDirectories.
-  StopReason: String;
-  CancelArmed: Boolean;
+  BackupArmed, BackupStaged, UpgradeCommitted: Boolean;
+  UpgradeBackup: String;
+  UpgradeNames: TStringList;
+  MovedCount: Integer;
 
 function DriveTypeOf(const Root: String): Cardinal;
 begin
@@ -655,7 +660,7 @@ end;
 // "{app}\qt.conf" and "{app}\qt6.conf". A long name ends in ".dll" exactly when it matches the
 // *.dll wildcard, and every comparison ignores case as Windows does, so every name skipped here is
 // one that [InstallDelete] deletes. (The wildcard may also match a few more names through their
-// short 8.3 forms; those are not skipped, so they are re-owned and then deleted - harmless.)
+// short 8.3 forms; StagePreviousPayload uses only long names and keeps unrelated aliases.)
 function IsRemovedByInstallDelete(const Name: String): Boolean;
 begin
   Result := (CompareText(ExtractFileExt(Name), '.dll') = 0)
@@ -700,7 +705,7 @@ end;
 // before Setup ran keeps its OWNER (an owner can always rewrite its own ACL), its explicit
 // grants and its old inherited entries; each top-level file is therefore re-owned and /reset
 // (which re-derives that one file's entries from Dir) one by one. Only
-// files are touched: directories are left to RemoveClearedDirectories (which removes the code
+// files are touched: directories are left to StagePreviousPayload (which removes the code
 // folders without following a link) and to note-images (whose own grant and images must never
 // change), so a junction planted in Dir is skipped, never traversed - there is no recursion and
 // no /T.
@@ -709,9 +714,7 @@ end;
 // installed folder holds about 250 files directly in {app}, nearly all of them DLLs, and two
 // icacls runs each before deleting them anyway would cost some 500 process launches on every
 // upgrade. That is sound because those names are deleted, not kept: Setup re-copies our own DLLs
-// as new files that inherit the protected ACL. What it leaves open: [InstallDelete] ignores a
-// failed delete, so a planted DLL that some process holds open without delete sharing is then
-// neither removed nor re-owned (a check for the real machine; see the install matrix).
+// as new files that inherit the protected ACL. A locked name stops StagePreviousPayload.
 //
 // Before icacls touches a file, its link count is read: a name that is a reparse point, that has
 // more than one hard link, or whose count cannot be read stops Setup and nothing is changed or
@@ -760,7 +763,7 @@ begin
 end;
 
 // True for a folder Setup may leave in {app}: note-images, and the folders deleted whole before
-// [Files] recreates them (ClearedDirectoryNames; RemoveClearedDirectories, then [InstallDelete]).
+// [Files] recreates them (ClearedDirectoryNames; StagePreviousPayload, then [InstallDelete]).
 // Case is ignored, as by Windows.
 function IsKnownTopLevelDirectory(const Name: String): Boolean;
 begin
@@ -790,7 +793,10 @@ begin
           and (FindRec.Name <> '.') and (FindRec.Name <> '..')
           and (not IsKnownTopLevelDirectory(FindRec.Name)) then
         begin
-          Result := FmtMessage(CustomMessage('InstallDirUnknownFolder'), [AddBackslash(Dir) + FindRec.Name]);
+          if CompareText(FindRec.Name, UpgradeBackupName) = 0 then
+            Result := FmtMessage(CustomMessage('UpgradeBackupRemaining'), [AddBackslash(Dir) + FindRec.Name])
+          else
+            Result := FmtMessage(CustomMessage('InstallDirUnknownFolder'), [AddBackslash(Dir) + FindRec.Name]);
           Break;
         end;
       until not FindNext(FindRec);
@@ -807,122 +813,131 @@ begin
   Result := Pos('|' + Lowercase(Name) + '|', ClearedDirectoryNames) > 0;
 end;
 
-// The name of the first folder directly in Dir - a link to a folder included - whose name is a
-// cleared one (IsClearedDirectoryName), or '' when there is none. Read from Dir's own listing,
-// which shows such a folder even when its own ACL lets Administrators read nothing, and shows a
-// link itself, not what it points to (DirExists would follow it).
-function FirstClearedDirectory(const Dir: String): String;
-var
-  FindRec: TFindRec;
+// Besides whole code folders and loose DLLs, save precisely the loose files this build
+// overwrites. Unrelated files and Inno's own uninstaller/log remain where they are.
+function IsUpgradeFile(const Name: String): Boolean;
 begin
-  Result := '';
-  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
-  begin
-    try
-      repeat
-        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
-          and IsClearedDirectoryName(FindRec.Name) then
-          Result := FindRec.Name;
-      until (Result <> '') or (not FindNext(FindRec));
-    finally
-      FindClose(FindRec);
-    end;
-  end;
+  Result := IsRemovedByInstallDelete(Name)
+    or (CompareText(Name, '{#AppExe}.manifest') = 0)
+    or (CompareText(Name, 'installer-language.ini') = 0);
+#define PayloadHandle
+#define PayloadMatch
+#sub IncludeLooseFile
+  #define LooseName FindGetFileName(PayloadHandle)
+  #if LowerCase(ExtractFileExt(LooseName)) != ".dll"
+  if CompareText(Name, '{#StringChange(LooseName, "'", "''")}') = 0 then Result := True;
+  #endif
+#endsub
+#for {PayloadHandle = PayloadMatch = FindFirst(AddBackslash(StageDir) + "*", faAnyFile & ~faDirectory); PayloadMatch; PayloadMatch = FindNext(PayloadHandle)} IncludeLooseFile
+#if PayloadHandle
+  #expr FindClose(PayloadHandle)
+#endif
 end;
 
-// Deletes the folders [InstallDelete] would clear next, and names one that is left so that Setup
-// stops - from ClearCodeDirectories, once Setup has closed the running application.
-// [InstallDelete] ignores a failed delete, and Setup takes no ownership before deleting, so a
-// folder an ordinary user created under one of these names with an ACL that lets Administrators
-// delete nothing - a qml folder made before an upgrade over 1.5.0, or one added to a pre-created
-// empty install folder while the administrator was still on the Ready page - would survive it
-// with its creator's owner and ACL, and [Files] would then write Qt's modules into it for that
-// account to change. Here such a folder stops Setup and is named; the user deletes it and runs
-// Setup again. Nothing is re-owned or forced. DelTree removes a folder that is a link (junction or
-// symbolic link) itself and deletes nothing inside what it points to (Inno Setup help, DelTree,
-// Remarks). Dir is protected by now, so no ordinary user can put a folder back afterwards. On an
-// honest upgrade this is the delete [InstallDelete] would make moments later, which then finds
-// nothing left to do. Returns '' when every such folder is gone, else the stopping message.
-function RemoveClearedDirectories(const Dir: String): String;
-var
-  FindRec: TFindRec;
-  Target, Left: String;
+procedure ArmUpgradeBackup;
 begin
-  Result := '';
-  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  BackupArmed := True;
+end;
+
+// Inno also expands [InstallDelete] names while checking for files in use. Only the
+// BeforeInstall hook arms this operation. An exception from the name expansion aborts
+// PerformInstall, including /VERYSILENT /NOCANCEL, before [InstallDelete] can remove files.
+function StagePreviousPayload(Param: String): String;
+var
+  Dir, Backup, Target: String;
+  FindRec: TFindRec;
+  I: Integer;
+begin
+  Dir := ExpandConstant('{app}');
+  Result := Dir;
+  if not BackupArmed then Exit;
+  BackupArmed := False;
+  UpgradeNames := TStringList.Create;
+  // ProtectInstallDirectory has already created note-images, so an unreadable listing
+  // cannot represent an empty destination.
+  if not FindFirst(AddBackslash(Dir) + '*', FindRec) then
+    RaiseException(FmtMessage(CustomMessage('UpgradeMoveFailed'), [Dir]));
+  try
+    repeat
+      // The old cleared path may be a file, a directory or a reparse point.
+      if IsClearedDirectoryName(FindRec.Name) or
+        (((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0) and IsUpgradeFile(FindRec.Name)) then
+        UpgradeNames.Add(FindRec.Name);
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+  if UpgradeNames.Count = 0 then
   begin
-    try
-      repeat
-        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
-          and IsClearedDirectoryName(FindRec.Name) then
+    BackupStaged := True;
+    Exit;
+  end;
+  Backup := AddBackslash(Dir) + UpgradeBackupName;
+  // The directory was checked for foreign folders at ssInstall and is now protected.
+  // Never reuse a pre-existing backup or follow an object at its path.
+  if not CreateDir(Backup) then RaiseException(FmtMessage(CustomMessage('UpgradeMoveFailed'), [Backup]));
+  UpgradeBackup := Backup;
+  if ApplyDacl(Backup, UpgradeBackupSddl) <> 0 then
+    RaiseException(FmtMessage(CustomMessage('UpgradeMoveFailed'), [Backup]));
+  for I := 0 to UpgradeNames.Count - 1 do
+  begin
+    Target := AddBackslash(Dir) + UpgradeNames[I];
+    if not RenameFile(Target, AddBackslash(Backup) + UpgradeNames[I]) then
+      RaiseException(FmtMessage(CustomMessage('UpgradeMoveFailed'), [Target]));
+    MovedCount := I + 1;
+  end;
+  BackupStaged := True;
+end;
+
+// Before installation, Inno enumerates its file patterns for Restart Manager.
+// During installation, the transaction has already selected and moved exact long names.
+function RegisterUpgradeTargets: Boolean;
+begin
+  Result := not BackupStaged;
+end;
+
+// Inno has finished its own rollback before DeinitializeSetup. A name may remain, for
+// instance a directory that was not empty during rollback. Only remove a replacement for
+// an entry actually moved by this transaction. A failed restore keeps its original in Backup.
+procedure DeinitializeSetup;
+var
+  I: Integer;
+  Target, Saved: String;
+  FindRec: TFindRec;
+  DirectoryEntry, Recovered: Boolean;
+begin
+  if UpgradeBackup <> '' then
+  begin
+    if UpgradeCommitted then
+      Recovered := DelTree(UpgradeBackup, True, True, True)
+    else begin
+      Recovered := True;
+      for I := MovedCount - 1 downto 0 do
+      begin
+        Target := AddBackslash(ExtractFileDir(UpgradeBackup)) + UpgradeNames[I];
+        Saved := AddBackslash(UpgradeBackup) + UpgradeNames[I];
+        if BackupStaged and FindFirst(Target, FindRec) then
         begin
-          Target := AddBackslash(Dir) + FindRec.Name;
-          if DelTree(Target, True, True, True) then
-            Log(Format('Removed "%s" before the new files are copied', [Target]))
-          else
-            Log(Format('Could not remove "%s" completely', [Target]));
+          DirectoryEntry := (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
+          FindClose(FindRec);
+          if DirectoryEntry then DelTree(Target, True, True, True)
+          else DeleteFile(Target);
         end;
-      until not FindNext(FindRec);
-    finally
-      FindClose(FindRec);
+        if not RenameFile(Saved, Target) then
+        begin
+          Log('Unable to restore: ' + Saved + ' -> ' + Target);
+          Recovered := False;
+        end;
+      end;
+      if Recovered then Recovered := RemoveDir(UpgradeBackup);
+    end;
+    if not Recovered then
+    begin
+      Log('Previous installation files remain at ' + UpgradeBackup);
+      SuppressibleMsgBox(FmtMessage(CustomMessage('UpgradeBackupRemaining'), [UpgradeBackup]), mbError, MB_OK, IDOK);
     end;
   end;
-  Left := FirstClearedDirectory(Dir);
-  if Left <> '' then
-    Result := FmtMessage(CustomMessage('InstallDirFolderNotRemoved'), [AddBackslash(Dir) + Left]);
-end;
-
-// BeforeInstall of the first [InstallDelete] entry: the first thing Setup runs after it has
-// closed the running application on the user's say-so ("Shutting down applications using our
-// files" in the log; PerformInstall in the Inno Setup source), and before any delete or copy.
-// Setup closes the application only there, after CurStepChanged(ssInstall), so the code folders
-// cannot be cleared from ProtectInstallDirectory: the Desktop holds the Qt plugins in them, and
-// 1.8.0-beta.1, which swept at ssInstall, stopped on imageformats on every upgrade with the
-// Desktop running. A user who chose not to close the application on the Preparing page, or who
-// ignored a close that failed, reaches here with it running: the sweep then fails on those
-// plugins and Setup stops with the message that says to close it and run Setup again. The choice
-// stays the user's; the application is never ended behind their back.
-//
-// Stopping from here takes Setup's own cancel path, because Setup swallows an exception raised
-// by a BeforeInstall procedure (NotifyInstallEntry in the Inno Setup source) and would go on
-// copying: WizardForm.Close is what the Cancel button does, CancelButtonClick below waives the
-// "exit Setup?" question, and Setup aborts right after [InstallDelete], before [Files], with
-// nothing installed ("User canceled the installation process" in the log; a rollback with
-// nothing to undo). Where that path is not live - /VERYSILENT keeps the wizard hidden, /NOCANCEL
-// disables it - CodeFoldersCleared stops [Files] instead. The folders already deleted come back
-// when Setup is run again.
-procedure ClearCodeDirectories;
-begin
-  StopReason := RemoveClearedDirectories(ExpandConstant('{app}'));
-  if StopReason <> '' then
-  begin
-    Log('Code folders not cleared: ' + StopReason);
-    SuppressibleMsgBox(StopReason, mbCriticalError, MB_OK, IDOK);
-    WizardForm.Close;
-  end;
-end;
-
-// Setup's cancel path: the Cancel button, the window's close box and WizardForm.Close above all
-// arrive here. While ClearCodeDirectories is stopping Setup, the "exit Setup?" question is
-// waived; a cancel the user asks for themselves is confirmed as usual.
-procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
-begin
-  if StopReason <> '' then
-  begin
-    CancelArmed := True;
-    Confirm := False;
-  end;
-end;
-
-// Check of the [Files] entry: the second line of defence of ClearCodeDirectories, for a Setup
-// whose cancel path was not live. Evaluated for each file as it is about to be copied, after
-// [InstallDelete]; an exception from a Check function is not swallowed (EvalCheck in the Inno
-// Setup source) and ends the installation process before any file is written.
-function CodeFoldersCleared: Boolean;
-begin
-  Result := StopReason = '';
-  if (not Result) and (not CancelArmed) then
-    RaiseException(StopReason);
+  if UpgradeNames <> nil then UpgradeNames.Free;
 end;
 
 // The install folder must not be writable by ordinary users: Setup and the uninstaller run
@@ -958,33 +973,13 @@ end;
 //      (reparse point or extra hard link), or whose link count cannot be read, stops Setup
 //      instead (ProtectTopLevelFiles);
 //   7. write the resulting ACLs of Dir and note-images to the Setup log.
-// Not here: the folders [InstallDelete] would clear next are deleted by ClearCodeDirectories, the
-// BeforeInstall of the first [InstallDelete] entry, because Setup closes the running application
-// only when the installation process starts - after this step - and the Desktop holds the Qt
-// plugins in those folders. That step deletes the folders and stops Setup on one that is left
-// (RemoveClearedDirectories): [InstallDelete] ignores a failed delete, so a folder under one of
-// those names that an ordinary user made undeletable would otherwise keep its creator's owner and
-// ACL and receive Qt's modules. Every stop in this function deletes nothing.
-// Returns '' when the folder is protected, otherwise the message that stops Setup.
-//
-// What no longer happens: because step 3 does not propagate, nothing that already sits below
-// Dir has its inherited entries re-derived from the new DACL. Each kind of existing entry is
-// covered as follows:
-//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): ClearCodeDirectories
-//     removes them whole right before [InstallDelete] (a link among them is removed, not
-//     followed) and stops Setup on one it cannot remove, and [Files] recreates them; a folder
-//     Setup creates inherits Dir's entries on creation;
-//   - files directly in Dir: re-owned and reset in step 6, or - *.dll, qt.conf, qt6.conf -
-//     deleted by [InstallDelete] and, for ours, copied again;
-//   - files [Files] replaces: Setup writes each one to a new temporary file in the destination
-//     folder, deletes the old file and renames the new one into place (Inno Setup source,
-//     Setup.Install.pas, ProcessFileEntry: GenerateUniqueName ... TFile.Create(TempFile,
-//     fdCreateAlways) ... DeleteFile(DestFile) ... MoveFile(TempFile, DestFile)), so a replaced
-//     file is a new file and inherits the protected entries; the uninstaller EXE is replaced
-//     the same way (MoveFileReplace). The uninstall log is the exception: when Setup appends
-//     to an existing unins???.dat it reopens it in place (Setup.UninstallLog.pas,
-//     TUninstallLog.Save: fdOpenExisting), keeping its old ACL - it sits directly in Dir, so
-//     step 6 has already re-owned and reset it;
+// StagePreviousPayload runs later, when Restart Manager has closed applications. Its
+// same-volume renames move old modules out of all executable and plugin search paths.
+// A locked name stops this install. DeinitializeSetup restores moved names after an
+// unsuccessful run. On success the replacements inherit the protected installation ACL.
+// The uninstaller and its log stay under Inno's control. ProtectTopLevelFiles hardens
+// both before Inno reopens the log in place or replaces its executable.
+//   - retained top-level files: step 6;
 //   - note-images and the images in it: step 5;
 //   - any other folder in Dir, neither note-images nor listed in [InstallDelete], would keep the
 //     owner and ACL it had, and Qt may load plugins and QML modules from a folder directly in the
@@ -1005,12 +1000,8 @@ end;
 //                                    (OI)(CI); no other entry
 //   a folder such as {app}\QtQuick   created before Setup ran: Setup stops at ssInstall and
 //                                    names it; note-images and the files are left unchanged
-//   {app}\qml created by another     with an ACL granting Administrators nothing: Setup stops
-//   account before Setup ran         before [InstallDelete] and names it; the other code folders
-//                                    are already deleted, and Setup run again restores them
-//   the application kept running     Setup stops before [InstallDelete] and names imageformats or
-//   (not closed on the Preparing     another plugin folder it holds; nothing is installed, and
-//   page, or a failed close ignored) closing the application and running Setup again installs
+//   an entry held without rename    Setup stops before copying, names the entry, and puts
+//     sharing                       earlier entries back when it exits.
 function ProtectInstallDirectory(const Dir: String): String;
 var
   Code: Integer;
@@ -1252,7 +1243,7 @@ begin
   begin
     // Before anything is written; see ProtectInstallDirectory. Abort from ssInstall ends
     // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet. The old code
-    // folders are cleared later, from the first [InstallDelete] entry (ClearCodeDirectories),
+    // folders are cleared later, from the first [InstallDelete] entry (StagePreviousPayload),
     // because Setup closes the running application only after this step.
     Failure := ProtectInstallDirectory(ExpandConstant('{app}'));
     if Failure <> '' then
@@ -1265,6 +1256,7 @@ begin
 
   if CurStep = ssPostInstall then
   begin
+    UpgradeCommitted := True;
     DataRoot := OriginalUserLocalAppData;
     if DataRoot = '' then
       DataRoot := ExpandConstant('{localappdata}');
@@ -1304,6 +1296,12 @@ begin
     else if IsReparsePoint(Dir) then
     begin
       SuppressibleMsgBox(FmtMessage(CustomMessage('InstallDirIsLink'), [Dir]), mbError, MB_OK, IDOK);
+      Result := False;
+    end
+    else if DirExists(AddBackslash(Dir) + UpgradeBackupName) then
+    begin
+      SuppressibleMsgBox(FmtMessage(CustomMessage('UpgradeBackupRemaining'), [AddBackslash(Dir) + UpgradeBackupName]),
+        mbError, MB_OK, IDOK);
       Result := False;
     end
     else if DirExists(Dir) and DirectoryHasEntries(Dir) and (not HoldsThisApplication(Dir)) then

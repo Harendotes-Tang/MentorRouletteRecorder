@@ -16,6 +16,9 @@
       "$ref": "#/$defs/Snapshot"
     },
     {
+      "$ref": "#/$defs/Likes"
+    },
+    {
       "$ref": "#/$defs/PublicItem"
     },
     {

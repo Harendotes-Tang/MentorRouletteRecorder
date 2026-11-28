@@ -381,8 +381,10 @@ def without(entries, identifier, now):
         if key == identifier:
             continue
         if identifier in item["links"]:
+            # A withdrawn entry expires relative to its withdrawal, even if a linked item disappears.
+            updated_at = item["updated_at"] if item["status"] == "withdrawn" else now
             item = dict(item, links=[link for link in item["links"] if link != identifier],
-                        revision=item["revision"] + 1, updated_at=now)
+                        revision=item["revision"] + 1, updated_at=updated_at)
             validate(item, published=True, legacy=True)
         revised[key] = item
     validate_links(revised)

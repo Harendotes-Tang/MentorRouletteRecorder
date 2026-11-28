@@ -587,6 +587,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。", "sharing.import.state_unreadable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。", "sharing.import.unbuildable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。", "sharing.import.user_rejected"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "本次已停用共享校准，但选择尚未保存。请确认校准记录文件可写，然后点「重试保存」，以便下次启动时继续使用本机校准。", "sharing.rejection.write_failed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。", "sharing.share_code.local_unusable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前没有正在使用的协议档案，没有可以分享的校准。", "sharing.share_code.no_profile"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前使用的是随包档案，不是本机校准出来的，不需要分享。", "sharing.share_code.not_local"), .args = ""},

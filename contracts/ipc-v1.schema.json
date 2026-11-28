@@ -1922,7 +1922,7 @@
         },
         "profile_id": { "type": ["string", "null"], "description": "Shared profile in use, e.g. cn.2026.09.01.0000.0000.shared." },
         "bound_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When it began recording inside a running capture session." },
-        "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
+        "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). USER_REJECTION_NOT_SAVED while user_rejected is true means the choice applies in this process and RejectSharedCalibration can be retried to save it." },
         "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
         "user_rejected": { "type": "boolean", "description": "True while the player's 改为本机校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (清空校准进度)." },
         "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." },

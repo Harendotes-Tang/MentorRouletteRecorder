@@ -56,6 +56,7 @@ class SharedCalibrationController final : public QObject
     /// and empty when a Collector before 1.1.0 reports no provenance at all.
     Q_PROPERTY(QString candidateProvenance READ candidateProvenance NOTIFY changed)
     Q_PROPERTY(bool userRejected READ userRejected NOTIFY changed)
+    Q_PROPERTY(bool rejectionNeedsSaving READ rejectionNeedsSaving NOTIFY changed)
     /// Which of the card's buttons make sense right now.
     Q_PROPERTY(bool canCheck READ canCheck NOTIFY changed)
     Q_PROPERTY(bool canImport READ canImport NOTIFY changed)
@@ -97,6 +98,7 @@ public:
     bool auditPending() const { return m_inputs.auditPending; }
     QString candidateProvenance() const { return m_inputs.provenance; }
     bool userRejected() const { return m_inputs.userRejected; }
+    bool rejectionNeedsSaving() const { return m_inputs.rejectionNeedsSaving; }
     bool canCheck() const;
     bool canImport() const;
     bool canReject() const;
@@ -146,6 +148,7 @@ private:
     {
         bool available = false;
         bool userRejected = false;
+        bool rejectionNeedsSaving = false;
         bool manualOnly = false;
         bool auditPending = false;
         /// The profile in use - the first candidate - recorded one complete duty, has nothing

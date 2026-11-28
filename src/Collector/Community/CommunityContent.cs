@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.Community;
 
@@ -130,6 +131,8 @@ internal static partial class CommunityContent
     internal static JsonObject ParseObject(byte[] bytes)
     {
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 12 });
+        if (!WellFormedJson.IsReadable(document.RootElement))
+            throw new JsonException("invalid_json");
         RejectDuplicateKeys(document.RootElement);
         return JsonNode.Parse(document.RootElement.GetRawText()) as JsonObject
             ?? throw new FormatException("invalid_json");

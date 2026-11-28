@@ -76,6 +76,103 @@ public sealed class RunImportReimportTests
         Assert.False(Row(appended, 0)["can_import"]!.GetValue<bool>());
     }
 
+    [Theory]
+    [InlineData("run_id", "")]
+    [InlineData("source_key", "   ")]
+    public void BlankIdentityCellsGiveEachOccurrenceItsOwnRepeatableKey(string header, string blank)
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var csv = $"{header},副本,职业,开始时间,结果\n{blank},{Duty},战士,2026/9/1,通关\n{blank},{Duty},战士,2026/9/1,通关";
+        var preview = service.PreviewSource("CSV", text: csv);
+        Assert.Equal("new", Status(preview, 0));
+        Assert.Equal("new", Status(preview, 1));
+        Assert.Equal(2, CommitAll(service, preview)["imported_count"]!.GetValue<int>());
+        var repeat = service.PreviewSource("CSV", text: csv);
+        Assert.Equal("duplicate", Status(repeat, 0));
+        Assert.Equal("duplicate", Status(repeat, 1));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OnlyOneBlankIdOccurrenceMatchesTheOldFingerprintAcrossARecheck(bool purged)
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        const string csv = "run_id,副本,职业,开始时间,结果\n," + Duty + ",战士,2026/9/1,通关\n," + Duty + ",战士,2026/9/1,通关";
+        var source = RunImportSourceParser.Parse("CSV", text: csv)[0];
+        var old = RunImportCandidateNormalizer.Normalize(source, "CSV", "test.csv", null, fixture.Clock.UtcNow).Run!;
+        Assert.Equal(EarlierImports.Fingerprint("CSV", "test.csv", "", old), old.ImportMetadata!.SourceFingerprint);
+        if (purged) EarlierImports.Tombstone(fixture, old.RunId, old.ImportMetadata.SourceFingerprint);
+        else fixture.InsertImported(old);
+        var initial = service.PreviewSource("CSV", text: csv, sourceName: "test.csv");
+        var candidates = new JsonArray(initial["rows"]!.AsArray().Select(row => row!["candidate"]!.DeepClone()).ToArray());
+        var checkedAgain = service.PreviewSource("CSV", rows: candidates, sourceName: "test.csv");
+        foreach (var preview in new[] { initial, checkedAgain })
+        {
+            Assert.Equal(purged ? "conflict" : "duplicate", Status(preview, 0));
+            Assert.True(Row(preview, 1)["can_import"]!.GetValue<bool>());
+        }
+        Assert.Equal(1, CommitAll(service, checkedAgain)["imported_count"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void DistinctBlankIdRowsShareOneHistoricalMatchWhenTheOldFingerprintIgnoredBuild(bool purged, bool beforeNameMatching)
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        const string header = "run_id,game_build,副本,职业,开始时间,结果,区服\n";
+        const string first = ",build-a,阿修罗歼灭战,白魔,2026/9/1,通关,CN\n";
+        const string second = ",build-b,阿修罗歼灭战,白魔,2026/9/1,通关,CN\n";
+        var source = RunImportSourceParser.Parse("CSV", text: header + first)[0];
+        var old = RunImportCandidateNormalizer.Normalize(source, "CSV", "old.csv", null, fixture.Clock.UtcNow).Run!;
+        if (beforeNameMatching)
+        {
+            old = old with { ContentId = null, TerritoryId = null, DutyCategory = null, DutySource = null, JobId = null, Role = Role.Unknown };
+            old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = EarlierImports.Fingerprint("CSV", "old.csv", "", old) } };
+        }
+        if (purged) EarlierImports.Tombstone(fixture, old.RunId, old.ImportMetadata!.SourceFingerprint);
+        else fixture.InsertImported(old);
+
+        var initial = service.PreviewSource("CSV", text: header + first + second, sourceName: "old.csv");
+        var blocked = purged ? "conflict" : "duplicate";
+        Assert.Equal(blocked, Status(initial, 0));
+        Assert.True(Row(initial, 1)["can_import"]!.GetValue<bool>());
+        var candidates = new JsonArray(Row(initial, 1)["candidate"]!.DeepClone(), Row(initial, 0)["candidate"]!.DeepClone());
+        var rechecked = service.PreviewSource("CSV", rows: candidates, sourceName: "old.csv");
+        Assert.True(Row(rechecked, 0)["can_import"]!.GetValue<bool>());
+        Assert.Equal(blocked, Status(rechecked, 1));
+        Assert.Equal(1, CommitAll(service, rechecked)["imported_count"]!.GetValue<int>());
+
+        var reopened = new RunImportService(fixture.Database, fixture.Clock)
+            .PreviewSource("CSV", text: header + second + first, sourceName: "old.csv");
+        Assert.Equal("duplicate", Status(reopened, 0));
+        Assert.Equal(blocked, Status(reopened, 1));
+    }
+
+    [Fact]
+    public void RecheckingTheRegionOffersAnUntimedBlankIdMatchOnlyForItsAssignedOccurrence()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        const string csv = "run_id,game_build,副本,职业,结果\n,build-a,未收录副本,战士,通关\n,build-b,未收录副本,战士,通关\n";
+        var oldRow = RunImportSourceParser.Parse("CSV", text: csv)[0];
+        oldRow.Values["region"] = "TC";
+        var old = RunImportCandidateNormalizer.Normalize(oldRow, "CSV", "old.csv", null, fixture.Clock.UtcNow).Run!;
+        fixture.InsertImported(old);
+
+        var initial = service.PreviewSource("CSV", text: csv, sourceName: "old.csv");
+        var rechecked = WithRegion(service, initial, "CN", CsvPath(fixture, "old.csv"));
+        Assert.Equal("possible_duplicate", Status(rechecked, 0));
+        Assert.Equal(old.RunId, Row(rechecked, 0)["matching_run_id"]!.GetValue<string>());
+        Assert.Equal("new", Status(rechecked, 1));
+    }
+
     [Fact]
     public void IdenticalRowsKeepTheirOwnIdentityWhereverTheyMoveInTheFile()
     {
