@@ -1779,8 +1779,8 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>This PC has finished calibrating and records automatically. If a clear isn&apos;t recognized automatically, open the record after you leave the duty and fill in the result.</translation>
     </message>
     <message>
-        <source>其他玩家分享的校准已通过检查，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。</source>
-        <translation>The calibration shared by another player passed its checks and records automatically. If a clear isn&apos;t recognized automatically, open the record after you leave the duty and fill in the result.</translation>
+        <source>其他玩家分享的校准已通过检查，适用于当前游戏版本。自动记录状态见上方。</source>
+        <translation>The shared calibration passed its checks for this game version. See the automatic recording status above.</translation>
     </message>
     <message>
         <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。</source>
@@ -1901,8 +1901,8 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Data reading</translation>
     </message>
     <message>
-        <source>无法识别的数据会跳过，不会据此新增或修改记录</source>
-        <translation>Unrecognized data is skipped and never adds or changes records</translation>
+        <source>只统计进入解析判定的报文。自动记录状态见上方。</source>
+        <translation>Counts only messages evaluated by the parser. See the automatic recording status above.</translation>
     </message>
     <message>
         <source>采集器未报告数据读取计数（未连接，或对端是更早的版本）。此处不显示任何数字。</source>
@@ -1913,8 +1913,8 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>No read stats yet. The background service may not be connected, or the app may need an update.</translation>
     </message>
     <message>
-        <source>成功率</source>
-        <translation>Success rate</translation>
+        <source>解析成功率</source>
+        <translation>Parse success rate</translation>
     </message>
     <message>
         <source>读取速度</source>
@@ -6271,7 +6271,11 @@ SHA256: %3</translation>
         <translation>Whole fight</translation>
     </message>
     <message>
-        <source>道中</source>
+        <source>小怪 %1</source>
+        <translation>Trash %1</translation>
+    </message>
+    <message>
+        <source>小怪</source>
         <translation>Trash</translation>
     </message>
     <message>
@@ -6986,8 +6990,8 @@ SHA256: %3</translation>
         <translation>No duty found</translation>
     </message>
     <message>
-        <source>例如：BOSS 2、尾王、转场</source>
-        <translation>e.g. Boss 2, final boss, transition</translation>
+        <source>小怪 2（BOSS 2 前）</source>
+        <translation>Trash 2 (before BOSS 2)</translation>
     </message>
     <message>
         <source>BOSS / 阶段最多 80 个字</source>
@@ -11395,30 +11399,6 @@ Recorder</translation>
         <translation>Move down</translation>
     </message>
     <message>
-        <source>副本排行</source>
-        <translation>Duty ranking</translation>
-    </message>
-    <message>
-        <source>关</source>
-        <translation>Off</translation>
-    </message>
-    <message>
-        <source>前 3</source>
-        <translation>Top 3</translation>
-    </message>
-    <message>
-        <source>前 5</source>
-        <translation>Top 5</translation>
-    </message>
-    <message>
-        <source>前 10</source>
-        <translation>Top 10</translation>
-    </message>
-    <message>
-        <source>全部</source>
-        <translation>All</translation>
-    </message>
-    <message>
         <source>背景不透明度</source>
         <translation>Background opacity</translation>
     </message>
@@ -11541,6 +11521,81 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>OverlayDutyNotesModule</name>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>独爪妖禽</source>
+        <translation>Einhander</translation>
+    </message>
+    <message>
+        <source>魔导炮艇</source>
+        <translation>Magitek Gunship</translation>
+    </message>
+    <message>
+        <source>尘世幻龙</source>
+        <translation>Midgardsormr</translation>
+    </message>
+    <message>
+        <source>得到宽恕的失调</source>
+        <translation>Forgiven Dissonance</translation>
+    </message>
+    <message>
+        <source>得到宽恕的泰丝琳</source>
+        <translation>Tesleen, the Forgiven</translation>
+    </message>
+    <message>
+        <source>斐利亚</source>
+        <translation>Philia</translation>
+    </message>
+    <message>
+        <source>当前阶段待识别</source>
+        <translation>Waiting to identify the stage</translation>
+    </message>
+    <message>
+        <source>当前阶段暂无提醒或宏。</source>
+        <translation>No reminders or macros for this stage.</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>Reminders &amp; macros</translation>
+    </message>
+    <message>
+        <source>上一段</source>
+        <translation>Previous phase</translation>
+    </message>
+    <message>
+        <source>下一段</source>
+        <translation>Next phase</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>展开全文</source>
+        <translation>Show full text</translation>
+    </message>
+    <message>
+        <source>当前副本暂无提醒或宏。</source>
+        <translation>No reminders or macros for this duty.</translation>
+    </message>
+    <message>
+        <source>打开提醒与宏</source>
+        <translation>Open reminders &amp; macros</translation>
+    </message>
+</context>
+<context>
     <name>OverlayDutyStatsModule</name>
     <message>
         <source>通关 %1 · 尝试 %2 · 通关率 %3</source>
@@ -11557,22 +11612,6 @@ Recorder</translation>
     <message>
         <source>读取中…</source>
         <translation>Loading…</translation>
-    </message>
-    <message>
-        <source>出现次数 · 全部</source>
-        <translation>Most played · all</translation>
-    </message>
-    <message>
-        <source>出现次数 · 前 %1</source>
-        <translation>Most played · top %1</translation>
-    </message>
-    <message>
-        <source>未识别</source>
-        <translation>Unrecognized</translation>
-    </message>
-    <message>
-        <source>%1 · %2 次 · %3</source>
-        <translation>%1 · %2 runs · %3</translation>
     </message>
     <message>
         <source>暂无统计</source>
@@ -17266,6 +17305,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
 </context>
 <context>
     <name>mr::StatisticsOverlayController</name>
+    <message>
+        <source>提醒与宏</source>
+        <translation>Reminders &amp; macros</translation>
+    </message>
     <message>
         <source>累计进度</source>
         <translation>Total progress</translation>

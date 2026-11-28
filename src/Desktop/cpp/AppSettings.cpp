@@ -248,17 +248,6 @@ void AppSettings::setStatisticsOverlayModuleOrder(const QStringList &order)
 {
     m_settings.setValue(QStringLiteral("statistics_overlay/module_order"), order);
 }
-int AppSettings::statisticsOverlayRowLimit() const
-{
-    // -1 when absent or unreadable: the overlay controller supplies the default.
-    bool ok = false;
-    const int limit = m_settings.value(QStringLiteral("statistics_overlay/row_limit")).toInt(&ok);
-    return ok ? limit : -1;
-}
-void AppSettings::setStatisticsOverlayRowLimit(int limit)
-{
-    m_settings.setValue(QStringLiteral("statistics_overlay/row_limit"), limit);
-}
 QString AppSettings::statisticsOverlayForm() const
 {
     return m_settings.value(QStringLiteral("statistics_overlay/form")).toString();

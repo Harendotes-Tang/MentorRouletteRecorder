@@ -30,7 +30,8 @@ namespace MentorRecorder.Collector.Protocol.Pipeline;
 /// Time the run in flight has spent in its duty: monotonic time since its entry, null until it
 /// entered one (audit 2026-10-20, D1-3).
 /// </param>
-public sealed record LiveRunSnapshot(RunState State, MentorRun? Run, long? ElapsedMs);
+/// <param name="DutyPhase">Optional overlay stage for a supported active run.</param>
+public sealed record LiveRunSnapshot(RunState State, MentorRun? Run, long? ElapsedMs, string? DutyPhase);
 
 /// <summary>
 /// Production bridge from the Phase-2 capture queue to the Phase-3 profile parser, state
@@ -222,6 +223,7 @@ public sealed partial class LiveProtocolPipeline :
     private ProfileSelection _selection;
     private CountingSink _counting = new();
     private ProfileMessageParser? _parser;
+    private HolminsterDutyStage? _dutyStage;
     private SemanticEventProcessor? _processor;
 
     /// <summary>
@@ -494,7 +496,8 @@ public sealed partial class LiveProtocolPipeline :
             var elapsed = runId is null || _runTimer is null
                 ? (long?)null
                 : Math.Max(0, (long)_runTimerOffset.TotalMilliseconds + _runTimer.ElapsedMilliseconds);
-            return new LiveRunSnapshot(state, run, elapsed);
+            var phase = state == RunState.EnteredDuty && HolminsterDutyStage.Supports(run) ? _dutyStage?.Phase : null;
+            return new LiveRunSnapshot(state, run, elapsed, phase);
         }
     }
 
@@ -582,6 +585,7 @@ public sealed partial class LiveProtocolPipeline :
             _sessionGame = _game;
             _parser = null;
             _processor = null;
+            _dutyStage = null;
             _boundSink = null;
             _dutyClear = null;
             _dutyStart = null;
@@ -676,6 +680,9 @@ public sealed partial class LiveProtocolPipeline :
             : null;
         _boundSink = (ISemanticEventSink?)_dutyStart ?? afterClear;
         _parser = new ProfileMessageParser(profile, _boundSink);
+        _dutyStage = profile.Region == Region.Cn && profile.GameBuild == HolminsterDutyStage.ClientBuild &&
+            !profile.IsObfuscated(HolminsterDutyStage.Opcode)
+            ? new HolminsterDutyStage() : null;
         _boundProfileId = profile.ProfileId;
         // Kept only for a parser bound by a confirmation, and only until one is bound by any path.
         ForgetCardWait();
@@ -975,6 +982,23 @@ public sealed partial class LiveProtocolPipeline :
             MatchingFrom(message.ConnectionKey, () =>
                 ApplyAndPublish(() => parser.DeliverVerified(semanticEvent, message), replayed));
         }
+        ObserveDutyStage(message);
+    }
+
+    /// <summary>Updates the optional in-memory overlay projection for one active supported run.</summary>
+    private void ObserveDutyStage(DecodedMessage message)
+    {
+        if (_dutyStage is not { } stage ||
+            _processor?.Machine is not { State: RunState.EnteredDuty, CurrentRunId: { } runId } ||
+            !HolminsterDutyStage.IsCarrier(message) || !HolminsterDutyStage.Supports(_runs.Get(runId)))
+        {
+            return;
+        }
+
+        if (stage.Observe(message))
+        {
+            _liveEvents.Publish(LiveEventKind.RunPhaseChanged, static _ => { });
+        }
     }
 
     /// <summary>Applies one step to the state machine and publishes what it changed.</summary>
@@ -998,6 +1022,10 @@ public sealed partial class LiveProtocolPipeline :
 
         var afterState = machine.State;
         var afterId = machine.CurrentRunId;
+        if (beforeState != afterState || beforeId != afterId)
+        {
+            _dutyStage?.Reset(afterState == RunState.EnteredDuty ? _matchingConnection : null);
+        }
         UpdateRunTimer(machine);
 
         var changed = false;

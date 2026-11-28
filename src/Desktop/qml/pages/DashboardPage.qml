@@ -8,6 +8,7 @@ import MentorRecorder 1.0
 ScrollView {
     id: page
     objectName: "dashboardPage"
+    readonly property alias communityDialog: dutyCommunityDialog
 
     DutyCommunityDialog {
         id: dutyCommunityDialog

@@ -5,6 +5,10 @@
 #include <QScopedValueRollback>
 
 namespace mr {
+namespace {
+const QString kMidstreamIncident = QStringLiteral("capture:midstream");
+}
+
 AutomaticRecordingController::AutomaticRecordingController(IBackend *backend, QObject *parent)
     : QObject(parent), m_backend(backend)
 {
@@ -285,8 +289,18 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
     if (m_initializationPending && capture.value(QStringLiteral("ffxiv_running")).toBool()
         && capture.value(QStringLiteral("profile_status")).toString() == QLatin1String("VERIFIED")
         && !capture.value(QStringLiteral("game_selection_required")).toBool()) {
+        const LiveText checking([] { return tr("正在准备自动记录，请稍候…"); });
+        // 新的游戏数据已推翻同一游戏的中途接入故障。设置检查仍在进行，随后才确认能否自动记录。
+        const QString game = capture.value(QStringLiteral("ffxiv_process_id")).toString();
+        if (!game.isEmpty() && m_incident == game + QLatin1Char(':') + kMidstreamIncident
+            && capture.value(QStringLiteral("state")).toString() == QLatin1String("RUNNING")
+            && !capture.value(QStringLiteral("midstream_suspected")).toBool()
+            && silentReason(capture).isEmpty() && receivedGameDataSinceWarning()) {
+            clearIncident();
+            m_warningMessage = checking;
+        }
         const QScopedValueRollback<bool> transient(m_transientProjection, true);
-        finishUnknown(LiveText([] { return tr("正在准备自动记录，请稍候…"); }));
+        finishUnknown(checking);
         return;
     }
     project(capture);
@@ -562,7 +576,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     if (projectPathRecovery(c)) return;
     if (c.value(QStringLiteral("midstream_suspected")).toBool()
         || reason == QLatin1String("MIDSTREAM")) {
-        block(session + QStringLiteral("capture:midstream"), LiveText([c, reason] { return silentMessage(c, reason); })); return;
+        block(session + kMidstreamIncident, LiveText([c, reason] { return silentMessage(c, reason); })); return;
     }
     if (!error.isEmpty() && error != QLatin1String("NONE")) {
         // The whole explanation is a sentence (captureErrorMessage): this
@@ -642,7 +656,7 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         if (c.value(QStringLiteral("midstream_suspected")).toBool()
             || reason == QLatin1String("MIDSTREAM")) {
             block(c.value(QStringLiteral("ffxiv_process_id")).toString()
-                      + QStringLiteral(":capture:midstream"),
+                      + QLatin1Char(':') + kMidstreamIncident,
                   LiveText([c, reason] { return silentMessage(c, reason); }));
             return true;
         }

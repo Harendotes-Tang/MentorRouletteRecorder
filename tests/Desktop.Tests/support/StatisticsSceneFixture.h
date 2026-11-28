@@ -71,6 +71,8 @@ public:
     QList<QPointer<mr::BackendReply>> pending;
     QList<QPointer<mr::BackendReply>> pendingRows;
     QJsonObject currentRunOverride;
+    QJsonValue communityListOverride;
+    QJsonObject lastCommunityCopy;
     QJsonObject lastCommunitySubmission;
     bool holdCommunitySubmission = false;
     bool holdCommunityBrowse = false;
@@ -82,6 +84,17 @@ public:
     {
         if (messageType == QLatin1String("DutyCommunity")) {
             const QString action = payload.value(QStringLiteral("action")).toString();
+            if (action == QLatin1String("copy"))
+                lastCommunityCopy = payload;
+            if (action == QLatin1String("list") && communityListOverride.isArray()) {
+                auto *reply = new mr::BackendReply(QStringLiteral("fixture-community-list"), messageType, this);
+                const QJsonObject snapshot{{QStringLiteral("status"), QStringLiteral("ready")},
+                                           {QStringLiteral("items"), communityListOverride},
+                                           {QStringLiteral("next"), QJsonValue::Null},
+                                           {QStringLiteral("generation"), 1}};
+                QTimer::singleShot(0, reply, [reply, snapshot] { reply->succeed(snapshot); });
+                return reply;
+            }
             if (action == QLatin1String("submit") || action == QLatin1String("prepare_issue")
                 || action == QLatin1String("prepare_withdrawal")) {
                 lastCommunitySubmission = payload;

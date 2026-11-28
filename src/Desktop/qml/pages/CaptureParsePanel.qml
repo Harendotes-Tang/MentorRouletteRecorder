@@ -114,10 +114,10 @@ Card {
         Text {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
-            text: qsTr("无法识别的数据会跳过，不会据此新增或修改记录")
+            text: qsTr("只统计进入解析判定的报文。自动记录状态见上方。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
-            elide: Text.ElideRight
+            wrapMode: Text.WordWrap
         }
     }
 
@@ -147,7 +147,7 @@ Card {
             spacing: 2
 
             Text {
-                text: qsTr("成功率")
+                text: qsTr("解析成功率")
                 color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
                 font.pixelSize: Theme.fs(11)
             }

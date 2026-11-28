@@ -90,6 +90,7 @@ public enum CollectorMode
 /// settings, so this is how a client whose install path does not say its region is traced (audit 2026-11-03, A2-4).
 /// </param>
 /// <param name="IdentityProbe">Also write the keyed identity lines of a live trace (<c>--identity-probe</c>).</param>
+/// <param name="DutyPhaseProbe">Record NPC combat clues without marker input (<c>--duty-phase-probe</c>).</param>
 public sealed record CommandLineOptions(
     CollectorMode Mode,
     string? DatabasePath,
@@ -109,7 +110,8 @@ public sealed record CommandLineOptions(
     string? LogDirectory = null,
     DateTimeOffset? ParentStartTime = null,
     Domain.Region? Region = null,
-    bool IdentityProbe = false)
+    bool IdentityProbe = false,
+    bool DutyPhaseProbe = false)
 {
     /// <summary>
     /// Longest live trace the command line accepts, in seconds (24 hours). A trace is a
@@ -141,6 +143,7 @@ public sealed record CommandLineOptions(
         int? windowMs = null;
         var allowMidstream = false;
         var identityProbe = false;
+        var dutyPhaseProbe = false;
         Domain.Region? region = null;
         string? pipeName = null;
         string? logDirectory = null;
@@ -231,6 +234,10 @@ public sealed record CommandLineOptions(
                     identityProbe = true;
                     break;
 
+                case Capture.CaptureTraceCli.DutyPhaseProbeFlag:
+                    dutyPhaseProbe = true;
+                    break;
+
                 case Capture.CaptureTraceCli.RegionFlag:
                     region = Capture.CaptureTraceCli.ParseRegion(Value(args, ref i, Capture.CaptureTraceCli.RegionFlag))
                         ?? throw new FormatException(Capture.CaptureTraceCli.RegionFlag + " requires CN, TC or GLOBAL");
@@ -308,7 +315,7 @@ public sealed record CommandLineOptions(
         // than ignored by the other. A typo must not silently produce an unbounded capture, or
         // a report with the wrong window, discovered only after the session is over.
         var traceOnly = durationSeconds is not null || adapterId is not null || maxLines is not null ||
-                        allowMidstream || region is not null || identityProbe;
+                        allowMidstream || region is not null || identityProbe || dutyPhaseProbe;
         var reportOnly = aroundMarker is not null || windowMs is not null;
         var storageArguments =
             databasePath is not null || fixturePath is not null || profilePath is not null ||
@@ -319,7 +326,7 @@ public sealed record CommandLineOptions(
         {
             throw new FormatException(
                 "--capture-trace accepts only --duration-seconds, --adapter, --max-lines, --allow-midstream, " +
-                "--region and --identity-probe");
+                "--region, --identity-probe and --duty-phase-probe");
         }
 
         if (mode == CollectorMode.TraceReport && (traceOnly || json || storageArguments))
@@ -332,8 +339,14 @@ public sealed record CommandLineOptions(
         {
             throw new FormatException(
                 "--duration-seconds, --adapter, --max-lines, --allow-midstream, --region, --identity-probe, " +
-                "--around and --window-ms " +
+                "--duty-phase-probe, --around and --window-ms " +
                 "apply to --capture-trace and --trace-report only");
+        }
+
+        if (dutyPhaseProbe && (identityProbe || maxLines > Capture.CaptureDutyPhaseProbe.MaxMessageRows))
+        {
+            throw new FormatException("--duty-phase-probe cannot be combined with --identity-probe " +
+                $"and requires --max-lines at most {Capture.CaptureDutyPhaseProbe.MaxMessageRows}");
         }
 
         // The switch only means anything for the mode that keeps running. Accepting it
@@ -378,7 +391,7 @@ public sealed record CommandLineOptions(
         return new CommandLineOptions(
             mode, databasePath, fixturePath, profilePath, profilesDirectory, json, parentProcessId,
             tracePath, durationSeconds, adapterId, maxLines, aroundMarker, windowMs, allowMidstream,
-            pipeName, logDirectory, parentStartTime, region, identityProbe);
+            pipeName, logDirectory, parentStartTime, region, identityProbe, dutyPhaseProbe);
     }
 
     /// <summary>Folder this run writes its rotated diagnostic log to.</summary>

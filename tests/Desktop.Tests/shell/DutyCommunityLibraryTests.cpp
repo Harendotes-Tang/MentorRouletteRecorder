@@ -9,10 +9,12 @@
 #include "BundledFonts.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QColor>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFont>
+#include <QJsonArray>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QScopeGuard>
@@ -28,6 +30,10 @@ private Q_SLOTS:
     void communityPublicLibraryFoldsAndFilters();
     void sharedLibraryShowsLikesAndSortsByThem();
     void favoriteStarIsLucideAndFilledWhenChosen();
+    void floatingNotesFollowTheEnteredDutyAndItsPhases();
+    void floatingNotesEmptyStateOpensTheCommunityDialog();
+    void floatingNotesInterleaveTrashAndBosses();
+    void floatingNotesApplyAutomaticStageWithoutHidingStatistics();
 public:
     Q_INVOKABLE void rememberUrl(const QUrl &url) { opened << url; }
     QList<QUrl> opened;
@@ -36,6 +42,48 @@ public:
 QString mockId(int number)
 {
     return QStringLiteral("00000000-0000-4000-8000-%1").arg(number, 12, 10, QLatin1Char('0'));
+}
+
+QString bodyName(int number)
+{
+    return QStringLiteral("floatingDutyNotesBody_") + mockId(number);
+}
+
+QString phaseText(const Scene &scene)
+{
+    const auto *label = scene.item(QStringLiteral("floatingDutyNotesPhase"), true);
+    return label ? label->property("text").toString() : QString();
+}
+
+QVariantMap overlayEntry(int number, const char *type, const char *body, int duty, const char *phase,
+                         bool favorite = false, bool fromLibrary = false, const char *region = "CN")
+{
+    auto row = publicEntry(number, type, body, "", duty);
+    auto content = row.value(QStringLiteral("content")).toMap();
+    if (fromLibrary) row.insert(QStringLiteral("upstream"), content);
+    content.insert(QStringLiteral("boss"), QString::fromUtf8(phase));
+    content.insert(QStringLiteral("region"), QString::fromLatin1(region));
+    if (number == 302) content.insert(QStringLiteral("title"), QStringLiteral("进本打招呼"));
+    row.insert(QStringLiteral("content"), content);
+    row.insert(QStringLiteral("favorite"), favorite);
+    return row;
+}
+
+void refreshOverlayRun(Scene &scene, const char *state, int duty, int run, const char *phase = nullptr)
+{
+    scene.backend.currentRunOverride = {
+        {QStringLiteral("state"), QString::fromLatin1(state)},
+        {QStringLiteral("elapsed_ms"), 134000},
+        {QStringLiteral("run"), QJsonObject{{QStringLiteral("run_id"), mockId(run)},
+                                          {QStringLiteral("region"), QStringLiteral("CN")},
+                                          {QStringLiteral("content_id"), duty},
+                                          {QStringLiteral("duty_category"), QStringLiteral("四人迷宫")},
+                                          {QStringLiteral("job_id"), 24},
+                                          {QStringLiteral("entered_at_utc"), QStringLiteral("2026-11-28T00:01:00Z")}}}
+    };
+    if (phase)
+        scene.backend.currentRunOverride.insert(QStringLiteral("duty_phase"), QString::fromLatin1(phase));
+    scene.app->refreshAll();
 }
 
 /// The SVG an Image shows from a Lucide.js data: URL.
@@ -62,6 +110,350 @@ void DutyCommunityLibraryTests::initTestCase()
 {
     QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence()));
     registerSceneQmlTypes();
+}
+
+void DutyCommunityLibraryTests::floatingNotesFollowTheEnteredDutyAndItsPhases()
+{
+    Scene scene;
+    const auto macro = QStringLiteral("/p 初次见面，请多关照！<se.1>\n/p 第一次来的话可以先看动画。");
+    const auto longBody = QStringLiteral("沿左侧走。\n等队友到齐。\n准备减伤。\n下一波怪先集火。\n看到范围就散开。");
+    scene.backend.communityListOverride = QJsonArray::fromVariantList({
+        overlayEntry(301, "reminder", "等转阶段后再开爆发。", 17, "P2"),
+        overlayEntry(302, "macro", macro.toUtf8().constData(), 17, "opening", true, true),
+        overlayEntry(303, "reminder", longBody.toUtf8().constData(), 17, "老二"),
+        overlayEntry(304, "reminder", "留意前方扇形范围。", 17, "2ボス"),
+        overlayEntry(305, "reminder", "随时留意队友的标记。", 17, "全程"),
+        overlayEntry(306, "reminder", "沿路的宝箱可自行拾取。", 17, ""),
+        overlayEntry(307, "reminder", "按需要调整站位。", 17, "场边提示"),
+        overlayEntry(308, "reminder", "副本结束后可先确认掉落。", 0, "ending"),
+        overlayEntry(309, "reminder", "Other duty", 4, "BOSS 1"),
+        overlayEntry(310, "reminder", "Not starred", 17, "start", false, true),
+        overlayEntry(311, "reminder", "Wrong region", 17, "start", false, false, "GLOBAL"),
+        overlayEntry(312, "reminder", "开场记得确认队伍进度。", 17, "开场"),
+        overlayEntry(313, "reminder", "也可以向队友确认机制。", 17, "toString")
+    });
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
+    auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
+    QVERIFY(dialog);
+    QTRY_COMPARE(rowIds(dialog->property("localRows")).size(), 13);
+    dialog->setProperty("recent", QVariantMap{{mockId(304), QStringLiteral("2026-11-28T01:30:00Z")}});
+
+    const auto module = QStringLiteral("floatingDutyNotes");
+    const auto next = QStringLiteral("floatingDutyNotesNext");
+    const auto previous = QStringLiteral("floatingDutyNotesPrevious");
+    const auto groups = [&] { return qmlList(scene.item(module)->property("groups")); };
+    scene.overlay()->setGeometry(QRect(100, 80, 340, 680));
+    scene.overlay()->setModules({"current_duty", "elapsed"});
+    QVERIFY(scene.showFloating());
+    QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
+    QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_duty_notes")));
+    QVERIFY(scene.revealCustomizationFooter());
+    QVERIFY(scene.click(QStringLiteral("floatingCustomizationDone")));
+    scene.overlay()->moveModuleTo(QStringLiteral("duty_notes"), 2);
+    QCOMPARE(scene.overlay()->modules(), QStringList({"current_duty", "elapsed", "duty_notes"}));
+    QVERIFY(!scene.item(module, true));
+
+    refreshOverlayRun(scene, "MENTOR_MATCHED", 17, 701);
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
+    QVERIFY(!scene.item(module, true));
+    refreshOverlayRun(scene, "ENTERED_DUTY", 17, 701);
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("开场"));
+    QStringList order;
+    for (const auto &group : groups()) order << group.toMap().value(QStringLiteral("key")).toString();
+    QCOMPARE(order.mid(0, 4), QStringList({"p:open", "p:all", "p:b2", "p:p2"}));
+    QVERIFY(order.mid(4, 2).contains(QStringLiteral("p:x:tostring")));
+    QVERIFY(order.mid(4, 2).contains(QStringLiteral("p:x:场边提示")));
+    QCOMPARE(order.mid(6), QStringList({"p:none", "gen"}));
+    const auto rowsIn = [&](int index) {
+        QStringList ids;
+        const auto items = groups().at(index).toMap().value(QStringLiteral("items")).toList();
+        for (const auto &item : items)
+            ids << item.toMap().value(QStringLiteral("row")).toMap().value(QStringLiteral("content"))
+                       .toMap().value(QStringLiteral("id")).toString();
+        return ids;
+    };
+    QCOMPARE(rowsIn(0), QStringList({mockId(302), mockId(312)}));
+    QCOMPARE(rowsIn(2), QStringList({mockId(304), mockId(303)}));
+    const auto bossGroup = QStringLiteral("floatingDutyNotesGroup_p:b2");
+    QVERIFY(!scene.item(bossGroup, true));
+    QVERIFY(!scene.item(previous, true)->isEnabled());
+    for (int id : {305, 306, 307, 308, 313}) QVERIFY(scene.item(bodyName(id), true));
+    for (int id : {301, 303, 304, 309, 310, 311}) QVERIFY(!scene.item(bodyName(id), true));
+    QVERIFY(scene.grab(QStringLiteral("duty-notes-entered")));
+
+    auto *clipboard = QGuiApplication::clipboard();
+    const QString savedText = clipboard->text();
+    const auto restoreClipboard = qScopeGuard([&] { clipboard->setText(savedText); });
+    QVERIFY(scene.click(QStringLiteral("floatingDutyNotesCopy_") + mockId(302)));
+    QTRY_COMPARE(scene.backend.lastCommunityCopy.value(QStringLiteral("mode")).toString(), QStringLiteral("macro"));
+    QCOMPARE(scene.backend.lastCommunityCopy.value(QStringLiteral("body")).toString(), macro);
+    QTRY_COMPARE(clipboard->text().replace(QStringLiteral("\r\n"), QStringLiteral("\n")), macro);
+    QTRY_VERIFY(qmlMap(dialog->property("recent")).contains(mockId(302)));
+
+    QVERIFY(scene.click(next));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2"));
+    QVERIFY(scene.item(bossGroup, true));
+    QVERIFY(!scene.item(QStringLiteral("floatingDutyNotesGroup_p:open"), true));
+    QVERIFY(!scene.item(bodyName(302), true));
+    const auto expand = QStringLiteral("floatingDutyNotesExpand_") + mockId(303);
+    QTRY_VERIFY(scene.item(expand, true));
+    auto *body = scene.item(bodyName(303), true);
+    QVERIFY(body);
+    QCOMPARE(body->property("lineCount").toInt(), 3);
+    QVERIFY(scene.click(expand));
+    QTRY_COMPARE(body->property("lineCount").toInt(), 5);
+    scene.app->refreshAll();
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2"));
+    QVERIFY(scene.click(next));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("阶段 2"));
+    QVERIFY(!scene.item(next, true)->isEnabled());
+    for (int id : {305, 306, 307, 308}) QVERIFY(scene.item(bodyName(id), true));
+    QVERIFY(scene.click(previous));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2"));
+
+    refreshOverlayRun(scene, "ENTERED_DUTY", 4, 701);
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 1"));
+    QVERIFY(!scene.item(bodyName(303), true));
+    QVERIFY(scene.item(bodyName(309), true));
+    refreshOverlayRun(scene, "ENTERED_DUTY", 17, 702);
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("开场"));
+    QVERIFY(scene.click(next));
+    scene.backend.currentRunOverride = {};
+    scene.app->refreshAll();
+    QTRY_VERIFY(!scene.item(module, true));
+    refreshOverlayRun(scene, "ENTERED_DUTY", 17, 703);
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("开场"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityLibraryTests::floatingNotesEmptyStateOpensTheCommunityDialog()
+{
+    Scene scene;
+    scene.backend.communityListOverride = QJsonArray{};
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
+    scene.overlay()->setModules({"duty_notes"});
+    scene.overlay()->setGeometry(QRect(100, 80, 240, 500));
+    QVERIFY(scene.showFloating());
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingDutyNotesEmpty"), true));
+    QVERIFY(!scene.item(QStringLiteral("floatingDutyNotesPrevious"), true));
+    QVERIFY(!scene.item(QStringLiteral("floatingDutyNotesNext"), true));
+    const auto manage = QStringLiteral("floatingDutyNotesManage");
+    const struct { const char *locale; const char *label; } languages[] = {
+        {"zh-CN", "打开提醒与宏"},
+        {"zh-TW", "開啟提醒與巨集"},
+        {"en", "Open reminders & macros"},
+        {"ja", "リマインダーとマクロを開く"}
+    };
+    const auto manageText = [&] {
+        const auto *button = scene.item(manage, true);
+        return button ? button->property("text").toString() : QString();
+    };
+    for (const auto &language : languages) {
+        scene.language.setLanguage(QString::fromLatin1(language.locale));
+        QTRY_COMPARE(manageText(), QString::fromUtf8(language.label));
+        const auto *button = scene.item(manage, true);
+        QTRY_VERIFY(button->width() > 0 && button->width() <= button->parentItem()->width());
+    }
+    auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
+    QVERIFY(dialog);
+    QVERIFY(!dialog->property("visible").toBool());
+    scene.mainWindow()->hide();
+    QVERIFY(scene.click(manage));
+    QTRY_VERIFY(scene.mainWindow()->isVisible());
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QCOMPARE(dialog->property("activeScope").toString(), QStringLiteral("cur"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityLibraryTests::floatingNotesInterleaveTrashAndBosses()
+{
+    Scene scene;
+    scene.backend.communityListOverride = QJsonArray::fromVariantList({
+        overlayEntry(327, "reminder", "尾王读条时留意场地。", 17, "BOSS 3"),
+        overlayEntry(324, "reminder", "先打会施法的小怪，留一次打断。", 17, "小怪二"),
+        overlayEntry(323, "reminder", "站到侧面避开正面攻击。", 17, "BOSS 1"),
+        overlayEntry(328, "macro", "/p 这段请把两组小怪拉到一起。", 17, "Trash 2"),
+        overlayEntry(326, "reminder", "先清门前巡逻的那一只。", 17, "道中雑魚 3"),
+        overlayEntry(321, "reminder", "沿途遇到小怪时注意队友位置。", 17, "道中"),
+        overlayEntry(325, "reminder", "提前散开，留意头顶标记。", 17, "BOSS 2"),
+        overlayEntry(322, "reminder", "第一组小怪沿左墙集中。", 17, "道中 1")
+    });
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
+    scene.overlay()->setGeometry(QRect(100, 80, 340, 760));
+    const auto originalModules = scene.overlay()->modules();
+    const auto notes = QStringLiteral("duty_notes");
+    scene.overlay()->toggleModule(notes);
+    scene.overlay()->moveModuleTo(notes, originalModules.indexOf(QStringLiteral("elapsed")) + 1);
+    auto enabled = scene.overlay()->modules();
+    QVERIFY(enabled.removeOne(notes));
+    QCOMPARE(enabled, originalModules);
+    QVERIFY(scene.showFloating());
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪"));
+
+    const auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
+    QVERIFY(dialog);
+    QStringList headers;
+    for (const auto &entry : qmlList(dialog->property("listEntries"))) {
+        const auto line = entry.toMap();
+        if (line.value(QStringLiteral("kind")).toString() == QStringLiteral("head"))
+            headers << line.value(QStringLiteral("label")).toString();
+    }
+    const QStringList expected{"小怪", "小怪 1", "BOSS 1", "小怪 2", "BOSS 2", "小怪 3", "BOSS 3"};
+    QCOMPARE(headers, expected);
+    const auto next = QStringLiteral("floatingDutyNotesNext");
+    const auto previous = QStringLiteral("floatingDutyNotesPrevious");
+    for (qsizetype index = 0; index < expected.size(); ++index) {
+        if (index > 0) QVERIFY(scene.click(next));
+        QTRY_COMPARE(phaseText(scene), expected[index]);
+        QVERIFY(scene.item(bodyName(321 + index), true));
+        if (index > 0) QVERIFY(!scene.item(bodyName(320 + index), true));
+        if (index == 3) {
+            QVERIFY(scene.item(bodyName(328), true));
+            scene.language.setLanguage(QStringLiteral("en"));
+            QTRY_COMPARE(phaseText(scene), QStringLiteral("Trash 2"));
+            scene.language.setLanguage(QStringLiteral("zh-CN"));
+            QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 2"));
+            for (const auto *module : {"attempts", "progress", "current_duty", "elapsed", "dungeons", "jobs"})
+                QVERIFY(scene.item(QStringLiteral("floatingModule_") + QString::fromLatin1(module), true));
+            QTest::mouseMove(scene.floating(), QPoint(8, 18));
+            QVERIFY(scene.grab(QStringLiteral("duty-notes-interleaved")));
+        } else {
+            QVERIFY(!scene.item(bodyName(328), true));
+        }
+    }
+    QVERIFY(!scene.item(next, true)->isEnabled());
+    QVERIFY(scene.click(previous));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 3"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void DutyCommunityLibraryTests::floatingNotesApplyAutomaticStageWithoutHidingStatistics()
+{
+    Scene scene;
+    scene.backend.communityListOverride = QJsonArray::fromVariantList({
+        overlayEntry(481, "reminder", "第一段小怪。", 676, "小怪 1"),
+        overlayEntry(482, "reminder", "第一个 BOSS。", 676, "BOSS 1"),
+        overlayEntry(483, "reminder", "第二段小怪。", 676, "小怪 2"),
+        overlayEntry(484, "macro", "/p 泰丝琳点名时散开。", 676, "BOSS 2"),
+        overlayEntry(485, "reminder", "全程留意队友位置。", 676, "全程"),
+        overlayEntry(486, "reminder", "未标阶段的提醒。", 676, ""),
+        overlayEntry(487, "reminder", "道中通用提醒。", 676, "道中"),
+        overlayEntry(488, "reminder", "开场提醒。", 676, "开场"),
+        overlayEntry(489, "reminder", "尾王留意点名。", 676, "尾王"),
+        overlayEntry(490, "macro", "/p 注意魔导炮艇的火炎放射。", 32, "BOSS 2"),
+        overlayEntry(491, "reminder", "先打龙之幻象。", 32, "BOSS 3")
+    });
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
+    scene.overlay()->setGeometry(QRect(100, 80, 340, 690));
+    const auto notes = QStringLiteral("duty_notes");
+    const auto originalModules = scene.overlay()->modules();
+    scene.overlay()->toggleModule(notes);
+    scene.overlay()->moveModuleTo(notes, static_cast<int>(originalModules.indexOf(QStringLiteral("elapsed")) + 1));
+    auto enabled = scene.overlay()->modules();
+    QVERIFY(enabled.removeOne(notes));
+    QCOMPARE(enabled, originalModules);
+    refreshOverlayRun(scene, "ENTERED_DUTY", 676, 801, "unknown");
+    QVERIFY(scene.showFloating());
+
+    const auto applyPhase = [&](const char *phase) {
+        scene.backend.currentRunOverride.insert(QStringLiteral("duty_phase"), QString::fromLatin1(phase));
+        Q_EMIT scene.backend.liveEvent({{QStringLiteral("event_type"), QStringLiteral("DiagnosticsMessage")},
+                                      {QStringLiteral("kind"), QStringLiteral("run_phase_changed")}});
+    };
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("当前阶段待识别"));
+    QVERIFY(!scene.item(bodyName(481), true));
+    QVERIFY(scene.item(bodyName(485), true));
+    QVERIFY(scene.item(bodyName(486), true));
+    QVERIFY(!scene.item(QStringLiteral("floatingDutyNotesPrevious"), true));
+    QVERIFY(!scene.item(QStringLiteral("floatingDutyNotesNext"), true));
+
+    applyPhase("trash1");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 1"));
+    QVERIFY(scene.item(bodyName(481), true));
+    QVERIFY(scene.item(bodyName(487), true));
+    QVERIFY(scene.item(bodyName(488), true));
+    applyPhase("boss1");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 1 · 得到宽恕的失调"));
+    QVERIFY(!scene.item(bodyName(481), true));
+    QVERIFY(!scene.item(bodyName(487), true));
+    QVERIFY(!scene.item(bodyName(488), true));
+    QVERIFY(scene.item(bodyName(482), true));
+    applyPhase("trash2");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 2"));
+    QVERIFY(scene.item(bodyName(483), true));
+    QVERIFY(!scene.item(bodyName(482), true));
+    applyPhase("boss2");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2 · 得到宽恕的泰丝琳"));
+    QVERIFY(scene.item(bodyName(484), true));
+    QVERIFY(!scene.item(bodyName(483), true));
+    QVERIFY(scene.item(bodyName(485), true));
+    for (const auto *module : {"attempts", "progress", "current_duty", "elapsed", "dungeons", "jobs"})
+        QVERIFY(scene.item(QStringLiteral("floatingModule_") + QString::fromLatin1(module), true));
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingCategorySegment"), true));
+    auto *summary = scene.item(QStringLiteral("floatingDungeonState"), true);
+    QVERIFY(summary);
+    QTRY_COMPARE(summary->property("text").toString(), QStringLiteral("71/88"));
+    QVERIFY(scene.textItemsContaining(QStringLiteral("沙斯塔夏溶洞")).isEmpty());
+    QVERIFY(scene.textItemsContaining(QStringLiteral("铜铃铜山")).isEmpty());
+    QTest::mouseMove(scene.floating(), QPoint(8, 18));
+    QVERIFY(scene.grab(QStringLiteral("duty-notes-holminster-automatic")));
+
+    scene.language.setLanguage(QStringLiteral("en"));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("Boss 2 · Tesleen, the Forgiven"));
+    scene.language.setLanguage(QStringLiteral("ja"));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("ボス 2 · フォーギヴン・テスリーン"));
+    scene.language.setLanguage(QStringLiteral("zh-TW"));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2 · 得到寬恕的泰絲琳"));
+    scene.language.setLanguage(QStringLiteral("zh-CN"));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2 · 得到宽恕的泰丝琳"));
+
+    applyPhase("trash3");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 3"));
+    QVERIFY(scene.item(bodyName(487), true));
+    applyPhase("boss3");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 3 · 斐利亚"));
+    QVERIFY(scene.item(bodyName(489), true));
+    QVERIFY(!scene.item(bodyName(484), true));
+    QVERIFY(!scene.item(bodyName(487), true));
+    applyPhase("boss4");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("开场"));
+    QVERIFY(scene.item(QStringLiteral("floatingDutyNotesNext"), true));
+    refreshOverlayRun(scene, "ENTERED_DUTY", 676, 802, "unknown");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("当前阶段待识别"));
+    QVERIFY(!scene.item(bodyName(482), true));
+
+    // The Keeper of the Lake trace replay supplies this order. The mock transports
+    // its phase values through the same event and snapshot used by supported duties.
+    refreshOverlayRun(scene, "ENTERED_DUTY", 32, 803, "trash1");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 1"));
+    applyPhase("boss1");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 1 · 独爪妖禽"));
+    applyPhase("trash2");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 2"));
+    applyPhase("boss2");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2 · 魔导炮艇"));
+    QVERIFY(scene.item(bodyName(490), true));
+    QVERIFY(!scene.item(bodyName(491), true));
+    QVERIFY(scene.grab(QStringLiteral("duty-notes-keeper-replay")));
+    applyPhase("trash3");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("小怪 3"));
+    applyPhase("boss3");
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 3 · 尘世幻龙"));
+    QVERIFY(scene.item(bodyName(491), true));
+    QVERIFY(!scene.item(bodyName(490), true));
+    refreshOverlayRun(scene, "IDLE", 0, 804);
+    QTRY_VERIFY(!scene.item(QStringLiteral("floatingDutyNotes"), true));
+
+    refreshOverlayRun(scene, "ENTERED_DUTY", 32, 805);
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 2 · 魔导炮艇"));
+    const auto next = QStringLiteral("floatingDutyNotesNext");
+    QVERIFY(scene.click(next));
+    QTRY_COMPARE(phaseText(scene), QStringLiteral("BOSS 3 · 尘世幻龙"));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
 // The public library folds entries that read alike under the first one (「另有 N 条相似」) and

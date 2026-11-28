@@ -1779,8 +1779,8 @@
         <translation>この PC での校正は完了しており、通常どおり自動記録できます。クリアを自動で識別できなかった場合は、コンテンツから退出したあとで記録を開いて結果を補ってください。</translation>
     </message>
     <message>
-        <source>其他玩家分享的校准已通过检查，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。</source>
-        <translation>ほかのプレイヤーが共有した校正がチェックに合格し、通常どおり自動記録できます。クリアを自動で識別できなかった場合は、コンテンツから退出したあとで記録を開いて結果を補ってください。</translation>
+        <source>其他玩家分享的校准已通过检查，适用于当前游戏版本。自动记录状态见上方。</source>
+        <translation>共有された校正はチェックに合格し、現在のゲームバージョンに対応しています。自動記録の状態は上部で確認できます。</translation>
     </message>
     <message>
         <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。</source>
@@ -1901,8 +1901,8 @@
         <translation>データの読み取り</translation>
     </message>
     <message>
-        <source>无法识别的数据会跳过，不会据此新增或修改记录</source>
-        <translation>識別できないデータはスキップし、それをもとに記録を追加・変更することはありません</translation>
+        <source>只统计进入解析判定的报文。自动记录状态见上方。</source>
+        <translation>解析で判定したメッセージのみを集計します。自動記録の状態は上部で確認できます。</translation>
     </message>
     <message>
         <source>采集器未报告数据读取计数（未连接，或对端是更早的版本）。此处不显示任何数字。</source>
@@ -1913,8 +1913,8 @@
         <translation>読み取りの統計はまだありません。バックグラウンドサービスが未接続か、アプリの更新が必要な可能性があります。</translation>
     </message>
     <message>
-        <source>成功率</source>
-        <translation>成功率</translation>
+        <source>解析成功率</source>
+        <translation>解析成功率</translation>
     </message>
     <message>
         <source>读取速度</source>
@@ -6271,8 +6271,12 @@ SHA256：%3</translation>
         <translation>全体</translation>
     </message>
     <message>
-        <source>道中</source>
-        <translation>道中</translation>
+        <source>小怪 %1</source>
+        <translation>雑魚 %1</translation>
+    </message>
+    <message>
+        <source>小怪</source>
+        <translation>雑魚</translation>
     </message>
     <message>
         <source>尾王</source>
@@ -6986,8 +6990,8 @@ SHA256：%3</translation>
         <translation>該当するコンテンツがありません</translation>
     </message>
     <message>
-        <source>例如：BOSS 2、尾王、转场</source>
-        <translation>例：ボス 2、ラスボス、フェーズ移行</translation>
+        <source>小怪 2（BOSS 2 前）</source>
+        <translation>雑魚 2（ボス 2 の前）</translation>
     </message>
     <message>
         <source>BOSS / 阶段最多 80 个字</source>
@@ -11395,30 +11399,6 @@ SHA256：%3</translation>
         <translation>下へ</translation>
     </message>
     <message>
-        <source>副本排行</source>
-        <translation>コンテンツ順位</translation>
-    </message>
-    <message>
-        <source>关</source>
-        <translation>なし</translation>
-    </message>
-    <message>
-        <source>前 3</source>
-        <translation>上位3</translation>
-    </message>
-    <message>
-        <source>前 5</source>
-        <translation>上位5</translation>
-    </message>
-    <message>
-        <source>前 10</source>
-        <translation>上位10</translation>
-    </message>
-    <message>
-        <source>全部</source>
-        <translation>すべて</translation>
-    </message>
-    <message>
         <source>背景不透明度</source>
         <translation>背景の不透明度</translation>
     </message>
@@ -11541,6 +11521,81 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>OverlayDutyNotesModule</name>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>独爪妖禽</source>
+        <translation>アインハンダー</translation>
+    </message>
+    <message>
+        <source>魔导炮艇</source>
+        <translation>魔導ガンシップ</translation>
+    </message>
+    <message>
+        <source>尘世幻龙</source>
+        <translation>ミドガルズオルム</translation>
+    </message>
+    <message>
+        <source>得到宽恕的失调</source>
+        <translation>フォーギヴン・ディソナンス</translation>
+    </message>
+    <message>
+        <source>得到宽恕的泰丝琳</source>
+        <translation>フォーギヴン・テスリーン</translation>
+    </message>
+    <message>
+        <source>斐利亚</source>
+        <translation>フィリア</translation>
+    </message>
+    <message>
+        <source>当前阶段待识别</source>
+        <translation>現在の段階を確認中</translation>
+    </message>
+    <message>
+        <source>当前阶段暂无提醒或宏。</source>
+        <translation>この段階のリマインダーやマクロはありません。</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>リマインダーとマクロ</translation>
+    </message>
+    <message>
+        <source>上一段</source>
+        <translation>前のフェーズ</translation>
+    </message>
+    <message>
+        <source>下一段</source>
+        <translation>次のフェーズ</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>コピー済み</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>コピー</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>折りたたむ</translation>
+    </message>
+    <message>
+        <source>展开全文</source>
+        <translation>全文を表示</translation>
+    </message>
+    <message>
+        <source>当前副本暂无提醒或宏。</source>
+        <translation>このコンテンツのリマインダーやマクロはありません。</translation>
+    </message>
+    <message>
+        <source>打开提醒与宏</source>
+        <translation>リマインダーとマクロを開く</translation>
+    </message>
+</context>
+<context>
     <name>OverlayDutyStatsModule</name>
     <message>
         <source>通关 %1 · 尝试 %2 · 通关率 %3</source>
@@ -11557,22 +11612,6 @@ SHA256：%3</translation>
     <message>
         <source>读取中…</source>
         <translation>読み込み中…</translation>
-    </message>
-    <message>
-        <source>出现次数 · 全部</source>
-        <translation>回数 · すべて</translation>
-    </message>
-    <message>
-        <source>出现次数 · 前 %1</source>
-        <translation>回数 · 上位%1</translation>
-    </message>
-    <message>
-        <source>未识别</source>
-        <translation>未識別</translation>
-    </message>
-    <message>
-        <source>%1 · %2 次 · %3</source>
-        <translation>%1 · %2 回 · %3</translation>
     </message>
     <message>
         <source>暂无统计</source>
@@ -17266,6 +17305,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::StatisticsOverlayController</name>
+    <message>
+        <source>提醒与宏</source>
+        <translation>リマインダーとマクロ</translation>
+    </message>
     <message>
         <source>累计进度</source>
         <translation>累計進捗</translation>

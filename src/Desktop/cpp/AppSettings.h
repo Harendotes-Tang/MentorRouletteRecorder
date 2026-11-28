@@ -113,8 +113,6 @@ public:
     void setStatisticsOverlayModules(const QStringList &modules);
     QStringList statisticsOverlayModuleOrder(const QStringList &fallback) const;
     void setStatisticsOverlayModuleOrder(const QStringList &order);
-    int statisticsOverlayRowLimit() const;
-    void setStatisticsOverlayRowLimit(int limit);
     /// "full" or "mini"; the controller validates.
     QString statisticsOverlayForm() const;
     void setStatisticsOverlayForm(const QString &form);

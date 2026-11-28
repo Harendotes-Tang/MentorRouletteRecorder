@@ -1234,23 +1234,20 @@ private Q_SLOTS:
 
     // -- 协议档案 card: what a recording profile tells the player -----------------
 
-    void theProfileCardSaysAClearIsRecordedByItself_data()
+    void theProfileCardExplainsTheVerifiedProfile_data()
     {
         QTest::addColumn<QString>("origin");
         QTest::addColumn<QString>("explanation");
-        // A CN duty cleared in the duty is recorded as 通关 by itself, whichever profile
-        // records (docs/protocol-profile-format.md §12); only a duty left without the
-        // clear still needs its result filled in.
         QTest::newRow("local") << "LOCAL_CALIBRATION"
             << QString::fromUtf8("这台电脑已完成校准，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。");
         QTest::newRow("shared") << "SHARED_CALIBRATION"
-            << QString::fromUtf8("其他玩家分享的校准已通过检查，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。");
+            << QString::fromUtf8("其他玩家分享的校准已通过检查，适用于当前游戏版本。自动记录状态见上方。");
         QTest::newRow("shipped") << "SHIPPED"
             << QString::fromUtf8("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                                  "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。");
     }
 
-    void theProfileCardSaysAClearIsRecordedByItself()
+    void theProfileCardExplainsTheVerifiedProfile()
     {
         QFETCH(QString, origin);
         QFETCH(QString, explanation);

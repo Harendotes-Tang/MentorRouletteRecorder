@@ -373,6 +373,7 @@ set(MR_QML_FILES
     qml/overlay/OverlayModuleLabel.qml
     qml/overlay/OverlayProgressModule.qml
     qml/overlay/OverlayCurrentDutyModule.qml
+    qml/overlay/OverlayDutyNotesModule.qml
     qml/overlay/OverlayElapsedModule.qml
     qml/overlay/OverlayDutyStatsModule.qml
     qml/overlay/OverlayRolesModule.qml

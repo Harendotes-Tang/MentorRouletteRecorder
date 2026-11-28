@@ -188,10 +188,7 @@ MotionDialog {
     readonly property var categoryOrder: ["四人迷宫", "讨伐歼灭战", "大型任务", "绝境战", "深层迷宫", "行会令", "任务战斗", "禁地探索"]
     function categoryOf(id) { return id ? ((dutyIndex[id] || {}).category || "other") : "" }
     function categoryLabel(category) { return category === "other" ? qsTr("其他副本") : Theme.categoryName(category) }
-    function fitsCurrent(item) {
-        return inDuty && (item.content_id === duty.content_id || item.content_id === 0)
-            && (item.region === "ALL" || item.region === duty.region)
-    }
+    function fitsCurrent(item) { return Scope.fitsCurrent(item, duty) }
     function inScope(row, key) {
         const item = row.content
         switch (key) {
@@ -222,7 +219,7 @@ MotionDialog {
         case "none": return qsTr("未标阶段")
         case "open": return qsTr("开场")
         case "all": return qsTr("全程")
-        case "trash": return qsTr("道中")
+        case "trash": return phase.n ? qsTr("小怪 %1").arg(phase.n) : qsTr("小怪")
         case "last": return qsTr("尾王")
         case "boss": return qsTr("BOSS %1").arg(phase.n)
         case "phase": return qsTr("阶段 %1").arg(phase.n)
@@ -230,6 +227,32 @@ MotionDialog {
         case "end": return qsTr("结束")
         }
         return phase.raw
+    }
+    function phaseGroup(item) {
+        const phase = Scope.phase(stageOf(item))
+        return { key: "p:" + phase.key, code: phase.code, n: phase.n, order: phase.order,
+                 label: phaseLabel(phase), stage: false }
+    }
+    function overlayPhase(stage) {
+        return phaseGroup({ phase: stage })
+    }
+    function favoriteThenUsed(a, b) {
+        const used = entry => recent[entry.row.content.id] || ""
+        return Number(!!b.row.favorite) - Number(!!a.row.favorite)
+            || (used(a) < used(b) ? 1 : used(a) > used(b) ? -1 : 0)
+    }
+    function overlayGroups(activeDuty) {
+        const own = [], general = []
+        for (const row of localRows) {
+            if ((!row.upstream || row.favorite) && Scope.fitsCurrent(row.content, activeDuty)) {
+                const entries = row.content.content_id === 0 ? general : own
+                entries.push({ row: row })
+            }
+        }
+        const groups = Scope.grouped(own.sort(favoriteThenUsed), phaseGroup)
+        if (general.length)
+            groups.push({ key: "gen", code: "general", label: qsTr("通用"), items: general.sort(favoriteThenUsed) })
+        return groups
     }
     /// The entries of the chosen range, in the chosen order. 最近更新 keeps a local list as the
     /// Collector returns it: entries written here carry no time of their own.
@@ -326,29 +349,7 @@ MotionDialog {
     /// under its first entry, whatever stage the others name.
     readonly property var listEntries: {
         const key = activeScope, out = []
-        const grouped = (entries, describe) => {
-            const map = ({}), list = []
-            let last = null
-            for (const entry of entries) {
-                let group = entry.member ? last : null
-                if (!group) {
-                    const made = describe(entry.row.content)
-                    group = map[made.key]
-                    if (!group) {
-                        group = map[made.key] = Object.assign({ items: [], cap: 0, go: "", stage: true }, made)
-                        list.push(group)
-                    }
-                }
-                group.items.push(entry)
-                last = group
-            }
-            return list.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
-        }
-        const byPhase = entries => grouped(entries, item => {
-            const phase = Scope.phase(stageOf(item))
-            return { key: "p:" + phase.key, order: phase.order, label: phaseLabel(phase), stage: false }
-        })
-        const byDuty = entries => grouped(entries, item => ({
+        const byDuty = entries => Scope.grouped(entries, item => ({
             key: "d:" + item.content_id, order: ((dutyIndex[item.content_id] || {}).level || 0) * 100000 + item.content_id,
             label: dutyLabel(item), cap: 8, go: "d:" + item.content_id }))
         let groups = null
@@ -361,16 +362,14 @@ MotionDialog {
             }
             // 通用 last, the starred and the lately used first; with a duty's own entries above
             // it shows five until asked for more.
-            const used = entry => recent[entry.row.content.id] || ""
             if (!remote)
-                general.sort((a, b) => (b.row.favorite ? 1 : 0) - (a.row.favorite ? 1 : 0)
-                                       || (used(a) < used(b) ? 1 : used(a) > used(b) ? -1 : 0))
-            groups = byPhase(own)
+                general.sort(favoriteThenUsed)
+            groups = Scope.grouped(own, phaseGroup)
             if (general.length)
                 groups.push({ key: "gen", label: qsTr("通用"), items: general, go: "", stage: true,
                               cap: !term && general.length > 8 && own.length > 0 ? 5 : 0 })
         } else if (key[0] === "d") {
-            groups = byPhase(listRows)
+            groups = Scope.grouped(listRows, phaseGroup)
         } else if (key[0] === "t") {
             groups = byDuty(listRows)
         }
@@ -1069,7 +1068,12 @@ MotionDialog {
         if (current) mutate("delete", { id: currentId, revision: current.revision }, "")
     }
     function copyBody(copyMode) {
-        const row = current
+        copyRow(current, copyMode)
+    }
+    function copyLocalMacro(id) {
+        copyRow(localRows.find(row => row.content.id === id), "macro")
+    }
+    function copyRow(row, copyMode) {
         if (!row) return
         call("copy", { mode: copyMode, body: row.content.body }, result => {
             if (result.status !== "copy_ready") { report(result); return }

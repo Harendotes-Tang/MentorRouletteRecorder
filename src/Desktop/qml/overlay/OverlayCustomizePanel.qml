@@ -9,8 +9,8 @@ import "../components/OverlayIcons.js" as Icons
 
 // 自定义: the float's own settings, in place of its content; the modules are
 // reordered by dragging the grip (or with ↑ / ↓ on it, or the arrows that
-// appear on hover) and shown or hidden with a switch; below are 副本排行,
-// 背景不透明度 and 文字标签. 恢复默认 puts everything back; 完成 returns.
+// appear on hover) and shown or hidden with a switch. 背景不透明度 and 文字标签
+// are below the list. 恢复默认 puts everything back; 完成 returns.
 Item {
     id: panel
 
@@ -164,6 +164,7 @@ Item {
                                 // 排本次数 has no mark of the float's own; the bundled Lucide
                                 // history mark, not 待处理's inbox (review L3-3).
                                 source: row.key === "attempts" ? Lucide.source("history", color)
+                                      : row.key === "duty_notes" ? Lucide.source("notebook-pen", color)
                                       : name.length > 0 ? Icons.source(name, color) : ""
                                 color: Theme.textSecondary
                                 opacity: row.on ? 1 : 0.5
@@ -232,22 +233,6 @@ Item {
                         }
                         HoverHandler { id: rowHover }
                     }
-                }
-            }
-
-            // ---------------------------------------------------- 副本排行 --
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 6
-                Text { text: qsTr("副本排行"); color: Theme.textPrimary; font.pixelSize: Theme.fs(12); font.weight: Font.DemiBold }
-                SegmentedControl {
-                    objectName: "floatingRowLimit"
-                    Layout.fillWidth: true
-                    options: [{ value: 0, label: qsTr("关") }, { value: 3, label: qsTr("前 3") },
-                              { value: 5, label: qsTr("前 5") }, { value: 10, label: qsTr("前 10") },
-                              { value: panel.controller.allRows, label: qsTr("全部") }]
-                    currentValue: panel.controller.rowLimit
-                    onActivated: function(value) { panel.controller.rowLimit = value }
                 }
             }
 

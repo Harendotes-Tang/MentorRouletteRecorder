@@ -238,7 +238,14 @@ MentorRecorder.Collector.exe --capture-trace trace.jsonl
 | `victory` | 出现通关结算的时刻 |
 | `left` | 主动离开或被踢出副本的时刻 |
 
-本指南只用上述五个事件词；固定的标记词之外的输入都被忽略（另有五个步骤词供角色识别采证使用，见 capture-diagnostics.md §9.2）。大小写不敏感，落盘统一为小写。
+常规取证使用上述五个事件词。另有五个步骤词供角色识别采证使用，见 capture-diagnostics.md §9.2。标记大小写不敏感，落盘统一为小写，固定词以外的输入会被忽略。
+单副本阶段取证可用 `trash1` 标记第一段小怪开始，`boss1` 标记 BOSS 1 开战，`boss1_clear` 标记 BOSS 1 被击败。第二段和第三段分别使用编号 2 和 3。
+**四人本 BOSS 阶段盲测。** `--capture-trace <out.jsonl> --duty-phase-probe` 在国服客户端 `2026.11.03.0000.0000` 上记录阶段线索。等程序提示「已开启副本阶段探针」后再登录，进本和战斗期间不用输入。退出副本后在独立控制台按 Ctrl+C。使用 `--trace-report` 核对主记录和探针均未截断，解码错误与丢弃为 0。普通消息最多 10 万行，探针额外投影最多 1.5 万行、8192 个 NPC 别名。同一份 JSONL 内保留消息的 `seq`、`epoch` 和 `t_ms`。
+
+`duty_phase` 下记录候选事件类型与 NPC 别名。出现、读条、技能效果和击败使用同连接内的同一别名。技能效果另带 `effect_sequence` 和目标 `index`，用于与同场 ACT 的 21/22 行对照。先列 Collector 候选，再用 ACT 的 03/20/21/22/25 行核对 NPC、交战与击败。仅在明确对应时标为确认。原始 ACT 日志留在测试机。小怪阶段按进本和已确认的上一位 BOSS 击败推导。盲测时使用任一四人本，当前探针读数仍需实测确认。
+
+报文形状参考 [国服 7.58 opcode](https://github.com/karashiiro/FFXIVOpcodes/blob/master/FFXIVOpcodes/Ipcs_cn.cs)、[Machina 技能效果](https://github.com/ravahn/machina/blob/master/Machina.FFXIV/Headers/Global/Server_ActionEffect.cs)、[Machina 读条](https://github.com/ravahn/machina/blob/master/Machina.FFXIV/Headers/Global/Server_ActorCast.cs)、[Machina ActorControl](https://github.com/ravahn/machina/blob/master/Machina.FFXIV/Headers/Global/Server_ActorControl.cs) 与 [ACT 日志结构](https://github.com/OverlayPlugin/cactbot/blob/main/docs/LogGuide.md)。
+
 **同一流程至少应完整进行两遍**：候选表的判据是“每一次都出现”，
 只进行一遍时几乎所有 opcode 都满足该条件，候选表随之失去意义。
 

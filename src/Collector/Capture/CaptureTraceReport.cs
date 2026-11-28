@@ -391,6 +391,7 @@ public static class CaptureTraceReport
 
         WriteOverview(writer, analysis, window, markerName);
         WriteIdentity(writer, analysis);
+        WriteDutyPhaseProbe(writer, analysis);
         WriteHistogram(writer, analysis);
         WriteWindows(writer, analysis, window, markerName);
         WriteCandidates(writer, analysis, window, markerName);
@@ -461,6 +462,26 @@ public static class CaptureTraceReport
                 CultureInfo.InvariantCulture,
                 $"  {Field(row, "conn"),-8}  {Field(row, "kind"),-13}  {Field(row, "id"),-12}  " +
                 $"{Field(row, "count"),-8}  {Field(row, "first_t_ms"),-8}  {Field(row, "last_t_ms")}"));
+        }
+    }
+
+    private static void WriteDutyPhaseProbe(TextWriter writer, CaptureTraceAnalysis analysis)
+    {
+        if (analysis.Summary?["duty_phase_probe"] is not JsonObject probe)
+        {
+            return;
+        }
+
+        writer.WriteLine(
+            "  副本阶段探针: version=" + Field(probe, "version") + "  rows=" + Field(probe, "rows") +
+            "  actors=" + Field(probe, "actors") + "  truncated=" + Field(probe, "truncated") +
+            "  untracked_actor_references=" + Field(probe, "untracked_actor_references"));
+        if (probe["counts"] is JsonObject counts)
+        {
+            foreach (var kind in new[] { "duty_start", "spawn", "boss_spawn_candidate", "cast", "action", "defeat", "duty_clear" })
+            {
+                writer.WriteLine("    " + kind + "=" + Field(counts, kind));
+            }
         }
     }
 

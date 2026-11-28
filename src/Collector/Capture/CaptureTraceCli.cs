@@ -36,6 +36,9 @@ public static class CaptureTraceCli
     /// </summary>
     public const string IdentityProbeFlag = "--identity-probe";
 
+    /// <summary>Record NPC combat clues in a live trace with no marker input.</summary>
+    public const string DutyPhaseProbeFlag = "--duty-phase-probe";
+
     /// <summary>Flag restricting the report to one marker name.</summary>
     public const string AroundFlag = "--around";
 
@@ -68,10 +71,13 @@ public static class CaptureTraceCli
             options.TracePath!,
             options.DurationSeconds ?? 0,
             options.AdapterId,
-            options.MaxLines ?? CaptureTraceSink.DefaultMaxLines,
+            options.MaxLines ?? (options.DutyPhaseProbe
+                ? CaptureDutyPhaseProbe.MaxMessageRows
+                : CaptureTraceSink.DefaultMaxLines),
             options.AllowMidstream,
             region,
-            options.IdentityProbe);
+            options.IdentityProbe,
+            options.DutyPhaseProbe);
 
         if (services is not null)
         {

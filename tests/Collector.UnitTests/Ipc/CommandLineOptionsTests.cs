@@ -123,6 +123,10 @@ public sealed class CommandLineOptionsTests
     /// </summary>
     /// <param name="commandLine">Space-separated command line that must not parse.</param>
     [Theory]
+    [InlineData("--trace-report t.jsonl --duty-phase-probe")]
+    [InlineData("--capture-doctor --duty-phase-probe")]
+    [InlineData("--capture-trace t.jsonl --identity-probe --duty-phase-probe")]
+    [InlineData("--capture-trace t.jsonl --duty-phase-probe --max-lines 100001")]
     [InlineData("--capture-trace")]
     [InlineData("--trace-report")]
     [InlineData("--capture-trace t.jsonl --json")]

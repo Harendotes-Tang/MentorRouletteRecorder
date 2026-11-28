@@ -1543,6 +1543,11 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         return;
     }
 
+    if (kind == QLatin1String("run_phase_changed")) {
+        refreshCurrentRun();
+        return;
+    }
+
     if (kind == QLatin1String("run_state_changed")
         || type == QLatin1String("StateChanged")) {
         // The current-run card is re-read first so the rest of the UI catches

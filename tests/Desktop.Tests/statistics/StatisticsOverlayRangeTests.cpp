@@ -102,12 +102,13 @@ private Q_SLOTS:
         {
             mr::StatisticsOverlayController overlay(&settings);
             QCOMPARE(overlay.modules().contains(QStringLiteral("attempts")), gainsAttempts);
+            QVERIFY(!overlay.modules().contains(QStringLiteral("duty_notes")));
             const QVariantList rows = overlay.moduleRows();
             QCOMPARE(rows.first().toMap().value(QStringLiteral("key")).toString(), QStringLiteral("attempts"));
             QStringList actual;
             for (const QVariant &row : rows.mid(1))
                 actual.append(row.toMap().value(QStringLiteral("key")).toString());
-            QCOMPARE(actual, order);
+            QCOMPARE(actual, order + QStringList{QStringLiteral("duty_notes")});
             if (gainsAttempts)
                 overlay.toggleModule(QStringLiteral("attempts"));
         }

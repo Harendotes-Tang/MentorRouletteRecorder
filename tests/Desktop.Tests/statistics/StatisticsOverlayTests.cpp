@@ -5,7 +5,6 @@
 #include "AppSettings.h"
 #include "BundledFonts.h"
 #include "DutyCatalog.h"
-#include "GameNames.h"
 #include "MockBackend.h"
 #include "RecoveryController.h"
 #include "StatsModels.h"
@@ -223,7 +222,7 @@ private:
         QTRY_COMPARE(scene.overlay()->jobs()->totalAttemptCount(), count);
         QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(),
                      QStringLiteral("%1/%1").arg(count));
-        QTRY_VERIFY(!qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
+        QTRY_VERIFY(!qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets")).isEmpty());
         QTRY_VERIFY(!qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
         const QVariantList buckets = qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets"));
         const QVariantList columns = qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns"));
@@ -233,7 +232,6 @@ private:
         for (const auto &column : columns) attempts += column.toMap().value(QStringLiteral("count")).toInt();
         QCOMPARE(clears, count);
         QCOMPARE(attempts, count);
-        QCOMPARE(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).size(), qMin(3, count));
     }
 
     static void verifyAttemptPeriodKeyboard(const Scene &scene)
@@ -273,28 +271,6 @@ private:
         QTest::qWait(50);
         QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_jobs")));
         QTRY_COMPARE(scene.overlay()->modules(), QStringList({"jobs"}));
-        // 副本排行: choosing 前 5 changes the ranking (audit 2026-10-20, L3-6 / I2-5).
-        auto *rowLimit = scene.item(QStringLiteral("floatingRowLimit"), true);
-        if (!rowLimit) {
-            QTest::qFail("floatingRowLimit was not found", __FILE__, __LINE__);
-            return;
-        }
-        QQuickItem *topFive = nullptr;
-        const auto findOption = [&](auto &&self, QQuickItem *parent) -> void {
-            if (!topFive && parent->inherits("QQuickAbstractButton") && parent->property("text").toString() == QString::fromUtf8("前 5"))
-                topFive = parent;
-            for (auto *child : parent->childItems()) self(self, child);
-        };
-        findOption(findOption, rowLimit);
-        if (!topFive) {
-            QTest::qFail("The top-five row limit option was not found", __FILE__, __LINE__);
-            return;
-        }
-        QVERIFY(topFive->isVisible());
-        QCOMPARE(scene.overlay()->rowLimit(), 3);
-        QTest::mouseClick(topFive->window(), Qt::LeftButton, Qt::NoModifier,
-                          topFive->mapToScene(QPointF(topFive->width() / 2, topFive->height() / 2)).toPoint());
-        QTRY_COMPARE(scene.overlay()->rowLimit(), 5);
         QVERIFY(scene.revealCustomizationFooter());
         QVERIFY(scene.click(QStringLiteral("floatingCustomizationDone")));
         QTRY_VERIFY(!scene.item(QStringLiteral("floatingCustomizePanel"), true));
@@ -395,7 +371,7 @@ private Q_SLOTS:
     void realWindowCanCustomizeAndRecoverEmptyContent();
     void customizePanelTogglesFromTheTitleBar_data();
     void customizePanelTogglesFromTheTitleBar();
-    void customizationFooterRemainsReachableWithSevenModules();
+    void customizationFooterRemainsReachableWithEightModules();
     void miniBarSharesThePositionAndKeepsTheSize();
     void formControlsLeadRightActionGroup_data();
     void formControlsLeadRightActionGroup();
@@ -458,13 +434,11 @@ void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()
         QCOMPARE(overlay.attemptPeriod(), QStringLiteral("all"));
         overlay.setAttemptPeriod(QStringLiteral("last7"));
         QVERIFY(!overlay.labels());
-        QCOMPARE(overlay.rowLimit(), 3);
         QCOMPARE(overlay.opacity(), 0.85);
         overlay.setGeometry(QRect(200, 100, 420, 650));
         overlay.setOpacity(0.65);
         overlay.setModules({"jobs", "elapsed", "jobs", "invalid", "current_duty"});
         overlay.moveModule(QStringLiteral("current_duty"), -1);
-        overlay.setRowLimit(10);
         overlay.setForm(QStringLiteral("mini"));
         overlay.setLabels(true);
         overlay.show();
@@ -481,13 +455,11 @@ void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()
     QCOMPARE(overlay.geometry().size(), QSize(420, 650));
     QCOMPARE(overlay.opacity(), 0.65);
     QCOMPARE(overlay.modules(), QStringList({"jobs", "current_duty", "elapsed"}));
-    QCOMPARE(overlay.rowLimit(), 10);
     QCOMPARE(overlay.form(), QStringLiteral("mini"));
     QCOMPARE(overlay.attemptPeriod(), QStringLiteral("last7"));
     QVERIFY(overlay.labels());
     overlay.reset();
     QCOMPARE(overlay.modules(), everything);
-    QCOMPARE(overlay.rowLimit(), 3);
     QCOMPARE(overlay.opacity(), 0.85);
     QCOMPARE(overlay.attemptPeriod(), QStringLiteral("all"));
     QVERIFY(!overlay.labels());
@@ -495,7 +467,7 @@ void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()
     overlay.setModules({});
     mr::StatisticsOverlayController empty(&restored);
     QVERIFY(empty.modules().isEmpty());
-    QCOMPARE(empty.moduleRows().size(), 7);
+    QCOMPARE(empty.moduleRows().size(), 8);
 }
 
 void StatisticsOverlayTests::moduleOrderSurvivesSwitchingOff()
@@ -537,7 +509,6 @@ void StatisticsOverlayTests::invalidPreferencesAreBounded()
     {
         QSettings raw(path, QSettings::IniFormat);
         raw.setValue(QStringLiteral("statistics_overlay/opacity"), QStringLiteral("broken"));
-        raw.setValue(QStringLiteral("statistics_overlay/row_limit"), QStringLiteral("broken"));
         raw.setValue(QStringLiteral("statistics_overlay/geometry"), QRect(-2000000, 2000000, 9000, 1));
         raw.setValue(QStringLiteral("statistics_overlay/modules"), QStringList({"unknown", "jobs", "jobs"}));
         raw.setValue(QStringLiteral("statistics_overlay/module_order"), QStringList({"unknown", "dungeons"}));
@@ -546,12 +517,11 @@ void StatisticsOverlayTests::invalidPreferencesAreBounded()
     mr::AppSettings settings(path, nullptr);
     mr::StatisticsOverlayController overlay(&settings);
     QCOMPARE(overlay.opacity(), 0.85);
-    QCOMPARE(overlay.rowLimit(), 3);
     QCOMPARE(overlay.geometry(), QRect(-1000000, 1000000, 520, 150));
     QCOMPARE(overlay.modules(), QStringList({"jobs"}));
     QCOMPARE(overlay.moduleRows().first().toMap().value(QStringLiteral("key")).toString(), QStringLiteral("attempts"));
     QCOMPARE(overlay.moduleRows().at(1).toMap().value(QStringLiteral("key")).toString(), QStringLiteral("dungeons"));
-    QCOMPARE(overlay.moduleRows().size(), 7);
+    QCOMPARE(overlay.moduleRows().size(), 8);
     QCOMPARE(overlay.form(), QStringLiteral("full"));
     overlay.setOpacity(std::numeric_limits<double>::quiet_NaN());
     QCOMPARE(overlay.opacity(), 0.85);
@@ -559,12 +529,6 @@ void StatisticsOverlayTests::invalidPreferencesAreBounded()
     QCOMPARE(overlay.opacity(), 1.0);
     overlay.setOpacity(-10);
     QCOMPARE(overlay.opacity(), 0.3);
-    overlay.setRowLimit(-1);
-    QCOMPARE(overlay.rowLimit(), 3);
-    overlay.setRowLimit(7);
-    QCOMPARE(overlay.rowLimit(), 3);
-    overlay.setRowLimit(overlay.allRows());
-    QCOMPARE(overlay.rowLimit(), mr::StatisticsOverlayController::kAllRows);
     overlay.setForm(QStringLiteral("sideways"));
     QCOMPARE(overlay.form(), QStringLiteral("full"));
     overlay.setLocked(true);
@@ -705,7 +669,7 @@ void StatisticsOverlayTests::customizePanelTogglesFromTheTitleBar()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
-void StatisticsOverlayTests::customizationFooterRemainsReachableWithSevenModules()
+void StatisticsOverlayTests::customizationFooterRemainsReachableWithEightModules()
 {
     Scene scene;
     QVERIFY2(scene.create(), qPrintable(scene.errors));
@@ -715,7 +679,7 @@ void StatisticsOverlayTests::customizationFooterRemainsReachableWithSevenModules
     QVERIFY(scene.showFloating());
     QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
     QTRY_VERIFY(scene.item(QStringLiteral("floatingCustomizePanel"), true));
-    QCOMPARE(scene.overlay()->moduleRows().size(), 7);
+    QCOMPARE(scene.overlay()->moduleRows().size(), 8);
     // Every module row carries its own mark: 排本次数 does not borrow 待处理's inbox.
     QStringList icons;
     for (const QVariant &value : scene.overlay()->moduleRows()) {
@@ -1659,9 +1623,9 @@ void StatisticsOverlayTests::importedTextIsShownAsWritten()
     QTRY_VERIFY(!scene.textItemsContaining(markup).isEmpty());
     for (auto *text : scene.textItemsContaining(markup))
         QCOMPARE(text->property("textFormat").toInt(), int(Qt::PlainText));
-    // The legend, the stacked bar and the ranking name it in their tips.
+    // The legend and stacked bar show the category in their tips.
     const auto tips = scene.tipsContaining(markup);
-    QVERIFY(tips.size() >= 3);
+    QVERIFY(tips.size() >= 2);
     for (QObject *tip : tips) {
         auto *label = tip->property("contentItem").value<QQuickItem *>();
         QVERIFY(label);
@@ -2061,7 +2025,6 @@ void StatisticsOverlayTests::sharedSnapshotsRefreshWithoutOpeningTheMainPage()
     QSignalSpy refreshed(scene.overlay()->dungeons(), &mr::StatsRowsModel::countChanged);
     scene.app->refreshDashboard();
     QTRY_VERIFY(refreshed.count() > 0);
-    scene.overlay()->setRowLimit(0);
     scene.overlay()->setModules({"current_duty", "elapsed", "progress"});
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());
@@ -2168,7 +2131,6 @@ void StatisticsOverlayTests::periodStatisticsHideOldChartsWhileLoadingAndOnFailu
     QTRY_COMPARE(scene.item(QStringLiteral("floatingJobMessage"))->property("text").toString(), QString::fromUtf8("读取中…"));
     QVERIFY(!scene.item(QStringLiteral("floatingDungeonStatistics"))->property("ready").toBool());
     QVERIFY(!scene.item(QStringLiteral("floatingJobStatistics"))->property("ready").toBool());
-    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
     QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets")).isEmpty());
     QVERIFY(qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
     // A second selection invalidates both pending model requests.
@@ -2181,7 +2143,6 @@ void StatisticsOverlayTests::periodStatisticsHideOldChartsWhileLoadingAndOnFailu
     scene.backend.pendingRows.at(3)->fail(QStringLiteral("ERR_TEST"), QStringLiteral("current failure"));
     QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(), QStringLiteral("current failure"));
     QTRY_COMPARE(scene.item(QStringLiteral("floatingJobMessage"))->property("text").toString(), QStringLiteral("current failure"));
-    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
     QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets")).isEmpty());
     QVERIFY(qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
     scene.backend.holdRows = false;
@@ -2384,12 +2345,10 @@ void StatisticsOverlayTests::renderedEvidence()
     QVERIFY(scene.click(QStringLiteral("floatingCustomizationDone")));
     QTRY_VERIFY(!scene.floating()->property("customizing").toBool());
     scene.language.setLanguage(QStringLiteral("en"));
-    QTest::qWait(80);
+    scene.overlay()->setLabels(true);
+    QTRY_VERIFY(!scene.textItemsContaining(QStringLiteral("Duty stats · clears by type")).isEmpty());
     QVERIFY(scene.grab(prefix + QStringLiteral("-english")));
-    const auto first = scene.app->dungeons()->topRows(1).first().toMap();
-    const QString englishDuty = mr::GameNames::shared()->duty(first.value(QStringLiteral("content_id")), first.value(QStringLiteral("duty_name")).toString());
-    QVERIFY2(scene.texts().join(QLatin1Char('\n')).contains(englishDuty + QStringLiteral(" · ")),
-             qPrintable(scene.texts().join(QLatin1Char('\n'))));
+    scene.overlay()->setLabels(false);
     scene.language.setLanguage(QStringLiteral("zh-CN"));
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());

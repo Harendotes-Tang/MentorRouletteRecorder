@@ -290,7 +290,6 @@ private slots:
             settings.setDungeonSpecialChartVisible(false);
             settings.setDungeonCategoryHiddenBuckets({QStringLiteral("trial:extreme"), QStringLiteral("trial:extreme"), QString()});
             settings.setDungeonSpecialHiddenBuckets({QStringLiteral("main-scenario"), QStringLiteral("future-category")});
-            settings.setStatisticsOverlayRowLimit(7);
         }
         mr::AppSettings restored(path, nullptr);
         QVERIFY(!restored.dungeonCategoryChartVisible());
@@ -302,7 +301,6 @@ private slots:
         QCOMPARE(changed.size(), 1);
         QVERIFY(restored.dungeonCategoryChartVisible() && restored.dungeonSpecialChartVisible());
         QVERIFY(restored.dungeonCategoryHiddenBuckets().isEmpty() && restored.dungeonSpecialHiddenBuckets().isEmpty());
-        QCOMPARE(restored.statisticsOverlayRowLimit(), 7);
     }
     void selectionRecalculatesWithoutChangingCanonicalSnapshot()
     {

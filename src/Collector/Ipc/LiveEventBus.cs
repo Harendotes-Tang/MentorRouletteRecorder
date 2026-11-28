@@ -16,6 +16,9 @@ public enum LiveEventKind
     /// <summary>The state machine moved; carries <c>state</c>.</summary>
     RunStateChanged,
 
+    /// <summary>The overlay stage changed; consumers re-read <c>GetCurrentRun</c>.</summary>
+    RunPhaseChanged,
+
     /// <summary>A run row was created; carries <c>run</c>.</summary>
     RunCreated,
 
@@ -343,6 +346,7 @@ public sealed class LiveEventBus
     public static string KindToken(LiveEventKind kind) => kind switch
     {
         LiveEventKind.RunStateChanged => "run_state_changed",
+        LiveEventKind.RunPhaseChanged => "run_phase_changed",
         LiveEventKind.RunCreated => "run_created",
         LiveEventKind.RunUpdated => "run_updated",
         LiveEventKind.RunFinished => "run_finished",

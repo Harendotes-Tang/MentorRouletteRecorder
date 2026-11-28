@@ -36,9 +36,6 @@ class StatisticsOverlayController final : public QObject
     Q_PROPERTY(QVariantList moduleOptions READ moduleOptions NOTIFY moduleOptionsChanged)
     /// Every module in its order, as {key, title, hint, on}: the 自定义 list.
     Q_PROPERTY(QVariantList moduleRows READ moduleRows NOTIFY modulesChanged)
-    /// 副本排行: 0 = off, 3 / 5 / 10 = top N, allRows = every duty.
-    Q_PROPERTY(int rowLimit READ rowLimit WRITE setRowLimit NOTIFY rowLimitChanged)
-    Q_PROPERTY(int allRows READ allRows CONSTANT)
     /// "full" or "mini".
     Q_PROPERTY(QString form READ form WRITE setForm NOTIFY formChanged)
     /// 文字标签: module and legend names on screen; off, they are tooltips.
@@ -54,10 +51,8 @@ class StatisticsOverlayController final : public QObject
     Q_PROPERTY(bool hasPeriodStatistics READ hasPeriodStatistics NOTIFY modulesChanged)
     Q_PROPERTY(bool statisticsConnected READ statisticsConnected NOTIFY attemptsChanged)
 public:
-    static constexpr int kAllRows = 1000;
     static constexpr double kDefaultOpacity = 0.85;
     static constexpr double kMinimumOpacity = 0.3;
-    static constexpr int kDefaultRowLimit = 3;
 
     using CalendarClock = std::function<QDateTime()>;
     /// The optional clock supplies local calendar context; empty uses the system clock.
@@ -70,8 +65,6 @@ public:
     QStringList modules() const { return m_modules; }
     QVariantList moduleOptions() const;
     QVariantList moduleRows() const;
-    int rowLimit() const { return m_rowLimit; }
-    int allRows() const { return kAllRows; }
     QString form() const { return m_form; }
     bool labels() const { return m_labels; }
     QString attemptPeriod() const { return m_attemptPeriod; }
@@ -114,7 +107,6 @@ public:
     void setLocked(bool locked);
     void setOpacity(double opacity);
     void setModules(const QStringList &modules);
-    void setRowLimit(int limit);
     void setForm(const QString &form);
     void setLabels(bool labels);
     void setAttemptPeriod(const QString &period);
@@ -125,7 +117,6 @@ Q_SIGNALS:
     void geometryChanged();
     void modulesChanged();
     void moduleOptionsChanged();
-    void rowLimitChanged();
     void formChanged();
     void labelsChanged();
     void attemptPeriodChanged();
@@ -168,6 +159,5 @@ private:
     bool m_locked = false;
     bool m_labels = false;
     double m_opacity = kDefaultOpacity;
-    int m_rowLimit = kDefaultRowLimit;
 };
 } // namespace mr

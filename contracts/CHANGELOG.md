@@ -1,5 +1,10 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-28 · 统计浮窗的副本阶段
+
+- `GetCurrentRun` 增加可选 `duty_phase`。国服指定版本的水滩村试点使用 `unknown`、`trash1` 至 `trash3`、`boss1` 至 `boss3`。通关、退出或失去本次运行后省略字段。
+- `run_phase_changed` 是重新读取当前运行的提示。它沿用 `DiagnosticsMessage` 事件类型，不携带报文、NPC、数据库记录或统计更新。
+
 ## 2026-11-27 · 「提醒与宏」共享库的点赞数
 
 - `DutyCommunity` 的共享库应答（`browse`、`refresh`、`online`）在第一页（`offset` 为 0）新增 `likes`（只增不删）：已列出条目的

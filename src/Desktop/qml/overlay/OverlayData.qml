@@ -87,6 +87,7 @@ QtObject {
     readonly property string runState: Runtime.app.currentRunState
     readonly property var run: Runtime.app.currentRun && Runtime.app.currentRun.run && Runtime.app.currentRun.run.run_id
                                ? Runtime.app.currentRun.run : null
+    readonly property string dutyPhase: String(Runtime.app.currentRun.duty_phase || "")
     readonly property bool matched: !!run && runState === "MENTOR_MATCHED"
     readonly property bool entered: !!run && runState === "ENTERED_DUTY"
     readonly property bool completed: !!run && runState === "COMPLETED"

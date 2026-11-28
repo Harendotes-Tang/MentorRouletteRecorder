@@ -535,7 +535,7 @@ ColumnLayout {
                         // An entry whose boss and phase together run longer still opens whole; an
                         // edit longer than the boss may be is refused under the field.
                         maximumLength: Math.max(80, editor.loadedStage.length)
-                        placeholderText: qsTr("例如：BOSS 2、尾王、转场")
+                        placeholderText: qsTr("小怪 2（BOSS 2 前）")
                         Accessible.name: qsTr("BOSS / 阶段")
                         onTextEdited: {
                             editor.stageTooLong = false

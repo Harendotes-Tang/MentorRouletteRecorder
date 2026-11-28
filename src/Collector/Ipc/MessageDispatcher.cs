@@ -575,12 +575,17 @@ public sealed class MessageDispatcher
             };
         }
 
-        return new JsonObject
+        var payload = new JsonObject
         {
             ["state"] = EnumWire<RunState>.Format(current.State),
             ["run"] = current.Run is null ? null : Wire.DisplayRun(current.Run),
             ["elapsed_ms"] = current.ElapsedMs,
         };
+        if (current.DutyPhase is { } phase)
+        {
+            payload["duty_phase"] = phase;
+        }
+        return payload;
     }
 
     private JsonObject QueryRunCalendarDays(PayloadReader reader)

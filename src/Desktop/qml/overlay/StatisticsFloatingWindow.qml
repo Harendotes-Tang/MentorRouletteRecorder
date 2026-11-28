@@ -12,6 +12,9 @@ Window {
     id: floating
     objectName: "statisticsFloatingWindow"
 
+    property var community: null
+    signal dutyCommunityRequested()
+
     readonly property var controller: Runtime.app.statisticsOverlay
     readonly property bool mini: controller.form === "mini"
     readonly property bool locked: controller.locked
@@ -316,7 +319,12 @@ Window {
                         color: Theme.orangeText
                         font.pixelSize: Theme.fs(11)
                     }
-                    StatisticsFloatingContent { Layout.fillWidth: true; ov: ov }
+                    StatisticsFloatingContent {
+                        Layout.fillWidth: true
+                        ov: ov
+                        community: floating.community
+                        onDutyCommunityRequested: floating.dutyCommunityRequested()
+                    }
                 }
             }
 

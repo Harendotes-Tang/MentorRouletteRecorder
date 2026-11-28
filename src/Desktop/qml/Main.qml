@@ -64,7 +64,14 @@ ApplicationWindow {
     // For icons rendered through a data: URL (components/Lucide.js): request them
     // at device pixels so the strokes stay crisp on a scaled display.
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
-    StatisticsFloatingWindow { id: statisticsFloat }
+    StatisticsFloatingWindow {
+        id: statisticsFloat
+        community: dashboard.communityDialog
+        onDutyCommunityRequested: {
+            window.bringToFront()
+            dashboard.communityDialog.openFor()
+        }
+    }
 
     // UI acknowledgement is separate from the tray's delivery of this episode.
     // Source-QML fixtures predating the warning API still use the old property.
@@ -1179,6 +1186,7 @@ ApplicationWindow {
                             anchors.fill: parent
 
                         DashboardPage {
+                            id: dashboard
                             anchors.fill: parent
                             // Keep the scrollbar in the shell's outer gutter.
                             anchors.rightMargin: -16

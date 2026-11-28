@@ -35,6 +35,23 @@ public sealed class CaptureIdentityCheckpointTests
     }
 
     [Fact]
+    public void TraceAcceptsFixedStageMarkersOutsideTheValidationAllowlist()
+    {
+        using var writer = new StringWriter();
+        var sink = new CaptureTraceSink(writer);
+        foreach (var marker in new[] { "trash1", "boss1", "boss1_clear", "trash2", "boss3_clear" })
+        {
+            Assert.Null(CaptureTraceMarkerText.Sanitize(marker));
+            Assert.True(sink.WriteMarker($" {marker.ToUpperInvariant()} "));
+        }
+
+        Assert.False(sink.WriteMarker("boss4"));
+        Assert.False(sink.WriteMarker("trash2 extra text"));
+        Assert.Equal(5, sink.MarkerCount);
+        Assert.Contains("\"boss3_clear\"", writer.ToString());
+    }
+
+    [Fact]
     public void ACheckpoint_NamesTheActorMostOfTheWindowWasAddressedTo()
     {
         var probe = new CaptureIdentityProbe(Key);

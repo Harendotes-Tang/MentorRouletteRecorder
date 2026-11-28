@@ -188,8 +188,7 @@ ColumnLayout {
             return qsTr("这台电脑已完成校准，可以正常自动记录。"
                         + "如果没有自动识别到通关，请在离开副本后打开记录补上结果。")
         if (notices.profileOrigin === "SHARED_CALIBRATION" && notices.profileStatus === "VERIFIED")
-            return qsTr("其他玩家分享的校准已通过检查，可以正常自动记录。"
-                        + "如果没有自动识别到通关，请在离开副本后打开记录补上结果。")
+            return qsTr("其他玩家分享的校准已通过检查，适用于当前游戏版本。自动记录状态见上方。")
         if (notices.profileStatus === "VERIFIED")
             return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                         + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。")

@@ -13,8 +13,7 @@
 
 namespace {
 struct Module { const char *key; const char *title; const char *hint; };
-// Design order; every module is on by default. 当前副本 / 副本用时 only show
-// during a run and 待处理记录 only while something waits, whatever the switch.
+// Design order. Live modules also have their own visibility conditions.
 const Module kModules[] = {
     {.key = "attempts", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "排本次数"), .hint = nullptr},
     {.key = "progress", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "累计进度"), .hint = nullptr},
@@ -26,6 +25,8 @@ const Module kModules[] = {
     {.key = "jobs", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "职业统计"), .hint = nullptr},
     {.key = "pending_work", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "待处理记录"),
      .hint = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "有待处理时显示")},
+    {.key = "duty_notes", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "提醒与宏"),
+     .hint = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "进本后显示")},
 };
 struct Period { const char *key; const char *title; int days; };
 const Period kPeriods[] = {
@@ -77,11 +78,6 @@ QStringList enabledInOrder(const QStringList &order, const QStringList &enabled)
         if (enabled.contains(key))
             result.append(key);
     return result;
-}
-bool validRowLimit(int limit)
-{
-    return limit == 0 || limit == 3 || limit == 5 || limit == 10
-        || limit == mr::StatisticsOverlayController::kAllRows;
 }
 QString validForm(const QString &form)
 {
@@ -138,8 +134,6 @@ StatisticsOverlayController::StatisticsOverlayController(AppSettings *settings, 
     if (settings) {
         const double saved = settings->statisticsOverlayOpacity();
         m_opacity = std::isfinite(saved) ? qBound(kMinimumOpacity, saved, 1.0) : kDefaultOpacity;
-        const int limit = settings->statisticsOverlayRowLimit();
-        m_rowLimit = validRowLimit(limit) ? limit : kDefaultRowLimit;
         m_labels = settings->statisticsOverlayLabels();
     }
     m_calendarTimer = new QTimer(this);
@@ -156,7 +150,12 @@ StatisticsOverlayController::StatisticsOverlayController(AppSettings *settings, 
         Q_EMIT attemptsChanged();
     });
 }
-QStringList StatisticsOverlayController::defaultModules() { return moduleKeys(); }
+QStringList StatisticsOverlayController::defaultModules()
+{
+    QStringList modules = moduleKeys();
+    modules.removeOne(QStringLiteral("duty_notes"));
+    return modules;
+}
 QVariantList StatisticsOverlayController::attemptPeriodOptions() const
 {
     QVariantList options;
@@ -488,13 +487,6 @@ void StatisticsOverlayController::moveModuleTo(const QString &key, int index)
     m_modules = enabledInOrder(m_order, m_modules);
     storeModules();
 }
-void StatisticsOverlayController::setRowLimit(int limit)
-{
-    if (!validRowLimit(limit) || m_rowLimit == limit) return;
-    m_rowLimit = limit;
-    if (m_settings) m_settings->setStatisticsOverlayRowLimit(limit);
-    Q_EMIT rowLimitChanged();
-}
 void StatisticsOverlayController::setForm(const QString &form)
 {
     const QString bounded = validForm(form);
@@ -513,7 +505,7 @@ void StatisticsOverlayController::setLabels(bool labels)
 }
 void StatisticsOverlayController::reset()
 {
-    m_order = defaultModules();
+    m_order = moduleKeys();
     m_modules = defaultModules();
     storeModules();
     if (m_attemptPeriod != QLatin1String("all")) {
@@ -522,7 +514,6 @@ void StatisticsOverlayController::reset()
             m_settings->setStatisticsOverlayAttemptPeriod(m_attemptPeriod);
         Q_EMIT attemptPeriodChanged();
     }
-    setRowLimit(kDefaultRowLimit);
     setOpacity(kDefaultOpacity);
     setLabels(false);
     updateAttemptsActivity();

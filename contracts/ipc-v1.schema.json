@@ -1134,7 +1134,7 @@
           "type": "string",
           "description": "The semantic kind this build emits. Finer grained than event_type: 'stats_invalidated' has no bucket of its own in event_type and is reported as DiagnosticsMessage. See LiveEventBus.KindToken and docs/architecture.md section 3.2.",
           "enum": [
-            "run_state_changed", "run_created", "run_updated", "run_finished", "stats_invalidated",
+            "run_state_changed", "run_phase_changed", "run_created", "run_updated", "run_finished", "stats_invalidated",
             "collector_status", "heartbeat", "candidate_observed", "calibration_changed"
           ]
         },
@@ -2419,6 +2419,10 @@
           "properties": {
             "state": { "$ref": "#/$defs/RunState" },
             "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
+            "duty_phase": {
+              "description": "Current overlay phase for a supported active duty. Unknown means no trusted phase has been observed. Omitted for unsupported duties and outside an active duty.",
+              "enum": ["unknown", "trash1", "boss1", "trash2", "boss2", "trash3", "boss3"]
+            },
             "elapsed_ms": {
               "description": "Time the run in flight has spent in its duty: monotonic milliseconds since the run's transition to ENTERED_DUTY, counted from the entry itself when the entry was replayed after the fact (a confirmation or a shared bind that handed over messages kept earlier). Null while no run is in flight and while the run has not entered a duty (MENTOR_MATCHED).",
               "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }]

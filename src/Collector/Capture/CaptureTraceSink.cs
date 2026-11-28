@@ -62,7 +62,7 @@ public sealed record CaptureTraceHeader(
 ///   the one documented addition: keyed digests of the header actor naming this client and of
 ///   the leading payload bytes of messages about it, never a value;</description></item>
 ///   <item><description>arbitrary user text -- only the documented canonical marker
-///   tokens are accepted (<see cref="CaptureTraceMarkerText.Sanitize"/>).</description></item>
+///   tokens are accepted (<see cref="CaptureTraceMarkerText.SanitizeTrace"/>).</description></item>
 /// </list>
 ///
 /// Boundedness is enforced here rather than trusted: at most <see cref="MaxLines"/> message
@@ -123,6 +123,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     private bool _headerWritten;
     private bool _summaryWritten;
     private readonly CaptureIdentityProbe? _identityProbe;
+    private readonly CaptureDutyPhaseProbe? _dutyPhaseProbe;
     private volatile string? _identityResult;
     private volatile IReadOnlyList<(string Marker, bool Named)>? _identitySteps;
 
@@ -138,21 +139,24 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     /// The opt-in identity probe (<c>--identity-probe</c>), or null. Without one the file is exactly
     /// what it was before the probe existed.
     /// </param>
+    /// <param name="dutyPhaseProbe">Whether to add marker-free NPC observations to written message rows.</param>
     public CaptureTraceSink(
         TextWriter writer,
         IClock? clock = null,
         Func<TimeSpan>? elapsed = null,
         int maxLines = DefaultMaxLines,
-        CaptureIdentityProbe? identityProbe = null)
+        CaptureIdentityProbe? identityProbe = null,
+        bool dutyPhaseProbe = false)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         _writer = writer;
         _identityProbe = identityProbe;
+        _dutyPhaseProbe = dutyPhaseProbe ? new CaptureDutyPhaseProbe() : null;
         _identityResult = identityProbe?.Result;
         _identitySteps = identityProbe?.Steps;
         _clock = clock ?? SystemClock.Instance;
-        MaxLines = Math.Clamp(maxLines, MinMaxLines, MaxMaxLines);
+        MaxLines = Math.Clamp(maxLines, MinMaxLines, MaximumLines);
 
         if (elapsed is not null)
         {
@@ -167,6 +171,8 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
 
     /// <summary>Cap on message lines actually in force.</summary>
     public int MaxLines { get; }
+
+    internal int MaximumLines => _dutyPhaseProbe is null ? MaxMaxLines : CaptureDutyPhaseProbe.MaxMessageRows;
 
     /// <summary>Messages observed, including those the line cap stopped us from writing.</summary>
     public long MessageCount => Interlocked.Read(ref _seq);
@@ -239,6 +245,10 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
             {
                 line["identity_probe"] = true;
             }
+            if (_dutyPhaseProbe is not null)
+            {
+                line["duty_phase_probe"] = CaptureDutyPhaseProbe.FormatVersion;
+            }
 
             WriteLine(line);
         }
@@ -282,7 +292,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 return;
             }
 
-            WriteLine(new JsonObject
+            var line = new JsonObject
             {
                 ["seq"] = seq,
                 // The queue may be briefly backlogged. Use the timestamp captured with the
@@ -300,7 +310,12 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 ["op"] = FormatOpcode(message.Opcode),
                 ["len"] = length,
                 ["h12"] = digest,
-            });
+            };
+            if (_dutyPhaseProbe?.Observe(message) is { } phase)
+            {
+                line["duty_phase"] = phase;
+            }
+            WriteLine(line);
             _written++;
         }
     }
@@ -320,7 +335,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     /// <returns>实际写入一行时为 true；达到上限或已总结时为 false。</returns>
     public bool WriteMarker(string? text, DateTimeOffset receivedAtUtc, TimeSpan receivedElapsed)
     {
-        var sanitized = CaptureTraceMarkerText.Sanitize(text);
+        var sanitized = CaptureTraceMarkerText.SanitizeTrace(text);
         if (sanitized is null)
         {
             return false;
@@ -392,6 +407,10 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
             if (_identityProbe is not null)
             {
                 summary["identity"] = _identityProbe.Summary();
+            }
+            if (_dutyPhaseProbe is not null)
+            {
+                summary["duty_phase_probe"] = _dutyPhaseProbe.Summary();
             }
 
             _summaryWritten = true;
@@ -563,8 +582,8 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
 }
 
 /// <summary>
-/// Reduces user input to one of the canonical markers: the five events of a run, and the five
-/// steps of the guided identity round. Rejecting every other string makes it impossible for a
+/// Reduces user input to a fixed run, identity or trace-only combat stage marker.
+/// Rejecting every other string makes it impossible for a
 /// pasted address, path, packet fragment or character name to enter the trace through the marker
 /// prompt.
 /// </summary>
@@ -591,7 +610,7 @@ public static class CaptureTraceMarkerText
     public static bool IsIdentity(string marker) => Identity.Contains(marker, StringComparer.Ordinal);
 
     /// <summary>
-    /// The complete set of markers this build accepts, in prompt order.
+    /// The markers accepted through the validation IPC, in prompt order.
     ///
     /// The single source of the allowlist: the validation controller, the contract schema and
     /// the Desktop all derive it from here, so a new marker cannot end up silently unreachable,
@@ -600,11 +619,26 @@ public static class CaptureTraceMarkerText
     /// </summary>
     public static readonly IReadOnlyList<string> Allowed = Events.Concat(Identity).ToArray();
 
+    // These markers are for the explicit CLI pilot. The validation IPC still checks Allowed.
+    private static readonly string[] TraceAllowed =
+    [
+        .. Allowed,
+        "trash1", "boss1", "boss1_clear",
+        "trash2", "boss2", "boss2_clear",
+        "trash3", "boss3", "boss3_clear",
+    ];
+
     /// <summary>
-    /// Returns the canonical lowercase marker, or null when the input is not on the allowlist.
+    /// Returns the canonical validation marker, or null when the input is not on the IPC allowlist.
     /// </summary>
     /// <param name="text">Raw text as typed.</param>
-    public static string? Sanitize(string? text)
+    public static string? Sanitize(string? text) => Sanitize(text, Allowed);
+
+    /// <summary>Returns a marker the trace can write, including the CLI-only pilot stages.</summary>
+    /// <param name="text">Raw text as typed.</param>
+    internal static string? SanitizeTrace(string? text) => Sanitize(text, TraceAllowed);
+
+    private static string? Sanitize(string? text, IReadOnlyList<string> allowedMarkers)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -612,7 +646,7 @@ public static class CaptureTraceMarkerText
         }
 
         var canonical = text.Trim().ToLowerInvariant();
-        foreach (var allowed in Allowed)
+        foreach (var allowed in allowedMarkers)
         {
             if (string.Equals(canonical, allowed, StringComparison.Ordinal))
             {

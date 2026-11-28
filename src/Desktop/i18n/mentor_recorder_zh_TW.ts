@@ -1779,8 +1779,8 @@
         <translation>這台電腦已完成校準，可以正常自動記錄。如果沒有自動辨識到通關，請在離開副本後開啟記錄補上結果。</translation>
     </message>
     <message>
-        <source>其他玩家分享的校准已通过检查，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。</source>
-        <translation>其他玩家分享的校準已通過檢查，可以正常自動記錄。如果沒有自動辨識到通關，請在離開副本後開啟記錄補上結果。</translation>
+        <source>其他玩家分享的校准已通过检查，适用于当前游戏版本。自动记录状态见上方。</source>
+        <translation>其他玩家分享的校準已通過檢查，適用於目前的遊戲版本。自動記錄狀態請見上方。</translation>
     </message>
     <message>
         <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。</source>
@@ -1901,8 +1901,8 @@
         <translation>資料讀取</translation>
     </message>
     <message>
-        <source>无法识别的数据会跳过，不会据此新增或修改记录</source>
-        <translation>無法辨識的資料會略過，不會據此新增或修改記錄</translation>
+        <source>只统计进入解析判定的报文。自动记录状态见上方。</source>
+        <translation>只統計進入解析判定的訊息。自動記錄狀態請見上方。</translation>
     </message>
     <message>
         <source>采集器未报告数据读取计数（未连接，或对端是更早的版本）。此处不显示任何数字。</source>
@@ -1913,8 +1913,8 @@
         <translation>暫時沒有讀取統計。背景服務可能尚未連線，或需要更新軟體。</translation>
     </message>
     <message>
-        <source>成功率</source>
-        <translation>成功率</translation>
+        <source>解析成功率</source>
+        <translation>解析成功率</translation>
     </message>
     <message>
         <source>读取速度</source>
@@ -6271,8 +6271,12 @@ SHA256：%3</translation>
         <translation>全程</translation>
     </message>
     <message>
-        <source>道中</source>
-        <translation>道中</translation>
+        <source>小怪 %1</source>
+        <translation>小怪 %1</translation>
+    </message>
+    <message>
+        <source>小怪</source>
+        <translation>小怪</translation>
     </message>
     <message>
         <source>尾王</source>
@@ -6986,8 +6990,8 @@ SHA256：%3</translation>
         <translation>沒有找到這個副本</translation>
     </message>
     <message>
-        <source>例如：BOSS 2、尾王、转场</source>
-        <translation>例如：BOSS 2、尾王、轉場</translation>
+        <source>小怪 2（BOSS 2 前）</source>
+        <translation>小怪 2（BOSS 2 前）</translation>
     </message>
     <message>
         <source>BOSS / 阶段最多 80 个字</source>
@@ -11395,30 +11399,6 @@ SHA256：%3</translation>
         <translation>下移</translation>
     </message>
     <message>
-        <source>副本排行</source>
-        <translation>副本排行</translation>
-    </message>
-    <message>
-        <source>关</source>
-        <translation>關</translation>
-    </message>
-    <message>
-        <source>前 3</source>
-        <translation>前 3</translation>
-    </message>
-    <message>
-        <source>前 5</source>
-        <translation>前 5</translation>
-    </message>
-    <message>
-        <source>前 10</source>
-        <translation>前 10</translation>
-    </message>
-    <message>
-        <source>全部</source>
-        <translation>全部</translation>
-    </message>
-    <message>
         <source>背景不透明度</source>
         <translation>背景不透明度</translation>
     </message>
@@ -11541,6 +11521,81 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>OverlayDutyNotesModule</name>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>独爪妖禽</source>
+        <translation>獨爪妖禽</translation>
+    </message>
+    <message>
+        <source>魔导炮艇</source>
+        <translation>魔導砲艇</translation>
+    </message>
+    <message>
+        <source>尘世幻龙</source>
+        <translation>塵世幻龍</translation>
+    </message>
+    <message>
+        <source>得到宽恕的失调</source>
+        <translation>得到寬恕的失調</translation>
+    </message>
+    <message>
+        <source>得到宽恕的泰丝琳</source>
+        <translation>得到寬恕的泰絲琳</translation>
+    </message>
+    <message>
+        <source>斐利亚</source>
+        <translation>斐利亞</translation>
+    </message>
+    <message>
+        <source>当前阶段待识别</source>
+        <translation>目前階段待辨識</translation>
+    </message>
+    <message>
+        <source>当前阶段暂无提醒或宏。</source>
+        <translation>目前階段暫無提醒或巨集。</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>提醒與巨集</translation>
+    </message>
+    <message>
+        <source>上一段</source>
+        <translation>上一階段</translation>
+    </message>
+    <message>
+        <source>下一段</source>
+        <translation>下一階段</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>已複製</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>複製</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>收合</translation>
+    </message>
+    <message>
+        <source>展开全文</source>
+        <translation>展開全文</translation>
+    </message>
+    <message>
+        <source>当前副本暂无提醒或宏。</source>
+        <translation>目前副本沒有提醒或巨集。</translation>
+    </message>
+    <message>
+        <source>打开提醒与宏</source>
+        <translation>開啟提醒與巨集</translation>
+    </message>
+</context>
+<context>
     <name>OverlayDutyStatsModule</name>
     <message>
         <source>通关 %1 · 尝试 %2 · 通关率 %3</source>
@@ -11557,22 +11612,6 @@ SHA256：%3</translation>
     <message>
         <source>读取中…</source>
         <translation>讀取中…</translation>
-    </message>
-    <message>
-        <source>出现次数 · 全部</source>
-        <translation>出現次數 · 全部</translation>
-    </message>
-    <message>
-        <source>出现次数 · 前 %1</source>
-        <translation>出現次數 · 前 %1</translation>
-    </message>
-    <message>
-        <source>未识别</source>
-        <translation>未辨識</translation>
-    </message>
-    <message>
-        <source>%1 · %2 次 · %3</source>
-        <translation>%1 · %2 次 · %3</translation>
     </message>
     <message>
         <source>暂无统计</source>
@@ -17266,6 +17305,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::StatisticsOverlayController</name>
+    <message>
+        <source>提醒与宏</source>
+        <translation>提醒與巨集</translation>
+    </message>
     <message>
         <source>累计进度</source>
         <translation>累計進度</translation>

@@ -22,6 +22,7 @@ namespace MentorRecorder.Collector.Capture;
 /// <param name="IdentityProbe">
 /// Also write the keyed identity lines of <see cref="CaptureIdentityProbe"/> (<c>--identity-probe</c>).
 /// </param>
+/// <param name="DutyPhaseProbe">Record NPC combat clues without reading standard input.</param>
 public sealed record CaptureTraceOptions(
     string OutputPath,
     int DurationSeconds = 0,
@@ -29,7 +30,8 @@ public sealed record CaptureTraceOptions(
     int MaxLines = CaptureTraceSink.DefaultMaxLines,
     bool AllowMidstream = false,
     Domain.Region? Region = null,
-    bool IdentityProbe = false);
+    bool IdentityProbe = false,
+    bool DutyPhaseProbe = false);
 
 /// <summary>Everything <see cref="CaptureTraceRunner"/> depends on, so all of it can be substituted.</summary>
 public sealed record CaptureTraceServices
@@ -214,9 +216,18 @@ public static class CaptureTraceRunner
         Environment.NewLine,
         "抓包取证已开始。请在游戏里发生下面这些事的**当下**，在本窗口输入一个词并回车：",
         "  queued=开始排队  pop=弹出确认框  entered=进入副本  victory=通关结算  left=离开副本",
+        "  阶段取证可输入 trash1 / boss1 / boss1_clear，分别标记小怪阶段、BOSS 开战与击败，编号支持 1 至 3。",
         "只接受固定的标记词（大小写不敏感）；其他输入会被忽略，避免写入自由文本。",
         "文件里不含任何报文内容、地址、角色名——只有 opcode、方向、长度与负载摘要前 12 位。",
         "按 Ctrl+C 结束取证。");
+
+    /// <summary>Ready line for a marker-free duty phase trace.</summary>
+    public const string DutyPhaseProbeNotice =
+        "抓包取证已开始。已开启副本阶段探针，后台自动记录 NPC 别名及交战、击败线索。打本期间无需输入，离本后按 Ctrl+C 结束取证。";
+
+    /// <summary>Refusal for a region or build whose combat layouts are outside this probe.</summary>
+    public const string DutyPhaseProbeRefusal =
+        "副本阶段探针目前只支持国服客户端 " + CaptureDutyPhaseProbe.ClientBuild + "，取证未开始。";
 
     /// <summary>Printed under the marker prompt when the identity probe is on.</summary>
     public static readonly string IdentityProbeNotice = string.Join(
@@ -264,6 +275,11 @@ public static class CaptureTraceRunner
         if (!game.Running || game.ProcessId is not int processId)
         {
             return Refuse(svc, output, GameRefusal);
+        }
+
+        if (options.DutyPhaseProbe && !CaptureDutyPhaseProbe.Supports(game.Region, game.GameBuild))
+        {
+            return Refuse(svc, output, DutyPhaseProbeRefusal);
         }
 
         var adapters = svc.Adapters.List(processId, options.AdapterId);
@@ -418,7 +434,7 @@ public static class CaptureTraceRunner
         try
         {
             sink = new CaptureTraceSink(
-                file, services.Clock, () => stopwatch.Elapsed, options.MaxLines, identityProbe);
+                file, services.Clock, () => stopwatch.Elapsed, options.MaxLines, identityProbe, options.DutyPhaseProbe);
             sink.WriteHeader(new CaptureTraceHeader(
                 UtcTimestamp.Truncate(services.Clock.UtcNow),
                 npcap.Version,
@@ -543,7 +559,7 @@ public static class CaptureTraceRunner
             // Do not tell the user capture has started, or accept markers, until the source
             // has actually started. In particular, an Oodle/Npcap startup refusal must not
             // leave buffered marker input looking as though it belonged to a live trace.
-            output.WriteLine(MarkerPrompt);
+            output.WriteLine(options.DutyPhaseProbe ? DutyPhaseProbeNotice : MarkerPrompt);
             if (options.IdentityProbe)
             {
                 output.WriteLine(IdentityProbeNotice);
@@ -552,12 +568,15 @@ public static class CaptureTraceRunner
             output.WriteLine();
             output.Flush();
 
-            markers = new CaptureTraceMarkerPump(
-                services.Markers ?? Console.In,
-                sink,
-                error => services.Logger.WriteError("capture", "trace_marker_input_failed", error),
-                StopForWriterFailure);
-            markers.Start();
+            if (!options.DutyPhaseProbe)
+            {
+                markers = new CaptureTraceMarkerPump(
+                    services.Markers ?? Console.In,
+                    sink,
+                    error => services.Logger.WriteError("capture", "trace_marker_input_failed", error),
+                    StopForWriterFailure);
+                markers.Start();
+            }
             Wait(options, services, status, sink, queue, stopping, game);
         }
         catch (Contracts.Errors.CollectorException ex)
@@ -688,10 +707,10 @@ public static class CaptureTraceRunner
         if (sink.Truncated)
         {
             // Raising the cap is advice only while there is room under what --trace-report reads.
-            var advice = sink.MaxLines < CaptureTraceSink.MaxMaxLines
+            var advice = sink.MaxLines < sink.MaximumLines
                 ? string.Create(
                     CultureInfo.InvariantCulture,
-                    $"需要更长的取证可将 --max-lines 提高到最多 {CaptureTraceSink.MaxMaxLines}，或分多次记录。")
+                    $"需要更长的取证可将 --max-lines 提高到最多 {sink.MaximumLines}，或分多次记录。")
                 : "需要更长的取证请分多次记录。";
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,

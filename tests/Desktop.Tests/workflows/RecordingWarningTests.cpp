@@ -349,6 +349,36 @@ private slots:
         QVERIFY(recording.recoveryPending());
     }
 
+    void freshGameDataWithdrawsTheOldMidstreamIncidentWhileSettingsArePending()
+    {
+        WarningBackend backend;
+        backend.startRecovery();
+        backend.capture["path_recovery"] = QJsonObject{{"state", "FAILED"}};
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        QVERIFY(recording.blocked());
+
+        backend.holdSettings = true;
+        recording.refresh();
+        QVERIFY(backend.heldSettings);
+        backend.recover();
+        backend.capture["ipc_decoded"] = 0;
+        recording.observeCapture(backend.capture.toVariantMap());
+        QVERIFY(recording.blocked());
+
+        backend.capture["ipc_decoded"] = 1;
+        recording.observeCapture(backend.capture.toVariantMap());
+        QVERIFY(!recording.blocked());
+        QCOMPARE(recording.state(), QStringLiteral("checking"));
+        QCOMPARE(recording.warningMessage(), recording.message());
+        QVERIFY(!recording.recoveryPending());
+
+        backend.holdSettings = false;
+        backend.heldSettings->succeed({{"follow_game", true}});
+        QCOMPARE(recording.state(), QStringLiteral("listening"));
+        QVERIFY(recording.recoveryPending());
+    }
+
     void anotherGameHasItsOwnEpisode()
     {
         WarningBackend backend;

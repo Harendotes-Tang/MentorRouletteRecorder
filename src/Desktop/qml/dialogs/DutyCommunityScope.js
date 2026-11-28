@@ -8,24 +8,30 @@
 // the text means: BOSS 2 = 2 号 BOSS = 老二 = Boss 2 = 2ボス. `code` names the meaning (with
 // `n` for a numbered one); a spelling that is not recognised keeps its own group (`code`
 // "raw", shown as written) and an empty one is "none". `order` puts the groups in the order of
-// a run: 开场, 全程, 道中, the bosses, 尾王, the phases, 转场, unrecognised ones, 结束, 未标.
-var phaseCache = ({})
+// a run: 开场, 全程, unnumbered 道中, then each numbered 道中 immediately before its BOSS,
+// followed by 尾王, the phases, 转场, unrecognised ones, 结束 and 未标.
+var phaseCache = Object.create(null)
+function bossOrder(number) { return 29 + 2 * number }
+
 function phase(raw) {
     var text = String(raw === undefined || raw === null ? "" : raw).trim()
     var known = phaseCache[text]
     if (known) return known
     var t = text.toLowerCase().replace(/[\s·・\-_]+/g, "")
     var digits = ({ "一": 1, "二": 2, "三": 3, "四": 4, "五": 5 })
-    var m, out
+    var m, out, number
     if (!t) out = { key: "none", order: 900, code: "none", n: 0, raw: "" }
     else if (/^(开场|開場|开幕|開幕|进本|進本|開始|opening|pull|start)$/.test(t)) out = { key: "open", order: 10, code: "open", n: 0, raw: text }
     else if (/^(全程|全体|全體|全般|wholefight)$/.test(t)) out = { key: "all", order: 15, code: "all", n: 0, raw: text }
-    else if (/^(道中|道中小怪|小怪|雑魚|道中雑魚|trash)$/.test(t)) out = { key: "trash", order: 20, code: "trash", n: 0, raw: text }
-    else if (/^(尾王|最终boss|最終boss|ラスボス|finalboss|lastboss)$/.test(t)) out = { key: "last", order: 60, code: "last", n: 0, raw: text }
+    else if ((m = /^(?:道中(?:小怪|雑魚)?|小怪|雑魚|trash)([1-9一二三四五])?$/.exec(t))) {
+        number = digits[m[1]] || Number(m[1] || 0)
+        out = { key: number ? "trash" + number : "trash", order: number ? bossOrder(number) - 1 : 20,
+                code: "trash", n: number, raw: text }
+    } else if (/^(尾王|最终boss|最終boss|ラスボス|finalboss|lastboss)$/.test(t)) out = { key: "last", order: 60, code: "last", n: 0, raw: text }
     else if ((m = /^(?:boss|ボス)([1-9])$/.exec(t)) || (m = /^([1-9])(?:号boss|號boss|boss|ボス|王)$/.exec(t))
              || (m = /^老([一二三四五])$/.exec(t))) {
-        var number = digits[m[1]] || Number(m[1])
-        out = { key: "b" + number, order: 30 + number, code: "boss", n: number, raw: text }
+        number = digits[m[1]] || Number(m[1])
+        out = { key: "b" + number, order: bossOrder(number), code: "boss", n: number, raw: text }
     } else if ((m = /^(?:p|阶段|階段|phase|フェーズ)([1-9])$/.exec(t)))
         out = { key: "p" + m[1], order: 70 + Number(m[1]), code: "phase", n: Number(m[1]), raw: text }
     else if (/^(转场|轉場|フェーズ移行|transition)$/.test(t)) out = { key: "trans", order: 80, code: "trans", n: 0, raw: text }
@@ -33,6 +39,31 @@ function phase(raw) {
     else out = { key: "x:" + t, order: 85, code: "raw", n: 0, raw: text }
     phaseCache[text] = out
     return out
+}
+
+function fitsCurrent(item, duty) {
+    return !!duty && !!duty.content_id && (item.content_id === duty.content_id || item.content_id === 0)
+        && (item.region === "ALL" || item.region === duty.region)
+}
+
+// Similar entries opened in the dialog stay in the group of their visible head.
+function grouped(entries, describe) {
+    const map = ({}), list = []
+    let last = null
+    for (const entry of entries) {
+        let group = entry.member ? last : null
+        if (!group) {
+            const made = describe(entry.row.content)
+            group = map[made.key]
+            if (!group) {
+                group = map[made.key] = Object.assign({ items: [], cap: 0, go: "", stage: true }, made)
+                list.push(group)
+            }
+        }
+        group.items.push(entry)
+        last = group
+    }
+    return list.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 }
 
 function escaped(text) {
